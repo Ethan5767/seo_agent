@@ -99,9 +99,9 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 | `proof-assert.sh` | Blocking meta-gate: the deploy proof exists and is non-empty ("no proof = it didn't happen"). |
 | `indexnow_submit.py` | The one IndexNow submitter (gated on a healthy deploy, never at build time). |
 
-## `pipeline/audit` — ops + client state (10)
+## `pipeline/audit` — ops + client state (7)
 
-`client_profile.py` (who/shape/states/build — the pipeline's front door) · `cycle_status.py` (the claim/mark CLI) · `preflight.py` (config completeness, exits 11–14) · `audit_live.py` / `poll_live.py` (live-site audits) · `gbp_baseline.py` (GBP snapshot) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `setup_gtm_foundation.py` (GA4/GTM provisioning) · `update_sitemap_dates.py` (lastmod hygiene).
+`client_profile.py` (who/shape/states/build — the pipeline's front door) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `update_sitemap_dates.py` (lastmod hygiene).
 
 ## `.github/workflows` — the runtime (8)
 

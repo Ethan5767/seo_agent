@@ -1,14 +1,14 @@
-// Config — read-only for now.
+// Config — read-only.
 //
-// The form this screen will become edits the tier block (tier, text_paths,
-// content.*), and that block does not exist in any config until phase 2. Writing
-// it back also has to survive a 16KB commented starter file, which PyYAML
-// round-tripping does not. Both are phase-2 problems; showing the real config
-// now is what is honestly buildable.
+// The tier block (tier, text_paths, content.*, deny) exists as of phase 2, but
+// writing it back has to survive a 16KB commented starter file, which PyYAML
+// round-tripping does not — so the block is written by
+// `wf-bootstrap-config --add-tier`, which appends and leaves every comment alone.
+// This screen shows what is declared and flags what is not.
 const slug = requireClient();
 const bodyEl = document.getElementById('body');
 document.getElementById('cycle').classList.add('hidden');
-document.getElementById('phase').textContent = 'editing ships with the tier block · phase 2';
+document.getElementById('phase').textContent = 'read-only · edit with wf-bootstrap-config --add-tier';
 
 const TIER_KEYS = ['tier', 'text_paths', 'content', 'deny'];
 
@@ -34,8 +34,9 @@ function banner() {
   return `<div class="border border-tertiary/40 bg-tertiary-container/10 rounded p-md mb-md">
     <div class="font-label-caps text-label-caps text-tertiary mb-xs">NO TIER DECLARED</div>
     <div class="font-body-md text-body-md text-on-surface">
-      This client has no <code class="font-mono-base text-mono-base text-primary">tier</code> key. Until phase 2 extends
-      bootstrap_config with the tier block, no client has one, and the agent has no declared authority over this repo.</div>
+      This client has no <code class="font-mono-base text-mono-base text-primary">tier</code> key, so the agent has no
+      declared authority over this repo. Add it with
+      <code class="font-mono-base text-mono-base text-primary">wf-bootstrap-config &lt;dir&gt; &lt;domain&gt; --add-tier</code>.</div>
     <div class="font-body-sm text-body-sm text-on-surface-variant/70 mt-xs">
       Note that no <code class="font-mono-base">content.location</code> means T2 is unavailable: no declared content home,
       no content writing.</div></div>`;

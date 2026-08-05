@@ -45,7 +45,7 @@ function renderHeader() {
         <div class="font-headline-sm text-headline-sm text-primary">${esc(c.slug)}</div>
         <div class="font-body-sm text-body-sm text-on-surface-variant">${esc(c.domain || c.path)}</div>
       </div>
-      ${cell('TIER', c.tier ? `T${c.tier}` : 'not set (phase 2)')}
+      ${cell('TIER', c.tier ? `T${c.tier}` : 'NOT DECLARED')}
       ${cell('TOPOLOGY', c.config.topology_class)}
       ${cell('PLATFORM', c.config.deploy_platform)}
       <div><div class="font-label-caps text-label-caps text-on-surface-variant mb-xs">GIT</div>${gitChip(c.git.state)}</div>
@@ -77,8 +77,8 @@ async function renderCycle(ym) {
 }
 
 function renderConfig() {
-  // Read-only: the tier block this screen would edit does not exist until
-  // phase 2, and PyYAML round-tripping would eat the starter's comments.
+  // Read-only: PyYAML round-tripping would eat the starter file's comments, so
+  // the tier block is written by `wf-bootstrap-config --add-tier`, not from here.
   const rows = Object.entries(client.config)
     .filter(([, v]) => typeof v !== 'object' || v === null)
     .map(([k, v]) => `<tr class="border-b border-outline-variant/40">
@@ -86,7 +86,7 @@ function renderConfig() {
       <td class="py-xs font-mono-base text-mono-base text-on-surface">${esc(v)}</td></tr>`).join('');
   document.getElementById('config').innerHTML = `<table class="w-full">${rows}</table>
     <div class="mt-md font-body-sm text-body-sm text-on-surface-variant/70 border-t border-outline-variant pt-sm">
-      Read-only. Editing lands with the tier block in phase 2 — see the Config screen.</div>`;
+      Read-only. Declare the tier with <code class="font-mono-base">wf-bootstrap-config &lt;dir&gt; &lt;domain&gt; --add-tier</code>.</div>`;
 }
 
 load();

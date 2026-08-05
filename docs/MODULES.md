@@ -32,7 +32,7 @@ cycle state, live audits, monthly loops
 
 | Module | What it does |
 |---|---|
-| `common.py` | Config loader, self-describing client profile (topology, states, shape), `framework_family` + `resolve_build_dir` (Next→`out`, Vite→`dist`, stale-path tolerant), curl helpers, topology URL patterns. Everything else imports this. |
+| `common.py` | Config loader, self-describing client profile (topology, states, shape), `framework_family` + `resolve_build_dir` (Next→`out`, Vite→`dist`, stale-path tolerant), curl helpers, topology URL patterns, and the **tiering block** (v3 §2): `tier`/`text_paths`/`content.*` parsed into the profile, `DEFAULT_DENY` unioned in so a config cannot shrink the floor, `detect_static_export` for the §6 precondition. Everything else imports this. |
 | `baseline.py` | The ratchet. Fingerprints legacy findings (stable across HTML reflow — never line numbers) so gates run **green-on-legacy, red-on-new**. Shrink-only; re-record refuses; growth needs `--accept-new`; five safety gates are hard-coded never-baselineable. |
 | `cycle_state.py` | Shared cycle ledger committed in the **client** repo (`docs/cycle-logs/<YYYY-MM>/cycle-state.json`). Two operators claim/mark steps so neither redoes finished work. |
 | `client_docs.py` | The client-repo docs contract (work log, cycle-logs, intake-archive) that `client_docs_check` enforces and `scaffold_client_docs` creates. |

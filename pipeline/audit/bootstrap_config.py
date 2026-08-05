@@ -14,7 +14,7 @@ Usage: python3 bootstrap-config.py [PROJECT_DIR] [DOMAIN]
 """
 import sys, re, json
 from pathlib import Path
-from pipeline.lib.common import curl
+from pipeline.lib.common import curl, yaml
 
 
 def detect_deploy_platform(project_dir: Path) -> str:
@@ -134,12 +134,71 @@ def extract_from_live(domain: str) -> dict:
     return out
 
 
+def detect_text_paths(project_dir: Path) -> list:
+    """Globs for existing files the agent may reword at T1. Only directories that
+    are actually on disk: a glob matching nothing is an allow-list permitting
+    nothing, which reads as a working T1 and fixes zero findings."""
+    candidates = [
+        ("src/data", "src/data/**/*.ts"),
+        ("src/content", "src/content/**/*.mdx"),
+        ("content", "content/**/*.md"),
+        ("app", "app/**/*.mdx"),
+    ]
+    return [glob for d, glob in candidates if (project_dir / d).is_dir()]
+
+
+def tier_block(project_dir: Path) -> str:
+    """The v3 §2 tiering block. Starts at T1 — the tier that can only reword what
+    already exists — because onboarding raises a tier deliberately, never by default."""
+    found = detect_text_paths(project_dir)
+    paths = "\n".join(f"  - {p}" for p in found) if found else \
+        "  # - src/data/**/*.ts        TODO: the files the agent may reword"
+    return f"""
+# ── Tiering (v3 §2) — the agent's authority over THIS repo ────────────────────
+# T1 copy   : modify text_paths only. No creates, no deletes.
+# T2 content: T1 + create under content.location, wire into content.registry.
+# T3 full   : anything not denied.
+# Enforced by tier_check against the PR diff — not by the prompt, not by trust.
+tier: 1
+text_paths:                       # EXISTING files the agent may rewrite
+{paths}
+# content:                        # T2+ ONLY. No content.location -> T2 is unavailable.
+#   location: src/content/blog/
+#   registry: [src/data/posts.ts] # the nav/data file a new page must be wired into,
+#                                 # or orphan_check refuses the PR anyway
+#   format: mdx
+deny:                             # applies at EVERY tier, T3 included
+  - .github/**                    # the agent must never edit the gates that judge it
+  - docs/client-config.yml        # must never raise its own tier
+  - package*.json                 # no dependency changes
+  - wrangler.toml                 # deploy config is the rollback path
+  - .env*
+"""
+
+
+def add_tier(target: Path) -> int:
+    """Append the tier block to an EXISTING config. Appending rather than
+    round-tripping through PyYAML is the whole point: a 16KB starter file is mostly
+    comments, and yaml.safe_load/dump would eat every one of them."""
+    text = target.read_text()
+    if re.search(r"^tier:", text, re.M):
+        print(f"[OK] {target} already declares a tier."); return 0
+    target.write_text(text.rstrip("\n") + "\n" + tier_block(target.parent.parent))
+    print(f"[OK] Appended the tier block to {target} (tier: 1)")
+    print("[NEXT] Confirm text_paths matches this repo, then `wf-client-profile <dir>`.")
+    return 0
+
+
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: bootstrap-config.py [PROJECT_DIR] [DOMAIN]", file=sys.stderr); sys.exit(1)
-    project_dir, domain = Path(sys.argv[1]).resolve(), sys.argv[2]
+    argv = [a for a in sys.argv[1:] if a != "--add-tier"]
+    add_tier_only = "--add-tier" in sys.argv
+    if len(argv) < 2:
+        print("Usage: bootstrap-config.py [PROJECT_DIR] [DOMAIN] [--add-tier]", file=sys.stderr); sys.exit(1)
+    project_dir, domain = Path(argv[0]).resolve(), argv[1]
     target = project_dir / "docs" / "client-config.yml"
     if target.exists():
+        if add_tier_only:
+            sys.exit(add_tier(target))
         print(f"[OK] Config already exists: {target}"); sys.exit(0)
     target.parent.mkdir(exist_ok=True)
 
@@ -164,7 +223,7 @@ client: {client_slug}
 domain: {domain}
 deploy_platform: {platform}
 topology: {topology}
-
+{tier_block(project_dir)}
 business:
   legal_name: "{live.get('business_name', 'TODO')}"
   trade: "TODO"                 # free-form, e.g. "demolition & excavation"
@@ -213,14 +272,7 @@ forbidden_phrases:
         config += "  # Hints from client docs/memory — convert each to a real regex:\n"
         for r in docs_intel["forbidden_rules"][:15]:
             config += f"  # - pattern: 'TODO'  # {r['reason']}  [from {r['source']}]\n"
-    config += f"""
-required_phrases: []
-
-schema_type: "LocalBusiness"    # override only if schema.org subtype actually matches
-
-# Populated at onboarding from: GBP Q&A, sales calls, competitor FAQs, DataForSEO.
-faq_seed_questions: []
-
+    config += """
 required_phrases: []
 
 schema_type: "LocalBusiness"    # override only if schema.org subtype actually matches
@@ -241,7 +293,10 @@ target_keywords:
         config += "\n# Services detected in client docs (review, dedupe, confirm with client):\n"
         for s in docs_intel["services_hints"][:15]:
             config += f"# - {s}\n"
-    config += """
+    # f-string: this block interpolates {framework} and escapes its literal braces.
+    # Without the prefix it emitted `framework: {framework}` and `per_service: {{}}`
+    # verbatim, and PyYAML refused the whole file (B-002).
+    config += f"""
 repo:
   framework: {framework}
   route_file: "TODO"
@@ -283,6 +338,15 @@ auto_decisions:
 
 form_endpoint: "TODO"
 """
+    # A config generator that emits unloadable YAML must refuse, not write: every
+    # gate downstream calls load_config, so the failure surfaces five commands later
+    # as "missing field" instead of here as "this file is broken" (B-002).
+    try:
+        yaml.safe_load(config)
+    except yaml.YAMLError as e:
+        print(f"[STOP] generated config is not valid YAML — refusing to write:\n{e}", file=sys.stderr)
+        sys.exit(3)
+
     target.write_text(config)
     hints_summary = f"{len(docs_intel['forbidden_rules'])} rule hints, {len(docs_intel['services_hints'])} service hints, {len(docs_intel['keyword_hints'])} keyword hints"
     print(f"[DOCS] Parsed client docs/memory — {hints_summary}")

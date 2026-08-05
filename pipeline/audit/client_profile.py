@@ -44,6 +44,10 @@ def main():
         print(f"  4. Build        : {prof.get('framework_family') or '?'}   (framework: {prof.get('framework_raw') or '—'}, ssr: {prof.get('ssr_model') or '—'})")
         print(f"     build dir    : {prof.get('resolved_build_dir') or prof.get('build_output_dir') or '—'}   (configured: {prof.get('build_output_dir') or '—'}, exists: {prof.get('build_dir_exists', '?')})")
         print(f"     build cmd    : {prof.get('build_command') or '—'}    cwd: {prof.get('build_cwd') or '.'}")
+        static = {True: "yes", False: "NO", None: "unconfirmed"}[prof.get("static_export")]
+        print(f"  5. Tier         : {('T%d' % prof['tier']) if prof.get('tier') else 'NOT DECLARED — agent has no authority'}   (static export: {static})")
+        print(f"     text_paths   : {', '.join(prof.get('text_paths') or []) or '—'}")
+        print(f"     content home : {prof.get('content_location') or '— (T2 unavailable)'}   registry: {', '.join(prof.get('content_registry') or []) or '—'}")
         print()
         if not issues:
             print("  ✓ config consistent — no warnings.")

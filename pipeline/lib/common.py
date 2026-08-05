@@ -211,6 +211,57 @@ def resolve_build_dir(profile: dict, project) -> str:
     return "./" + default
 
 
+# ── Tiering (v3 §2) ───────────────────────────────────────────────────────────
+# Tier is a path + operation allow-list declared per project, enforced by a gate on
+# the PR diff (phase 4). The deny-list applies at EVERY tier, T3 included, and is
+# unioned in here rather than read from the config alone: a client repo that forgets
+# it still gets the floor, and the floor is what stops the agent editing the gates
+# that judge it or raising its own tier.
+DEFAULT_DENY = [
+    ".github/**",             # the agent must never edit the gates that judge it
+    "docs/client-config.yml", # must never raise its own tier
+    "package*.json",          # no dependency changes
+    "wrangler.toml",          # deploy config is the rollback path
+    ".env*",
+]
+
+NEXT_CONFIG_NAMES = ("next.config.mjs", "next.config.js", "next.config.ts")
+
+
+def detect_static_export(project, family, framework_raw: str = ""):
+    """True / False / None (cannot tell) — does this repo build a full static HTML
+    route tree?
+
+    v3 §6: `orphan_check` and `parity_check` derive routes from
+    `<build_dir>/index.html`. An SSR/ISR site produces no such tree, so both gates
+    scan nothing and report green. That makes static export an ONBOARDING
+    PRECONDITION, not a footnote — verify it before promising the full gate suite."""
+    if family == "wordpress":
+        return False
+    if family == "vite":
+        # A plain Vite SPA emits ONE index.html at the dist root; only the SSG
+        # variant emits a route tree. Unknowable unless the framework string says so.
+        return True if "ssg" in (framework_raw or "").lower() else None
+    if family == "next":
+        for name in NEXT_CONFIG_NAMES:
+            p = Path(project) / name
+            if p.is_file():
+                try:
+                    text = p.read_text()
+                except OSError:
+                    return None
+                return bool(re.search(r"""output\s*:\s*['"]export['"]""", text))
+    return None
+
+
+def _as_str_list(value):
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, str) and v.strip()]
+    return []
+
+
 def resolve_repo_path(configured, project):
     """Resolve a configured repo-relative path (file OR dir) on disk, tolerating
     the same stale wrapper-prefix class `_build_dir_stale` documents (Northstar's
@@ -310,6 +361,11 @@ def client_profile(cfg: dict, project_dir=None) -> dict:
     build_command = repo.get("build_command") or None
     ssr_model = repo.get("ssr_model") or _default_ssr_model(family)
 
+    # ── tiering sub-profile (v3 §2) ────────────────────────────────────────────
+    tier_raw = cfg.get("tier")
+    tier = tier_raw if isinstance(tier_raw, int) and not isinstance(tier_raw, bool) else None
+    content = cfg.get("content") if isinstance(cfg.get("content"), dict) else {}
+
     profile = {
         "client_slug": slug,
         "client_name": name,
@@ -345,6 +401,18 @@ def client_profile(cfg: dict, project_dir=None) -> dict:
         "build_command": build_command,
         "build_cwd": build_cwd,
         "ssr_model": ssr_model,
+        # tiering: what the agent may touch in this repo. `tier` is None when the
+        # declaration is missing OR not an int — `tier_declared` keeps the raw
+        # value so validation can tell "absent" from "garbage".
+        "tier": tier,
+        "tier_declared": tier_raw,
+        "text_paths": _as_str_list(cfg.get("text_paths")),
+        "content_location": content.get("location"),
+        "content_registry": _as_str_list(content.get("registry")),
+        "content_format": content.get("format"),
+        # deny is a UNION, never a replacement — see DEFAULT_DENY.
+        "deny": DEFAULT_DENY + [d for d in _as_str_list(cfg.get("deny")) if d not in DEFAULT_DENY],
+        "static_export": None,      # needs the repo on disk; filled in below
         # forbidden-phrase ledger sources (T02): the sweep unions both, so a repo
         # carrying BOTH is worth a WARN in case one is a stale duplicate.
         "has_inconfig_forbidden": bool(cfg.get("forbidden_phrases")),
@@ -368,6 +436,7 @@ def client_profile(cfg: dict, project_dir=None) -> dict:
         profile["resolved_build_dir"] = resolved
         profile["build_dir_stale"] = _build_dir_stale(build_output, p)
         profile["build_dir_exists"] = (p / resolved).is_dir()
+        profile["static_export"] = detect_static_export(p, family, fw_raw)
     return profile
 
 
@@ -432,4 +501,43 @@ def validate_profile(profile: dict) -> list:
             f"resolved build dir '{profile.get('resolved_build_dir')}' is not present on disk — "
             f"expected only before a build; built-mode gates will scan nothing until "
             f"`{profile.get('build_command') or 'the build'}` has run."))
+
+    # ── tiering + the static-export precondition (v3 §2, §6) ───────────────────
+    # Missing tier is a WARN, not an ERROR: `wf-client-profile` exits 5 on ERROR and
+    # runs inside build-site/action.yml for every client, so making the pre-phase-2
+    # fleet's absent tier fatal would break five builds. Absent = no authority, which
+    # is the safe default. An INCOHERENT tier is fatal — it claims authority it
+    # cannot have.
+    tier, declared_tier = profile.get("tier"), profile.get("tier_declared")
+    if declared_tier is None:
+        issues.append(("WARN",
+            "no `tier:` declared — the agent has no authority over this repo. "
+            "Add the block with `wf-bootstrap-config <dir> <domain> --add-tier`."))
+    elif tier not in (1, 2, 3):
+        issues.append(("ERROR", f"tier {declared_tier!r} is not 1, 2 or 3."))
+    else:
+        if not profile.get("text_paths"):
+            issues.append(("ERROR",
+                f"tier {tier} declared but text_paths is empty — the allow-list permits "
+                "nothing, so every copy fix would be refused."))
+        if tier >= 2 and not profile.get("content_location"):
+            issues.append(("ERROR",
+                "tier 2+ requires content.location — no declared content home means T2 is "
+                "unavailable and the agent does structural SEO only (v3 §2)."))
+        if tier >= 2 and not profile.get("content_registry"):
+            issues.append(("WARN",
+                "content.registry is empty — a new page wired into no nav or data file is an "
+                "orphan, and orphan_check will refuse the PR."))
+        static = profile.get("static_export")
+        if static is False:
+            issues.append(("WARN",
+                f"NOT a static export (ssr_model={profile.get('ssr_model') or '?'}) — orphan_check "
+                "and parity_check derive routes from <build_dir>/index.html, so on this repo they "
+                "scan nothing and report GREEN. Onboarding precondition (v3 §6): verify the client "
+                "statically exports before promising the full gate suite."))
+        elif static is None and profile.get("framework_family"):
+            issues.append(("WARN",
+                "static export could not be confirmed from the repo (no `output: 'export'` in a "
+                "next.config, or a Vite build that may be an SPA). Confirm by hand — an SSR site "
+                "makes orphan_check and parity_check silently green (v3 §6)."))
     return issues

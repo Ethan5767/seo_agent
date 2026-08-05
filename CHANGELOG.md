@@ -8,6 +8,67 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Phase 2 — tiering: a repo now declares what the agent may touch**
+  (`SITE-AUDIT-PIPELINE.md` §2, §6, §7 phase 2). `wf-bootstrap-config` writes the
+  tier block into the config it generates, and `wf-bootstrap-config <dir> <domain>
+  --add-tier` **appends** it to a config that already exists — appending rather
+  than round-tripping through PyYAML, because a 16KB starter file is mostly
+  comments and `safe_load`/`dump` eats every one of them. `text_paths` is seeded
+  only from directories that are actually on disk: a glob matching nothing is an
+  allow-list that permits nothing, which reads as a working T1 that fixes zero
+  findings.
+
+  `client_profile()` parses the block (`tier`, `text_paths`, `content.*`, `deny`)
+  and `validate_profile()` judges it:
+
+  - **`deny` is a union with `DEFAULT_DENY`, never a replacement.** A client repo
+    that omits or empties the key still cannot let the agent edit `.github/**` or
+    raise its own tier. The floor is not a config option.
+  - **An absent tier WARNs; an incoherent one is fatal.** `wf-client-profile`
+    exits 5 on ERROR and runs inside `build-site/action.yml` for every client, so
+    making the pre-phase-2 fleet's missing tier an ERROR would break five builds.
+    Absent = no authority, which is the safe default. `tier: 2` with no
+    `content.location` is ERROR — v3 §2 says T2 is unavailable without a declared
+    content home, and the config must not be able to claim it anyway.
+  - **The static-export precondition is checked, not assumed** (v3 §6).
+    `detect_static_export()` reads `output: 'export'` out of a `next.config.*`,
+    treats a Vite build as static only when the framework string says `ssg` (a
+    plain SPA emits one `index.html`, not a route tree), and WARNs — with the
+    reason spelled out — when a repo is SSR or cannot be confirmed. This is the
+    condition under which `orphan_check` and `parity_check` scan nothing and
+    report **green**, which is the failure mode worth naming out loud.
+
+  `wf-client-profile` prints a tier section (tier, static export, `text_paths`,
+  content home). The dashboard's config screen drops its "phase 2" placeholder
+  copy; the tier block now exists, so an empty one is a real finding rather than
+  an unbuilt feature.
+
+  ```
+  $ .venv/bin/python -m pytest -q
+  ........................................................................ [ 33%]
+  ........................................................................ [ 67%]
+  ....................................................................     [100%]
+  212 passed in 1.91s
+
+  $ wf-bootstrap-config <fixture> acme.com --add-tier
+  [OK] Appended the tier block to <fixture>/docs/client-config.yml (tier: 1)
+  $ wf-client-profile <fixture>
+    5. Tier         : T1   (static export: yes)
+       text_paths   : src/data/**/*.ts
+       content home : — (T2 unavailable)   registry: —
+
+  $ sed -i '' 's/^tier: 1$/tier: 2/' <fixture>/docs/client-config.yml
+  $ wf-client-profile <fixture>; echo "exit=$?"
+    [ERROR] tier 2+ requires content.location — no declared content home means T2
+            is unavailable and the agent does structural SEO only (v3 §2).
+  exit=5
+  ```
+
+  Not built: `tier_check` itself. The declaration is what phase 2 ships; the gate
+  that enforces it against a PR diff is phase 4, deliberately ahead of any agent
+  authorship (v3 §7).
+
+
 - **`wf-dashboard`** (`pipeline/dashboard/`) — a local operator console on
   `127.0.0.1`: a web UI over the artifacts client repos already hold. Python
   standard library only, no new dependencies, no build step, **no database**.
@@ -80,6 +141,17 @@ see `CLAUDE.md` (the sync contract).
   ```
 
 ### Fixed
+
+- **B-002 — every config `wf-bootstrap-config` generated was unloadable YAML.**
+  The last of the three template blocks was missing its `f` prefix, so it wrote
+  `framework: {framework}` verbatim and `per_service: {{}}`, and PyYAML refused
+  the whole file with `found unhashable key`. The four `repo:` keys the build
+  action reads were placeholder text, not values. Fixed, duplicate
+  `required_phrases` / `schema_type` / `faq_seed_questions` keys dropped from the
+  same block, and `main()` now parses the config it just built and exits 3 rather
+  than writing one nothing can load — a generator that emits a broken file must
+  refuse, not defer the failure five commands downstream. Found while verifying
+  the phase 2 tier block end to end. See `docs/BUG-LEDGER.md` B-002.
 
 - **B-001** — `curl` and `curl_status` in `pipeline/lib/common.py` let
   `subprocess.TimeoutExpired` escape, so a hung host crashed the run with a

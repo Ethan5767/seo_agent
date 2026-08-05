@@ -377,12 +377,13 @@ parse changed text; watch gate-job duration on the larger repos.
 
 ## 7. Build sequence
 
-Each phase ships alone. Do not start one before the phase above is merged.
+Each phase ships alone. Do not start one before the phase above is merged. ✅ = shipped
+(1 and 2 on 2026-08-05; see `CHANGELOG.md`).
 
 | # | Phase | Ships |
 |---|---|---|
-| 1 | `audit_live` returns typed `Finding`s + `wf-site-health` | every existing check, ratchet-ready, zero spend |
-| 2 | Onboarding — extend `bootstrap_config` with the tier block; static-export precondition check | any repo declares its tier and content home |
+| 1 ✅ | `audit_live` returns typed `Finding`s + `wf-site-health` | every existing check, ratchet-ready, zero spend |
+| 2 ✅ | Onboarding — extend `bootstrap_config` with the tier block; static-export precondition check | any repo declares its tier and content home |
 | 3 | **`plan.py` on `lib/baseline.py`** | four lanes, REGRESSION detection, `report.md` |
 | 4 | **`claim_provenance_check` + `tier_check` + `acceptance_check`** | the safety floor |
 | 5 | `remediate.py` + `site-remediation` skill + Dockerfile, **T1 only** | agent does copy fixes |

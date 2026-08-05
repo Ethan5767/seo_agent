@@ -47,6 +47,7 @@ wf-gate-baseline = "pipeline.lib.baseline:main"
 wf-indexnow-submit = "pipeline.deploy.indexnow_submit:main"
 
 # ── audit / setup ────────────────────────────────────────────────────────────
+wf-site-health = "pipeline.audit.measure:main"
 wf-audit-live = "pipeline.audit.audit_live:main"
 wf-poll-live = "pipeline.audit.poll_live:main"
 wf-preflight = "pipeline.audit.preflight:main"

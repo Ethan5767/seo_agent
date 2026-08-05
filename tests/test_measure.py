@@ -325,3 +325,96 @@ def test_discover_urls_sitemap_without_loc_tags_raises_usage(monkeypatch):
     monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: "<html>404 not found</html>")
     with pytest.raises(m.UsageError):
         m.discover_urls(CFG, [])
+
+
+# ── the CLI ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def project(tmp_path):
+    """A client project holding just docs/client-config.yml."""
+    proj = tmp_path / "client"
+    (proj / "docs").mkdir(parents=True)
+    (proj / "docs" / "client-config.yml").write_text(yaml.safe_dump(CFG, sort_keys=False))
+    return proj
+
+
+def run(monkeypatch, project, argv, pages):
+    """Drive main() with sys.argv and a fake network. `pages` maps URL -> html,
+    or URL -> None to simulate an unreachable host."""
+    monkeypatch.setattr("sys.argv", ["wf-site-health", "--project", str(project)] + argv)
+    monkeypatch.setattr(m, "curl_status", lambda url: 0 if pages.get(url) is None else 200)
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: pages.get(url) or "")
+    return m.main()
+
+
+def artifact(project):
+    month = date.today().strftime("%Y-%m")
+    return json.loads((project / "docs" / "audit" / month / "findings.json").read_text())
+
+
+def test_clean_site_exits_0(monkeypatch, project):
+    code = run(monkeypatch, project, ["--url", "/roofing/"],
+               {"https://example.com/roofing/": build_page()})
+    assert code == 0
+    assert artifact(project)["findings"] == []
+
+
+def test_findings_exit_1_and_are_written(monkeypatch, project):
+    code = run(monkeypatch, project, ["--url", "/roofing/"],
+               {"https://example.com/roofing/": build_page(title="Short")})
+    assert code == 1
+    doc = artifact(project)
+    assert doc["schema"] == "site-health/1"
+    assert doc["domain"] == "example.com"
+    assert doc["urls_checked"] == 1
+    assert doc["urls_unreachable"] == 0
+    assert any(f["code"] == "health.title_length" for f in doc["findings"])
+    assert all(len(f["fingerprint"]) == 16 for f in doc["findings"])
+
+
+def test_every_url_unreachable_exits_19_and_writes_nothing(monkeypatch, project):
+    """The load-bearing exit. A run where nothing answered must be red, never a
+    green report with zero findings."""
+    code = run(monkeypatch, project, ["--url", "/roofing/", "--url", "/siding/"],
+               {"https://example.com/roofing/": None, "https://example.com/siding/": None})
+    assert code == 19
+    month = date.today().strftime("%Y-%m")
+    assert not (project / "docs" / "audit" / month / "findings.json").exists()
+
+
+def test_partial_outage_still_reports_with_the_count_visible(monkeypatch, project):
+    code = run(monkeypatch, project, ["--url", "/roofing/", "--url", "/dead/"],
+               {"https://example.com/roofing/": build_page(), "https://example.com/dead/": None})
+    assert code == 0
+    doc = artifact(project)
+    assert (doc["urls_checked"], doc["urls_unreachable"]) == (1, 1)
+
+
+def test_sitemap_without_loc_exits_2(monkeypatch, project):
+    monkeypatch.setattr("sys.argv", ["wf-site-health", "--project", str(project)])
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: "<html>nope</html>")
+    assert m.main() == 2
+
+
+def test_artifact_is_byte_identical_across_two_runs(monkeypatch, project):
+    """sort_findings + sorted JSON keys. A churning artifact would produce a diff
+    on every run and make the PR unreadable."""
+    pages = {"https://example.com/roofing/": build_page(title="Short", images=(
+        '<img src="/b.jpg">', '<img src="/a.jpg">'))}
+    run(monkeypatch, project, ["--url", "/roofing/"], pages)
+    month = date.today().strftime("%Y-%m")
+    path = project / "docs" / "audit" / month / "findings.json"
+    first = path.read_bytes()
+    run(monkeypatch, project, ["--url", "/roofing/"], pages)
+    assert path.read_bytes() == first
+
+
+def test_unset_config_keys_are_warned_about(monkeypatch, project, capsys):
+    """A skipped check must never be silent — that is the failure mode where a
+    green report means 'not measured' rather than 'fine'."""
+    bare = {"domain": "example.com", "schema_type": "RoofingContractor"}
+    (project / "docs" / "client-config.yml").write_text(yaml.safe_dump(bare))
+    run(monkeypatch, project, ["--url", "/roofing/"],
+        {"https://example.com/roofing/": build_page()})
+    err = capsys.readouterr().err
+    assert "nap.phone_tel" in err and "ga4_id" in err

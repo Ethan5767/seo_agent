@@ -10,13 +10,19 @@ network and no filesystem, so the whole suite runs offline.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
+from datetime import date
+from pathlib import Path
 from urllib.parse import urlsplit
 
-from pipeline.lib.baseline import Finding, assign_ordinals
-from pipeline.lib.common import curl, curl_status
+from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
+from pipeline.lib.common import curl, curl_status, load_config
 
 GATE = "site_health"
+SCHEMA = "site-health/1"
 
 TITLE_MIN, TITLE_MAX = 30, 60
 DESC_MIN, DESC_MAX = 120, 160
@@ -173,3 +179,84 @@ def discover_urls(cfg: dict, url_args: list, limit: int | None = None) -> list:
         urls = [_absolute(u, domain) for u in locs]
     urls = list(dict.fromkeys(urls))
     return urls[:limit] if limit else urls
+
+
+# ── the CLI ──────────────────────────────────────────────────────────────────
+
+# Checks that cannot run without a config value. Skipping one silently is the
+# failure mode where a green report means "not measured" rather than "fine", so
+# every skip is named on stderr.
+_CONFIG_GATED = (
+    ("nap.phone_tel", "health.tel_link_missing", lambda c: (c.get("nap") or {}).get("phone_tel")),
+    ("nap.phone", "health.phone_missing", lambda c: (c.get("nap") or {}).get("phone")),
+    ("ga4_id", "health.ga4_missing", lambda c: c.get("ga4_id")),
+    ("forbidden_phrases", "health.forbidden_phrase", lambda c: c.get("forbidden_phrases")),
+)
+
+
+def _warn_unmeasurable(cfg: dict) -> None:
+    for key, code, get in _CONFIG_GATED:
+        if not get(cfg):
+            print(f"[WARN] {code} not measured: {key} is unset in docs/client-config.yml",
+                  file=sys.stderr)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        prog="wf-site-health",
+        description="Measure a live site and write typed findings for the ratchet.")
+    ap.add_argument("--project", required=True, help="client repo root")
+    ap.add_argument("--url", action="append", default=[], metavar="PATH",
+                    help="measure exactly these URLs instead of the live sitemap")
+    ap.add_argument("--limit", type=int, help="stop after N URLs")
+    args = ap.parse_args()
+
+    cfg = load_config(args.project)
+    _warn_unmeasurable(cfg)
+
+    try:
+        urls = discover_urls(cfg, args.url, args.limit)
+    except Unreachable as e:
+        print(f"[REFUSED] {e}", file=sys.stderr)
+        return 19
+    except UsageError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 2
+
+    findings, checked, unreachable = [], 0, 0
+    for url in urls:
+        page_findings, reachable = check_url(url, cfg)
+        if reachable:
+            checked += 1
+            findings.extend(page_findings)
+        else:
+            unreachable += 1
+            print(f"[WARN] unreachable: {url}", file=sys.stderr)
+
+    if checked == 0:
+        print(f"[REFUSED] all {unreachable} URLs unreachable: nothing was measured, "
+              f"so no findings file was written", file=sys.stderr)
+        return 19
+
+    out_dir = Path(args.project) / "docs" / "audit" / date.today().strftime("%Y-%m")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "findings.json"
+    doc = {
+        "schema": SCHEMA,
+        "generated": date.today().isoformat(),
+        "domain": cfg["domain"],
+        "urls_checked": checked,
+        "urls_unreachable": unreachable,
+        # sort_findings + sorted keys: the artifact must be byte-identical across
+        # two runs over an unchanged site, or every run produces a noise diff.
+        "findings": [dict(f.to_json(), fingerprint=f.fingerprint)
+                     for f in sort_findings(findings)],
+    }
+    out_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+    print(f"[OK] {checked} URLs measured, {len(findings)} findings -> {out_path}")
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

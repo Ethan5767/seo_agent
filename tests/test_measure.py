@@ -243,3 +243,85 @@ def test_fingerprint_unchanged_when_only_detail_changes():
     b = [x for x in check(build_page(title="Short Title!")) if x.code == "health.title_length"][0]
     assert a.detail != b.detail
     assert a.fingerprint == b.fingerprint
+
+
+# ── the network seam (curl monkeypatched; still no network) ──────────────────
+
+def test_check_url_returns_findings_and_reachable(monkeypatch):
+    monkeypatch.setattr(m, "curl_status", lambda url: 200)
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: build_page(title="Short"))
+    findings, reachable = m.check_url(URL, CFG)
+    assert reachable is True
+    assert "health.title_length" in codes(findings)
+
+
+def test_check_url_marks_status_zero_unreachable_and_returns_no_findings(monkeypatch):
+    """status 0 is curl's connection failure. It is NOT a 404 — a 404 is a
+    reachable page with a finding. An unreachable URL must contribute nothing,
+    so a dead host cannot look like a clean site."""
+    monkeypatch.setattr(m, "curl_status", lambda url: 0)
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: pytest.fail("must not fetch"))
+    findings, reachable = m.check_url(URL, CFG)
+    assert (findings, reachable) == ([], False)
+
+
+def test_check_url_404_is_reachable_with_a_finding(monkeypatch):
+    monkeypatch.setattr(m, "curl_status", lambda url: 404)
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: "<html></html>")
+    findings, reachable = m.check_url(URL, CFG)
+    assert reachable is True
+    assert "health.status_not_200" in codes(findings)
+
+
+SITEMAP = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/</loc></url>
+  <url><loc>https://example.com/roofing/</loc></url>
+  <url><loc>https://example.com/roofing/</loc></url>
+  <url><loc>  https://example.com/siding/  </loc></url>
+</urlset>"""
+
+
+def test_discover_urls_reads_the_live_sitemap(monkeypatch):
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: SITEMAP)
+    assert m.discover_urls(CFG, []) == [
+        "https://example.com/", "https://example.com/roofing/", "https://example.com/siding/"]
+
+
+def test_discover_urls_dedupes_preserving_order(monkeypatch):
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: SITEMAP)
+    urls = m.discover_urls(CFG, [])
+    assert len(urls) == len(set(urls))
+
+
+def test_discover_urls_honors_limit(monkeypatch):
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: SITEMAP)
+    assert m.discover_urls(CFG, [], limit=2) == [
+        "https://example.com/", "https://example.com/roofing/"]
+
+
+def test_discover_urls_explicit_args_skip_the_sitemap(monkeypatch):
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: pytest.fail("must not fetch"))
+    assert m.discover_urls(CFG, ["/roofing/", "https://example.com/siding"]) == [
+        "https://example.com/roofing/", "https://example.com/siding/"]
+
+
+def test_discover_urls_root_path_does_not_double_slash(monkeypatch):
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: pytest.fail("must not fetch"))
+    assert m.discover_urls(CFG, ["/"]) == ["https://example.com/"]
+
+
+def test_discover_urls_unreachable_sitemap_raises_unreachable(monkeypatch):
+    """curl returns '' on failure. No sitemap and no --url means no sources at
+    all, which is exit 19 territory, not a green run over zero pages."""
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: "")
+    with pytest.raises(m.Unreachable):
+        m.discover_urls(CFG, [])
+
+
+def test_discover_urls_sitemap_without_loc_tags_raises_usage(monkeypatch):
+    """Fetched but malformed is a different failure from unreachable: something
+    answered, it just was not a sitemap. That is exit 2."""
+    monkeypatch.setattr(m, "curl", lambda url, cache_bust=True: "<html>404 not found</html>")
+    with pytest.raises(m.UsageError):
+        m.discover_urls(CFG, [])

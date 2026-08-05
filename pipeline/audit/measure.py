@@ -14,6 +14,7 @@ import re
 from urllib.parse import urlsplit
 
 from pipeline.lib.baseline import Finding, assign_ordinals
+from pipeline.lib.common import curl, curl_status
 
 GATE = "site_health"
 
@@ -119,3 +120,56 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
     # Disambiguate repeated identical findings on one page, per baseline.py's
     # contract. Without this, two images sharing a src collapse to one fingerprint.
     return assign_ordinals(out)
+
+
+# ── the network seam ─────────────────────────────────────────────────────────
+
+class Unreachable(RuntimeError):
+    """Every source failed. Exit 19 — a run that measured nothing must be red."""
+
+
+class UsageError(RuntimeError):
+    """Bad arguments, or a sitemap that answered but was not a sitemap. Exit 2."""
+
+
+_LOC_RE = re.compile(r"<loc>\s*([^<\s][^<]*?)\s*</loc>")
+
+
+def _absolute(u: str, domain: str) -> str:
+    """Normalize one URL or site-relative path to an absolute, trailing-slash URL."""
+    if u.startswith("http"):
+        return u.rstrip("/") + "/"
+    path = u.strip("/")
+    return f"https://{domain}/{path}/" if path else f"https://{domain}/"
+
+
+def check_url(url: str, cfg: dict) -> tuple:
+    """Fetch one URL and check it. Returns (findings, reachable).
+
+    status 0 is curl's connection-failure signal and means unreachable. A 404 is
+    reachable — it is a real measurement, and it becomes a finding.
+    """
+    status = curl_status(url)
+    if status == 0:
+        return [], False
+    return check_page(url, curl(url), status, cfg), True
+
+
+def discover_urls(cfg: dict, url_args: list, limit: int | None = None) -> list:
+    """Explicit --url arguments when given, otherwise every <loc> in the live
+    sitemap. Deduped, order preserved, truncated to `limit`."""
+    domain = cfg["domain"]
+    if url_args:
+        urls = [_absolute(u, domain) for u in url_args]
+    else:
+        xml = curl(f"https://{domain}/sitemap.xml", cache_bust=False)
+        if not xml.strip():
+            raise Unreachable(f"https://{domain}/sitemap.xml is unreachable "
+                              f"and no --url was given: nothing to measure")
+        locs = _LOC_RE.findall(xml)
+        if not locs:
+            raise UsageError(f"https://{domain}/sitemap.xml answered but contains "
+                             f"no <loc> entries: not a sitemap")
+        urls = [_absolute(u, domain) for u in locs]
+    urls = list(dict.fromkeys(urls))
+    return urls[:limit] if limit else urls

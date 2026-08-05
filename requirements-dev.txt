@@ -4,8 +4,3 @@
 #   python -m venv .venv && .venv/bin/pip install -e . -r requirements-dev.txt
 #   .venv/bin/pytest
 pytest>=8.0
-# The distill/segmentation/emitter tests build real .docx fixtures, so the DOCX
-# parser is a TEST dependency. It is intake-only at runtime (the gate suite
-# never needs it), which is why it lives here, not in core dependencies.
-# docling is deliberately NOT pulled in — no test path imports it, and it is heavy.
-python-docx>=1.1

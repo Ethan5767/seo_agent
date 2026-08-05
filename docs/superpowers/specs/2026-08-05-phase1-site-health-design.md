@@ -72,7 +72,7 @@ script-stripping before the forbidden sweep (Next RSC payload tokens like `$1` f
 on the dollar rule), the `priceRange` schema literal strip, and the loose substring
 canonical comparison. Phase 1 changes the output type, not the measurements.
 
-### Two deliberate behavior changes
+### Four deliberate behavior changes
 
 **`health.img_alt_missing` is per-image, and a page with zero images is not a finding.**
 `audit_live.py` collapsed this to one boolean, `len(imgs) > 0 and len(missing_alt) == 0`,
@@ -81,6 +81,21 @@ positive, and per-image findings are what let the ratchet track one image being 
 
 **`health.forbidden_phrase` is per-rule.** `audit_live.py` counted hits and emitted one
 boolean. One finding per matching rule is what makes each one separately resolvable.
+
+**Missing and out-of-band are mutually exclusive.** A page with no `<title>` emits
+`health.title_missing` and never also `health.title_length`. `audit_live.py` evaluated
+`title_present` and `title_length_30_60` independently, so an absent title failed both.
+Two findings for one root cause is double-counting, and it makes the ratchet report a
+"resolved" the moment a title appears at any length. Same rule for the description.
+
+**A check whose config input is unset is skipped, not failed.** `audit_live.py` read
+`cfg["nap"]["phone_tel"]` unguarded, which is a `KeyError` on any config that omits it.
+Emitting `health.tel_link_missing` on every page instead would be worse: the pipeline
+cannot measure what was never declared, and reporting an unmeasured check as a failure is
+a fabricated result. The skip covers `nap.phone_tel`, `nap.phone`, `ga4_id`, and
+`forbidden_phrases`. It is never silent — `main()` prints one `[WARN]` per skipped check
+naming both the code and the missing config key, so a green report can never quietly mean
+"not measured".
 
 ### Two known-noisy checks, left alone
 
@@ -132,14 +147,22 @@ phase 3 recomputes rather than trusts it.
 |---|---|
 | 0 | every URL clean |
 | 1 | findings written |
-| 2 | usage error — bad arguments, unparseable sitemap |
-| 19 | every URL unreachable — REFUSE |
+| 2 | usage error — bad arguments, or a sitemap that answered but carries no `<loc>` |
+| 19 | every URL unreachable, or the sitemap unreachable with no `--url` given — REFUSE |
 
 Exit 19 is the load-bearing one. A run where every fetch failed must be red, not a green
-report with zero findings. A URL is unreachable when `curl_status` returns 0 — the value
-it already returns on connection failure. Unreachable URLs are excluded from the findings
-and counted in `urls_unreachable`; a *partial* outage still exits 0 or 1 with the count
-visible in the artifact.
+report with zero findings, and nothing is written on 19. A URL is unreachable when
+`curl_status` returns 0 — the value it already returns on connection failure. A reachable
+404 is not unreachable; it is a real measurement and becomes a `health.status_not_200`
+finding. Unreachable URLs are excluded from the findings and counted in
+`urls_unreachable`; a *partial* outage still exits 0 or 1 with the count visible in the
+artifact.
+
+The sitemap splits across both codes on purpose. **Nothing answered** (`curl` returns an
+empty body) is the same condition as every URL being unreachable, so it is 19. **Something
+answered but was not a sitemap** (a body with no `<loc>` entries — typically an HTML 404
+page) is a different failure: the host is up and the configured `domain` is probably
+wrong. That is 2, and collapsing the two would hide which one happened.
 
 **Not built:** `--no-api` and `--no-gsc` from the v3 doc's sketch. There are zero external
 sources to disable until phase 6. The flags land with the providers that need them.

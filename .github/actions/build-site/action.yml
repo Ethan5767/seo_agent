@@ -1,0 +1,197 @@
+# ---------------------------------------------------------------------------
+# build-site — THE ONE BUILD DEFINITION.
+#
+# WHY THIS EXISTS (build parity)
+# quality-gate.reusable.yml and deploy.reusable.yml each used to carry their own
+# copy-pasted build block: their own setup-node, their own cache key, their own
+# `npm ci`, their own framework branch, their own output-dir assertion. The two
+# copies happened to agree, but NOTHING ENFORCED that they agree. Any future
+# edit to one — a node bump, `npm ci` -> `npm install`, a changed default output
+# dir — would silently let a PR pass the gates on one build and then ship a
+# DIFFERENT build to production. That is the classic "green PR, broken prod"
+# failure and it was structurally possible.
+#
+# Now both workflows call THIS action. The gate build and the prod build are the
+# same code by construction, not by convention.
+#
+# HOW IT IS REFERENCED
+# Both callers use `./.pipeline/.github/actions/build-site` — the copy inside the
+# version-locked SECOND checkout of the pipeline repo, NOT the client repo. So it
+# stays pinned to the exact pipeline ref the client pinned, like every other
+# gate, and nothing is vendored into client repos. (A local `uses: ./path` is
+# resolved from the workspace, which is why it must run AFTER the pipeline
+# checkout. It is not SHA-pinned because it is not a third-party action: its
+# version is the checkout's ref.)
+#
+# RECIPE HASH
+# The action emits `recipe_hash`: a sha256 over the inputs that DEFINE the build
+# (node version, install command, build command, framework family, output dir,
+# lockfile digest, commit SHA). The quality gate publishes it in its summary and
+# the deploy publishes it in the deploy proof. Identical hash on the PR run and
+# the post-merge run = provably the same build recipe on the same lockfile at the
+# same commit. It deliberately does NOT hash build ARTEFACTS — Next/Vite output
+# is not byte-reproducible, so an artefact hash would produce false alarms and
+# train people to ignore it.
+# ---------------------------------------------------------------------------
+name: "Build site (shared definition)"
+description: "The single shared build definition used by BOTH the quality gate and the production deploy. Framework-branched via the client profile."
+
+inputs:
+  node_version:
+    description: "Node.js version for the build. Callers MUST pass the same value in the gate and the deploy."
+    required: false
+    default: "20"
+  build_command:
+    description: "Exact build command. Empty = derive from the client profile (vite -> Northstar multi-step, else -> next build)."
+    required: false
+    default: ""
+  build_output_dir:
+    description: "Directory the build writes. AUTHORITATIVE for every downstream gate and for what wrangler deploys. Next: ./out. Vite/Northstar: ./dist."
+    required: false
+    default: "./out"
+
+outputs:
+  framework_family:
+    description: "Resolved framework family from the client profile (next | vite | ...)."
+    value: ${{ steps.profile.outputs.family }}
+  build_dir:
+    description: "The build output directory that was asserted non-empty."
+    value: ${{ steps.assert.outputs.build_dir }}
+  out_files:
+    description: "Count of files produced in build_dir."
+    value: ${{ steps.assert.outputs.out_files }}
+  recipe_hash:
+    description: "sha256 of the build recipe (node/install/build/family/dir/lockfile/commit). Compare gate vs deploy."
+    value: ${{ steps.profile.outputs.recipe_hash }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: npm
+
+    # Speed: persist the framework's incremental build cache across runs.
+    # Identical key in the gate and the deploy — same recipe, same cache.
+    - name: Cache framework build cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          .next/cache
+          node_modules/.vite
+        key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.[jt]s', '**/*.[jt]sx') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}-
+          ${{ runner.os }}-build-
+
+    # `npm ci` — NEVER `npm install`. ci installs the lockfile exactly; install
+    # may resolve a different tree. If the gate and the deploy disagreed on this
+    # one word they would be testing and shipping different dependency trees.
+    - name: Install client dependencies (npm ci)
+      shell: bash
+      run: npm ci
+
+    # --- Resolve profile: framework_family + build dir ---------------------
+    # build_output_dir (input) is AUTHORITATIVE. The profile is consulted only to
+    # derive a default build command when build_command is empty, and to WARN
+    # when the profile's resolved_build_dir disagrees with the input.
+    # wf-client-profile prints its JSON BEFORE any exit(5) config-ERROR, so we
+    # capture stdout even on a config error and fall back to next/./out.
+    # Requires the pipeline package to already be pip-installed by the caller.
+    - name: Resolve profile (framework + build dir)
+      id: profile
+      shell: bash
+      env:
+        BUILD_DIR_INPUT: ${{ inputs.build_output_dir }}
+        BUILD_CMD_INPUT: ${{ inputs.build_command }}
+        NODE_VERSION_INPUT: ${{ inputs.node_version }}
+      run: |
+        PROF="$(wf-client-profile . --json 2>/dev/null || true)"
+        FAMILY="$(printf '%s' "$PROF" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['profile'].get('framework_family') or 'next')" 2>/dev/null || echo next)"
+        PROF_DIR="$(printf '%s' "$PROF" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['profile'].get('resolved_build_dir') or '')" 2>/dev/null || echo '')"
+        [ -n "$FAMILY" ] || FAMILY=next
+
+        BUILD_DIR="${BUILD_DIR_INPUT:-./out}"
+        if [ -n "$PROF_DIR" ] && [ "$PROF_DIR" != "$BUILD_DIR" ]; then
+          echo "::warning::client profile resolved build dir '${PROF_DIR}' but the caller passed build_output_dir '${BUILD_DIR}'. The caller input wins; reconcile docs/client-config.yml with the thin caller."
+        fi
+
+        if [ -n "${BUILD_CMD_INPUT}" ]; then
+          BUILD_SOURCE="caller input"
+          RECIPE_CMD="${BUILD_CMD_INPUT}"
+        elif [ "$FAMILY" = "vite" ]; then
+          BUILD_SOURCE="derived (vite/Northstar multi-step)"
+          RECIPE_CMD="derived:vite-multistep"
+        else
+          BUILD_SOURCE="derived (next static export)"
+          RECIPE_CMD="derived:next-build"
+        fi
+
+        LOCK_HASH="none"
+        if [ -f package-lock.json ]; then
+          LOCK_HASH="$(python3 -c "import hashlib; print(hashlib.sha256(open('package-lock.json','rb').read()).hexdigest())")"
+        fi
+
+        # The recipe is exactly what defines 'which build this is'. Args are
+        # joined with a unit-separator and sha256'd, single-line to stay inside
+        # the YAML block scalar.
+        RECIPE_HASH="$(NODE_V="$NODE_VERSION_INPUT" INSTALL_C="npm ci" RECIPE_C="$RECIPE_CMD" FAM="$FAMILY" BDIR="$BUILD_DIR" LOCKH="$LOCK_HASH" SHA="${GITHUB_SHA:-nosha}" python3 -c "import hashlib,os; parts=[os.environ[k] for k in ('NODE_V','INSTALL_C','RECIPE_C','FAM','BDIR','LOCKH','SHA')]; print(hashlib.sha256(chr(31).join(parts).encode()).hexdigest())")"
+
+        echo "build recipe: node=${NODE_VERSION_INPUT} install='npm ci' family=${FAMILY} build='${BUILD_SOURCE}' dir=${BUILD_DIR}"
+        echo "recipe_hash=${RECIPE_HASH}"
+        {
+          echo "FAMILY=${FAMILY}"
+          echo "BUILD_DIR=${BUILD_DIR}"
+        } >> "$GITHUB_ENV"
+        {
+          echo "family=${FAMILY}"
+          echo "build_dir=${BUILD_DIR}"
+          echo "build_source=${BUILD_SOURCE}"
+          echo "recipe_hash=${RECIPE_HASH}"
+        } >> "$GITHUB_OUTPUT"
+
+    # --- THE build. Framework branching lives here, once, for the whole fleet.
+    # A supplied build_command runs verbatim. Otherwise: vite -> Northstar multi-step
+    # build (discrete steps, NOT `npm run build` — that script chains an IndexNow
+    # submit which must never fire from a PR gate and must fire exactly once from
+    # the deploy workflow); else -> Next App Router static export (with
+    # output:'export', `next build` writes the static site; there is no separate
+    # `next export` since Next 14).
+    # BUILD_CMD is routed through env: and never interpolated inline (injection).
+    - name: Build (framework-branched)
+      id: build
+      shell: bash
+      env:
+        BUILD_CMD: ${{ inputs.build_command }}
+      run: |
+        set -e
+        if [ -n "${BUILD_CMD}" ]; then
+          echo "Caller build command -> ${BUILD_DIR}"
+          bash -c "${BUILD_CMD}"
+        elif [ "$FAMILY" = "vite" ]; then
+          echo "Vite/Northstar multi-step build -> $BUILD_DIR"
+          npx vite build --emptyOutDir
+          npx vite build --ssr src/entry-server.tsx --outDir dist/server
+          node scripts/validate-routes.mjs
+          node scripts/build-sitemap.mjs
+          node prerender.mjs
+        else
+          echo "Next static export -> $BUILD_DIR"
+          npx next build
+        fi
+
+    - name: Assert build output exists
+      id: assert
+      shell: bash
+      run: |
+        if [ ! -d "$BUILD_DIR" ] || [ -z "$(ls -A "$BUILD_DIR" 2>/dev/null)" ]; then
+          echo "::error::${BUILD_DIR} is missing or empty after the build (family=${FAMILY}). For Next confirm output:'export' in next.config; for Vite pass build_output_dir: './dist'."
+          exit 1
+        fi
+        {
+          echo "out_files=$(find "$BUILD_DIR" -type f | wc -l | tr -d ' ')"
+          echo "build_dir=${BUILD_DIR}"
+        } >> "$GITHUB_OUTPUT"
+        echo "Built OK -> $BUILD_DIR"

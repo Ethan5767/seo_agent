@@ -1,0 +1,567 @@
+# ---------------------------------------------------------------------------
+# Quality Gate (REUSABLE, workflow_call) — PRE + BUILD + OUT blocking gates
+#
+# ONE definition shared by every client repo. A client repo holds only a THIN
+# CALLER (see ../examples/quality-gate.yml) that fires this on pull_request and
+# passes its build inputs. Changing the gate for the whole fleet = editing THIS
+# file and cutting a new tag.
+#
+# This is THE gate that makes prod un-shippable when red. The caller's job must
+# be set as a REQUIRED STATUS CHECK on main (Settings -> Rulesets): a red run
+# makes the "Merge" button un-clickable, and since merging main is the only path
+# to prod (CF prod auto-deploy OFF), a failing gate blocks production by
+# construction.
+#
+# NO SCRIPTS ARE VENDORED INTO CLIENT REPOS. Every gate is a `wf-*` console
+# entry point from the pipeline package, installed from a SECOND checkout of
+# this repo pinned to the exact commit of this workflow file (see "Resolve
+# pipeline ref" below). A client that pins @v0.1.0 gets exactly v0.1.0's gates.
+#
+# FRAMEWORK BRANCHING LIVES ONCE — AT THE BUILD STEP.
+#   build_output_dir is authoritative (Next: ./out — the default; Vite/Northstar
+#   callers override with ./dist). build_command, when supplied, is the exact
+#   build to run; when empty it is derived from the client profile's
+#   framework_family (vite -> the Northstar multi-step build, else -> next build).
+#   EVERY gate downstream is FRAMEWORK-BLIND: it scans whatever BUILD_DIR points
+#   at. There is no per-gate framework logic anywhere. This is what lets the one
+#   workflow cover the heterogeneous 5-client fleet (4 Next + 1 Vite/Northstar).
+#
+# NO CLOUDFLARE CREDENTIALS ARE REFERENCED — deliberately. This workflow builds
+# in-runner and NEVER deploys, so it declares NO deploy secrets at all: even a
+# caller using `secrets: inherit` cannot leak the CF token into this job,
+# because a reusable workflow can only use secrets it declares. The LIVE edge
+# checks (cf-crawler / verify-live) belong to deploy.reusable.yml post-merge.
+# The AI-crawler gate that runs HERE is the STATIC robots part against built
+# output.
+#
+# Fail-at-end: every gate runs with continue-on-error so the report is complete;
+# the final "Evaluate gates" step is the one that actually fails the run and is
+# what the required status check keys on. The Evaluate summary keeps every gate
+# attributable to its exit code (registry below).
+#
+# Exit-code registry (kept attributable in Evaluate):
+#   1 generic/headings/llms/lcp/image/robots/pages-are-data · 3 orphan/forbidden-hit
+#   4 empty-ruleset refusal (forbidden-sweep, non-commodity) · 5 parity/audit-built
+#   6 capsule · 7 non-commodity · 8 fingerprint · 9 brief-fanout/audit-ssr
+#   10 audit-ssr/built
+#
+# Security: pull_request (NEVER pull_request_target) in the caller; fork-guarded;
+# harden-runner step 1; all actions SHA-pinned; least-privilege permissions.
+# ---------------------------------------------------------------------------
+name: Quality Gate (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      build_command:
+        description: "Exact build command to run. Empty = derive from the client profile (vite -> Northstar multi-step, else -> next build)."
+        required: false
+        type: string
+        default: ""
+      build_output_dir:
+        description: "Directory the build writes. Next static export: ./out (default). Vite/Northstar override: ./dist."
+        required: false
+        type: string
+        default: "./out"
+      node_version:
+        description: "Node.js version for the build"
+        required: false
+        type: string
+        default: "20"
+      python_version:
+        description: "Python version used to install and run the pipeline gates"
+        required: false
+        type: string
+        default: "3.12"
+    secrets:
+      # DELIBERATELY NO CLOUDFLARE SECRETS. See the header — this workflow never
+      # deploys, and declaring nothing is what makes `secrets: inherit` in the
+      # caller safe.
+      PIPELINE_REPO_TOKEN:
+        description: >-
+          Optional PAT with read access to richardnhek/seo-content-pipeline,
+          used ONLY for the second (pipeline) checkout. Required while this repo
+          is private, because a client repo's GITHUB_TOKEN cannot read a
+          different private repo. Omit once the pipeline repo is public.
+        required: false
+
+# Workflow-level default: read-only. The job escalates only the PR-comment write.
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha.
+  # Advanced by the release step at every tag-cut. Because the stamp lives IN the
+  # versioned file, it is self-consistent: v0.1.0's copy always stamps v0.1.0.
+  PIPELINE_REF: "v2.1.0"
+  PIPELINE_REPO: "richardnhek/seo-content-pipeline"
+
+jobs:
+  quality-gate:
+    name: Quality Gate (PRE + OUT)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Never run for a fork PR (keeps this consistent with preview.reusable.yml;
+    # the comment write token must not be handed to fork code).
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      # CHECKOUT 1 — the CLIENT SITE. A reusable workflow's steps execute in the
+      # caller's context, so the default checkout fetches the client repo.
+      - name: Checkout client site
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # ---------------------------------------------------------------------
+      # Resolve the pipeline ref for CHECKOUT 2.
+      #
+      # github.job_workflow_sha resolves to the commit SHA of the reusable
+      # workflow file currently executing — so the gate scripts are GUARANTEED
+      # to match the tag the client pinned, with zero duplicated pins.
+      #
+      # FALLBACK (stamped PIPELINE_REF): job_workflow_sha is populated only when
+      # this file runs AS a called reusable workflow. It is empty when the file
+      # is run directly in this repo (local self-test) and has been reported
+      # empty in some GHES / older-runner contexts. When empty we fall back to
+      # the PIPELINE_REF stamped into this file at tag-cut time (workflow `env:`
+      # above). Never point that stamp at a moving branch for a prod client.
+      # ---------------------------------------------------------------------
+      - name: Resolve pipeline ref
+        id: pipe
+        env:
+          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          STAMPED_REF: ${{ env.PIPELINE_REF }}
+        run: |
+          REF="${JOB_WORKFLOW_SHA:-}"
+          if [ -z "$REF" ]; then
+            REF="${STAMPED_REF:-}"
+            echo "::warning::github.job_workflow_sha was empty — falling back to the stamped PIPELINE_REF '${REF}'."
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::No pipeline ref could be resolved (job_workflow_sha empty AND no stamped PIPELINE_REF). Refusing to run gates from an unknown pipeline version."
+            exit 1
+          fi
+          echo "Pipeline ref: ${REF}"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+
+      # CHECKOUT 2 — the PIPELINE, version-locked to THIS workflow file.
+      # This is what lets client repos vendor NO scripts.
+      - name: Checkout pipeline (version-locked)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ env.PIPELINE_REPO }}
+          ref: ${{ steps.pipe.outputs.ref }}
+          path: .pipeline
+          persist-credentials: false
+          # Falls back to the caller's GITHUB_TOKEN when no PAT is supplied,
+          # which only works while the pipeline repo is public.
+          token: ${{ secrets.PIPELINE_REPO_TOKEN || github.token }}
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      # Installs the pipeline package + its pinned core requirements, exposing
+      # the wf-* console entry points on PATH (needed by the shared build-site
+      # action's profile step and by the source PRE gates below). Version-locked
+      # by CHECKOUT 2. Runs BEFORE the build so wf-client-profile is on PATH.
+      - name: Install pipeline package
+        run: |
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet ./.pipeline
+          echo "Installed pipeline from ref ${{ steps.pipe.outputs.ref }}"
+
+      # --- PRE gates (source, pre-build; python-only, no node_modules) --------
+      # wf-audit-ssr is config-free: masks strings/comments, tracks brace-scoped
+      # function depth + typeof guards, so it flags only SSR-dangerous access.
+      # Skips WordPress + repos with no src/. BLOCKING.
+      - name: "PRE: SSR safety, source (BLOCK)"
+        id: ssr
+        continue-on-error: true
+        run: wf-audit-ssr .
+
+      # pages-are-data enforces the 4-template + data architecture on src/app,
+      # pre-build. Next-only (needs src/app); Vite/Northstar has no src/app so this
+      # soft-skips there — framework-blind gates stay framework-blind, this is a
+      # pre-build source gate that only applies to the Next app-router shape.
+      - name: "PRE: pages-are-data (BLOCK, Next src/app only)"
+        id: pagesdata
+        continue-on-error: true
+        run: |
+          if [ ! -d src/app ]; then
+            echo "::notice::no src/app — pages-are-data gate not applicable (non-Next-app-router). Skipped."
+            exit 0
+          fi
+          wf-pages-are-data-check .
+
+      # rules-selftest — the ruleset's OWN gate (never-baselineable): every
+      # union pattern must compile, banned-phrases.txt must carry no dead regex
+      # lines (BUG-018), no plain txt line may defeat a YAML lookahead exception
+      # (free-system class), and docs/rule-fixtures.yml proof samples must pass
+      # through the production matcher. Config-only, so it runs PRE-build:
+      # a broken ruleset fails in seconds, not after a full build.
+      - name: "PRE: rules-selftest (BLOCK when ledger present)"
+        id: rules_selftest
+        continue-on-error: true
+        run: |
+          if [ ! -f docs/client-config.yml ] && [ ! -f docs/banned-phrases.txt ]; then
+            echo "::warning::no docs/client-config.yml and no docs/banned-phrases.txt — rules-selftest has no ruleset. Skipped."
+            exit 0
+          fi
+          wf-rules-selftest . --config docs/client-config.yml
+
+      # brief-fanout validates docs/briefs/*.json pre-draft. The briefs artifact
+      # is emitter-produced; until it exists this soft-skips (blocked-on-input,
+      # not a red gate on a repo that has no briefs yet).
+      - name: "PRE: brief-fanout (BLOCK when briefs present)"
+        id: brief
+        continue-on-error: true
+        run: |
+          if ! ls docs/briefs/*.json >/dev/null 2>&1; then
+            echo "::notice::no docs/briefs/*.json — brief-fanout gate has no input yet. Skipped."
+            exit 0
+          fi
+          wf-brief-fanout-check .
+
+      # --- Build: THE ONE SHARED BUILD DEFINITION ----------------------------
+      # This is the SAME composite action deploy.reusable.yml calls. node setup +
+      # npm ci + profile + framework build + output assertion all live inside it,
+      # so a PR can NEVER pass the gate on one build and ship a different build to
+      # prod: install command, node version, build command and output dir are one
+      # definition. Referenced from the version-locked .pipeline checkout so it
+      # stays pinned to the client's tag. `id: build` preserves every downstream
+      # `if: steps.build.outcome == 'success'`. It writes FAMILY/BUILD_DIR to
+      # GITHUB_ENV (propagates to the OUT gates) and exposes framework_family /
+      # build_dir / recipe_hash as step outputs.
+      - name: Build (shared build-site action)
+        id: build
+        continue-on-error: true
+        uses: ./.pipeline/.github/actions/build-site
+        with:
+          node_version: ${{ inputs.node_version }}
+          build_command: ${{ inputs.build_command }}
+          build_output_dir: ${{ inputs.build_output_dir }}
+
+      # tsc needs node_modules, which the shared build action installed via
+      # npm ci, so it runs AFTER the build (a source gate by intent; placement is
+      # a dependency detail). Still blocking, still attributed as a PRE gate.
+      - name: "PRE: tsc --noEmit (BLOCK)"
+        id: tsc
+        continue-on-error: true
+        run: npx tsc --noEmit
+
+      # --- OUT gates (built BUILD_DIR, framework-blind) ----------------------
+      # Only meaningful if the build produced BUILD_DIR; if build failed these are
+      # skipped and the build failure is itself the blocker.
+      - name: "OUT: Heading casing (BLOCK)"
+        id: headings
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-check-headings --out "$BUILD_DIR" --project .
+
+      - name: "OUT: No-orphan gate (BLOCK)"
+        id: orphan
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-orphan-check --out "$BUILD_DIR"
+
+      - name: "OUT: Sitemap<->routes<->llms.txt parity, strict (BLOCK)"
+        id: parity
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-parity-check --out "$BUILD_DIR" --strict-llms
+
+      - name: "OUT: No em dashes (BLOCK)"
+        id: emdash
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-em-dash-check --out "$BUILD_DIR"
+
+      # audit-built needs docs/client-config.yml (NAP/domain/schema) + a URL list
+      # (it does not self-derive). Until config lands it soft-skips; when present
+      # it audits every <loc> in the built sitemap.
+      - name: "OUT: audit-built 30-point (BLOCK when config present)"
+        id: audit_built
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          if [ ! -f docs/client-config.yml ]; then
+            echo "::warning::docs/client-config.yml not found — audit-built requires it (NAP/domain/schema). Skipped."
+            exit 0
+          fi
+          URLS=$(grep -ohE '<loc>[^<]+</loc>' "$BUILD_DIR"/sitemap*.xml 2>/dev/null | sed -E 's#</?loc>##g' | tr -d ' ')
+          if [ -z "$URLS" ]; then
+            echo "::warning::no <loc> URLs found in $BUILD_DIR/sitemap*.xml — audit-built has nothing to audit. Skipped."
+            exit 0
+          fi
+          wf-audit-built . "$BUILD_DIR" $URLS
+
+      # Forbidden sweep — the only gate with legal exposure, BLOCKING.
+      # FIXED INVOCATION: project is `.` (repo root) with --build-dir, NOT
+      # `built ./out`. Passing the build dir as the project broke the phrase union
+      # (load_phrases looked for <build_dir>/docs/banned-phrases.txt instead of the
+      # repo's docs/banned-phrases.txt). With project=. the sweep unions the
+      # in-config forbidden_phrases block AND docs/banned-phrases.txt, and scans
+      # $BUILD_DIR via --build-dir. Exit 3 = hit, exit 4 = empty ruleset (fail-loud).
+      - name: "OUT: Forbidden sweep, built (BLOCK when config present)"
+        id: forbidden
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          if [ ! -f docs/client-config.yml ] && [ ! -f docs/banned-phrases.txt ]; then
+            echo "::warning::no docs/client-config.yml and no docs/banned-phrases.txt — forbidden sweep has no ledger. Skipped (add either to make the legal gate BLOCKING)."
+            exit 0
+          fi
+          wf-forbidden-sweep built . --build-dir "$BUILD_DIR" --config docs/client-config.yml
+
+      # --- OUT gates: the doctrine gate set ----------------------------------
+      # AI-crawler STATIC part (robots.txt). The LIVE edge part runs post-deploy,
+      # NOT here — this workflow never deploys.
+      - name: "OUT: AI-crawler robots.txt (BLOCK)"
+        id: robots
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-robots-aicrawler-check --out "$BUILD_DIR" --project .
+
+      - name: "OUT: Content capsule §20 (BLOCK)"
+        id: capsule
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-capsule-check . --out "$BUILD_DIR"
+
+      - name: "OUT: Non-commodity §21 (BLOCK)"
+        id: noncommodity
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-noncommodity-check . --out "$BUILD_DIR"
+
+      - name: "OUT: Invisible-char fingerprint (BLOCK)"
+        id: fingerprint
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-fingerprint-check --out "$BUILD_DIR"
+
+      - name: "OUT: llms.txt sales purge (BLOCK)"
+        id: llms
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-llms-sales-purge --out "$BUILD_DIR" --project .
+
+      - name: "OUT: Image budget (BLOCK)"
+        id: image
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-image-budget-check --out "$BUILD_DIR" --project .
+
+      - name: "OUT: LCP hygiene (BLOCK)"
+        id: lcp
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-lcp-hygiene-check --out "$BUILD_DIR" --project .
+
+      # --- Report: step summary table ----------------------------------------
+      - name: Build report (step summary)
+        if: always()
+        id: report
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PIPELINE_SHA: ${{ steps.pipe.outputs.ref }}
+          FAMILY: ${{ steps.build.outputs.framework_family }}
+          BUILD_DIR: ${{ steps.build.outputs.build_dir }}
+          RECIPE_HASH: ${{ steps.build.outputs.recipe_hash }}
+          TSC: ${{ steps.tsc.outcome }}
+          SSR: ${{ steps.ssr.outcome }}
+          PAGESDATA: ${{ steps.pagesdata.outcome }}
+          BRIEF: ${{ steps.brief.outcome }}
+          RULES_SELFTEST: ${{ steps.rules_selftest.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          HEADINGS: ${{ steps.headings.outcome }}
+          ORPHAN: ${{ steps.orphan.outcome }}
+          PARITY: ${{ steps.parity.outcome }}
+          EMDASH: ${{ steps.emdash.outcome }}
+          AUDIT_BUILT: ${{ steps.audit_built.outcome }}
+          FORBIDDEN: ${{ steps.forbidden.outcome }}
+          ROBOTS: ${{ steps.robots.outcome }}
+          CAPSULE: ${{ steps.capsule.outcome }}
+          NONCOMMODITY: ${{ steps.noncommodity.outcome }}
+          FINGERPRINT: ${{ steps.fingerprint.outcome }}
+          LLMS: ${{ steps.llms.outcome }}
+          IMAGE: ${{ steps.image.outcome }}
+          LCP: ${{ steps.lcp.outcome }}
+        run: |
+          mark() {
+            case "$1" in
+              success) echo "PASS" ;;
+              failure) echo "FAIL" ;;
+              skipped) echo "SKIPPED (build failed)" ;;
+              *)       echo "n/a" ;;
+            esac
+          }
+          {
+            echo "## Quality Gate — PR #${PR_NUMBER}"
+            echo ""
+            echo "Framework: \`${FAMILY}\`  ·  Build dir: \`${BUILD_DIR}\`  ·  Pipeline ref: \`${PIPELINE_SHA}\`"
+            echo ""
+            echo "Build recipe hash: \`${RECIPE_HASH:-unknown}\` — this must match the deploy proof's recipe hash after merge (same build shipped as gated)."
+            echo ""
+            echo "| Stage | Gate | Exit | Result |"
+            echo "|---|---|---|---|"
+            echo "| PRE | tsc --noEmit | 1 | $(mark "$TSC") |"
+            echo "| PRE | SSR safety (source) | 9/10 | $(mark "$SSR") |"
+            echo "| PRE | pages-are-data | 1 | $(mark "$PAGESDATA") |"
+            echo "| PRE | brief-fanout | 9 | $(mark "$BRIEF") |"
+            echo "| PRE | rules-selftest (ruleset integrity) | 3/4 | $(mark "$RULES_SELFTEST") |"
+            echo "| BUILD | ${FAMILY} build -> ${BUILD_DIR} | 1 | $(mark "$BUILD") |"
+            echo "| OUT | Heading casing | 1 | $(mark "$HEADINGS") |"
+            echo "| OUT | No-orphan gate | 3 | $(mark "$ORPHAN") |"
+            echo "| OUT | Sitemap/routes/llms.txt parity | 5 | $(mark "$PARITY") |"
+            echo "| OUT | No em dashes | 1 | $(mark "$EMDASH") |"
+            echo "| OUT | audit-built 30-point | 5/10 | $(mark "$AUDIT_BUILT") |"
+            echo "| OUT | Forbidden sweep (legal) | 3/4 | $(mark "$FORBIDDEN") |"
+            echo "| OUT | AI-crawler robots.txt | 1 | $(mark "$ROBOTS") |"
+            echo "| OUT | Content capsule §20 | 6 | $(mark "$CAPSULE") |"
+            echo "| OUT | Non-commodity §21 | 7/4 | $(mark "$NONCOMMODITY") |"
+            echo "| OUT | Invisible-char fingerprint | 8 | $(mark "$FINGERPRINT") |"
+            echo "| OUT | llms.txt sales purge | 1 | $(mark "$LLMS") |"
+            echo "| OUT | Image budget | 1 | $(mark "$IMAGE") |"
+            echo "| OUT | LCP hygiene | 1 | $(mark "$LCP") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Plain-English sticky comment body for non-technical review.
+          fail_lines=""
+          add_fail() { fail_lines="${fail_lines}- ${1}"$'\n'; }
+          [ "$TSC" = "failure" ]          && add_fail "TypeScript errors — the site has type errors (\`tsc --noEmit\`)."
+          [ "$SSR" = "failure" ]          && add_fail "SSR safety — a page uses browser-only code that breaks the static build."
+          [ "$PAGESDATA" = "failure" ]    && add_fail "Pages-are-data — a route is hand-authored as a big literal instead of a data-driven template."
+          [ "$BRIEF" = "failure" ]        && add_fail "Brief-fanout — a content brief is too thin (fanout / capsule / triple / proprietary variable / intent)."
+          [ "$RULES_SELFTEST" = "failure" ] && add_fail "Rules self-test — the forbidden-phrase ruleset itself is broken (dead rule, non-compiling pattern, defeated exception, or a proof fixture failed)."
+          [ "$BUILD" = "failure" ]        && add_fail "Build failed — the build did not produce the output dir. All page checks below were skipped."
+          [ "$HEADINGS" = "failure" ]     && add_fail "Headings — a public heading has broken casing."
+          [ "$ORPHAN" = "failure" ]       && add_fail "Orphan pages — a published page has no internal link pointing to it."
+          [ "$PARITY" = "failure" ]       && add_fail "Parity — sitemap, built routes, and llms.txt do not list the same set of URLs."
+          [ "$EMDASH" = "failure" ]       && add_fail "Em dashes — a public-facing string contains an em dash (banned)."
+          [ "$AUDIT_BUILT" = "failure" ]  && add_fail "Built audit — a schema/phone/alt/canonical/uniqueness rule failed."
+          [ "$FORBIDDEN" = "failure" ]    && add_fail "Forbidden phrase — a banned/legal-risk phrase appears in the built pages (or the ledger is empty)."
+          [ "$ROBOTS" = "failure" ]       && add_fail "AI-crawler access — robots.txt blocks an AI citation crawler, or robots.txt is missing."
+          [ "$CAPSULE" = "failure" ]      && add_fail "Content capsule — a page is missing its question-H2 / answer-first / TL;DR unit."
+          [ "$NONCOMMODITY" = "failure" ] && add_fail "Non-commodity — a page is generic boilerplate or a near-duplicate of a sibling."
+          [ "$FINGERPRINT" = "failure" ]  && add_fail "Fingerprint — invisible/AI-tool characters were found in a deliverable."
+          [ "$LLMS" = "failure" ]         && add_fail "llms.txt — sales/CTA language is polluting the factual llms.txt brief."
+          [ "$IMAGE" = "failure" ]        && add_fail "Image budget — a built image exceeds its size ceiling (LCP/CWV risk)."
+          [ "$LCP" = "failure" ]          && add_fail "LCP hygiene — a lazy-loaded hero or a dimensionless image will hurt Core Web Vitals."
+
+          if [ -n "$fail_lines" ]; then
+            STATUS="RED — do not merge"
+            BODY="**Quality Gate: RED — do not merge.** These must be fixed before this PR can ship:"$'\n\n'"${fail_lines}"
+          else
+            STATUS="GREEN — safe to merge"
+            BODY="**Quality Gate: GREEN.** All blocking checks passed. Safe to merge (the merge is what ships prod)."
+          fi
+          BODY="${BODY}"$'\n\n'"Framework: \`${FAMILY}\` · Build dir: \`${BUILD_DIR}\` · Pipeline ref: \`${PIPELINE_SHA}\`. See the full pass/fail table in the run's Summary. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          printf '%s\n' "$BODY" > /tmp/pr-comment.md
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+
+      # --- Sticky PR comment (upsert exactly one) ----------------------------
+      - name: Upsert sticky PR comment
+        if: always()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- quality-gate-sticky -->';
+            const body = marker + '\n' + fs.readFileSync('/tmp/pr-comment.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      # --- Evaluate: fail the run if any BLOCKING gate is red ------------------
+      # This is the step the required status check keys on. A build failure is a
+      # blocker (it skips every OUT gate). Gates that soft-skip on absent input
+      # (config, briefs, src/app, robots ledger) report 'success' and don't fail
+      # the run — graceful default. Every gate stays attributable to its exit code.
+      - name: Evaluate gates
+        if: always()
+        env:
+          TSC: ${{ steps.tsc.outcome }}
+          SSR: ${{ steps.ssr.outcome }}
+          PAGESDATA: ${{ steps.pagesdata.outcome }}
+          BRIEF: ${{ steps.brief.outcome }}
+          RULES_SELFTEST: ${{ steps.rules_selftest.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          HEADINGS: ${{ steps.headings.outcome }}
+          ORPHAN: ${{ steps.orphan.outcome }}
+          PARITY: ${{ steps.parity.outcome }}
+          EMDASH: ${{ steps.emdash.outcome }}
+          AUDIT_BUILT: ${{ steps.audit_built.outcome }}
+          FORBIDDEN: ${{ steps.forbidden.outcome }}
+          ROBOTS: ${{ steps.robots.outcome }}
+          CAPSULE: ${{ steps.capsule.outcome }}
+          NONCOMMODITY: ${{ steps.noncommodity.outcome }}
+          FINGERPRINT: ${{ steps.fingerprint.outcome }}
+          LLMS: ${{ steps.llms.outcome }}
+          IMAGE: ${{ steps.image.outcome }}
+          LCP: ${{ steps.lcp.outcome }}
+        run: |
+          # gate -> "exit-code registry entry : plain description" for attribution.
+          # case-based (not `declare -A`) so it is portable across bash versions.
+          reg() {
+            case "$1" in
+              TSC)          echo "1 : TypeScript compile" ;;
+              SSR)          echo "9/10 : audit-ssr source safety" ;;
+              PAGESDATA)    echo "1 : pages-are-data (Lesson-1)" ;;
+              BRIEF)        echo "9 : brief-fanout (§19)" ;;
+              RULES_SELFTEST) echo "3/4 : rules-selftest (ruleset integrity)" ;;
+              BUILD)        echo "1 : framework build produced no output dir" ;;
+              HEADINGS)     echo "1 : heading casing" ;;
+              ORPHAN)       echo "3 : orphan pages" ;;
+              PARITY)       echo "5 : sitemap/routes/llms parity" ;;
+              EMDASH)       echo "1 : em dash" ;;
+              AUDIT_BUILT)  echo "5/10 : audit-built 30-point" ;;
+              FORBIDDEN)    echo "3/4 : forbidden-phrase legal gate" ;;
+              ROBOTS)       echo "1 : AI-crawler robots.txt" ;;
+              CAPSULE)      echo "6 : content capsule (§20)" ;;
+              NONCOMMODITY) echo "7/4 : non-commodity (§21)" ;;
+              FINGERPRINT)  echo "8 : invisible-char fingerprint" ;;
+              LLMS)         echo "1 : llms.txt sales purge (§30)" ;;
+              IMAGE)        echo "1 : image budget" ;;
+              LCP)          echo "1 : LCP hygiene" ;;
+              *)            echo "? : unknown gate" ;;
+            esac
+          }
+          red=0
+          for g in TSC SSR PAGESDATA BRIEF RULES_SELFTEST BUILD HEADINGS ORPHAN PARITY EMDASH \
+                   AUDIT_BUILT FORBIDDEN ROBOTS CAPSULE NONCOMMODITY FINGERPRINT \
+                   LLMS IMAGE LCP; do
+            v="${!g}"
+            if [ "$v" = "failure" ]; then
+              echo "::error::Blocking gate failed: ${g}  (exit $(reg "$g"))"
+              red=1
+            fi
+          done
+          if [ "$red" -ne 0 ]; then
+            echo "Quality Gate RED — blocking merge."
+            exit 1
+          fi
+          echo "Quality Gate GREEN — all blocking gates passed."

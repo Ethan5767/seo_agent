@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# Dependabot — keep the SHA-pinned GitHub Actions from rotting.
+#
+# WHY: the whole rail's supply-chain posture is "every action pinned to a full
+# commit SHA". A pin never moves on its own, so without something opening bump
+# PRs the pins silently rot behind security patches. Dependabot's github-actions
+# ecosystem watches every `uses:` in .github/workflows/**, opens a PR when a
+# pinned action has a newer release, and (because it understands `# vX.Y.Z`
+# comments) rewrites BOTH the SHA and the trailing version comment.
+#
+# GOVERNANCE: these bump PRs ride the same SACRED gate as content — Alex reviews
+# and merges the PR = it ships. That extends the merge-gate to gate-logic /
+# dependency changes, not just copy. Nothing here auto-merges.
+#
+# SCOPE NOTE: Dependabot's github-actions updater bumps `uses:` action pins only.
+# It CANNOT bump:
+#   - the `wrangler_version` workflow_call string input in deploy.reusable.yml
+#     (a CLI version string, not an action ref), or
+#   - the `PIPELINE_REF` stamp in each reusable workflow's `env:` block.
+# Both are advanced by hand on the CHANGELOG pin-maintenance checklist at each
+# pipeline tag-cut.
+#
+# CLIENT REPOS: each client repo needs its OWN dependabot.yml with this same
+# github-actions block. That is what opens the PR moving its thin callers'
+# `@v0.1.0` pin to the next pipeline tag — and that PR lands on the client's
+# main only through the same Alex-merge sacred gate, so a new/stricter gate
+# cannot reach a client's prod without an explicit merge. The rail protects
+# itself.
+# ---------------------------------------------------------------------------
+version: 2
+updates:
+  # GitHub Actions used by the workflows in this repo (.github/workflows/**).
+  # Directory "/" is the required root anchor for the github-actions ecosystem —
+  # Dependabot discovers every workflow file under .github/workflows from there.
+  # NOTE: .github/examples/ is NOT scanned (Dependabot only reads
+  # .github/workflows/); the example callers' pins are advanced by hand at
+  # tag-cut alongside the PIPELINE_REF stamp.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      # One grouped PR for routine actions bumps keeps the Alex-merge queue short;
+      # a bump that fails the actionlint / quality gate is caught before merge.
+      github-actions:
+        patterns:
+          - "*"

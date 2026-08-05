@@ -1,0 +1,477 @@
+# ---------------------------------------------------------------------------
+# Preview notify (REUSABLE, workflow_call) — HARDENED
+#
+# ONE definition shared by every client repo. A client repo holds only a THIN
+# CALLER (see ../examples/preview.yml) that fires this on pull_request.
+#
+# Cloudflare auto-builds the per-branch PREVIEW from its git webhook (cheap, no
+# consequence — previews are allowed to ride the webhook; only PROD does not).
+# This workflow does NOT build. It resolves the CF preview alias URL for the PR's
+# branch and posts it to chat along with the cycle proof summary, so the owner
+# can review on their phone. The PR merge is the approval that triggers prod.
+#
+# NO SCRIPTS ARE VENDORED INTO CLIENT REPOS. The pipeline is installed from a
+# SECOND checkout of this repo pinned to the exact commit of this workflow file,
+# so the visual-QA hook and any wf-* helper this workflow grows are version-
+# locked to the tag the client pinned.
+#
+# Security:
+#   - The CALLER'S trigger must be `pull_request`, NEVER `pull_request_target`
+#     (token-exfil vector). The example caller enforces this.
+#   - Job guarded by `if: head.repo.full_name == github.repository` so it never
+#     runs for a fork PR (a fork must not reach the CF token).
+#   - step-security/harden-runner as step 1; every action pinned to a SHA.
+#   - All ${{ github.event.* }} / ${{ inputs.* }} routed through env: before run:.
+#
+# Timing race: CF may still be building when the PR opens. We POLL the CF API
+# for the latest deployment on this branch until it reports "success" (or time
+# out), then post — so the link is always reachable, never a dead alias.
+#
+# Per-client config: CF_PROJECT comes from the CLOUDFLARE_PAGES_PROJECT repo
+# secret — no placeholder to replace.
+#
+# Where the visual-QA gallery (module 07 / autoshot) plugs in:
+#   After the preview alias resolves, a downstream job can take the alias URL,
+#   screenshot the changed routes, and attach/post the gallery. See the marked
+#   step below ("VISUAL-QA HOOK"). Module 07 owns that job; this workflow only
+#   exposes the resolved alias URL as the `preview_url` output for it.
+#
+# Lighthouse CWV monitor:
+#   A SECOND job (lighthouse-monitor) runs lab Lighthouse against the resolved
+#   preview URL — homepage + deep routes — and posts LCP / CLS / TBT to a
+#   sticky PR comment. It is MONITORING ONLY and NEVER blocks the merge:
+#     - the whole job is `continue-on-error: true` (a red/failed Lighthouse run
+#       never fails the workflow, so it can never become a required check), and
+#     - every measurement is labelled MONITORING in the comment body.
+#   Routes come from the lighthouse_routes input (homepage + 2 deep routes).
+# ---------------------------------------------------------------------------
+name: Preview Notify (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      lighthouse_routes:
+        description: "Space-separated site-relative routes for the MONITORING Lighthouse run (homepage + 2 deep routes)."
+        required: false
+        type: string
+        default: "/ /about/ /contact/"
+      cycle_summary_path:
+        description: "Path in the client repo to the per-cycle proof summary surfaced in the chat notify."
+        required: false
+        type: string
+        default: "docs/cycle/summary.md"
+      poll_attempts:
+        description: "How many times to poll the CF API for the branch preview (10s apart)."
+        required: false
+        type: number
+        default: 30
+      python_version:
+        description: "Python version used to install the pipeline package"
+        required: false
+        type: string
+        default: "3.12"
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+      CLOUDFLARE_PAGES_PROJECT:
+        description: "Cloudflare Pages project name. Supplied as a repo secret, not an input."
+        required: true
+      CHAT_WEBHOOK_URL:
+        description: "Optional chat webhook for the preview link. Absent = the run logs the link only."
+        required: false
+      PIPELINE_REPO_TOKEN:
+        description: >-
+          Optional PAT with read access to richardnhek/seo-content-pipeline,
+          used ONLY for the second (pipeline) checkout. Required while this repo
+          is private. Omit once the pipeline repo is public.
+        required: false
+
+# Only read scope needed; no deploy from here.
+permissions:
+  contents: read
+
+# One notify per PR; a newer push supersedes the older pending notify.
+concurrency:
+  group: preview-notify-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha
+  # (see "Resolve pipeline ref"). Advanced at every tag-cut; self-consistent
+  # because the stamp lives IN the versioned file.
+  PIPELINE_REF: "v2.1.0"
+  PIPELINE_REPO: "richardnhek/seo-content-pipeline"
+
+jobs:
+  notify-preview:
+    name: Resolve preview alias + notify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Never run for a fork PR — the CF token must not be exposed to fork code.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Expose the resolved preview alias to the downstream Lighthouse monitor job
+    # and to any module-07 visual-QA job a caller chains on.
+    outputs:
+      preview_url: ${{ steps.cf.outputs.preview_url }}
+      preview_state: ${{ steps.cf.outputs.preview_state }}
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      # CHECKOUT 1 — the CLIENT SITE, so the cycle proof summary is readable.
+      - name: Checkout client site
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # ---------------------------------------------------------------------
+      # Resolve the pipeline ref for CHECKOUT 2.
+      #
+      # github.job_workflow_sha resolves to the commit SHA of the reusable
+      # workflow file currently executing — so any pipeline tooling this
+      # workflow calls matches the tag the client pinned, with zero duplicated
+      # pins.
+      #
+      # FALLBACK (stamped PIPELINE_REF): job_workflow_sha is populated only when
+      # this file runs AS a called reusable workflow. It is empty when the file
+      # is run directly in this repo (local self-test) and has been reported
+      # empty in some GHES / older-runner contexts. When empty we fall back to
+      # the PIPELINE_REF stamped into this file at tag-cut time (workflow `env:`
+      # above). Never point that stamp at a moving branch for a prod client.
+      # ---------------------------------------------------------------------
+      - name: Resolve pipeline ref
+        id: pipe
+        env:
+          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          STAMPED_REF: ${{ env.PIPELINE_REF }}
+        run: |
+          REF="${JOB_WORKFLOW_SHA:-}"
+          if [ -z "$REF" ]; then
+            REF="${STAMPED_REF:-}"
+            echo "::warning::github.job_workflow_sha was empty — falling back to the stamped PIPELINE_REF '${REF}'."
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::No pipeline ref could be resolved (job_workflow_sha empty AND no stamped PIPELINE_REF)."
+            exit 1
+          fi
+          echo "Pipeline ref: ${REF}"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+
+      # CHECKOUT 2 — the PIPELINE, version-locked to THIS workflow file.
+      # This is what lets client repos vendor NO scripts.
+      - name: Checkout pipeline (version-locked)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ env.PIPELINE_REPO }}
+          ref: ${{ steps.pipe.outputs.ref }}
+          path: .pipeline
+          persist-credentials: false
+          token: ${{ secrets.PIPELINE_REPO_TOKEN || github.token }}
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install pipeline package
+        run: |
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet ./.pipeline
+          echo "Installed pipeline from ref ${{ steps.pipe.outputs.ref }}"
+
+      - name: Resolve CF preview deployment for this branch
+        id: cf
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PROJECT: ${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          POLL_ATTEMPTS: ${{ inputs.poll_attempts }}
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PROJECT}/deployments"
+
+          # Helper python that picks the latest preview deployment for $BRANCH
+          # and prints "<url> <state>" on one line. Kept as a file to avoid
+          # fragile nested heredocs inside the poll loop.
+          cat > /tmp/cf_pick.py <<'PY'
+          import json, os, sys
+          branch = os.environ["BRANCH"]
+          try:
+              data = json.load(sys.stdin)
+          except Exception:
+              print(" unknown"); sys.exit(0)
+          for d in data.get("result", []):
+              meta = (d.get("deployment_trigger", {}) or {}).get("metadata", {}) or {}
+              if meta.get("branch") == branch and d.get("environment") == "preview":
+                  status = (d.get("latest_stage", {}) or {}).get("status", "unknown")
+                  aliases = d.get("aliases") or []
+                  url = aliases[0] if aliases else d.get("url", "")
+                  print(url, status)
+                  sys.exit(0)
+          print(" none")
+          PY
+
+          PREVIEW_URL=""
+          STATE="unknown"
+          # Poll (default ~5 minutes) for the branch's latest preview to go live.
+          for i in $(seq 1 "${POLL_ATTEMPTS:-30}"); do
+            RESP="$(curl -sS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "$API?per_page=25")"
+            LINE="$(printf '%s' "$RESP" | BRANCH="$BRANCH" python3 /tmp/cf_pick.py)"
+            PREVIEW_URL="$(printf '%s' "$LINE" | awk '{print $1}')"
+            STATE="$(printf '%s' "$LINE" | awk '{print $2}')"
+            STATE="${STATE:-unknown}"
+            echo "attempt $i: state=${STATE} url=${PREVIEW_URL:-<none>}"
+            if [ "$STATE" = "success" ] && [ -n "${PREVIEW_URL}" ]; then
+              break
+            fi
+            if [ "$STATE" = "failure" ]; then
+              break
+            fi
+            sleep 10
+          done
+          echo "preview_url=${PREVIEW_URL}" >> "$GITHUB_OUTPUT"
+          echo "preview_state=${STATE}" >> "$GITHUB_OUTPUT"
+
+      # --- VISUAL-QA HOOK (module 07 / autoshot) ------------------------------
+      # A downstream job from module 07 consumes steps.cf.outputs.preview_url to
+      # screenshot the changed routes and build the QA gallery, then posts/links
+      # it. Intentionally left as a no-op marker here so the integration point is
+      # explicit and discoverable. Do not implement module 07 in this file.
+      - name: Visual-QA gallery hook (placeholder)
+        env:
+          PREVIEW_URL: ${{ steps.cf.outputs.preview_url }}
+        run: |
+          echo "preview_url=${PREVIEW_URL}"
+          echo "Module 07 (visual-QA / autoshot) plugs in here, consuming preview_url."
+
+      - name: Read cycle proof summary (if present)
+        id: proof
+        env:
+          SUMMARY_FILE: ${{ inputs.cycle_summary_path }}
+        run: |
+          # The spine/intake modules may write a per-cycle summary the deploy
+          # rail surfaces verbatim. Path is caller-configurable.
+          if [ -f "$SUMMARY_FILE" ]; then
+            {
+              echo "summary<<PIPELINE_EOF"
+              cat "$SUMMARY_FILE"
+              echo "PIPELINE_EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "summary=(no ${SUMMARY_FILE} found in this PR)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify chat with preview link + proof summary
+        env:
+          CHAT_WEBHOOK_URL: ${{ secrets.CHAT_WEBHOOK_URL }}
+          PREVIEW_URL: ${{ steps.cf.outputs.preview_url }}
+          PREVIEW_STATE: ${{ steps.cf.outputs.preview_state }}
+          PROOF_SUMMARY: ${{ steps.proof.outputs.summary }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          if [ "${PREVIEW_STATE}" = "success" ] && [ -n "${PREVIEW_URL}" ]; then
+            HEAD="Preview ready for review"
+            LINK="${PREVIEW_URL}"
+          elif [ "${PREVIEW_STATE}" = "failure" ]; then
+            HEAD="Preview build FAILED — no link to review"
+            LINK="(build failed in Cloudflare)"
+          else
+            HEAD="Preview not ready yet (timed out resolving alias)"
+            LINK="(check Cloudflare Pages dashboard)"
+          fi
+          export TEXT="$(printf '%s\nPR: %s\n%s\nPreview: %s\n\nCycle proof summary:\n%s' \
+            "${HEAD}" "${PR_TITLE}" "${PR_URL}" "${LINK}" "${PROOF_SUMMARY}")"
+          if [ -z "${CHAT_WEBHOOK_URL}" ]; then
+            echo "::warning::CHAT_WEBHOOK_URL unset; skipping chat notify."
+            exit 0
+          fi
+          python3 - "$CHAT_WEBHOOK_URL" <<'PY'
+          import json, os, sys, urllib.request
+          url = sys.argv[1]
+          text = os.environ["TEXT"]
+          payload = json.dumps({"content": text, "text": text}).encode()
+          req = urllib.request.Request(url, data=payload,
+                                       headers={"Content-Type": "application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  print("chat notify HTTP", r.status)
+          except Exception as e:
+              print("::warning::chat notify failed:", e)
+          PY
+
+  # ==========================================================================
+  # Lighthouse CWV monitor — MONITORING ONLY, NEVER BLOCKS.
+  #
+  # Runs lab Lighthouse against the resolved CF preview URL (homepage + deep
+  # routes) and upserts a sticky PR comment with LCP / CLS / TBT. This job
+  # NEVER fails the workflow — it is `continue-on-error: true`, so even a total
+  # Lighthouse crash leaves the run green and it can never become a required
+  # status check. Lab numbers only; every value is labelled MONITORING.
+  # ==========================================================================
+  lighthouse-monitor:
+    name: Lighthouse CWV (MONITORING, never blocks)
+    needs: notify-preview
+    # Only run when the preview actually resolved to a live, successful URL.
+    # (If notify-preview was skipped — e.g. a fork PR — needs makes this skip
+    # too, so the CF token / write scope is never reached by fork code.)
+    if: >-
+      needs.notify-preview.outputs.preview_state == 'success' &&
+      needs.notify-preview.outputs.preview_url != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # THE never-block guarantee: a failed job with continue-on-error does not
+    # fail the workflow run, so this can never gate the merge.
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      PREVIEW_URL: ${{ needs.notify-preview.outputs.preview_url }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Install Lighthouse
+        continue-on-error: true
+        run: npm install -g lighthouse@12
+
+      - name: Run Lighthouse on homepage + deep routes
+        id: lh
+        continue-on-error: true
+        env:
+          ROUTES: ${{ inputs.lighthouse_routes }}
+        run: |
+          set -uo pipefail
+          # Normalize the base URL (strip a trailing slash so path-joins are clean).
+          BASE="${PREVIEW_URL%/}"
+          : > /tmp/lh-manifest.txt   # lines: <url>|<route>|<json-path>
+          i=0
+          for route in $ROUTES; do
+            i=$((i + 1))
+            # Ensure exactly one slash between base and route.
+            case "$route" in
+              /*) url="${BASE}${route}" ;;
+              *)  url="${BASE}/${route}" ;;
+            esac
+            out="/tmp/lh-${i}.json"
+            echo "MONITORING: running Lighthouse for ${url}"
+            lighthouse "$url" \
+              --quiet \
+              --chrome-flags="--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage" \
+              --only-categories=performance \
+              --output=json \
+              --output-path="$out" \
+              --max-wait-for-load=45000 \
+              || echo "::warning::Lighthouse run failed for ${url} (MONITORING, non-blocking)"
+            if [ -f "$out" ]; then
+              printf '%s|%s|%s\n' "$url" "$route" "$out" >> /tmp/lh-manifest.txt
+            fi
+          done
+          echo "manifest:"; cat /tmp/lh-manifest.txt || true
+
+      - name: Build MONITORING comment body
+        if: always()
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, os
+          rows = []
+          manifest = "/tmp/lh-manifest.txt"
+          entries = []
+          if os.path.isfile(manifest):
+              with open(manifest) as fh:
+                  for line in fh:
+                      line = line.rstrip("\n")
+                      if not line:
+                          continue
+                      url, route, path = line.split("|", 2)
+                      entries.append((url, route, path))
+
+          def fmt_ms(v):
+              return f"{v/1000:.2f} s" if v is not None else "n/a"
+
+          def fmt_cls(v):
+              return f"{v:.3f}" if v is not None else "n/a"
+
+          for url, route, path in entries:
+              lcp = cls = tbt = None
+              try:
+                  with open(path) as fh:
+                      data = json.load(fh)
+                  audits = data.get("audits", {})
+                  lcp = audits.get("largest-contentful-paint", {}).get("numericValue")
+                  cls = audits.get("cumulative-layout-shift", {}).get("numericValue")
+                  tbt = audits.get("total-blocking-time", {}).get("numericValue")
+              except Exception as e:
+                  print(f"::warning::could not parse {path}: {e}")
+              rows.append((route, fmt_ms(lcp), fmt_cls(cls), fmt_ms(tbt)))
+
+          lines = []
+          lines.append("### Lighthouse Core Web Vitals — MONITORING ONLY")
+          lines.append("")
+          lines.append("_Lab numbers on the Cloudflare preview build. This is a "
+                       "MONITORING signal and **never blocks the merge**._")
+          lines.append("")
+          if rows:
+              lines.append("| Route | LCP | CLS | TBT |")
+              lines.append("|---|---|---|---|")
+              for route, lcp, cls, tbt in rows:
+                  lines.append(f"| `{route}` | {lcp} | {cls} | {tbt} |")
+          else:
+              lines.append("_No Lighthouse results were produced this run "
+                           "(preview unreachable or Lighthouse failed). MONITORING "
+                           "only — nothing is blocked._")
+          lines.append("")
+          lines.append("LCP = Largest Contentful Paint · CLS = Cumulative Layout "
+                       "Shift · TBT = Total Blocking Time. Lab values (MONITORING).")
+
+          with open("/tmp/lh-comment.md", "w") as fh:
+              fh.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          PY
+
+      - name: Upsert sticky Lighthouse comment
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- lighthouse-cwv-monitor -->';
+            let content = 'Lighthouse monitor produced no output this run (MONITORING).';
+            try {
+              content = fs.readFileSync('/tmp/lh-comment.md', 'utf8');
+            } catch (e) {
+              core.warning('no /tmp/lh-comment.md: ' + e.message);
+            }
+            const body = marker + '\n' + content;
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

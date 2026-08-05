@@ -1,0 +1,80 @@
+# ---------------------------------------------------------------------------
+# THIN CALLER — drop this into a CLIENT repo at .github/workflows/deploy-prod.yml
+#
+# Copy verbatim, then edit ONLY the `with:` values. All deploy logic lives in the
+# shared pipeline repo; no scripts are vendored here.
+#
+# PIN AN EXACT TAG. Never `@main`, never a moving `@v0` — a moving ref is
+# mutable and this is the path to PRODUCTION. Dependabot (github-actions
+# ecosystem, see the pipeline repo's .github/dependabot.yml) opens the PR that
+# moves this pin, and that PR lands only through the Alex-merge sacred gate.
+#
+# TRIGGER: push to main. In practice main is branch-protected and only changes
+# via a merged cycle PR, so "merge PR = approve = deploy" — the SACRED gate.
+# Direct pushes to main are blocked by branch protection.
+#
+# paths-ignore: docs/deploy-proofs/** — the reusable workflow's proof-commit job
+# pushes deploy.md back to main under the TRACKED docs/deploy-proofs/ path;
+# without this ignore that commit would re-trigger this workflow and loop. Proof
+# commits must never re-deploy. Do NOT gitignore docs/deploy-proofs/ in this
+# repo either — a gitignored proof path stages nothing on commit, so prod would
+# ship with no persisted proof.
+#
+# PREREQUISITE: Cloudflare dashboard production auto-deploy MUST be disabled for
+# this project. This Action is the ONLY path to prod.
+#
+# PREREQUISITE: create a `production` Environment in this repo (Settings ->
+# Environments), scope CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID /
+# CLOUDFLARE_PAGES_PROJECT to it, and set its deployment branch policy to main
+# only. The reusable workflow's deploy job binds to that Environment.
+#
+# SECRETS: `inherit` passes the three required CF secrets plus the optional
+# INDEXNOW_KEY, CHAT_WEBHOOK_URL and PIPELINE_REPO_TOKEN. The rail runs green on
+# just the three CF secrets.
+# ---------------------------------------------------------------------------
+name: Deploy Prod
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/deploy-proofs/**'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    uses: richardnhek/seo-content-pipeline/.github/workflows/deploy.reusable.yml@v2.1.0
+    with:
+      prod_url: "https://example.com"           # no trailing slash
+      indexnow_host: "example.com"              # bare domain, no scheme
+
+      # ---- Next.js static export (the default for 4 of the 5 clients) -------
+      build_command: ""                         # empty = derive from client profile
+      build_output_dir: "./out"
+
+      # ---- Vite / Northstar override (uncomment INSTEAD of the two lines above) --
+      # build_command: >-
+      #   npx vite build --emptyOutDir &&
+      #   npx vite build --ssr src/entry-server.tsx --outDir dist/server &&
+      #   node scripts/validate-routes.mjs &&
+      #   node scripts/build-sitemap.mjs &&
+      #   node prerender.mjs
+      # build_output_dir: "./dist"
+
+      # LIVE gate: every route must return 200 AND contain verify_string in the
+      # served HTML, or the run fails RED before IndexNow and the proof commit.
+      verify_routes: "/"                        # e.g. "/ /services/ /contact/"
+      verify_string: "Example"                  # brand string guaranteed in every route's HTML
+
+      # Optional. Empty submits prod_url only. The spine agent can inject the
+      # cycle's changed routes here (space- or newline-separated absolute URLs).
+      changed_urls: ""
+
+      node_version: "20"
+      # EXACT patch pin, never a floating major "4" — a floating major re-opens
+      # the supply-chain surface the SHA-pinned actions close. Bump in lockstep
+      # with the reusable workflow's default at each pipeline tag-cut.
+      wrangler_version: "4.112.0"
+    secrets: inherit

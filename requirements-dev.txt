@@ -1,0 +1,11 @@
+# Dev / test dependencies for the pipeline engine's OWN test suite (tests/).
+# Runtime deps are declared in pyproject.toml [project.dependencies]; this file
+# adds only what running the tests needs on top of an editable install.
+#   python -m venv .venv && .venv/bin/pip install -e . -r requirements-dev.txt
+#   .venv/bin/pytest
+pytest>=8.0
+# The distill/segmentation/emitter tests build real .docx fixtures, so the DOCX
+# parser is a TEST dependency. It is intake-only at runtime (the gate suite
+# never needs it), which is why it lives here, not in core dependencies.
+# docling is deliberately NOT pulled in — no test path imports it, and it is heavy.
+python-docx>=1.1

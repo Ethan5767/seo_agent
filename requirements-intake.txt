@@ -1,0 +1,8 @@
+# Intake-only extras: DOCX parsing and Google Drive tooling.
+# Not needed to run the gate suite. Install with:  pip install -e ".[intake]"
+-r requirements.txt
+docling>=2.0
+python-docx>=1.1
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2
+google-auth-httplib2>=0.2

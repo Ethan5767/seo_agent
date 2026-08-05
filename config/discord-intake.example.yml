@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Discord intake channel map — NON-SECRET. Copy to config/discord-intake.yml
+# and commit it. Channel ids and client slugs are not credentials; the bot
+# TOKEN is, and it lives only in the DISCORD_BOT_TOKEN repo secret (or, for
+# local dev, ~/.meridian/discord-bot.token). Never put a token in this file.
+#
+# Consumed by:
+#   pipeline/intake/discord_intake.py --config   (the `discord:` block)
+#   .github/workflows/intake-poll.yml            (also reads `preflight:`)
+#
+# Find channel ids with:
+#   wf-discord-intake --check-auth                 # bot + guild ids
+#   wf-discord-intake --list-channels --guild GID  # channel ids
+# ---------------------------------------------------------------------------
+
+discord:
+  # channel id -> client slug. An explicit mapping is the ONLY deterministic
+  # routing; filename matching is the fallback and 'unrouted' is the floor.
+  # Quote the ids: Discord snowflakes exceed a 53-bit float and some YAML
+  # readers will mangle a bare integer.
+  channels:
+    "REPLACE_WITH_CHANNEL_ID_1": example-client
+    "REPLACE_WITH_CHANNEL_ID_2": second-example
+
+  # Extra slugs the filename/message router may match on, beyond the mapped
+  # ones above. Useful when one channel carries several clients' drops.
+  slugs:
+    - example-client
+    - second-example
+
+preflight:
+  # slug -> client repo root (the dir holding docs/client-config.yml), relative
+  # to the workspace or absolute. preflight_docx.py needs a client config to
+  # know which forbidden phrases apply, so a slug with no entry here is
+  # RETRIEVED and archived but NOT pre-flighted — the run says so out loud
+  # rather than pretending the handoff is clean.
+  #
+  # In CI these paths only resolve if the client repo is also checked out.
+  # That is currently blocked on org access (see docs/HOW-IT-WORKS.md §5),
+  # so leaving this map empty is the expected state today: the loop still
+  # retrieves, archives and reports; the fix-list turns on the day the
+  # checkout works.
+  projects: {}
+  #   example-client: ./clients/example-client
+
+notify:
+  # Where the digest is posted when a file's client slug maps to no channel
+  # (e.g. 'unrouted'). Empty = fall back to the first channel in `channels`.
+  fallback_channel: ""

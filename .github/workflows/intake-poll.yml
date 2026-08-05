@@ -1,0 +1,340 @@
+# ---------------------------------------------------------------------------
+# Content intake poller + pre-flight feedback loop.
+#
+# WHAT THIS REPLACES. Until now `discord_intake.py --poll` ran on one
+# developer's laptop, in an interactive session, behind an ISP whose resolver
+# hands back a bogus A record for discord.com. So intake was: not automatic,
+# not available to anyone but that developer, and dead whenever the laptop
+# slept. Moving it here fixes all three at once — and GitHub's egress has no
+# such DNS hijack, so the DoH workaround becomes belt-and-braces instead of
+# load-bearing.
+#
+# THE LOOP. Team drops a DOCX in Discord -> this run retrieves it -> runs
+# `preflight_docx.py` (which predicts emit-time refusals exactly) -> posts the
+# fix-list summary back into the SAME channel within ~15 minutes. Feedback
+# lands where the team already works. Deliberately NO cross-repo push and NO
+# PAT: writing into client repos is blocked on org access today, and a loop
+# that needs it would not run at all.
+#
+# QUIET BY DEFAULT. Nothing new -> nothing posted. A poller that announces
+# "nothing new" every 15 minutes gets muted, and a muted channel destroys the
+# only thing this workflow is for.
+#
+# STATE ON A STATELESS RUNNER. `discord_intake.py` remembers the last seen
+# message id per channel in <dest>/.discord-intake-state.json. A fresh runner
+# has no such file, so without help every run would re-download and re-post
+# everything. The state file (and ONLY the state file — never the content) is
+# carried across runs in the Actions cache. Two consequences worth knowing:
+#   * cache is best-effort. If GitHub evicts it, one run re-posts a digest for
+#     drops it already reported. Noisy, not destructive.
+#   * state is saved AFTER the artifact upload and BEFORE the Discord post.
+#     The artifact is the system of record; the message is a signpost. A failed
+#     notification must not cause an infinite re-download loop.
+#
+# BECAUSE THE RUNNER IS FRESH, every file present under intake/ after the poll
+# step is by definition NEW this run. That is what makes "for each NEW .docx"
+# a simple find, with no manifest diffing.
+#
+# CONFIG. Channel -> client slug mapping is NOT hardcoded here. It comes from
+# config/discord-intake.yml (committed, non-secret) if present, else the
+# INTAKE_CHANNELS repo variable ("id:slug,id:slug"). The bot token is
+# referenced by secret NAME only.
+#
+# SECURITY. harden-runner first; contents:read only (this workflow never writes
+# to the repo); every action SHA-pinned; concurrency serialises runs so two
+# pollers cannot race the same channel cursor.
+# ---------------------------------------------------------------------------
+name: Content Intake Poll
+
+on:
+  schedule:
+    # Hourly while intake is dormant — content drops are ~monthly, so this is
+    # plenty responsive and economical. Bump back to '*/15 * * * *' once the bot
+    # is live and the team wants faster fix-list feedback.
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      since_reset:
+        description: "Ignore the saved cursor and re-scan the recent window (will re-post)"
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "Do everything except post to Discord (renders the message into the log)"
+        required: false
+        type: boolean
+        default: false
+
+# Read-only. Intake writes artifacts and a cache entry, never the repository.
+permissions:
+  contents: read
+
+# Never two pollers at once: they would race the same per-channel cursor and
+# double-post. Queue instead of cancel — a cancelled run loses its cursor save.
+concurrency:
+  group: intake-poll-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  INTAKE_DIR: intake
+  REPORT_DIR: intake-reports
+  CONFIG_FILE: config/discord-intake.yml
+
+jobs:
+  poll:
+    name: Poll Discord, pre-flight new DOCX, report back
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Checkout pipeline
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # -------------------------------------------------------------------
+      # Resolve config FIRST and skip cleanly (green) when intake is not set up
+      # yet. A scheduled cron must NOT fail every hour waiting on a human to add
+      # the bot token + channel map — it stays green and activates itself once
+      # both exist. Everything expensive below is gated on ready == 'true'.
+      # -------------------------------------------------------------------
+      - name: Resolve config
+        id: cfg
+        env:
+          INTAKE_CHANNELS: ${{ vars.INTAKE_CHANNELS }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: |
+          set -uo pipefail
+          missing=""
+          if [ -f "${CONFIG_FILE}" ]; then
+            echo "Channel map: committed ${CONFIG_FILE}"
+          elif [ -n "${INTAKE_CHANNELS:-}" ]; then
+            echo "Channel map: INTAKE_CHANNELS repo variable"
+          else
+            missing="${missing} channel-map(commit ${CONFIG_FILE} or set INTAKE_CHANNELS)"
+          fi
+          if [ -z "${DISCORD_BOT_TOKEN:-}" ]; then
+            missing="${missing} DISCORD_BOT_TOKEN-secret"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::notice::Discord intake not configured yet; skipping (run stays green). Missing:${missing}. See docs/HOW-IT-WORKS.md — it activates automatically once these are set."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Python
+        if: steps.cfg.outputs.ready == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install pipeline package
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet .
+
+      # Restore ONLY the cursor file. Content is never cached — it must come
+      # down fresh so "everything on disk is new" stays true.
+      - name: Restore intake cursor
+        id: cursor
+        if: steps.cfg.outputs.ready == 'true'
+        # restore/save are split on purpose. The combined `actions/cache` saves
+        # in a post-job hook, which with a run-unique key means it always saves
+        # — including on a failed run, and racing the explicit save below.
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.INTAKE_DIR }}/.discord-intake-state.json
+          key: discord-intake-cursor-${{ github.run_id }}
+          restore-keys: |
+            discord-intake-cursor-
+
+      - name: Poll Discord for new drops
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          INTAKE_CHANNELS: ${{ vars.INTAKE_CHANNELS }}
+          SINCE_RESET: ${{ inputs.since_reset }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_BOT_TOKEN:-}" ]; then
+            echo "::error::The DISCORD_BOT_TOKEN secret is not set on this repository. Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+
+          ARGS=(--poll --dest "${INTAKE_DIR}")
+          if [ "${SINCE_RESET:-false}" = "true" ]; then
+            echo "::warning::--since-reset requested: the cursor is ignored, so already-reported drops will be re-reported."
+            ARGS+=(--since-reset)
+          fi
+          if [ -f "${CONFIG_FILE}" ]; then
+            ARGS+=(--config "${CONFIG_FILE}")
+          else
+            IFS=',' read -ra PAIRS <<< "${INTAKE_CHANNELS}"
+            for p in "${PAIRS[@]}"; do
+              p="$(echo "$p" | xargs)"     # trim
+              [ -n "$p" ] && ARGS+=(--channel "$p")
+            done
+          fi
+
+          python3 -m pipeline.intake.discord_intake "${ARGS[@]}"
+
+      # -------------------------------------------------------------------
+      # Pre-flight every newly retrieved DOCX and assemble the per-channel
+      # digests. Kept in one Python step because building nested JSON in bash
+      # is how you get a workflow nobody can safely edit.
+      # -------------------------------------------------------------------
+      - name: Pre-flight new DOCX and build digests
+        id: preflight
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          INTAKE_CHANNELS: ${{ vars.INTAKE_CHANNELS }}
+        run: |
+          set -uo pipefail
+          python3 <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+
+          intake   = Path(os.environ['INTAKE_DIR'])
+          reports  = Path(os.environ['REPORT_DIR']); reports.mkdir(parents=True, exist_ok=True)
+          cfg_path = Path(os.environ['CONFIG_FILE'])
+          run_url  = os.environ['RUN_URL']
+
+          # ---- channel map + preflight project map -------------------------
+          channels, projects, fallback = {}, {}, ''
+          if cfg_path.is_file():
+              import yaml
+              cfg = yaml.safe_load(cfg_path.read_text()) or {}
+              channels = {str(k): str(v) for k, v in ((cfg.get('discord') or {}).get('channels') or {}).items()}
+              projects = {str(k): str(v) for k, v in ((cfg.get('preflight') or {}).get('projects') or {}).items()}
+              fallback = str((cfg.get('notify') or {}).get('fallback_channel') or '')
+          else:
+              for pair in os.environ.get('INTAKE_CHANNELS', '').split(','):
+                  cid, _, slug = pair.strip().partition(':')
+                  if cid.strip():
+                      channels[cid.strip()] = slug.strip()
+
+          # slug -> channel, so a digest goes back to the channel it came from.
+          slug_to_channel = {v: k for k, v in channels.items() if v}
+          default_channel = fallback or (next(iter(channels), '') if channels else '')
+
+          # ---- every DOCX on disk is new: the runner started empty ----------
+          docs = sorted(p for p in intake.rglob('*.docx') if not p.name.startswith('~$'))
+          print(f'{len(docs)} new DOCX retrieved')
+
+          per_channel: dict[str, list] = {}
+          for d in docs:
+              # intake/<slug>/<date>/<file>.docx
+              try:
+                  slug = d.relative_to(intake).parts[0]
+              except ValueError:
+                  slug = 'unrouted'
+              entry = {'name': d.name, 'client': slug}
+              proj = projects.get(slug)
+
+              if not proj:
+                  entry.update(status='skipped', preflight=None,
+                               note=f"no project dir mapped for '{slug}' — add preflight.projects."
+                                    f"{slug} in {cfg_path}, or route the channel to a mapped client")
+              elif not Path(proj).is_dir():
+                  entry.update(status='skipped', preflight=None,
+                               note=f"mapped project dir '{proj}' is not present in this workspace "
+                                    "(the client repo is not checked out here)")
+              else:
+                  stem = f'{slug}--{d.stem}'
+                  md, js = reports / f'{stem}.fix-list.md', reports / f'{stem}.findings.json'
+                  # Exit codes are the signal, not a failure: 0 clean, 1 curate,
+                  # 3 blocking. Only 2 (usage/dependency) is a real error.
+                  rc = subprocess.run(
+                      [sys.executable, '-m', 'pipeline.intake.preflight_docx', str(d),
+                       '--project', proj, '--out', str(md), '--json', str(js)]
+                  ).returncode
+                  if rc == 2 or not js.is_file():
+                      entry.update(status='error', preflight=None,
+                                   note=f'preflight_docx exited {rc} — see the run log')
+                  else:
+                      pf = json.loads(js.read_text())
+                      entry.update(
+                          status={0: 'ready', 1: 'curate', 3: 'blocked'}.get(rc, 'unknown'),
+                          preflight={k: pf.get(k) for k in
+                                     ('pages', 'blocking_findings', 'curate_findings',
+                                      'pages_ready', 'pages_blocked')})
+
+              chan = slug_to_channel.get(slug) or default_channel
+              if chan:
+                  per_channel.setdefault(chan, []).append(entry)
+              else:
+                  print(f'::warning::no channel to report {d.name} to — configure notify.fallback_channel')
+
+          digests = Path('intake-digests'); digests.mkdir(exist_ok=True)
+          for chan, files in per_channel.items():
+              (digests / f'{chan}.json').write_text(json.dumps(
+                  {'files': files, 'run_url': run_url, 'artifact_url': run_url}, indent=2))
+
+          Path(os.environ['GITHUB_OUTPUT']).open('a').write(
+              f'new_files={len(docs)}\ndigests={len(per_channel)}\n')
+          if docs:
+              blocked = sum(1 for c in per_channel.values() for f in c if f['status'] == 'blocked')
+              print(f'::notice::{len(docs)} new file(s); {blocked} with blocking findings.')
+          PY
+
+      - name: Upload fix-lists and retrieved files
+        if: steps.cfg.outputs.ready == 'true' && steps.preflight.outputs.new_files != '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: intake-fix-lists
+          path: |
+            ${{ env.REPORT_DIR }}/
+            ${{ env.INTAKE_DIR }}/
+          if-no-files-found: warn
+          # Client content. Long enough to survive a holiday weekend and a
+          # re-run, short enough that team DOCX do not accumulate forever.
+          retention-days: 30
+
+      # Saved only now: the artifact above is the durable record. Saving the
+      # cursor earlier would risk losing a drop if the upload failed.
+      # Only on the success path: if the poll or pre-flight failed, NOT saving
+      # the cursor is what makes the next run pick the drop up again.
+      - name: Save intake cursor
+        if: steps.cfg.outputs.ready == 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.INTAKE_DIR }}/.discord-intake-state.json
+          key: discord-intake-cursor-${{ github.run_id }}
+
+      # -------------------------------------------------------------------
+      # Report back into the source channel. Skipped entirely when nothing
+      # new arrived — that is the whole no-spam contract.
+      # -------------------------------------------------------------------
+      - name: Post digest to Discord
+        if: steps.cfg.outputs.ready == 'true' && steps.preflight.outputs.new_files != '0' && steps.preflight.outputs.digests != '0'
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -uo pipefail
+          rc_worst=0
+          for f in intake-digests/*.json; do
+            chan="$(basename "$f" .json)"
+            EXTRA=()
+            [ "${DRY_RUN:-false}" = "true" ] && EXTRA+=(--dry-run)
+            python3 -m pipeline.intake.discord_notify \
+              --channel "$chan" \
+              --summary-json "$f" \
+              --artifact-url "${ARTIFACT_URL}" "${EXTRA[@]+"${EXTRA[@]}"}"
+            rc=$?
+            if [ "$rc" -eq 3 ]; then
+              echo "::warning::Bot lacks Send Messages on channel ${chan}. Fix-lists are still in the run artifact."
+            elif [ "$rc" -ne 0 ]; then
+              rc_worst=$rc
+            fi
+          done
+          exit "$rc_worst"

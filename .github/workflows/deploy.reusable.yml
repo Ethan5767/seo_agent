@@ -1,0 +1,911 @@
+# ---------------------------------------------------------------------------
+# Reusable production deploy workflow (workflow_call) — HARDENED
+#
+# ONE definition shared by every client repo. Per-client repos hold only a THIN
+# CALLER (see ../examples/deploy-prod.yml) that passes inputs + `secrets:
+# inherit`. Changing the rail for the whole fleet = editing THIS file and
+# cutting a new tag.
+#
+# NO SCRIPTS ARE VENDORED INTO CLIENT REPOS. Everything runs out of a SECOND
+# checkout of this repo pinned to the exact commit of this workflow file:
+# indexnow-submit and client-profile as `wf-*` console entry points from the
+# installed pipeline package, and the two SHELL gates (verify-live.sh,
+# proof-assert.sh — no console entry point, they are not Python) straight out of
+# the .pipeline checkout path. A client that pins @v0.1.0 gets exactly v0.1.0's
+# tooling either way.
+#
+# Flow (runs only after a PR is merged to main -> push:main in the caller):
+#   [job: deploy]  (holds the CF token, NO repo-write)
+#     harden-runner -> checkout client -> checkout pipeline -> pip install ->
+#     npm ci -> BUILD (build_command or framework default) -> assert
+#     build_output_dir -> wrangler pages deploy <dir> --branch=main (PRODUCTION)
+#     -> verify-live.sh (LIVE gate: curl 200 + content assert) ->
+#     wf-indexnow-submit (Bing/Yandex; NOT Google) -> export outcomes
+#   [job: proof]   (needs: deploy; holds repo-write, NO CF token)
+#     write proof docs/deploy-proofs/[date]/deploy.md + commit + assert (blocking
+#     meta-gate: no proof file present-and-non-empty = RED) + notify chat
+#
+# Proof path: proofs land in the TRACKED docs/deploy-proofs/, NOT
+# docs/audit-logs/ (which client repos gitignore — a gitignored proof path
+# stages nothing on commit -> "nothing to commit" -> prod ships with no persisted
+# proof, silently violating "no proof = it didn't happen"). The caller's push
+# trigger MUST paths-ignore docs/deploy-proofs/** so the proof commit does not
+# re-trigger the deploy.
+#
+# Security:
+#   - Every action pinned to a full commit SHA + # vX comment.
+#   - step-security/harden-runner as step 1 of every job. BOTH jobs run
+#     egress-policy: block with a reviewed allow-list — the deploy job (CF token)
+#     and the proof job (repo-write). Reconcile each allow-list against a
+#     StepSecurity audit-baseline Insights report before relying on it; see the
+#     per-step comments for the endpoint rationale.
+#   - production Environment: the deploy job binds to `environment: production`
+#     so the CF secrets are scoped there (Alex-admin Settings) and every prod
+#     deploy lands in the Environments/Deployments timeline.
+#   - Least privilege: workflow default contents:read; the CF-token `deploy` job
+#     gets only deployments:write; the proof commit is isolated in a separate
+#     `proof` job with contents:write so the deploy-credential job cannot push
+#     to the repo.
+#   - Every ${{ inputs.* }} / ${{ github.event.* }} routed through env: before
+#     any run:, never interpolated inline in a shell body (script-injection).
+#
+# Fail-loud: any failed step fails the run.
+#
+# AUTO-ROLLBACK (built in, not a manual note): BEFORE deploying, the deploy job
+# captures the deployment id currently serving production (cf-rollback.sh
+# capture). AFTER deploying it runs verify-live.sh AND cf-crawler-check.sh as
+# BLOCKING post-deploy gates. If either fails, it automatically rolls production
+# back to the captured id (cf-rollback.sh rollback), RE-VERIFIES the restored
+# build, and records the whole thing in the deploy proof + chat. A rollback that
+# itself fails — or a first-ever deploy that fails with no previous id to revert
+# to — is escalated as a P0 in the job summary and the chat notification. The
+# rollback only ever PROMOTES a deployment that already exists in the project's
+# history (code a human already merged to main at some past point); it never
+# builds or creates a deployment, so it is NOT a second path to prod. Manual
+# fallback if ever needed: `wrangler pages deployment rollback` to a prior id.
+#
+# Pin maintenance: keep SHAs current with pinact / Dependabot.
+# ---------------------------------------------------------------------------
+name: Deploy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      prod_url:
+        description: "Production base URL, no trailing slash (e.g. https://example.com)"
+        required: true
+        type: string
+      build_command:
+        description: "Exact build command to run. Empty = derive from the client profile (vite -> Northstar multi-step, else -> next build)."
+        required: false
+        type: string
+        default: ""
+      build_output_dir:
+        description: "Directory the build writes and wrangler deploys. Next static export: ./out (default). Vite/Northstar override: ./dist."
+        required: false
+        type: string
+        default: "./out"
+      verify_routes:
+        description: "Space-separated key routes to assert, e.g. '/ /services/ /contact/'"
+        required: false
+        type: string
+        default: "/"
+      verify_string:
+        description: "Known content string that must appear in served HTML of every route"
+        required: false
+        type: string
+        default: ""
+      indexnow_host:
+        description: "IndexNow host (bare domain, e.g. example.com)"
+        required: true
+        type: string
+      changed_urls:
+        description: "Newline- or space-separated absolute URLs to submit to IndexNow. Empty = submit prod_url only."
+        required: false
+        type: string
+        default: ""
+      node_version:
+        description: "Node.js version for the build"
+        required: false
+        type: string
+        default: "20"
+      python_version:
+        description: "Python version used to install and run the pipeline tooling"
+        required: false
+        type: string
+        default: "3.12"
+      wrangler_version:
+        # Pinned to an EXACT patch, not a floating major "4". A floating major
+        # re-opens the supply-chain surface the SHA-pinned actions otherwise
+        # close (a bad wrangler patch would ship silently). Dependabot cannot
+        # bump a workflow_call string input, so this pin is advanced by hand /
+        # by the pin-maintenance step at each pipeline tag-cut (see
+        # .github/dependabot.yml — that watches the github-actions `uses:` SHAs;
+        # wrangler_version is tracked in the CHANGELOG bump checklist).
+        description: "Wrangler CLI version pinned in CI — EXACT patch, never a floating major (v4: pages deploy)"
+        required: false
+        type: string
+        default: "4.112.0"
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+      CLOUDFLARE_PAGES_PROJECT:
+        description: "Cloudflare Pages project name (e.g. example-mainsite). Supplied as a repo secret, not an input."
+        required: true
+      # Optional: the rail runs green on just the 3 CF secrets. IndexNow no-ops
+      # when the key is absent; chat-notify is skipped if no webhook is set.
+      INDEXNOW_KEY:
+        required: false
+      CHAT_WEBHOOK_URL:
+        required: false
+      PIPELINE_REPO_TOKEN:
+        description: >-
+          Optional PAT with read access to richardnhek/seo-content-pipeline,
+          used ONLY for the second (pipeline) checkout. Required while this repo
+          is private, because a client repo's GITHUB_TOKEN cannot read a
+          different private repo. Omit once the pipeline repo is public.
+        required: false
+
+# Workflow default = read-only. Each job escalates only what it needs.
+permissions:
+  contents: read
+
+# Never run two prod deploys for the same repo at once. Do NOT cancel an
+# in-flight prod deploy (cancel-in-progress: false) — a half-finished deploy is
+# worse than a queued one.
+concurrency:
+  group: deploy-prod-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha
+  # (see "Resolve pipeline ref" below). Advanced at every tag-cut. Self-consistent
+  # because the stamp lives IN the versioned file.
+  PIPELINE_REF: "v2.1.0"
+  PIPELINE_REPO: "richardnhek/seo-content-pipeline"
+
+jobs:
+  # -------------------------------------------------------------------------
+  # JOB 1 — build + deploy + LIVE gates. Holds the Cloudflare token.
+  # Permissions: deployments:write only (so wrangler-action can record a GitHub
+  # Deployment). NO contents:write here — this job must not be able to push to
+  # the repo, because it is the job a compromised action could exfiltrate the CF
+  # token from.
+  # -------------------------------------------------------------------------
+  deploy:
+    name: Build + Deploy Prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Production Environment. Binds this job to the repo's `production`
+    # Environment so the CF token/account/project secrets are scoped HERE
+    # (Settings → Environments → production, branch policy = main only) rather
+    # than living as bare repo secrets, and every prod deploy shows up in the
+    # repo's Environments/Deployments timeline. `url` surfaces the live site on
+    # the deployment record. The Environment itself + its branch policy + secret
+    # scoping are a Alex-admin Settings action (see the handoff checklist); this
+    # block is the code half that opts the job into it.
+    environment:
+      name: production
+      url: ${{ inputs.prod_url }}
+    permissions:
+      contents: read
+      deployments: write
+    outputs:
+      deployment_url: ${{ steps.outcomes.outputs.deployment_url }}
+      out_files: ${{ steps.build.outputs.out_files }}
+      build_dir: ${{ steps.build.outputs.build_dir }}
+      recipe_hash: ${{ steps.build.outputs.recipe_hash }}
+      deploy_outcome: ${{ steps.outcomes.outputs.deploy_outcome }}
+      verify_outcome: ${{ steps.outcomes.outputs.verify_outcome }}
+      crawler_outcome: ${{ steps.outcomes.outputs.crawler_outcome }}
+      indexnow_outcome: ${{ steps.outcomes.outputs.indexnow_outcome }}
+      post_deploy_status: ${{ steps.outcomes.outputs.post_deploy_status }}
+      rollback_from: ${{ steps.outcomes.outputs.rollback_from }}
+      rollback_to: ${{ steps.outcomes.outputs.rollback_to }}
+      prev_deployment_id: ${{ steps.outcomes.outputs.prev_deployment_id }}
+    steps:
+      - name: Harden runner
+        # BLOCK-MODE. This is the job that holds the long-lived Cloudflare token
+        # (there is still no OIDC / trusted-publishing for CF Pages), so egress
+        # block-mode is the documented compensating exfil control: any outbound
+        # call to a host NOT on the allow-list below is dropped, so a compromised
+        # transitive dependency cannot exfiltrate the CF token to an attacker
+        # endpoint.
+        #
+        # PREREQUISITE (do not skip): this allow-list must be reconciled against a
+        # StepSecurity `egress-policy: audit` baseline run's Insights report BEFORE
+        # relying on it. The list below is the reviewed set of endpoints this job
+        # legitimately needs; if a real deploy fails a network step after this flip,
+        # the Insights report names the missing host — add it here, never widen to
+        # a blanket allow. Known soft spots to confirm from the baseline:
+        #   - Cloudflare telemetry (sparrow.cloudflare.com) — if wrangler blocks,
+        #     set WRANGLER_SEND_METRICS=false rather than allowing it.
+        #   - setup-node only reaches nodejs.org when the version isn't cached on
+        #     the runner (ubuntu-latest caches Node 20); add nodejs.org:443 if so.
+        #   - pypi.org / files.pythonhosted.org are required by the pipeline
+        #     package install (pip resolves its pinned deps from PyPI).
+        #   - the prod domain is derived from indexnow_host (bare domain); if
+        #     prod_url uses a www/apex variant that differs, add that host too.
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            registry.npmjs.org:443
+            pypi.org:443
+            files.pythonhosted.org:443
+            api.cloudflare.com:443
+            api.indexnow.org:443
+            ${{ inputs.indexnow_host }}:443
+
+      # CHECKOUT 1 — the CLIENT SITE (a reusable workflow's steps run in the
+      # caller's context, so the default checkout fetches the client repo).
+      - name: Checkout client site
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # ---------------------------------------------------------------------
+      # Resolve the pipeline ref for CHECKOUT 2.
+      #
+      # github.job_workflow_sha resolves to the commit SHA of the reusable
+      # workflow file currently executing — so the deploy tooling is GUARANTEED
+      # to match the tag the client pinned, with zero duplicated pins.
+      #
+      # FALLBACK (stamped PIPELINE_REF): job_workflow_sha is populated only when
+      # this file runs AS a called reusable workflow. It is empty when the file
+      # is run directly in this repo (local self-test) and has been reported
+      # empty in some GHES / older-runner contexts. When empty we fall back to
+      # the PIPELINE_REF stamped into this file at tag-cut time (workflow `env:`
+      # above). Never point that stamp at a moving branch for a prod client.
+      # ---------------------------------------------------------------------
+      - name: Resolve pipeline ref
+        id: pipe
+        env:
+          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          STAMPED_REF: ${{ env.PIPELINE_REF }}
+        run: |
+          REF="${JOB_WORKFLOW_SHA:-}"
+          if [ -z "$REF" ]; then
+            REF="${STAMPED_REF:-}"
+            echo "::warning::github.job_workflow_sha was empty — falling back to the stamped PIPELINE_REF '${REF}'."
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::No pipeline ref could be resolved (job_workflow_sha empty AND no stamped PIPELINE_REF). Refusing to deploy with an unknown pipeline version."
+            exit 1
+          fi
+          echo "Pipeline ref: ${REF}"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+
+      # CHECKOUT 2 — the PIPELINE, version-locked to THIS workflow file.
+      - name: Checkout pipeline (version-locked)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ env.PIPELINE_REPO }}
+          ref: ${{ steps.pipe.outputs.ref }}
+          path: .pipeline
+          persist-credentials: false
+          token: ${{ secrets.PIPELINE_REPO_TOKEN || github.token }}
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      # Installs the pipeline package, exposing the wf-* console entry points on
+      # PATH (wf-client-profile, wf-indexnow-submit). The shell gates
+      # (verify-live.sh, cf-crawler-check.sh, cf-rollback.sh, proof-assert.sh)
+      # are invoked from the .pipeline checkout path instead. Version-locked by
+      # CHECKOUT 2. Runs BEFORE the build so wf-client-profile is on PATH for the
+      # shared build action's profile step.
+      - name: Install pipeline package
+        run: |
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet ./.pipeline
+          echo "Installed pipeline from ref ${{ steps.pipe.outputs.ref }}"
+
+      # THE ONE SHARED BUILD DEFINITION — the SAME composite action the quality
+      # gate runs. node setup + npm ci + profile + framework build + output
+      # assertion in one place, so what the gate tested and what we ship here are
+      # the same build by construction (not by two copies of a build block that
+      # could drift). Referenced from the version-locked .pipeline checkout so it
+      # stays pinned to the client's tag. Exposes build_dir / out_files /
+      # framework_family / recipe_hash and writes FAMILY/BUILD_DIR to env.
+      - name: Build (shared build-site action)
+        id: build
+        uses: ./.pipeline/.github/actions/build-site
+        with:
+          node_version: ${{ inputs.node_version }}
+          build_command: ${{ inputs.build_command }}
+          build_output_dir: ${{ inputs.build_output_dir }}
+
+      # ---------------------------------------------------------------------
+      # ROLLBACK PRE-CAPTURE — record the deployment id currently SERVING
+      # production BEFORE we deploy the new build. This is the target we roll
+      # back to if post-deploy verification fails. On the FIRST-EVER deploy the
+      # project has no prior production deployment, so this prints (and records)
+      # the literal NONE — an expected, explicitly-handled state, never a crash.
+      # cf-rollback.sh only ever PROMOTES a deployment that already exists in the
+      # project history (code a human already merged to main at some past point);
+      # it never builds or creates a deployment, so it is NOT a second path to
+      # prod. Reads the per-client CF account/token/project from env — no shared
+      # account is assumed.
+      # ---------------------------------------------------------------------
+      - name: Capture current production deployment (rollback target)
+        id: precapture
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
+        run: |
+          chmod +x .pipeline/pipeline/deploy/cf-rollback.sh
+          PREV="$(.pipeline/pipeline/deploy/cf-rollback.sh capture)" || {
+            echo "::error::Could not read the current production deployment id from Cloudflare. Refusing to deploy blind — a failed post-deploy check would have no captured rollback target."
+            exit 1
+          }
+          echo "Current production deployment (rollback target): ${PREV}"
+          if [ "${PREV}" = "NONE" ]; then
+            echo "::notice::No previous production deployment — this is the FIRST-EVER deploy for this project. If post-deploy verification fails there is nothing to roll back to (escalated as P0-no-target, not a silent pass)."
+          fi
+          echo "prev_deployment_id=${PREV}" >> "$GITHUB_OUTPUT"
+
+      # PRODUCTION deploy. --branch=main maps to the Pages production branch so
+      # this becomes the live deployment (not a preview alias). This direct
+      # wrangler push — NOT the CF git webhook — is the sole prod path, which is
+      # why the "push didn't trigger a build" double-push quirk cannot occur.
+      - name: Deploy to Cloudflare Pages (production)
+        id: deploy
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        env:
+          CF_PROJECT: ${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
+          CF_BUILD_DIR: ${{ steps.build.outputs.build_dir }}
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: ${{ inputs.wrangler_version }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          # wrangler-action runs `command` through a shell, so $CF_PROJECT and
+          # $CF_BUILD_DIR (set in env: above) expand at run time. Both are routed
+          # via env rather than inline interpolation, matching the CF
+          # token/account-id hygiene used elsewhere.
+          command: pages deploy $CF_BUILD_DIR --project-name=$CF_PROJECT --branch=main
+
+      - name: Show deployment URL
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          echo "Cloudflare deployment URL: ${DEPLOYMENT_URL:-<none returned>}"
+
+      # =====================================================================
+      # POST-DEPLOY VERIFICATION — the gates that trigger auto-rollback.
+      #
+      # verify-live and cf-crawler-check run with continue-on-error so that a
+      # FAILURE does not abort the job before the rollback can fire. They are NOT
+      # advisory: their outcomes are the sole input to the rollback decision
+      # below, and a failure that is NOT recovered turns the whole run RED. This
+      # is the difference between "detect a bad deploy" and "recover from one".
+      # =====================================================================
+
+      # VERIFY (never claim shipped until the served HTML is grepped).
+      # VERIFY_ROUTES is passed unquoted ON PURPOSE so the shell word-splits it
+      # into separate route args.
+      - name: Verify live
+        id: verify
+        continue-on-error: true
+        env:
+          PROD_URL: ${{ inputs.prod_url }}
+          VERIFY_STRING: ${{ inputs.verify_string }}
+          VERIFY_ROUTES: ${{ inputs.verify_routes }}
+        run: |
+          # verify-live is a shell gate, so it has no `wf-*` console entry point
+          # (those are Python `[project.scripts]`). It is still NOT vendored into
+          # the client repo — it is run straight out of the version-locked
+          # .pipeline checkout, so it matches the pinned tag exactly.
+          chmod +x .pipeline/pipeline/deploy/verify-live.sh
+          .pipeline/pipeline/deploy/verify-live.sh "$PROD_URL" "$VERIFY_STRING" $VERIFY_ROUTES
+
+      # CF-CRAWLER edge gate (post-deploy). Catches a silent Cloudflare "Block AI
+      # Crawlers" toggle / WAF rule that returns a challenge to citation bots —
+      # invisible in ./out, only observable on the live edge. A citation-UA block
+      # is RED and, like a verify failure, triggers rollback. Training bots are
+      # INFO-only inside the script and never gate.
+      - name: Verify AI-crawler edge access
+        id: crawler
+        continue-on-error: true
+        env:
+          PROD_URL: ${{ inputs.prod_url }}
+          VERIFY_STRING: ${{ inputs.verify_string }}
+          VERIFY_ROUTES: ${{ inputs.verify_routes }}
+        run: |
+          chmod +x .pipeline/pipeline/deploy/cf-crawler-check.sh
+          .pipeline/pipeline/deploy/cf-crawler-check.sh "$PROD_URL" "$VERIFY_STRING" $VERIFY_ROUTES
+
+      # ---------------------------------------------------------------------
+      # AUTO-ROLLBACK DECISION. If EITHER post-deploy gate failed, roll
+      # production back to the pre-capture deployment id, then RE-VERIFY that the
+      # rollback restored a good state. Sets post_deploy_status to exactly one of:
+      #   healthy          — both gates passed; nothing rolled back
+      #   rolled_back      — a gate failed; rollback ran AND the re-verify passed
+      #                      (production is safe on the previous good build)
+      #   rollback_failed  — a gate failed; rollback API failed OR the post-
+      #                      rollback re-verify still failed  => P0
+      #   no_rollback_target — a gate failed on the FIRST-EVER deploy; there is no
+      #                      previous deployment to roll back to => P0
+      # This step never exits non-zero itself (if: always, exit 0) so the summary
+      # + outcomes + proof still run; the dedicated gate step below is what turns
+      # the run RED. Every branch records what happened — nothing rolls back
+      # silently.
+      # ---------------------------------------------------------------------
+      - name: Auto-rollback on failed verification
+        id: rollback
+        if: always() && steps.deploy.outcome == 'success'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
+          PREV_ID: ${{ steps.precapture.outputs.prev_deployment_id }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          CRAWLER_OUTCOME: ${{ steps.crawler.outcome }}
+          PROD_URL: ${{ inputs.prod_url }}
+          VERIFY_STRING: ${{ inputs.verify_string }}
+          VERIFY_ROUTES: ${{ inputs.verify_routes }}
+        run: |
+          set -uo pipefail
+          ROLLBACK_SH=".pipeline/pipeline/deploy/cf-rollback.sh"
+          VERIFY_SH=".pipeline/pipeline/deploy/verify-live.sh"
+          chmod +x "$ROLLBACK_SH" "$VERIFY_SH"
+
+          emit() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          emit rollback_from ""
+          emit rollback_to ""
+
+          if [ "$VERIFY_OUTCOME" = "success" ] && [ "$CRAWLER_OUTCOME" = "success" ]; then
+            echo "Post-deploy verification passed (verify=${VERIFY_OUTCOME}, crawler=${CRAWLER_OUTCOME}). No rollback needed."
+            emit post_deploy_status "healthy"
+            exit 0
+          fi
+
+          echo "::warning::Post-deploy verification FAILED (verify=${VERIFY_OUTCOME}, crawler=${CRAWLER_OUTCOME}). Initiating auto-rollback."
+
+          if [ -z "${PREV_ID}" ] || [ "${PREV_ID}" = "NONE" ]; then
+            echo "::error::FIRST-EVER deploy failed verification and there is NO previous production deployment to roll back to. Production is serving a BAD build. Manual intervention required NOW."
+            emit post_deploy_status "no_rollback_target"
+            exit 0
+          fi
+
+          echo "Rolling back: from failed live build -> ${PREV_ID}"
+          emit rollback_from "current(failed)"
+          emit rollback_to "${PREV_ID}"
+
+          if ! "$ROLLBACK_SH" rollback "${PREV_ID}"; then
+            echo "::error::ROLLBACK FAILED — the Cloudflare rollback to ${PREV_ID} did not complete. Production is STILL serving the bad build. This is a P0."
+            emit post_deploy_status "rollback_failed"
+            exit 0
+          fi
+
+          # Rollback API succeeded AND cf-rollback.sh already confirmed prod is
+          # serving PREV_ID. Now independently RE-VERIFY the live HTML to prove
+          # the restored build is actually good — a rollback that lands on a
+          # deployment that is itself broken must not be reported as recovered.
+          echo "Rollback landed on ${PREV_ID}. Re-verifying the restored build..."
+          if "$VERIFY_SH" "$PROD_URL" "$VERIFY_STRING" $VERIFY_ROUTES; then
+            echo "Re-verify PASSED — production restored to a known-good build (${PREV_ID})."
+            emit post_deploy_status "rolled_back"
+          else
+            echo "::error::Rollback to ${PREV_ID} completed but the RE-VERIFY still failed. Production may be broken even on the previous build. This is a P0."
+            emit post_deploy_status "rollback_failed"
+          fi
+          exit 0
+
+      # Human-readable job summary for the operator — clean / rolled-back /
+      # failed-rollback, with the captured + target deployment ids.
+      - name: Post-deploy summary
+        if: always()
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          CRAWLER_OUTCOME: ${{ steps.crawler.outcome }}
+          STATUS: ${{ steps.rollback.outputs.post_deploy_status }}
+          PREV_ID: ${{ steps.precapture.outputs.prev_deployment_id }}
+          ROLLBACK_TO: ${{ steps.rollback.outputs.rollback_to }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+          PROD_URL: ${{ inputs.prod_url }}
+        run: |
+          {
+            echo "## Production deploy — post-deploy status"
+            echo ""
+            echo "- Site: ${PROD_URL}"
+            echo "- New deployment: ${DEPLOYMENT_URL:-<none>}"
+            echo "- Captured rollback target (pre-deploy live id): \`${PREV_ID:-<unknown>}\`"
+            echo "- wrangler deploy: ${DEPLOY_OUTCOME:-unknown} · verify-live: ${VERIFY_OUTCOME:-unknown} · cf-crawler: ${CRAWLER_OUTCOME:-unknown}"
+            echo ""
+            case "${STATUS:-unknown}" in
+              healthy)
+                echo "### ✅ CLEAN DEPLOY"
+                echo "Both post-deploy gates passed. The new build is live and serving. No rollback was needed."
+                ;;
+              rolled_back)
+                echo "### ↩️ ROLLED BACK (production is SAFE)"
+                echo "Post-deploy verification FAILED on the new build, so production was automatically rolled back to \`${ROLLBACK_TO:-$PREV_ID}\` and re-verified GREEN. **The bad build is no longer serving.** Investigate the failed build before re-attempting; the run is RED on purpose."
+                ;;
+              rollback_failed)
+                echo "### 🚨 P0 — ROLLBACK FAILED — PRODUCTION IS BAD"
+                echo "Post-deploy verification failed AND the automatic rollback to \`${ROLLBACK_TO:-$PREV_ID}\` did not restore a good state. **Production is serving a broken build right now.** Manual intervention required immediately: \`wrangler pages deployment rollback\` against the last known-good id, or redeploy a good build."
+                ;;
+              no_rollback_target)
+                echo "### 🚨 P0 — FIRST DEPLOY FAILED — NO ROLLBACK TARGET"
+                echo "This was the first-ever production deploy and it failed verification. There is **no previous deployment to roll back to.** Production is serving a bad build. Fix forward manually: redeploy a corrected build."
+                ;;
+              *)
+                echo "### Deploy did not reach post-deploy verification"
+                echo "The wrangler deploy step did not succeed (deploy=${DEPLOY_OUTCOME:-unknown}); no rollback decision was made. See the failed step above."
+                ;;
+            esac
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # IndexNow: Bing + Yandex only. Google's sitemap-ping endpoint was
+      # deprecated in 2023 and 404s — Google is covered by Search Console + the
+      # generated sitemap, never pinged here. ONLY fires on a CLEAN deploy — never
+      # announce a build we just rolled away from (or a bad first deploy).
+      - name: Submit to IndexNow
+        id: indexnow
+        if: steps.rollback.outputs.post_deploy_status == 'healthy'
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+          INDEXNOW_HOST: ${{ inputs.indexnow_host }}
+          PROD_URL: ${{ inputs.prod_url }}
+          CHANGED_URLS: ${{ inputs.changed_urls }}
+        run: |
+          wf-indexnow-submit \
+            --host "$INDEXNOW_HOST" \
+            --key "$INDEXNOW_KEY" \
+            --base-url "$PROD_URL" \
+            --urls "$CHANGED_URLS"
+
+      # Capture per-step outcomes as job outputs so the isolated `proof` job can
+      # write the proof file and notify even when a step above failed RED.
+      - name: Collect outcomes
+        if: always()
+        id: outcomes
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          CRAWLER_OUTCOME: ${{ steps.crawler.outcome }}
+          INDEXNOW_OUTCOME: ${{ steps.indexnow.outcome }}
+          POST_DEPLOY_STATUS: ${{ steps.rollback.outputs.post_deploy_status }}
+          ROLLBACK_FROM: ${{ steps.rollback.outputs.rollback_from }}
+          ROLLBACK_TO: ${{ steps.rollback.outputs.rollback_to }}
+          PREV_ID: ${{ steps.precapture.outputs.prev_deployment_id }}
+          RECIPE_HASH: ${{ steps.build.outputs.recipe_hash }}
+        run: |
+          {
+            echo "deployment_url=${DEPLOYMENT_URL}"
+            echo "deploy_outcome=${DEPLOY_OUTCOME}"
+            echo "verify_outcome=${VERIFY_OUTCOME}"
+            echo "crawler_outcome=${CRAWLER_OUTCOME}"
+            echo "indexnow_outcome=${INDEXNOW_OUTCOME}"
+            echo "post_deploy_status=${POST_DEPLOY_STATUS}"
+            echo "rollback_from=${ROLLBACK_FROM}"
+            echo "rollback_to=${ROLLBACK_TO}"
+            echo "prev_deployment_id=${PREV_ID}"
+            echo "recipe_hash=${RECIPE_HASH}"
+          } >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------------------
+      # THE POST-DEPLOY GATE — this is what turns the run RED. Kept as the LAST
+      # step of the deploy job (after outcomes are collected) so the proof job
+      # always sees a complete outcome set. A rolled_back status still fails the
+      # run (the intended build did NOT ship) but is distinguished from a P0 in
+      # the exit message.
+      # ---------------------------------------------------------------------
+      - name: Enforce post-deploy result (fail loud)
+        if: always()
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          STATUS: ${{ steps.rollback.outputs.post_deploy_status }}
+        run: |
+          if [ "${DEPLOY_OUTCOME}" != "success" ]; then
+            echo "::error::wrangler deploy did not succeed (${DEPLOY_OUTCOME}). Failing the run."
+            exit 1
+          fi
+          case "${STATUS}" in
+            healthy)
+              echo "Post-deploy verification GREEN — clean deploy."
+              exit 0 ;;
+            rolled_back)
+              echo "::error::Deploy failed verification and was ROLLED BACK to the previous good build. Production is safe, but the intended build did not ship. Failing the run so this is not mistaken for success."
+              exit 1 ;;
+            rollback_failed)
+              echo "::error::P0 — verification failed AND rollback did not restore a good state. PRODUCTION IS BAD. Failing the run LOUD."
+              exit 1 ;;
+            no_rollback_target)
+              echo "::error::P0 — first-ever deploy failed verification and there was no rollback target. PRODUCTION IS BAD. Failing the run LOUD."
+              exit 1 ;;
+            *)
+              echo "::error::Unknown post-deploy status ('${STATUS}'). Treating as failure."
+              exit 1 ;;
+          esac
+
+  # -------------------------------------------------------------------------
+  # JOB 2 — write + commit the proof file, then notify chat.
+  # Permissions: contents:write (to push the proof commit). Does NOT receive the
+  # Cloudflare token, so the repo-write credential and the deploy credential
+  # never coexist in one job. Runs even if `deploy` failed (if: always) so a
+  # failure still leaves a proof file + chat alert.
+  # -------------------------------------------------------------------------
+  proof:
+    name: Write + commit proof, notify
+    needs: deploy
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Harden runner
+        # BLOCK-MODE. This job holds repo-write (contents:write) to push the proof
+        # commit and posts the chat notification, so it only ever needs github
+        # (checkout + git push), PyPI (pipeline install for wf-proof-assert), and
+        # the chat-webhook host. Block-mode here narrows the repo-write
+        # credential's blast radius the same way the deploy job narrows the CF
+        # token's.
+        #
+        # PREREQUISITE: reconcile against a StepSecurity audit baseline before
+        # relying on it (same discipline as the deploy job). The chat-webhook host
+        # is a secret (CHAT_WEBHOOK_URL) so it can't be templated in here; the three
+        # common webhook hosts are allowed below — narrow this to the ONE host Alex
+        # actually uses once the baseline confirms it. If chat-notify starts getting
+        # dropped, the Insights report names the real webhook host to add.
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
+            discord.com:443
+            discordapp.com:443
+            hooks.slack.com:443
+
+      # CHECKOUT 1 — the CLIENT SITE (this job pushes the proof commit to it, so
+      # it keeps its credentials).
+      - name: Checkout client site
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Resolve pipeline ref
+        id: pipe
+        env:
+          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          STAMPED_REF: ${{ env.PIPELINE_REF }}
+        run: |
+          REF="${JOB_WORKFLOW_SHA:-}"
+          if [ -z "$REF" ]; then
+            REF="${STAMPED_REF:-}"
+            echo "::warning::github.job_workflow_sha was empty — falling back to the stamped PIPELINE_REF '${REF}'."
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::No pipeline ref could be resolved. Refusing to run the proof meta-gate with an unknown pipeline version."
+            exit 1
+          fi
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+
+      # CHECKOUT 2 — the PIPELINE, version-locked (supplies proof-assert.sh).
+      - name: Checkout pipeline (version-locked)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ env.PIPELINE_REPO }}
+          ref: ${{ steps.pipe.outputs.ref }}
+          path: .pipeline
+          persist-credentials: false
+          token: ${{ secrets.PIPELINE_REPO_TOKEN || github.token }}
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install pipeline package
+        run: |
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet ./.pipeline
+
+      # Proof file (hard rule: no proof file = the gate did not happen).
+      - name: Write proof file
+        if: always()
+        id: proof
+        env:
+          CF_PROJECT: ${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
+          PROD_URL: ${{ inputs.prod_url }}
+          VERIFY_ROUTES: ${{ inputs.verify_routes }}
+          PIPELINE_SHA: ${{ steps.pipe.outputs.ref }}
+          DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment_url }}
+          DEPLOY_OUTCOME: ${{ needs.deploy.outputs.deploy_outcome }}
+          VERIFY_OUTCOME: ${{ needs.deploy.outputs.verify_outcome }}
+          CRAWLER_OUTCOME: ${{ needs.deploy.outputs.crawler_outcome }}
+          INDEXNOW_OUTCOME: ${{ needs.deploy.outputs.indexnow_outcome }}
+          OUT_FILES: ${{ needs.deploy.outputs.out_files }}
+          BUILD_DIR: ${{ needs.deploy.outputs.build_dir }}
+          RECIPE_HASH: ${{ needs.deploy.outputs.recipe_hash }}
+          POST_DEPLOY_STATUS: ${{ needs.deploy.outputs.post_deploy_status }}
+          PREV_ID: ${{ needs.deploy.outputs.prev_deployment_id }}
+          ROLLBACK_TO: ${{ needs.deploy.outputs.rollback_to }}
+        run: |
+          DATE="$(date -u +%Y-%m-%d)"
+          # TRACKED path — client repos gitignore docs/audit-logs/, which would
+          # make this commit stage nothing (silent no-proof ship).
+          # docs/deploy-proofs/ must NOT be gitignored in the client repo.
+          DIR="docs/deploy-proofs/${DATE}"
+          mkdir -p "$DIR"
+          PROOF="${DIR}/deploy.md"
+          {
+            echo "# Deploy Proof — ${DATE}"
+            echo ""
+            echo "- Client / CF project: \`${CF_PROJECT}\`"
+            echo "- Production URL: ${PROD_URL}"
+            echo "- Commit SHA: \`${GITHUB_SHA}\`"
+            echo "- Pipeline ref: \`${PIPELINE_SHA}\`"
+            echo "- Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Cloudflare deployment URL: ${DEPLOYMENT_URL:-<none>}"
+            echo "- Built files in ${BUILD_DIR:-<unknown>}: ${OUT_FILES:-unknown}"
+            echo "- Build recipe hash: \`${RECIPE_HASH:-unknown}\` (must equal the quality gate's recipe hash for this commit — proof the SAME build was gated and shipped)"
+            echo "- Captured rollback target (pre-deploy live id): \`${PREV_ID:-<unknown>}\`"
+            echo "- Post-deploy status: **${POST_DEPLOY_STATUS:-unknown}**"
+            echo ""
+            echo "## Results"
+            echo ""
+            echo "| Step | Outcome |"
+            echo "|---|---|"
+            echo "| wrangler pages deploy | ${DEPLOY_OUTCOME:-unknown} |"
+            echo "| verify-live (200 + content assert) | ${VERIFY_OUTCOME:-unknown} |"
+            echo "| cf-crawler-check (edge citation-bot access) | ${CRAWLER_OUTCOME:-unknown} |"
+            echo "| IndexNow submit (Bing/Yandex) | ${INDEXNOW_OUTCOME:-unknown} |"
+            echo ""
+            echo "## Rollback"
+            echo ""
+            case "${POST_DEPLOY_STATUS:-unknown}" in
+              healthy)
+                echo "- CLEAN DEPLOY — post-deploy verification passed; no rollback performed. New build is live." ;;
+              rolled_back)
+                echo "- ROLLED BACK — post-deploy verification FAILED on the new build; production was AUTOMATICALLY rolled back to \`${ROLLBACK_TO:-$PREV_ID}\` and re-verified GREEN. The bad build is no longer serving. Run is RED by design." ;;
+              rollback_failed)
+                echo "- P0 ROLLBACK FAILED — verification failed AND the rollback to \`${ROLLBACK_TO:-$PREV_ID}\` did not restore a good state. PRODUCTION IS BAD. Manual intervention was required." ;;
+              no_rollback_target)
+                echo "- P0 NO ROLLBACK TARGET — first-ever deploy failed verification with no previous deployment to roll back to. PRODUCTION IS BAD. Fix-forward was required." ;;
+              *)
+                echo "- Post-deploy verification was not reached (deploy did not succeed); no rollback decision recorded." ;;
+            esac
+            echo ""
+            echo "## Routes Verified"
+            echo ""
+            for r in ${VERIFY_ROUTES}; do
+              echo "- ${PROD_URL}${r}"
+            done
+            echo ""
+            echo "## Notes"
+            echo ""
+            echo "- Google NOT pinged (sitemap-ping deprecated 2023; covered via Search Console + sitemap)."
+            echo "- Auto-rollback is enforced by the deploy job: a failed verify-live/cf-crawler triggers an automatic promote-back to the captured deployment id, re-verified, and recorded above. Manual fallback if ever needed: \`wrangler pages deployment rollback\` to the previous deployment ID."
+          } > "$PROOF"
+          echo "proof_path=${PROOF}" >> "$GITHUB_OUTPUT"
+          echo "Wrote ${PROOF}"
+
+      - name: Commit proof file
+        if: always()
+        env:
+          PROOF_PATH: ${{ steps.proof.outputs.proof_path }}
+        run: |
+          if [ -z "${PROOF_PATH}" ] || [ ! -f "${PROOF_PATH}" ]; then
+            echo "::warning::No proof file produced; skipping commit."
+            exit 0
+          fi
+          git config user.name "ci-deploy-bot"
+          git config user.email "ops@example.com"
+          git add "${PROOF_PATH}"
+          if git diff --cached --quiet; then
+            echo "Proof file unchanged; nothing to commit."
+          else
+            git commit -m "ci: deploy proof ${PROOF_PATH}"
+            # The caller's push trigger ignores docs/deploy-proofs/** so this
+            # commit never re-deploys.
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi
+
+      # BLOCKING META-GATE: "no proof = it didn't happen".
+      # proof-assert asserts the expected proof file exists AND is non-empty.
+      # Shell gate, so no `wf-*` console entry point — run from the
+      # version-locked .pipeline checkout, never vendored into the client repo.
+      # Runs `if: always()` so it still fires when an upstream step failed, but it
+      # is NOT wrapped to swallow its own exit code — a missing/empty proof exits 1
+      # and turns the whole run RED even if the wrangler deploy itself was green.
+      # This is what makes the audit rail enforced code, not a comment.
+      - name: Assert deploy proof (blocking)
+        if: always()
+        env:
+          PROOF_PATH: ${{ steps.proof.outputs.proof_path }}
+        run: |
+          if [ -z "${PROOF_PATH}" ]; then
+            echo "::error::proof job produced no proof_path — the deploy proof did not persist. No proof = it didn't happen."
+            exit 1
+          fi
+          AUDIT_DIR="$(dirname "${PROOF_PATH}")"
+          PROOF_FILE="$(basename "${PROOF_PATH}")"
+          chmod +x .pipeline/pipeline/deploy/proof-assert.sh
+          .pipeline/pipeline/deploy/proof-assert.sh "${AUDIT_DIR}" "${PROOF_FILE}"
+
+      # Notify chat last. Fires on success AND failure (fail loud). Uses the
+      # deploy job's result, not this job's, for the success/fail headline.
+      - name: Notify chat
+        if: always()
+        shell: bash
+        env:
+          CHAT_WEBHOOK_URL: ${{ secrets.CHAT_WEBHOOK_URL }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          CF_PROJECT: ${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
+          PROD_URL: ${{ inputs.prod_url }}
+          DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment_url }}
+          PROOF_PATH: ${{ steps.proof.outputs.proof_path }}
+          DEPLOY_OUTCOME: ${{ needs.deploy.outputs.deploy_outcome }}
+          VERIFY_OUTCOME: ${{ needs.deploy.outputs.verify_outcome }}
+          CRAWLER_OUTCOME: ${{ needs.deploy.outputs.crawler_outcome }}
+          INDEXNOW_OUTCOME: ${{ needs.deploy.outputs.indexnow_outcome }}
+          POST_DEPLOY_STATUS: ${{ needs.deploy.outputs.post_deploy_status }}
+          ROLLBACK_TO: ${{ needs.deploy.outputs.rollback_to }}
+        run: |
+          # The headline is driven by the POST-DEPLOY STATUS, not just the job
+          # result, so a rollback or a P0 is unmistakable in chat.
+          case "${POST_DEPLOY_STATUS}" in
+            healthy)            EMOJI="OK";    HEAD="Prod deploy succeeded (clean)" ;;
+            rolled_back)        EMOJI="ALERT"; HEAD="Prod deploy ROLLED BACK — bad build reverted, prod is SAFE" ;;
+            rollback_failed)    EMOJI="P0";    HEAD="P0 — ROLLBACK FAILED, PRODUCTION IS BAD — act now" ;;
+            no_rollback_target) EMOJI="P0";    HEAD="P0 — FIRST DEPLOY FAILED, NO ROLLBACK TARGET — prod is bad" ;;
+            *)
+              if [ "${DEPLOY_RESULT}" = "success" ]; then
+                EMOJI="OK"; HEAD="Prod deploy succeeded"
+              else
+                EMOJI="ALERT"; HEAD="Prod deploy FAILED — check the run"
+              fi ;;
+          esac
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          export TEXT="$(printf '%s %s\nClient: %s\nLive: %s\nStatus: %s%s\nDeploy: %s | Verify: %s | Crawler: %s | IndexNow: %s\nCF URL: %s\nProof: %s\nRun: %s' \
+            "${EMOJI}" "${HEAD}" \
+            "${CF_PROJECT}" \
+            "${PROD_URL}" \
+            "${POST_DEPLOY_STATUS:-unknown}" \
+            "$([ -n "${ROLLBACK_TO}" ] && printf ' (rolled back to %s)' "${ROLLBACK_TO}")" \
+            "${DEPLOY_OUTCOME:-unknown}" "${VERIFY_OUTCOME:-unknown}" "${CRAWLER_OUTCOME:-unknown}" "${INDEXNOW_OUTCOME:-unknown}" \
+            "${DEPLOYMENT_URL:-<none>}" \
+            "${PROOF_PATH:-<none>}" \
+            "${RUN_URL}")"
+          if [ -z "${CHAT_WEBHOOK_URL}" ]; then
+            echo "::warning::CHAT_WEBHOOK_URL unset; skipping chat notify."
+            exit 0
+          fi
+          # Discord webhooks accept {"content": ...}; Slack incoming webhooks
+          # accept {"text": ...}. Sending both keys is harmless — each platform
+          # reads the one it understands and ignores the other.
+          python3 - "$CHAT_WEBHOOK_URL" <<'PY'
+          import json, sys, urllib.request, os
+          url = sys.argv[1]
+          text = os.environ["TEXT"]
+          payload = json.dumps({"content": text, "text": text}).encode()
+          req = urllib.request.Request(url, data=payload,
+                                       headers={"Content-Type": "application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  print("chat notify HTTP", r.status)
+          except Exception as e:
+              print("::warning::chat notify failed:", e)
+          PY

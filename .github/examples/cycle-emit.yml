@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------------------
+# THIN CALLER — drop this into a CLIENT repo at .github/workflows/cycle-emit.yml
+#
+# Runs a content cycle (distill -> classify -> brief -> emit) and opens a PR in
+# THIS repo. All logic lives in the shared pipeline repo; nothing is vendored.
+#
+# WORKFLOW_DISPATCH ONLY. Never add a `schedule:` here. A human starts a cycle;
+# the reason is the same one drive-poll.yml gives for never holding a cross-repo
+# write token — see the reusable workflow's header.
+#
+# WRITE SCOPE. This uses THIS repo's built-in GITHUB_TOKEN. It can push a
+# `cycle/<slug>-<YYYY-MM>` branch and open a PR in this repo, and nothing else.
+# It never pushes to main, never merges and never deploys.
+#
+# PIN AN EXACT TAG below. Never `@main`, never a moving `@v2`.
+#
+# REQUIRED SECRET (one): `PIPELINE_REPO_TOKEN` — a READ-ONLY PAT for
+# richardnhek/seo-content-pipeline, needed only for the pipeline checkout
+# while that repo is private. There is deliberately no write PAT anywhere.
+#
+# BEFORE THE FIRST RUN: commit the team handoff DOCX into this repo (e.g.
+# docs/intake/2026-07-<client>.docx) and pass its path as `source_doc`. Leave
+# `dry_run` checked the first time — it runs the whole chain and writes nothing.
+#
+# DISPATCHED BY THE PIPELINE TOO (2026-08): the drive-poll handoff stage
+# dispatches this workflow ON the `cycle/<slug>-<YYYY-MM>` branch it just
+# committed the DOCX to (inputs: that DOCX's path, dry_run false), so the
+# emitted pages land on the same branch and the intake PR becomes the content
+# PR. That is still workflow_dispatch — same trigger, same guarantees.
+# ---------------------------------------------------------------------------
+name: Cycle Emit
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_doc:
+        description: "Path to the handoff DOCX in this repo (e.g. docs/intake/2026-07-acme.docx)"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run — run everything, write nothing, open nothing"
+        required: false
+        type: boolean
+        default: true
+      limit:
+        description: "Cap pages emitted (0 = no cap)"
+        required: false
+        type: number
+        default: 0
+      cycle:
+        description: "Cycle as YYYY-MM (blank = current month). Pin it when running a past month's branch by hand."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  cycle-emit:
+    uses: richardnhek/seo-content-pipeline/.github/workflows/cycle-emit.reusable.yml@v2.1.0
+    permissions:
+      contents: write        # push the cycle/ branch (never main)
+      pull-requests: write   # gh pr create
+    with:
+      client_slug: "acme"   # <- EDIT: this client's slug, as used in docs/cycle-logs/
+      source_doc: ${{ inputs.source_doc }}
+      dry_run: ${{ inputs.dry_run }}
+      limit: ${{ inputs.limit }}
+      cycle: ${{ inputs.cycle }}
+    secrets: inherit

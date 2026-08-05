@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# THIN CALLER — drop this into a CLIENT repo at .github/workflows/quality-gate.yml
+#
+# Copy verbatim, then edit ONLY the `with:` values. All gate logic lives in the
+# shared pipeline repo; nothing is vendored here. Bumping the pipeline for this
+# client = bumping the @tag on the `uses:` line below (Dependabot opens that PR).
+#
+# PIN AN EXACT TAG. Never `@main`, never a moving `@v0` — a moving ref is
+# mutable, and this workflow is the required status check that gates prod.
+#
+# TRIGGER IS `pull_request`. Never `pull_request_target` (token-exfil vector);
+# the reusable workflow additionally refuses to run for fork PRs.
+#
+# REQUIRED STATUS CHECK: set the resulting check ("Quality Gate / Quality Gate
+# (PRE + OUT)") as required on main in Settings -> Rules -> Rulesets. Red gate =
+# un-clickable Merge button = prod blocked by construction.
+#
+# SECRETS: `inherit` passes the repo's secrets through. The quality-gate
+# reusable workflow declares NO Cloudflare secrets, so even with `inherit` the
+# CF token cannot enter this job — a reusable workflow can only use what it
+# declares. The only secret it can consume is the optional PIPELINE_REPO_TOKEN
+# (a read-only PAT for the pipeline checkout, needed while the pipeline repo is
+# private).
+# ---------------------------------------------------------------------------
+name: Quality Gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  quality-gate:
+    uses: richardnhek/seo-content-pipeline/.github/workflows/quality-gate.reusable.yml@v2.1.0
+    with:
+      # ---- Next.js static export (the default for 4 of the 5 clients) -------
+      # Leave build_command empty to let the client profile derive it, or set it
+      # explicitly. build_output_dir is AUTHORITATIVE for every downstream gate.
+      build_command: ""
+      build_output_dir: "./out"
+
+      # ---- Vite / Northstar override (uncomment INSTEAD of the two lines above) --
+      # The Northstar build is deliberately multi-step and NOT `npm run build` —
+      # that script chains an IndexNow submit which must never fire from a PR.
+      # build_command: >-
+      #   npx vite build --emptyOutDir &&
+      #   npx vite build --ssr src/entry-server.tsx --outDir dist/server &&
+      #   node scripts/validate-routes.mjs &&
+      #   node scripts/build-sitemap.mjs &&
+      #   node prerender.mjs
+      # build_output_dir: "./dist"
+
+      node_version: "20"
+    secrets: inherit

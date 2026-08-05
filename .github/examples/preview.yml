@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------------------
+# THIN CALLER — drop this into a CLIENT repo at .github/workflows/preview.yml
+#
+# Copy verbatim, then edit ONLY the `with:` values. Resolves the Cloudflare
+# preview alias for the PR's branch, posts it to chat with the cycle proof
+# summary, and runs a MONITORING-ONLY Lighthouse pass. Nothing here blocks the
+# merge — the quality gate owns blocking.
+#
+# PIN AN EXACT TAG. Never `@main`, never a moving `@v0`.
+#
+# TRIGGER IS `pull_request`. Never `pull_request_target` — that hands a
+# write-scoped token to fork code. The reusable workflow additionally refuses to
+# run for fork PRs so the Cloudflare token is never reachable from a fork.
+#
+# SECRETS: `inherit` passes CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and
+# CLOUDFLARE_PAGES_PROJECT (required) plus the optional CHAT_WEBHOOK_URL and
+# PIPELINE_REPO_TOKEN. No scripts are vendored into this repo.
+# ---------------------------------------------------------------------------
+name: Preview Notify
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    uses: richardnhek/seo-content-pipeline/.github/workflows/preview.reusable.yml@v2.1.0
+    with:
+      # Homepage + 2 real deep routes for this client. MONITORING only.
+      lighthouse_routes: "/ /about/ /contact/"
+      # Where the spine/intake modules write this cycle's proof summary.
+      cycle_summary_path: "docs/cycle/summary.md"
+      # ~10s per attempt; 30 = poll Cloudflare for ~5 minutes before giving up.
+      poll_attempts: 30
+    secrets: inherit

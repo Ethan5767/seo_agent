@@ -1,0 +1,3 @@
+# Core runtime — everything needed to run the gate suite and the audit tools.
+# Install with:  pip install -e .
+PyYAML>=6.0

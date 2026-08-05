@@ -1,0 +1,329 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# client-config.starter.yml — SANITIZED TEMPLATE. Placeholder values only.
+#
+# THIS FILE CONTAINS NO REAL CLIENT DATA AND MUST NEVER CONTAIN ANY.
+#
+# Model A: the REAL config lives in the CLIENT's own repo at
+# `docs/client-config.yml` and is gitignored out of this shared engine repo.
+# Copy this file there, fill it in, and never copy it back.
+#
+#   cp config/client-config.starter.yml <client-repo>/docs/client-config.yml
+#
+# Never put in this repo (or any shared repo): API tokens, PATs, IndexNow
+# keys, GA4 / GTM / Clarity measurement IDs, client phone numbers, emails,
+# street addresses, GBP CIDs, or credential-vault entries. Those live in
+# GitHub Actions secrets or the client repo only.
+#
+# Every key below is read by something. See docs/HOW-IT-WORKS.md
+# §3 for the gate → key map, and docs/gate-reference.md for gate behaviour.
+# ═══════════════════════════════════════════════════════════════════════════
+
+client: <client-slug>                 # kebab-case, stable, used as the id everywhere
+domain: <example.com>
+website: "https://<example.com>"
+industry: "<trade>"                   # roofing | hvac | plumbing | electrical | ...
+deploy_platform: cloudflare-pages
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# SELF-DESCRIBING HEADER
+# The pipeline (and any Claude reading this repo) determines the client's
+# shape from these five keys alone. Get these right first — the multi-state
+# addendum, slug convention, and site fan-out all branch off them.
+# ─────────────────────────────────────────────────────────────────────────
+
+topology_class: single-site-single-state
+# one of:
+#   single-site-single-state   — one repo, one state
+#   single-site-multi-state    — one repo, several states (multi-state addendum applies)
+#   multi-site-division        — several sibling site repos under one client
+
+site_count: 1                         # number of separate deployable site repos for this client
+
+states_served: ["<ST>"]               # USPS codes, e.g. ["NC", "SC"]. Drives the multi-state addendum.
+
+sister_sites: []                      # multi-site-division only:
+#  - { slug: <sibling-slug>, repo: <org>/<sibling-repo> }
+
+aeo_geo_dir: aeo-geo/                 # where AEO/GEO config + runs live, relative to the client repo root
+
+topology: <topology-pattern>          # legacy derived key (franchise | hub-spoke | city-state-direct | ...)
+slug_convention: city-state           # city-state | slug-only — must match the actual route shape
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# BUSINESS FACTS
+# Content signal, not secrets. Contact details belong in the CLIENT repo.
+# ─────────────────────────────────────────────────────────────────────────
+
+business:
+  legal_name: "<Legal Business Name>"
+  trade: "<trade description>"
+  services_offered:
+    - <service one>
+    - <service two>
+  services_not_offered: []
+  customer_types: [residential, commercial]
+
+nap:
+  name: "<Business Name>"
+  address: "<City, ST ZIP>"           # service-area businesses: city + state only, no street
+  phone: "<PHONE>"                    # placeholder here; REAL value only in the client repo
+  phone_tel: "<PHONE_DIGITS>"
+  email: "<EMAIL>"                    # placeholder here; REAL value only in the client repo
+  hours: "<hours string>"
+
+trust_signals:
+  rating: "<x.x>"
+  reviews: 0
+  years_in_business: 0
+  fleet_or_team: "<crew/fleet descriptor>"
+  certifications: []
+  licenses: []
+  insurance_coverage: "<coverage summary>"
+
+primary_metro: "<Metro>"
+service_areas:
+  - "<City, ST>"
+offices: []
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# MEASUREMENT / PROPERTY IDS  —  PLACEHOLDERS ONLY IN THIS FILE
+# Real IDs go in the client repo's docs/client-config.yml, never here.
+# ─────────────────────────────────────────────────────────────────────────
+
+gsc_property: "sc-domain:<example.com>"
+bing_property: "https://<example.com>/"
+ga4_id: "<GA4_MEASUREMENT_ID>"        # G-XXXXXXXXXX — client repo only
+gtm_id: "<GTM_CONTAINER_ID>"          # GTM-XXXXXXX — client repo only
+ms_clarity_id: "<CLARITY_PROJECT_ID>" # client repo only
+gbp_urls: []                          # Google Business Profile share URLs — client repo only
+same_as: []                           # entity-graph profile URLs for Organization schema
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# REPO / BUILD
+# framework_family is THE heterogeneity switch. Branching lives here, once,
+# at the build step — never inside a gate. Gates stay framework-blind.
+# ─────────────────────────────────────────────────────────────────────────
+
+repo:
+  repo_remote: "<org>/<client-repo>"
+  framework_family: next              # next | vite | wordpress  (unknown => validate_profile ERROR)
+  framework: "nextjs-app-router"      # free-text detail; framework_family is what code branches on
+
+  build_command: "npm run build"      # Vite/Northstar-shaped clients need the full multi-step string
+  build_cwd: "."
+  build_output_dir: "out"             # next => out · vite => dist. NO trailing slash.
+  # ^ A STALE VALUE HERE IS THE SILENT-FAILURE MODE: gates resolve a missing
+  #   dir, scan ~0 pages, and report green. Verify it after every build change.
+  ssr_model: rsc                      # rsc (next) | helmet-prerender (vite)
+
+  sitemap: "src/app/sitemap.ts"       # generator OR built XML path
+  llms_txt: "public/llms.txt"
+  pages_dir: "src/app/"
+  route_file_hub: "src/app/[slug]/page.tsx"
+  route_file_spoke: "src/app/[slug]/[city]/page.tsx"
+  prerender_config: "generateStaticParams in route file"
+
+  data_services: "src/data/services.ts"
+  data_locations: "src/data/location-pages.ts"
+  data_company: "src/data/company.ts"
+  data_blog: "src/data/blog-posts.ts"
+
+  coverage_method: builder-collapse    # builder-collapse | curated-distill | direct
+
+form_endpoint: "/api/contact"
+redirects_source: "public/_redirects"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# FORBIDDEN PHRASES  —  the legal-exposure gate (forbidden-sweep.py)
+#
+# Source of truth is the UNION of this block and docs/banned-phrases.txt,
+# deduped. Neither shadows the other.
+# An EMPTY ruleset is a hard refusal (exit 4), never a silent pass.
+# ─────────────────────────────────────────────────────────────────────────
+
+forbidden_phrases:
+  # --- Global Meridian rules: keep these on every client ---
+  - pattern: '\$[0-9]'
+    reason: "No dollar amounts on site. Replace with a free-estimate / phone CTA. Applies to service pricing AND market-context figures (write those as words: 'millions of dollars')."
+  - pattern: '—'
+    reason: "Global Meridian rule: no em dashes in deliverables. Rewrite with commas, periods, or conjunctions."
+  - pattern: "(?m)^(?:#{1,6}\\s+|<h[1-6][^>]*>)[^<\\n]*\\b(it's|let's|here's|there's|that's|what's|we're|you're|they're|won't|don't|can't|isn't|aren't|wasn't|weren't|haven't|hasn't|wouldn't|couldn't|shouldn't)\\b"
+    reason: "No informal contractions in HEADINGS (heading-anchored, body prose is fine). Spell out."
+  # --- AI-slop tells ---
+  - pattern: "(?i)\\bin today's fast-paced world\\b"
+    reason: "AI-slop opener. Hard ban."
+  - pattern: "(?i)\\bit's important to note\\b"
+    reason: "AI-slop filler. Hard ban."
+  - pattern: "(?i)\\bdelve into\\b"
+    reason: "AI-slop verb. Hard ban."
+  - pattern: "(?i)\\bin conclusion\\b"
+    reason: "AI-slop closer. Hard ban."
+  - pattern: "(?i)\\b(moreover|furthermore),?\\s"
+    reason: "AI-slop transition. Rewrite."
+  - pattern: "(?i)\\bunlock(?:ing)?\\s+(?:the\\s+)?(?:full\\s+)?potential\\b"
+    reason: "AI-slop cliche."
+  - pattern: "(?i)\\bnavigate the (?:complex|complexities of|landscape of|world of)\\b"
+    reason: "AI-slop cliche."
+  # --- Per-client / per-state legal additions go below (e.g. state contractor
+  #     advertising statutes, insurance-claim language restrictions) ---
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# REQUIRED PHRASES — must appear on every service/spoke page
+# ─────────────────────────────────────────────────────────────────────────
+
+required_phrases:
+  - "<core differentiator, e.g. a certification name>"
+  - "<phone CTA string>"
+  - "<trust signal, e.g. Licensed>"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GATE CONFIG BLOCKS
+# Populate these BEFORE the first gated run — a missing block is the classic
+# run-#1 KeyError. See docs/gate-reference.md.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# --- §21 non-commodity gate (noncommodity-check.py, exit 7) ---
+# The proprietary-variable allow-list: facts unique to THIS client that no
+# competitor template could contain. Neighborhoods, streets, named crew,
+# real project figures, testimonial proper nouns, local landmarks.
+# EMPTY LIST => exit 4. The gate refuses to run as a silent pass.
+proprietary_variables:
+  - "<neighborhood or landmark>"
+  - "<named crew or founder>"
+  - "<real project descriptor>"
+
+noncommodity:
+  uniqueness_threshold_hub_spoke: 0.90   # sibling 5-gram distinctness for hub/spoke sets
+  uniqueness_threshold_default: 0.60
+
+
+# --- §20 content-capsule gate (capsule-check.py, exit 6) ---
+content:
+  long_page_threshold: 1200            # words above which a TL;DR / Key Takeaways block is required
+  core_body_min_words: 800             # core-body distillation band (hard floor)
+  core_body_max_words: 1500            # hard ceiling; ~1200 is advisory, NOT a target
+  capsule_exempt_routes:
+    - "/contact/"
+    - "/thank-you/"
+
+
+# --- pages-are-data gate (pages-are-data-check.py, exit 1) — Lesson-1 ---
+templated_routes:
+  - "src/app/[slug]/page.tsx"
+  - "src/app/[slug]/[city]/page.tsx"
+static_route_whitelist:               # legitimately hand-authored routes
+  - "/"
+  - "/about"
+  - "/contact"
+  - "/thank-you"
+  - "/privacy-policy"
+max_static_lines: 120                  # a static non-whitelisted page.tsx above this = bespoke drift
+
+
+# --- §19 brief fan-out gate (brief-fanout-check.py, exit 9) ---
+brief_requirements:
+  min_fanout_queries: 6                # must be DISTINCT
+  min_semantic_triples: 1
+  require_capsule: true
+  require_proprietary_variable: true   # and it must be inside proprietary_variables above
+  allowed_intents: [informational, commercial, transactional, navigational]
+
+
+# --- performance / LCP gates (image-budget-check.py, lcp-hygiene-check.py, exit 1) ---
+# Compensating control for images.unoptimized:true under static export —
+# the framework does zero resize/format/srcset, so the ceiling must be a gate.
+performance:
+  image_budget:
+    hero_kb: 200                       # hero / OG images
+    content_kb: 100                    # in-content images
+    thumb_kb: 30                       # thumbnails / icons
+  require_img_dimensions: true         # CLS guard: every <img> needs width AND height
+  img_dimension_exempt_extensions: [".svg"]
+  block_lazy_hero: true                # a preloaded hero must not carry loading="lazy"
+
+
+# --- schema gate (audit-built.py) ---
+schema:
+  area_served_required: true           # LocalBusiness/subtype must carry a populated areaServed
+  prefer_geometry: true                # warn when areaServed is a bare string list, not GeoCircle/GeoShape
+schema_type: "<LocalBusinessSubtype>"  # e.g. RoofingContractor — LocalBusiness alone is too generic
+schema_area_served:
+  - { "@type": "State", name: "<State Name>" }
+  - { "@type": "City",  name: "<City>", containedInPlace: "<State Name>" }
+
+
+# --- AI-crawler access gates (robots-aicrawler-check.py, cf-crawler-check.sh, exit 1) ---
+# Citation bots MUST be reachable — a silent Cloudflare "Block AI Crawlers"
+# toggle zeroes the AEO pillar while every build metric stays green.
+# Env-overridable via CITATION_UAS / TRAINING_UAS when a vendor renames a bot.
+citation_uas:
+  - OAI-SearchBot
+  - Claude-SearchBot
+  - PerplexityBot
+  - Bingbot
+  - Googlebot
+  - ChatGPT-User
+training_uas:                          # INFO ONLY — blocking these is a business choice, never red
+  - GPTBot
+  - ClaudeBot
+  - Google-Extended
+  - CCBot
+
+
+# --- llms.txt sales-purge gate (llms-sales-purge.py, exit 1) — §30 ---
+llms_txt:
+  extra_banned_phrases: []             # word-boundary anchored; "notebook" will not match "book"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# CONTENT STRATEGY / AEO
+# ─────────────────────────────────────────────────────────────────────────
+
+h1_format:
+  default: "<Service> in [City], [ST]"
+  per_service: {}
+
+target_keywords:
+  primary: []
+  secondary: []
+
+faq_seed_questions: []
+
+seed_queries: []                       # AEO citation-sweep seeds
+
+engines: [aio, chatgpt, perplexity, ai_mode, bing_copilot]
+
+competitors: []
+competitor_overrides:
+  add: []
+  remove: []
+
+author_strategy:
+  byline: "<Business Name> Team"
+  reviewer: "<reviewer name/title>"
+  schema_type: "Organization + reviewedBy Person"
+
+content_strategy:
+  default_gap_fill_word_target: 3000
+
+auto_decisions:
+  bucket_a_word_ratio_min: 0.70
+  bucket_a_faq_count_must_match: true
+  noindex_under_words: 500
+  option_full_threshold_pages: 10
+  cloudflare_double_push: true
+  poll_live_max_minutes: 5
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# OPEN FOLLOW-UPS
+# Track unanswered client questions here. Missing var = ASK, never guess.
+# ─────────────────────────────────────────────────────────────────────────
+# 1. <question for the client>

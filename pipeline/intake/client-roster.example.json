@@ -1,0 +1,21 @@
+[
+  {
+    "slug": "example-client",
+    "domain": "example.com",
+    "folder_name_contains": "example",
+    "aliases": [
+      "example.com",
+      "example company",
+      "example"
+    ]
+  },
+  {
+    "slug": "second-example",
+    "domain": "second-example.com",
+    "folder_name_contains": "second",
+    "aliases": [
+      "second-example.com",
+      "second example"
+    ]
+  }
+]

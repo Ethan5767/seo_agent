@@ -1,0 +1,296 @@
+# ---------------------------------------------------------------------------
+# Shared SEO-health monitor (REUSABLE, workflow_call) — ranking insurance.
+#
+# ONE definition covers every client. It curls the live CRITICAL pages of a
+# domain and FAILS (email + optional chat alert) if any page loses a ranking
+# signal: non-200, blank shell, or a missing title / h1 / canonical / JSON-LD
+# schema. It also guards the sitemap URL count. Catches silent bad deploys /
+# regressions in minutes instead of weeks.
+#
+# DELIBERATELY NO `push: main` TRIGGER IN THE CALLER.
+#   A push-triggered run races the Cloudflare deploy (it curls the live site
+#   before the new build is live and false-fails) AND couples this monitor to
+#   the deploy path. This monitor is INDEPENDENT of deploys on purpose — the
+#   per-client caller runs it on a daily `schedule:` and on `workflow_dispatch`
+#   only, so it can never gate a merge or a deploy. The PR quality-gate + deploy
+#   rail own the merge gate; this is a standalone MONITORING alert.
+#
+# NO SELF-SCHEDULE HERE. The pre-extraction version of this file carried its own
+# `schedule:` that no-opped when no domain was configured. Now that it lives in
+# the shared pipeline repo, a daily no-op run of the TEMPLATE is pure noise —
+# the schedule belongs in the per-client caller, which supplies a real domain.
+# `workflow_dispatch` is kept so the template stays directly runnable for a
+# self-test.
+#
+# PER-CLIENT CALLER (drop at <client-repo>/.github/workflows/seo-health.yml —
+# pin an EXACT tag, never @main):
+#
+#   name: SEO Health
+#   on:
+#     schedule:
+#       - cron: '0 13 * * *'      # daily ~9am ET, independent of any deploy
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   jobs:
+#     health:
+#       uses: richardnhek/seo-content-pipeline/.github/workflows/seo-health.reusable.yml@v0.1.0
+#       with:
+#         domain: "example.com"
+#         critical_pages: "/ /services/ /contact/"
+#         sitemap_min_count: 0
+#       secrets: inherit
+#
+# NO SCRIPTS ARE VENDORED INTO CLIENT REPOS. When a domain is configured the
+# pipeline package is installed from a SECOND checkout of this repo pinned to
+# the exact commit of this workflow file, so any wf-* helper this monitor calls
+# is version-locked to the tag the client pinned. The checkout + install are
+# skipped entirely on the no-op path.
+#
+# Every finding line is labelled MONITORING. Numbers here are presence signals,
+# not CWV; lab/field CWV live in the preview Lighthouse monitor
+# (preview.reusable.yml).
+#
+# Security: harden-runner as step 1; contents:read only (no write, no secrets
+# needed beyond the optional chat webhook); browser UA so Cloudflare's WAF does
+# not serve a challenge page that would false-fail the content asserts.
+# ---------------------------------------------------------------------------
+name: SEO Health (reusable monitor)
+
+on:
+  workflow_call:
+    inputs:
+      domain:
+        description: "Bare domain to monitor, no scheme (e.g. example.com). Empty = no-op."
+        required: false
+        type: string
+        default: ""
+      critical_pages:
+        description: "Space-separated site-relative critical pages, e.g. '/ /services/ /contact/'."
+        required: false
+        type: string
+        default: "/"
+      sitemap_min_count:
+        description: "Minimum <loc> entries the sitemap must carry. 0 = skip the sitemap assertion."
+        required: false
+        type: number
+        default: 0
+      python_version:
+        description: "Python version used to install the pipeline package"
+        required: false
+        type: string
+        default: "3.12"
+    secrets:
+      CHAT_WEBHOOK_URL:
+        description: "Optional chat webhook for failure alerts. Absent = GitHub email only."
+        required: false
+      PIPELINE_REPO_TOKEN:
+        description: >-
+          Optional PAT with read access to richardnhek/seo-content-pipeline,
+          used ONLY for the pipeline checkout. Required while this repo is
+          private. Omit once the pipeline repo is public.
+        required: false
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Bare domain to monitor, no scheme (e.g. example.com)."
+        required: false
+        type: string
+        default: ""
+      critical_pages:
+        description: "Space-separated site-relative critical pages."
+        required: false
+        type: string
+        default: "/"
+      sitemap_min_count:
+        description: "Minimum <loc> entries the sitemap must carry. 0 = skip."
+        required: false
+        type: number
+        default: 0
+      python_version:
+        description: "Python version used to install the pipeline package"
+        required: false
+        type: string
+        default: "3.12"
+
+# Read-only. This monitor never writes to the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: seo-health-${{ github.repository }}-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha
+  # (see "Resolve pipeline ref"). Advanced at every tag-cut; self-consistent
+  # because the stamp lives IN the versioned file.
+  PIPELINE_REF: "v2.1.0"
+  PIPELINE_REPO: "richardnhek/seo-content-pipeline"
+
+jobs:
+  health:
+    name: Live SEO-health monitor (MONITORING)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DOMAIN: ${{ inputs.domain }}
+      PAGES: ${{ inputs.critical_pages }}
+      MIN_SITEMAP: ${{ inputs.sitemap_min_count }}
+      # Default curl UA gets a Cloudflare WAF challenge page; a real browser UA
+      # + Accept header gets past it (matches pipeline common.py BROWSER_UA).
+      BROWSER_UA: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+      BROWSER_ACCEPT: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      # ---------------------------------------------------------------------
+      # Resolve the pipeline ref for the (version-locked) pipeline checkout.
+      #
+      # github.job_workflow_sha resolves to the commit SHA of the reusable
+      # workflow file currently executing — so any pipeline tooling this monitor
+      # calls matches the tag the client pinned, with zero duplicated pins.
+      #
+      # FALLBACK (stamped PIPELINE_REF): job_workflow_sha is populated only when
+      # this file runs AS a called reusable workflow. It is empty on the
+      # workflow_dispatch self-test path and has been reported empty in some
+      # GHES / older-runner contexts. When empty we fall back to the PIPELINE_REF
+      # stamped into this file at tag-cut time (workflow `env:` above). Never
+      # point that stamp at a moving branch for a prod client.
+      #
+      # Skipped on the no-op path (empty domain) so an unconfigured run costs
+      # nothing.
+      # ---------------------------------------------------------------------
+      - name: Resolve pipeline ref
+        id: pipe
+        if: inputs.domain != ''
+        env:
+          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          STAMPED_REF: ${{ env.PIPELINE_REF }}
+        run: |
+          REF="${JOB_WORKFLOW_SHA:-}"
+          if [ -z "$REF" ]; then
+            REF="${STAMPED_REF:-}"
+            echo "::warning::github.job_workflow_sha was empty — falling back to the stamped PIPELINE_REF '${REF}'."
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::No pipeline ref could be resolved (job_workflow_sha empty AND no stamped PIPELINE_REF)."
+            exit 1
+          fi
+          echo "Pipeline ref: ${REF}"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+
+      # The PIPELINE checkout, version-locked to THIS workflow file. This monitor
+      # never checks out the client repo (it only touches the live site), so this
+      # is its only checkout — and it is what lets client repos vendor NO scripts.
+      - name: Checkout pipeline (version-locked)
+        if: inputs.domain != ''
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ env.PIPELINE_REPO }}
+          ref: ${{ steps.pipe.outputs.ref }}
+          path: .pipeline
+          persist-credentials: false
+          token: ${{ secrets.PIPELINE_REPO_TOKEN || github.token }}
+
+      - name: Setup Python
+        if: inputs.domain != ''
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install pipeline package
+        if: inputs.domain != ''
+        run: |
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet ./.pipeline
+          echo "Installed pipeline from ref ${{ steps.pipe.outputs.ref }}"
+
+      - name: Assert live SEO health
+        run: |
+          set -uo pipefail
+
+          # Graceful no-op: a template self-test with no domain. Do not fail —
+          # this is the template, not a configured client. Real coverage comes
+          # from per-client callers that supply a domain.
+          if [ -z "${DOMAIN:-}" ]; then
+            echo "::notice::MONITORING — no domain supplied. No-op. Configure a per-client caller that passes 'domain'."
+            exit 0
+          fi
+
+          PAGES="${PAGES:-/}"
+          MIN_SITEMAP="${MIN_SITEMAP:-0}"
+          fail=0
+
+          for p in $PAGES; do
+            case "$p" in
+              /*) path="$p" ;;
+              *)  path="/$p" ;;
+            esac
+            url="https://${DOMAIN}${path}"
+            resp=$(curl -sS -L --max-time 30 \
+              -A "$BROWSER_UA" -H "Accept: $BROWSER_ACCEPT" \
+              -w "\n%{http_code}" "$url") \
+              || { echo "::error::MONITORING $url unreachable"; fail=1; continue; }
+            code=$(printf '%s' "$resp" | tail -n1)
+            body=$(printf '%s' "$resp" | sed '$d')
+            size=$(printf '%s' "$body" | wc -c | tr -d ' ')
+            [ "$code" = "200" ] || { echo "::error::MONITORING $url -> HTTP $code"; fail=1; continue; }
+            [ "$size" -ge 5000 ] || { echo "::error::MONITORING $url only ${size}B (blank shell?)"; fail=1; }
+            printf '%s' "$body" | grep -qi '<title'              || { echo "::error::MONITORING $url missing <title>"; fail=1; }
+            printf '%s' "$body" | grep -qi '<h1'                 || { echo "::error::MONITORING $url missing <h1>"; fail=1; }
+            printf '%s' "$body" | grep -qi 'rel="canonical"'     || { echo "::error::MONITORING $url missing canonical"; fail=1; }
+            printf '%s' "$body" | grep -qi 'application/ld+json' || { echo "::error::MONITORING $url missing JSON-LD schema"; fail=1; }
+            echo "MONITORING OK  $url  (HTTP $code, ${size}B)"
+          done
+
+          # Sitemap guard is opt-in: 0 (the default) skips it so a client without a
+          # configured minimum never false-fails.
+          if [ "${MIN_SITEMAP:-0}" -gt 0 ]; then
+            locs=$(curl -sS -L --max-time 30 \
+              -A "$BROWSER_UA" -H "Accept: $BROWSER_ACCEPT" \
+              "https://${DOMAIN}/sitemap.xml" | grep -oc '<loc>' || true)
+            [ "${locs:-0}" -ge "$MIN_SITEMAP" ] \
+              || { echo "::error::MONITORING sitemap has ${locs:-0} URLs (< $MIN_SITEMAP)"; fail=1; }
+            echo "MONITORING sitemap: ${locs:-0} URLs (min $MIN_SITEMAP)"
+          else
+            echo "MONITORING sitemap check skipped (sitemap_min_count=0)."
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::MONITORING SEO Health FAILED for ${DOMAIN} — investigate before rankings are affected"
+            exit 1
+          fi
+          echo "MONITORING — all SEO-health checks passed for ${DOMAIN}."
+
+      - name: Chat alert on failure (optional)
+        if: failure()
+        env:
+          CHAT_WEBHOOK_URL: ${{ secrets.CHAT_WEBHOOK_URL }}
+          ALERT_DOMAIN: ${{ inputs.domain }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ -z "${CHAT_WEBHOOK_URL:-}" ]; then
+            echo "::warning::CHAT_WEBHOOK_URL unset; skipping chat alert (GitHub email still sent)."
+            exit 0
+          fi
+          export TEXT="$(printf 'SEO Health MONITOR failed for %s\nRun: %s' \
+            "${ALERT_DOMAIN:-<unknown>}" "${RUN_URL}")"
+          python3 - "$CHAT_WEBHOOK_URL" <<'PY'
+          import json, os, sys, urllib.request
+          url = sys.argv[1]
+          text = os.environ["TEXT"]
+          payload = json.dumps({"content": text, "text": text}).encode()
+          req = urllib.request.Request(url, data=payload,
+                                       headers={"Content-Type": "application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  print("chat alert HTTP", r.status)
+          except Exception as e:
+              print("::warning::chat alert failed:", e)
+          PY

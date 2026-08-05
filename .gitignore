@@ -1,0 +1,76 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Rule #2: NO SECRETS, EVER. Client config, credentials and PII never
+# enter this shared engine repo. If in doubt, do not commit it.
+# ═══════════════════════════════════════════════════════════════════════
+
+# Secrets / credentials — NEVER commit these
+.env
+.env.*
+*.pem
+*.key
+*.token
+*.p12
+credentials.json
+token.json
+token*.json
+service-account*.json
+client_secret*.json
+**/secrets/**
+credentials_vault/
+credentials-vault/
+
+# IndexNow keys (the site-root proof file is per-client, never shared)
+indexnow*.txt
+*indexnow-key*
+
+# Client config (Model A: the real config lives in the CLIENT repo only).
+# The sanitized placeholder template is the one exception and IS tracked.
+*client-config.yml
+*client-config.yaml
+client-config*.yml
+!config/*.starter.yml
+!**/*.starter.yml
+
+# Client roster / profiles with real data (the .example.json is tracked)
+client-roster.json
+clients/
+
+# Client PII, deliverables and raw docs
+*.docx
+*.doc
+*.pdf
+*.xlsx
+*.csv
+_chat*.txt
+intake-raw/
+intake/raw/
+
+# Audit logs, run artifacts and pipeline caches
+docs/audit-logs/
+audit-logs/
+.pipeline/
+.cache/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.next/
+out/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+secrets/

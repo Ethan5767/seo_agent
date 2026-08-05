@@ -6,9 +6,13 @@ to a missing dir makes every built-mode gate scan zero pages and report green.
 """
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from pipeline.lib.common import (
+    curl,
+    curl_status,
     framework_family,
     resolve_build_dir,
     client_profile,
@@ -109,3 +113,23 @@ def test_family_default_dir_table():
     assert FRAMEWORK_FAMILY_DEFAULT_DIR["next"] == "out"
     assert FRAMEWORK_FAMILY_DEFAULT_DIR["vite"] == "dist"
     assert FRAMEWORK_FAMILY_DEFAULT_DIR["wordpress"] is None
+
+
+# ── curl / curl_status timeout handling ──────────────────────────────────────
+# A hung host must be reported as unreachable, not crash the run. Found by a
+# real wf-site-health smoke run against an unresolvable domain, where curl hung
+# for the full 30s and TimeoutExpired propagated as an uncaught traceback,
+# bypassing the exit-19 refusal path entirely.
+
+def test_curl_returns_empty_on_timeout(monkeypatch):
+    def hang(*a, **kw):
+        raise subprocess.TimeoutExpired(cmd="curl", timeout=30)
+    monkeypatch.setattr(subprocess, "run", hang)
+    assert curl("https://hung.example.com/") == ""
+
+
+def test_curl_status_returns_zero_on_timeout(monkeypatch):
+    def hang(*a, **kw):
+        raise subprocess.TimeoutExpired(cmd="curl", timeout=30)
+    monkeypatch.setattr(subprocess, "run", hang)
+    assert curl_status("https://hung.example.com/") == 0

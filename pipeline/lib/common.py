@@ -30,13 +30,20 @@ BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
 BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
 
+# A host that hangs is UNREACHABLE, not a crash. subprocess.run raises
+# TimeoutExpired, which every caller here would otherwise propagate as an
+# uncaught traceback mid-run. Both helpers already have an established failure
+# signal — "" for curl, 0 for curl_status — so a timeout returns that instead.
 def curl(url: str, cache_bust: bool = True) -> str:
     u = url + (f"?cb={os.urandom(4).hex()}" if cache_bust else "")
     # -L follows redirects so sites with no-trailing-slash policy (BLH, etc.) still return real HTML
-    r = subprocess.run(
-        ["curl", "-sL", "-A", BROWSER_UA, "-H", f"Accept: {BROWSER_ACCEPT}", u],
-        capture_output=True, text=True, timeout=30,
-    )
+    try:
+        r = subprocess.run(
+            ["curl", "-sL", "-A", BROWSER_UA, "-H", f"Accept: {BROWSER_ACCEPT}", u],
+            capture_output=True, text=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     return r.stdout
 
 
@@ -45,7 +52,10 @@ def curl_status(url: str, follow: bool = True) -> int:
     if follow:
         args = ["curl", "-sIL", "-A", BROWSER_UA, "-H", f"Accept: {BROWSER_ACCEPT}",
                 "-o", "/dev/null", "-w", "%{http_code}"]
-    r = subprocess.run(args + [url], capture_output=True, text=True, timeout=30)
+    try:
+        r = subprocess.run(args + [url], capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return 0
     if follow:
         try:
             return int(r.stdout.strip())

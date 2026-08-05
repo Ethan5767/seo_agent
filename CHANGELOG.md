@@ -35,6 +35,17 @@ see `CLAUDE.md` (the sync contract).
   129 passed in 0.74s
   ```
 
+### Fixed
+
+- **B-001** — `curl` and `curl_status` in `pipeline/lib/common.py` let
+  `subprocess.TimeoutExpired` escape, so a hung host crashed the run with a
+  traceback 30s in instead of being reported unreachable. In `wf-site-health`
+  that bypassed the exit-19 refusal path: a total outage exited 1 with a stack
+  trace. Both helpers now return their existing failure signals (`""` and `0`)
+  on timeout. Fixed at the shared function, so all four callers (`measure`,
+  `poll_live`, `bootstrap_config`, `preflight`) are covered. See
+  `docs/BUG-LEDGER.md` B-001.
+
 ### Removed
 
 - `pipeline/audit/audit_live.py` and the `wf-audit-live` entry point, superseded

@@ -194,20 +194,6 @@ jobs:
         continue-on-error: true
         run: wf-audit-ssr .
 
-      # pages-are-data enforces the 4-template + data architecture on src/app,
-      # pre-build. Next-only (needs src/app); Vite/Northstar has no src/app so this
-      # soft-skips there — framework-blind gates stay framework-blind, this is a
-      # pre-build source gate that only applies to the Next app-router shape.
-      - name: "PRE: pages-are-data (BLOCK, Next src/app only)"
-        id: pagesdata
-        continue-on-error: true
-        run: |
-          if [ ! -d src/app ]; then
-            echo "::notice::no src/app — pages-are-data gate not applicable (non-Next-app-router). Skipped."
-            exit 0
-          fi
-          wf-pages-are-data-check .
-
       # rules-selftest — the ruleset's OWN gate (never-baselineable): every
       # union pattern must compile, banned-phrases.txt must carry no dead regex
       # lines (BUG-018), no plain txt line may defeat a YAML lookahead exception
@@ -223,19 +209,6 @@ jobs:
             exit 0
           fi
           wf-rules-selftest . --config docs/client-config.yml
-
-      # brief-fanout validates docs/briefs/*.json pre-draft. The briefs artifact
-      # is emitter-produced; until it exists this soft-skips (blocked-on-input,
-      # not a red gate on a repo that has no briefs yet).
-      - name: "PRE: brief-fanout (BLOCK when briefs present)"
-        id: brief
-        continue-on-error: true
-        run: |
-          if ! ls docs/briefs/*.json >/dev/null 2>&1; then
-            echo "::notice::no docs/briefs/*.json — brief-fanout gate has no input yet. Skipped."
-            exit 0
-          fi
-          wf-brief-fanout-check .
 
       # --- Build: THE ONE SHARED BUILD DEFINITION ----------------------------
       # This is the SAME composite action deploy.reusable.yml calls. node setup +
@@ -385,8 +358,6 @@ jobs:
           RECIPE_HASH: ${{ steps.build.outputs.recipe_hash }}
           TSC: ${{ steps.tsc.outcome }}
           SSR: ${{ steps.ssr.outcome }}
-          PAGESDATA: ${{ steps.pagesdata.outcome }}
-          BRIEF: ${{ steps.brief.outcome }}
           RULES_SELFTEST: ${{ steps.rules_selftest.outcome }}
           BUILD: ${{ steps.build.outcome }}
           HEADINGS: ${{ steps.headings.outcome }}
@@ -422,8 +393,6 @@ jobs:
             echo "|---|---|---|---|"
             echo "| PRE | tsc --noEmit | 1 | $(mark "$TSC") |"
             echo "| PRE | SSR safety (source) | 9/10 | $(mark "$SSR") |"
-            echo "| PRE | pages-are-data | 1 | $(mark "$PAGESDATA") |"
-            echo "| PRE | brief-fanout | 9 | $(mark "$BRIEF") |"
             echo "| PRE | rules-selftest (ruleset integrity) | 3/4 | $(mark "$RULES_SELFTEST") |"
             echo "| BUILD | ${FAMILY} build -> ${BUILD_DIR} | 1 | $(mark "$BUILD") |"
             echo "| OUT | Heading casing | 1 | $(mark "$HEADINGS") |"
@@ -446,8 +415,6 @@ jobs:
           add_fail() { fail_lines="${fail_lines}- ${1}"$'\n'; }
           [ "$TSC" = "failure" ]          && add_fail "TypeScript errors — the site has type errors (\`tsc --noEmit\`)."
           [ "$SSR" = "failure" ]          && add_fail "SSR safety — a page uses browser-only code that breaks the static build."
-          [ "$PAGESDATA" = "failure" ]    && add_fail "Pages-are-data — a route is hand-authored as a big literal instead of a data-driven template."
-          [ "$BRIEF" = "failure" ]        && add_fail "Brief-fanout — a content brief is too thin (fanout / capsule / triple / proprietary variable / intent)."
           [ "$RULES_SELFTEST" = "failure" ] && add_fail "Rules self-test — the forbidden-phrase ruleset itself is broken (dead rule, non-compiling pattern, defeated exception, or a proof fixture failed)."
           [ "$BUILD" = "failure" ]        && add_fail "Build failed — the build did not produce the output dir. All page checks below were skipped."
           [ "$HEADINGS" = "failure" ]     && add_fail "Headings — a public heading has broken casing."
@@ -506,8 +473,6 @@ jobs:
         env:
           TSC: ${{ steps.tsc.outcome }}
           SSR: ${{ steps.ssr.outcome }}
-          PAGESDATA: ${{ steps.pagesdata.outcome }}
-          BRIEF: ${{ steps.brief.outcome }}
           RULES_SELFTEST: ${{ steps.rules_selftest.outcome }}
           BUILD: ${{ steps.build.outcome }}
           HEADINGS: ${{ steps.headings.outcome }}
@@ -530,8 +495,6 @@ jobs:
             case "$1" in
               TSC)          echo "1 : TypeScript compile" ;;
               SSR)          echo "9/10 : audit-ssr source safety" ;;
-              PAGESDATA)    echo "1 : pages-are-data (Lesson-1)" ;;
-              BRIEF)        echo "9 : brief-fanout (§19)" ;;
               RULES_SELFTEST) echo "3/4 : rules-selftest (ruleset integrity)" ;;
               BUILD)        echo "1 : framework build produced no output dir" ;;
               HEADINGS)     echo "1 : heading casing" ;;
@@ -551,7 +514,7 @@ jobs:
             esac
           }
           red=0
-          for g in TSC SSR PAGESDATA BRIEF RULES_SELFTEST BUILD HEADINGS ORPHAN PARITY EMDASH \
+          for g in TSC SSR RULES_SELFTEST BUILD HEADINGS ORPHAN PARITY EMDASH \
                    AUDIT_BUILT FORBIDDEN ROBOTS CAPSULE NONCOMMODITY FINGERPRINT \
                    LLMS IMAGE LCP; do
             v="${!g}"

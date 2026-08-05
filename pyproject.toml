@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "seo-content-pipeline"
+name = "seo-agent"
 version = "0.1.0"
-description = "seo-content-pipeline engine — DOCX in, clean pipeline-ready data out, gated at every step."
+description = "seo-agent engine — repo in, measured findings and a gated PR out."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Proprietary" }
@@ -14,18 +14,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# DOCX / Google Drive intake only. Not needed to run the gate suite.
-intake = [
-    "docling>=2.0",
-    "python-docx>=1.1",
-    "google-api-python-client>=2.100",
-    "google-auth-oauthlib>=1.2",
-    "google-auth-httplib2>=0.2",
+# The engine's own test suite. `pip install -e '.[test]'` is the documented setup.
+# The old `[intake]` extra (docling + the Google client stack) died with DOCX intake.
+test = [
+    "pytest>=8.0",
 ]
 
 [project.scripts]
 # ── gates (build-time quality suite) ─────────────────────────────────────────
-wf-brief-fanout-check = "pipeline.gates.brief_fanout_check:main"
 wf-capsule-check = "pipeline.gates.capsule_check:main"
 wf-check-headings = "pipeline.gates.check_headings:main"
 wf-em-dash-check = "pipeline.gates.em_dash_check:main"
@@ -35,63 +31,30 @@ wf-lcp-hygiene-check = "pipeline.gates.lcp_hygiene_check:main"
 wf-llms-sales-purge = "pipeline.gates.llms_sales_purge:main"
 wf-noncommodity-check = "pipeline.gates.noncommodity_check:main"
 wf-orphan-check = "pipeline.gates.orphan_check:main"
-wf-pages-are-data-check = "pipeline.gates.pages_are_data_check:main"
 wf-parity-check = "pipeline.gates.parity_check:main"
 wf-robots-aicrawler-check = "pipeline.gates.robots_aicrawler_check:main"
 wf-audit-ssr = "pipeline.gates.audit_ssr:main"
 wf-audit-built = "pipeline.gates.audit_built:main"
 wf-forbidden-sweep = "pipeline.gates.forbidden_sweep:main"
 wf-rules-selftest = "pipeline.gates.rules_selftest:main"
-wf-validate-multistate-config = "pipeline.gates.validate_multistate_config:cli"
 wf-client-docs-check = "pipeline.gates.client_docs_check:main"
 wf-scaffold-client-docs = "pipeline.audit.scaffold_client_docs:main"
 
 # ── baseline / ratchet (pre-existing-debt bookkeeping for the gates above) ───
 wf-gate-baseline = "pipeline.lib.baseline:main"
 
-# ── generate (the content cycle: DOCX -> drafts -> decisions -> briefs -> TS) ─
-# These four are the middle of the pipeline and run in that order. Registering
-# them is what lets .github/workflows/cycle-emit.reusable.yml run a cycle with no
-# laptop: a client repo vendors NO scripts, it installs this package and calls
-# the console entry points, exactly like the gates above.
-#   wf-distill   DOCX  -> drafts.json      (exit 16 = unsegmentable, refuses)
-#   wf-classify  drafts-> decisions.json   (NEW/UPDATE/SKIP/INVALID vs live repo)
-#   wf-brief     drafts-> docs/briefs/*.json (§19 contract, gated by brief-fanout)
-#   wf-emit-ts   drafts+decisions -> typed TS data in the client repo
-#                (exit 0 clean · 1 flagged · 9 refused · 15 held for curation)
-wf-distill = "pipeline.generate.distill:main"
-wf-classify = "pipeline.generate.classify:main"
-wf-brief = "pipeline.generate.brief:main"
-wf-emit-ts = "pipeline.generate.emit_ts:main"
-
 # ── deploy ───────────────────────────────────────────────────────────────────
 wf-indexnow-submit = "pipeline.deploy.indexnow_submit:main"
-
-# ── intake ───────────────────────────────────────────────────────────────────
-wf-validate-docx-intake = "pipeline.intake.validate_docx_intake:main"
-wf-verify-docx-coverage = "pipeline.intake.verify_docx_coverage:main"
-wf-preflight-docx = "pipeline.intake.preflight_docx:main"
-wf-week-coverage = "pipeline.intake.week_coverage:main"
-wf-discord-intake = "pipeline.intake.discord_intake:main"
-wf-discord-notify = "pipeline.intake.discord_notify:main"
-wf-drive-intake = "pipeline.intake.drive_intake:main"
-wf-client-handoff = "pipeline.intake.client_handoff:main"
-wf-link-intake = "pipeline.intake.link_intake:main"
-wf-drive-survey = "pipeline.intake.drive_survey:main"
-wf-drive-reorg = "pipeline.intake.drive_reorg:main"
-wf-drive-cleanup-root = "pipeline.intake.drive_cleanup_root:main"
-wf-bootstrap-drive-oauth = "pipeline.intake.bootstrap_drive_oauth:main"
 
 # ── audit / setup ────────────────────────────────────────────────────────────
 wf-audit-live = "pipeline.audit.audit_live:main"
 wf-poll-live = "pipeline.audit.poll_live:main"
-wf-gbp-baseline = "pipeline.audit.gbp_baseline:main"
 wf-preflight = "pipeline.audit.preflight:main"
 wf-update-sitemap-dates = "pipeline.audit.update_sitemap_dates:main"
-wf-setup-gtm-foundation = "pipeline.audit.setup_gtm_foundation:main"
 wf-bootstrap-config = "pipeline.audit.bootstrap_config:main"
+# Load-bearing for .github/actions/build-site: the composite action shells out to
+# wf-client-profile to resolve build dir / framework before building.
 wf-client-profile = "pipeline.audit.client_profile:main"
-wf-cycle-status = "pipeline.audit.cycle_status:main"
 
 [tool.pytest.ini_options]
 # The engine's OWN test suite (tests/) — proves the gates that protect client
@@ -106,4 +69,3 @@ include = ["pipeline*"]
 
 [tool.setuptools.package-data]
 "pipeline.deploy" = ["*.sh"]
-"pipeline.intake" = ["*.example.json"]

@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the Meridian gate/emitter test suite.
+"""Shared pytest fixtures for the gate test suite.
 
 Everything here is HERMETIC: no network, no dependence on the real client repos.
 The one real artifact borrowed from the pilot is a single sanitized Next.js RSC
@@ -13,18 +13,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
-from pipeline.generate import repo_layout as _repo_layout
-
-
-@pytest.fixture(autouse=True)
-def _reset_repo_layout():
-    """The active per-repo layout is process-level state (see repo_layout.py).
-    Every test starts and ends on the Acme defaults so a layout-activating
-    test can never leak into its neighbours."""
-    _repo_layout.reset()
-    yield
-    _repo_layout.reset()
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

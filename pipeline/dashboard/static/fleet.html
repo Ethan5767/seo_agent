@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Fleet · wf-dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<script src="/static/theme.js"></script>
+<link href="/static/theme.css" rel="stylesheet"/>
+</head>
+<body class="font-body-md text-body-md antialiased">
+<main class="md:ml-60 pt-12 min-h-screen flex flex-col bg-background">
+<!-- Toolbar -->
+<div class="h-12 border-b border-outline-variant bg-surface-container flex items-center px-md justify-between shrink-0">
+<div class="flex items-center gap-md w-full max-w-md">
+<span class="material-symbols-outlined text-on-surface-variant">search</span>
+<input id="filter" class="bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs w-full focus:outline-none focus:border-primary placeholder:text-on-surface-variant/50" placeholder="Filter clients..." type="text"/>
+</div>
+<div class="flex gap-sm items-center">
+<span id="count" class="font-mono-sm text-mono-sm text-on-surface-variant"></span>
+<button id="refresh" class="bg-surface-container-highest border border-outline-variant text-on-surface font-label-caps text-label-caps px-md py-sm rounded hover:bg-surface-bright transition-colors flex items-center gap-xs">
+<span class="material-symbols-outlined" style="font-size: 14px;">refresh</span> REFRESH
+</button>
+</div>
+</div>
+<!-- Client Grid -->
+<div class="flex-1 overflow-auto p-panel-padding">
+<div id="grid" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-gutter bg-outline-variant border border-outline-variant rounded-sm"></div>
+<div id="empty"></div>
+</div>
+</main>
+<script src="/static/app.js"></script>
+<script src="/static/page-fleet.js"></script>
+</body></html>

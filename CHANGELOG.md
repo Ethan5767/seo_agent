@@ -8,6 +8,50 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **`wf-dashboard`** (`pipeline/dashboard/`) — a local operator console on
+  `127.0.0.1`: a web UI over the artifacts client repos already hold. Python
+  standard library only, no new dependencies, no build step, **no database**.
+  Eight screens (fleet · client · findings · worklist · report · runs · git ·
+  config); the four whose producers ship in later phases render an empty state
+  naming the phase rather than a blank table. Design doc:
+  `docs/superpowers/specs/2026-08-05-dashboard-design.md`.
+
+  Clients are **discovered**, not configured: the server scans `--clients-dir`
+  one level deep for git repos containing `docs/client-config.yml`, so adding a
+  client is cloning it. A client whose YAML fails to parse is listed carrying its
+  error rather than dropped — vanishing from the fleet view reads as "no problems
+  here", which is the opposite of the truth.
+
+  Three safety properties, all tested:
+
+  - **Runs come from a fixed command allow-list.** `POST /api/runs` takes a
+    command *name* mapped to an argv list; arguments are validated against a
+    declared type before joining it. Nothing is ever joined into a shell string
+    and `shell=True` is never used. Without this the dashboard is a remote shell
+    bound to a port.
+  - **A token plus an Origin check.** `127.0.0.1` is not a trust boundary — any
+    page in the operator's browser can POST to localhost. The token is injected
+    into the served HTML, which CORS stops a cross-origin page from reading.
+  - **No merge, and no push from a default branch.** There is no merge action to
+    call, so no frontend change can reintroduce one alone. Human merge stays the
+    only path to production (`SITE-AUDIT-PIPELINE.md` §1).
+
+  Exit codes render as sentences, not numbers: a run that exits 19 shows
+  *"REFUSED — every source unreachable. Nothing was written"*. A green
+  "completed" chip there would destroy the distinction exit 19 exists to protect.
+
+  Verified end to end against fixture client repos: browser → allow-list →
+  subprocess → SSE → exit 19 rendered as a refusal. 55 new tests in
+  `tests/test_dashboard.py`, hermetic (no network, no bound socket, every client
+  built under `tmp_path`).
+
+  ```
+  $ .venv/bin/pytest -q
+  ........................................................................ [ 77%]
+  ..........................................                               [100%]
+  186 passed in 1.83s
+  ```
+
 - **`wf-site-health`** (`pipeline/audit/measure.py`) — measures a live site and
   writes `docs/audit/<YYYY-MM>/findings.json` in the client repo as typed
   `lib/baseline.py` `Finding`s. Phase 1 of `SITE-AUDIT-PIPELINE.md`. URLs come

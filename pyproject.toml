@@ -46,6 +46,9 @@ wf-gate-baseline = "pipeline.lib.baseline:main"
 # ── deploy ───────────────────────────────────────────────────────────────────
 wf-indexnow-submit = "pipeline.deploy.indexnow_submit:main"
 
+# ── operator console ─────────────────────────────────────────────────────────
+wf-dashboard = "pipeline.dashboard.server:main"
+
 # ── audit / setup ────────────────────────────────────────────────────────────
 wf-site-health = "pipeline.audit.measure:main"
 wf-poll-live = "pipeline.audit.poll_live:main"

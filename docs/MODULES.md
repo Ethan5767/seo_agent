@@ -103,6 +103,10 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 
 `client_profile.py` (who/shape/states/build — the pipeline's front door) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `update_sitemap_dates.py` (lastmod hygiene).
 
+## `pipeline/dashboard` — the local operator console (1 + static)
+
+`server.py` (`wf-dashboard`) — a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state and no credentials. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. `static/` holds the eight screens (fleet · client · findings · worklist · report · runs · git · config) as plain HTML + `app.js`, no build step.
+
 ## `.github/workflows` — the runtime (8)
 
 | Workflow | Where it runs | Trigger |

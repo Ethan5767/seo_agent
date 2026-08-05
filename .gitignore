@@ -74,3 +74,11 @@ out/
 .idea/
 .vscode/
 secrets/
+
+# Design-tool export. Superseded by pipeline/dashboard/static/ — the design
+# system it defines is kept at pipeline/dashboard/static/DESIGN.md. Remove this
+# line if you want the screenshots tracked.
+stitch_local_operator_dashboard/
+
+# Playwright MCP scratch output
+.playwright-mcp/

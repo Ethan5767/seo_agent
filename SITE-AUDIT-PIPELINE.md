@@ -8,12 +8,22 @@ Vercel dashboard with a pull-based worker. Four decisions collapsed most of that
 
 | Decision | Consequence |
 |---|---|
-| Internal studio tooling, repos we have access to | No dashboard, no multi-tenant anything |
+| Internal studio tooling, repos we have access to | No dashboard, no multi-tenant anything [†](#dashboard-note) |
 | **A human merges everything** | No auto-merge, no A/B/C risk tiers |
 | **Tier is per-project authority**, set at onboarding | Tier answers "what may the agent touch", not "who approves" |
 | **Claude Code is the only writer** | The emitter, DOCX intake, and the typed contract are deleted |
 
 The result is one rail, one writer, and about half the code.
+
+<a id="dashboard-note"></a>
+**† `wf-dashboard` (2026-08-05).** The thing that row killed — v2's hosted,
+multi-tenant, stateful Vercel dashboard with accounts and a database — is still
+dead. What was built instead is a **local view over files that already exist**:
+`127.0.0.1` only, no host, no accounts, no tenancy, no database. It runs the same
+`wf-*` commands you would type, in the same checkouts, as the same user, and it
+may not merge. If the process is killed nothing is lost, because it holds no
+state. The row stands as written; see
+`docs/superpowers/specs/2026-08-05-dashboard-design.md` §0.
 
 ---
 

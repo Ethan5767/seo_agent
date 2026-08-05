@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Git / PR · wf-dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<script src="/static/theme.js"></script>
+<link href="/static/theme.css" rel="stylesheet"/>
+</head>
+<body class="font-body-md text-body-md antialiased">
+<main class="md:ml-60 pt-12 min-h-screen flex flex-col p-md gap-md bg-background">
+<div id="state"></div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-md">
+  <section class="border border-outline-variant rounded bg-surface-container-low">
+    <div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">WORKING TREE</div>
+    <div id="changed" class="p-md font-mono-base text-mono-base"></div>
+  </section>
+  <section class="border border-outline-variant rounded bg-surface-container-low flex flex-col">
+    <div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">ACTIONS</div>
+    <div id="actions" class="p-md flex flex-col gap-sm"></div>
+  </section>
+</div>
+<section class="border border-outline-variant rounded bg-surface-container-low">
+  <div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">PULL REQUEST</div>
+  <div id="pr" class="p-md"></div>
+</section>
+<section class="border border-outline-variant rounded bg-surface-container-lowest">
+  <div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">OUTPUT</div>
+  <div id="log" class="p-md font-mono-base text-mono-base max-h-64 overflow-auto"></div>
+</section>
+</main>
+<script src="/static/app.js"></script>
+<script src="/static/page-git.js"></script>
+</body></html>

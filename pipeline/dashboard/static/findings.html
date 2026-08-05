@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Findings · wf-dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<script src="/static/theme.js"></script>
+<link href="/static/theme.css" rel="stylesheet"/>
+</head>
+<body class="font-body-md text-body-md antialiased">
+<main class="md:ml-60 pt-12 h-screen flex flex-col bg-background">
+<div class="h-12 border-b border-outline-variant bg-surface-container flex items-center gap-md px-md shrink-0 overflow-x-auto">
+<div class="flex border border-outline-variant rounded overflow-hidden shrink-0">
+<button data-group="code" class="grp font-mono-sm text-mono-sm px-sm py-xs">GROUP BY CODE</button>
+<button data-group="url" class="grp font-mono-sm text-mono-sm px-sm py-xs">GROUP BY URL</button>
+<button data-group="flat" class="grp font-mono-sm text-mono-sm px-sm py-xs">FLAT</button>
+</div>
+<!-- Counts stay visible while filtering, so a filter cannot be mistaken for a fix. -->
+<div id="counts" class="font-mono-sm text-mono-sm text-on-surface-variant shrink-0"></div>
+<div class="flex gap-sm ml-auto shrink-0">
+<select id="f-code" class="bg-surface-container-highest border border-outline-variant text-on-surface font-mono-sm text-mono-sm rounded px-sm py-xs focus:outline-none focus:border-primary"></select>
+<select id="f-lane" class="bg-surface-container-highest border border-outline-variant text-on-surface font-mono-sm text-mono-sm rounded px-sm py-xs focus:outline-none focus:border-primary"></select>
+<input id="f-url" class="bg-surface-container-highest border border-outline-variant text-on-surface font-mono-sm text-mono-sm rounded px-sm py-xs w-48 focus:outline-none focus:border-primary placeholder:text-on-surface-variant/50" placeholder="URL substring…"/>
+<select id="f-cycle" class="bg-surface-container-highest border border-outline-variant text-on-surface font-mono-sm text-mono-sm rounded px-sm py-xs focus:outline-none focus:border-primary"></select>
+</div>
+</div>
+<div class="flex-1 flex overflow-hidden">
+<div id="table" class="flex-1 overflow-auto"></div>
+<aside id="drawer" class="hidden w-96 border-l border-outline-variant bg-surface-container-low overflow-auto shrink-0"></aside>
+</div>
+</main>
+<script src="/static/app.js"></script>
+<script src="/static/page-findings.js"></script>
+</body></html>

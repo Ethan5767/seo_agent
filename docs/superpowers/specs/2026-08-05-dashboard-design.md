@@ -89,11 +89,19 @@ repos in place and writes only inside them.
 
 ```
 pipeline/dashboard/
-  server.py            JSON API, static file serving, subprocess runner   (~350 lines)
-  static/index.html    markup
-  static/app.css       ← the design surface
-  static/app.js        fetch + render + SSE
+  server.py             JSON API, static file serving, subprocess runner
+  static/theme.js       Tailwind palette + type scale   ← the design surface
+  static/theme.css      scrollbars, body defaults
+  static/app.js         API client, injected header + sidebar, shared chips
+  static/<screen>.html  one per screen, eight of them
+  static/page-<screen>.js
 ```
+
+**Multi-page, not a single-page app** (revised during the build). Each screen is
+its own document and navigation is ordinary links, which removes the router and
+the store entirely: **the URL is the state** (`?client=acme&cycle=2026-08`), so a
+screen is shareable by copying it. The shell is injected by `app.js` so the nav
+exists once rather than eight times.
 
 Python standard library only. The repo's sole runtime dependency is PyYAML and this adds
 none. `http.server.ThreadingHTTPServer` serves the API, the static files, and the SSE
@@ -177,11 +185,19 @@ All responses are JSON. All mutating routes require the token from §4.2.
 | `PUT` | `/api/clients/{slug}/config` | Validated write-back (§7.6) |
 | `GET` | `/api/clients/{slug}/cycles` | `["2026-08", "2026-07", ...]`, newest first |
 | `GET` | `/api/clients/{slug}/cycles/{ym}` | Every artifact present in that folder, plus which are absent |
+| `GET` | `/api/clients/{slug}/git` | Local git state + changed files (no network) |
+| `GET` | `/api/clients/{slug}/pr` | `gh pr view` — separate because it is a network call |
+| `GET` | `/api/commands` | The allow-list, so the UI can build its argument inputs |
 | `POST` | `/api/clients/{slug}/runs` | `{command, args}` → `{run_id}` |
 | `GET` | `/api/runs` | Run history for this session |
 | `GET` | `/api/runs/{run_id}` | Status, exit code, interpretation |
 | `GET` | `/api/runs/{run_id}/stream` | **SSE.** `line` events, then one `exit` event |
-| `POST` | `/api/clients/{slug}/git` | `{action}` — `pull` · `branch` · `commit` · `push` · `pr` |
+| `POST` | `/api/clients/{slug}/git` | `{action}` — `pull` · `branch` · `stage-audit` · `commit` · `push` · `pr` |
+
+**Git state and the PR lookup are separate routes** (revised during the build).
+Local git is instant; `gh pr view` is a network round-trip that held the whole
+screen blank for up to twenty seconds. The git screen now paints from local state
+and fills the PR panel in when GitHub answers.
 
 ### Fleet entry shape
 
@@ -201,8 +217,14 @@ All responses are JSON. All mutating routes require the token from §4.2.
 ```
 
 `findings_by_lane` is `null` until phase 3 — phase 1's `findings.json` has no lanes.
-`error` carries a parse or discovery failure and the fleet row renders in an error state
-rather than disappearing.
+`findings_total` is `null` when there is no `findings.json` at all, and the UI must render
+that differently from `0`: never-run and measured-clean mean opposite things. `error`
+carries a parse or discovery failure and the fleet row renders in an error state rather
+than disappearing.
+
+**`pr` is not in the fleet entry** (revised during the build). It would cost one
+`gh` network call per client on every fleet load. It lives on `/api/clients/{slug}/pr`,
+fetched only by the git screen.
 
 ### Run logs
 
@@ -315,7 +337,13 @@ Work items with their `acceptance` criteria, split into **actionable at this tie
 
 ### 7.6 Config editor — phase 2
 
-A form over `docs/client-config.yml`, scoped to the tiering block: `tier`, `text_paths`,
+**Shipped read-only** (revised during the build). The block this screen edits — `tier`,
+`text_paths`, `content.*` — does not exist in any client config until phase 2 extends
+`bootstrap_config`, so there is nothing yet to edit. The screen shows the real config,
+flags the deny-list, and says plainly when no tier is declared. Deferring the write also
+defers the comment-preservation problem below, which is the right order.
+
+The form it becomes is scoped to the tiering block: `tier`, `text_paths`,
 `content.location`, `content.registry`, `content.format`.
 
 - The **deny-list is shown but flagged**. It is the shortest, most load-bearing part of
@@ -403,7 +431,23 @@ Shipped in the same commit as the code:
 
 ---
 
-## 11. Open question — when this ships
+## 11. Status
+
+Built 2026-08-05. `wf-dashboard` ships all eight screens; findings, runs, git, fleet and
+client detail carry real data, and worklist, report and config render phase-gated empty
+states. 55 tests in `tests/test_dashboard.py`.
+
+Verified end to end against fixture client repos: browser → command allow-list →
+subprocess → SSE → exit 19 rendered as *"REFUSED — every source unreachable. Nothing was
+written"*. The guards were probed live and hold: push from a default branch, an unknown
+command, a shell metacharacter in `--url`, a `merge` action, a missing token, and a
+foreign `Origin` are each refused.
+
+Two things the build changed beyond the notes above: the branch-name validator now
+rejects `..` and a leading `-` (the original pattern let `../../escape` through), and
+`theme.js` holds the Tailwind palette once instead of the design tool's per-page copy.
+
+## 12. Open question — when this ships
 
 Phases 1 through 3 produce `findings.json`, `worklist.json`, and `report.md`. Today only
 the first exists. A full control plane built now would render one populated screen and

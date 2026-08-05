@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Runs · wf-dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<script src="/static/theme.js"></script>
+<link href="/static/theme.css" rel="stylesheet"/>
+</head>
+<body class="font-body-md text-body-md antialiased">
+<main class="md:ml-60 pt-12 h-screen flex flex-col md:flex-row overflow-hidden bg-background">
+<!-- Job configuration -->
+<section class="w-full md:w-96 border-r border-outline-variant bg-surface-container-low flex flex-col shrink-0">
+<div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">JOB CONFIGURATION</div>
+<div class="p-md flex-1 overflow-auto">
+<label class="font-label-caps text-label-caps text-on-surface-variant block mb-xs">COMMAND</label>
+<select id="command" class="w-full bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs mb-md focus:outline-none focus:border-primary"></select>
+<div id="args"></div>
+<div id="argv" class="mt-lg font-mono-sm text-mono-sm text-on-surface-variant/70 break-all border-t border-outline-variant pt-sm"></div>
+</div>
+<div class="p-md border-t border-outline-variant">
+<button id="run" class="w-full bg-primary text-on-primary font-label-caps text-label-caps px-md py-sm rounded hover:opacity-90 flex items-center justify-center gap-xs">
+<span class="material-symbols-outlined" style="font-size:16px">play_arrow</span> EXECUTE</button>
+</div>
+</section>
+<!-- Live stream -->
+<section class="flex-1 flex flex-col overflow-hidden">
+<div class="h-12 border-b border-outline-variant bg-surface-container flex items-center gap-md px-md shrink-0">
+<span id="stream-label" class="font-mono-base text-mono-base text-on-surface-variant">No run yet</span>
+<span id="stream-exit" class="ml-auto"></span>
+</div>
+<div id="log" class="flex-1 overflow-auto bg-surface-container-lowest p-md font-mono-base text-mono-base"></div>
+<div class="border-t border-outline-variant bg-surface-container-low max-h-48 overflow-auto">
+<div class="px-md py-xs font-label-caps text-label-caps text-on-surface-variant border-b border-outline-variant">SESSION HISTORY</div>
+<div id="history"></div>
+</div>
+</section>
+</main>
+<script src="/static/app.js"></script>
+<script src="/static/page-runs.js"></script>
+</body></html>

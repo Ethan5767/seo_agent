@@ -44,6 +44,7 @@ Exit: 0 ready to remediate · 1 stopped on a step a human must clear (re-runnabl
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -76,8 +77,17 @@ class OnboardError(Exception):
 def run(argv: list, cwd=None, capture=False) -> subprocess.CompletedProcess:
     """Run a step. Output goes to the operator's terminal unless we need to read
     it — an onboarding that hides what its steps printed is an onboarding you
-    debug twice."""
-    return subprocess.run(argv, cwd=cwd, text=True,
+    debug twice.
+
+    Every step is a `wf-*` console script installed beside this interpreter. Put
+    that directory on PATH: `.venv/bin/wf-onboard` is the normal way to invoke
+    this without activating the venv, and without this the very first step dies
+    with FileNotFoundError: 'wf-bootstrap-config'."""
+    env = dict(os.environ)
+    bindir = str(Path(sys.executable).parent)
+    if bindir not in env.get("PATH", "").split(os.pathsep):
+        env["PATH"] = bindir + os.pathsep + env.get("PATH", "")
+    return subprocess.run(argv, cwd=cwd, text=True, env=env,
                           capture_output=capture, check=False)
 
 

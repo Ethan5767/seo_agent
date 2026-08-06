@@ -226,26 +226,72 @@ def test_the_skill_ships_the_rule_the_whole_gate_suite_rests_on():
     assert "removed, not reworded" in text
 
 
-def test_the_prompt_goes_on_stdin_not_argv(monkeypatch):
+def test_the_prompt_goes_on_stdin_not_argv(monkeypatch, capsys):
     """The prompt opens with a markdown document, and a leading `---` is parsed by
     the CLI's option parser as a malformed flag. Found by the first live run; no
-    test that stubs `run_agent` can see it, so this one stubs `subprocess.run`."""
+    test that stubs `run_agent` can see it, so this one stubs `subprocess.Popen`."""
     seen = {}
 
-    class Result:
-        returncode = 0
-        stdout = '{"result": "FIXED", "total_cost_usd": 0.01}'
-        stderr = ""
+    class FakeStdin:
+        def write(self, data):
+            seen["input"] = data
 
-    def fake_run(argv, **kw):
-        seen["argv"], seen["input"] = argv, kw.get("input")
-        return Result()
+        def close(self):
+            pass
 
-    monkeypatch.setattr(rem.subprocess, "run", fake_run)
+    class FakeStdout:
+        def __iter__(self):
+            yield '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}'
+            yield '{"type":"result","subtype":"success","result":"FIXED","total_cost_usd":0.01}'
+
+    class FakeProc:
+        def __init__(self):
+            self.stdin = FakeStdin()
+            self.stdout = FakeStdout()
+
+        def wait(self):
+            return 0
+
+        def kill(self):
+            pass
+
+    def fake_popen(argv, **kw):
+        seen["argv"] = argv
+        assert kw.get("stdin") is subprocess.PIPE
+        return FakeProc()
+
+    monkeypatch.setattr(rem.subprocess, "Popen", fake_popen)
     ok, note, cost = rem.run_agent("/p", "---\nfrontmatter\n---\nbody", "sonnet", 60)
     assert ok and note == "FIXED" and cost == 0.01
     assert seen["input"].startswith("---")
     assert not any(a.startswith("---") for a in seen["argv"])
+    assert "--output-format" in seen["argv"]
+    assert seen["argv"][seen["argv"].index("--output-format") + 1] == "stream-json"
+    assert "--verbose" in seen["argv"]
+    # Live tee: both stream events must have reached stdout while the agent ran.
+    out = capsys.readouterr().out
+    assert '"type":"assistant"' in out
+    assert '"type":"result"' in out
+
+
+def test_a_streamed_error_result_is_not_ok(monkeypatch, capsys):
+    class FakeStdin:
+        def write(self, data): pass
+        def close(self): pass
+
+    class FakeStdout:
+        def __iter__(self):
+            yield '{"type":"result","subtype":"error","is_error":true,"result":"no config"}'
+
+    class FakeProc:
+        stdin = FakeStdin()
+        stdout = FakeStdout()
+        def wait(self): return 1
+        def kill(self): pass
+
+    monkeypatch.setattr(rem.subprocess, "Popen", lambda *a, **k: FakeProc())
+    ok, note, cost = rem.run_agent("/p", "body", "sonnet", 60)
+    assert not ok and "no config" in note and cost == 0.0
 
 
 def test_the_skill_frontmatter_is_not_sent_to_the_writer():

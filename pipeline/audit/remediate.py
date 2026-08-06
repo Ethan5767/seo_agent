@@ -56,6 +56,7 @@ import json
 import shutil
 import subprocess
 import sys
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -207,30 +208,83 @@ def read_doctrine() -> str:
 def run_agent(project, prompt: str, model: str, timeout: int) -> tuple:
     """(ok, text, cost_usd). A non-zero exit or a timeout is an ERROR for this
     item, never a silent skip: the changelog records it and the item stays in the
-    worklist for the next run."""
+    worklist for the next run.
+
+    Claude's stdout is teed line-by-line onto ours while the item runs. The
+    dashboard (and a plain terminal) used to sit blank for the whole
+    `subprocess.run(..., capture_output=True)` call — minutes of silence per
+    item — because `--output-format json` only emits after the agent finishes.
+    `stream-json` + `--verbose` is the CLI's live event stream; we still parse
+    the final `type: result` event for cost and the note.
+    """
     # The prompt goes on STDIN, not argv. It begins with a markdown document and
     # the CLI's option parser reads a leading `---` as a malformed flag — caught
     # by the first live run, not by any test that stubbed this function out.
     argv = ["claude", "-p", "--model", model,
             "--permission-mode", "acceptEdits",
             "--allowedTools", ALLOWED_TOOLS,
-            "--output-format", "json"]
+            "--output-format", "stream-json",
+            "--verbose"]
     # The two prose references live in the ENGINE repo, not the client checkout,
     # so the agent cannot read them without being told they exist.
     if SKILL.is_file():
         argv += ["--add-dir", str(SKILL.parent)]
     try:
-        r = subprocess.run(argv, cwd=str(project), input=prompt, capture_output=True,
-                           text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return False, f"timed out after {timeout}s", 0.0
-    if r.returncode != 0:
-        return False, (r.stderr or r.stdout).strip()[:400], 0.0
+        proc = subprocess.Popen(
+            argv, cwd=str(project), stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+    except OSError as exc:
+        return False, str(exc), 0.0
+
+    assert proc.stdin is not None and proc.stdout is not None
     try:
-        doc = json.loads(r.stdout)
-    except json.JSONDecodeError:
-        return True, r.stdout.strip()[:400], 0.0
-    return True, str(doc.get("result", ""))[:400], float(doc.get("total_cost_usd") or 0.0)
+        proc.stdin.write(prompt)
+    finally:
+        proc.stdin.close()
+
+    result_doc = None
+    tail: list[str] = []
+
+    def pump():
+        nonlocal result_doc
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            # flush=True: dashboard SSE and pipes are not a TTY, so the default
+            # block buffer would still leave the operator staring at blank.
+            print(line, flush=True)
+            if len(tail) < 40:
+                tail.append(line)
+            else:
+                tail.pop(0)
+                tail.append(line)
+            try:
+                doc = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(doc, dict) and doc.get("type") == "result":
+                result_doc = doc
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    reader.join(timeout=timeout)
+    if reader.is_alive():
+        proc.kill()
+        reader.join(5)
+        return False, f"timed out after {timeout}s", 0.0
+
+    code = proc.wait()
+    if result_doc is not None:
+        note = str(result_doc.get("result") or result_doc.get("subtype") or "")[:400]
+        cost = float(result_doc.get("total_cost_usd") or 0.0)
+        is_error = result_doc.get("is_error") is True
+        subtype = result_doc.get("subtype")
+        ok = code == 0 and not is_error and subtype in (None, "success")
+        return ok, note, cost
+    if code != 0:
+        return False, "\n".join(tail)[-400:] or f"claude exited {code}", 0.0
+    return True, "\n".join(tail)[-400:], 0.0
 
 
 # ── the run ──────────────────────────────────────────────────────────────────
@@ -284,9 +338,10 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
             break
 
         prompt = build_prompt(item, profile, doctrine)
+        print(f"\n===== {item['id']} — {item.get('code')} on {item.get('url')} =====",
+              flush=True)
         if dry_run:
-            print(f"\n===== {item['id']} — {item.get('code')} on {item.get('url')} =====")
-            print(prompt)
+            print(prompt, flush=True)
             results.append(dict(_base(item), status="dry-run", files=[]))
             continue
 
@@ -314,7 +369,8 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
         results.append(dict(_base(item), status=status, files=changed, note=note))
         print(f"[{status.upper()}] {item['id']} {item.get('code')} on {item.get('url')}"
               + (f" -> {', '.join(changed)}" if changed else "")
-              + (f"  ({note})" if note and status != "fixed" else ""))
+              + (f"  ({note})" if note and status != "fixed" else ""),
+              flush=True)
         if refused:
             stopped = "an edit outside the declared tier — the run stopped rather than " \
                       "keep writing"
@@ -345,6 +401,14 @@ def _base(item: dict) -> dict:
 
 
 def main() -> int:
+    # Line-buffer stdout when piped (dashboard SSE, `./run.sh`, CI). Without
+    # this, print() sits in a block buffer and the operator sees RUNNING with a
+    # blank pane until the process exits.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, OSError):
+        pass
+
     ap = argparse.ArgumentParser(
         prog="wf-site-remediate",
         description="Hand each actionable work item to Claude Code and record what changed.")

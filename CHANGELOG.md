@@ -8,6 +8,25 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`wf-site-remediate` streams Claude's live output instead of a blank pane.**
+  `run_agent` used `subprocess.run(..., capture_output=True)` with
+  `--output-format json`, so the dashboard (and any piped terminal) showed
+  `RUNNING..` with an empty log until each item finished — often minutes. Now
+  it runs Claude with `--output-format stream-json --verbose`, tees every
+  NDJSON event to stdout as it arrives (`flush=True` + line-buffered stdout),
+  and still parses the final `type: result` event for cost / note. Item banners
+  print before the agent starts, dry-run included.
+  `tests/test_remediate.py::test_the_prompt_goes_on_stdin_not_argv` (Popen stub,
+  asserts stream-json + live tee) and `::test_a_streamed_error_result_is_not_ok`.
+  Verified: `.venv/bin/pytest -q tests/test_remediate.py` → `19 passed in 0.76s`.
+  Full suite before push: `.venv/bin/pytest -q` → `414 passed in 2.78s`.
+
+- **`wf-onboard` puts its own `sys.executable` bindir on PATH before shelling out.**
+  Invoking `.venv/bin/wf-onboard` without activating the venv meant the first
+  step died with `FileNotFoundError: 'wf-bootstrap-config'` — the console
+  scripts live next to the interpreter, not on the ambient PATH. `run()` now
+  prepends that directory so every `wf-*` child resolves.
+
 - **`health.img_alt_missing` no longer fires on `alt=""` (B-009).** The test was
   `re.search(r'\salt="[^"]+"', img)`, which an EMPTY alt fails — so every
   decorative image marked the way WCAG asks for was reported as a defect. First

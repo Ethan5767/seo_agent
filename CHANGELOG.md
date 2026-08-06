@@ -6,7 +6,46 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`health.img_alt_missing` no longer fires on `alt=""` (B-009).** The test was
+  `re.search(r'\salt="[^"]+"', img)`, which an EMPTY alt fails — so every
+  decorative image marked the way WCAG asks for was reported as a defect. First
+  live run against `www.leeserie.com` (a Webflow-exported Next.js site):
+  **1158 of 1272 findings**, 91% of the report, all false. Verified against the
+  live homepage before changing anything: 76 `<img>`, 38 with real alt text, 38
+  with `alt=""`, **zero with no alt attribute at all**. Now only an absent
+  `alt=` is a finding. Re-measured after the fix: `26 URLs measured, 114
+  findings`.
+
+  `tests/test_measure.py::test_decorative_alt_is_not_a_missing_alt` — a page
+  with one decorative image, one described image and one genuinely missing alt
+  yields exactly the last one. Full suite `413 passed in 2.59s`.
+
 ### Added
+
+- **`wf-site-health` warns when one code owns half a run.** B-009 was invisible
+  in the output: the run printed `1272 findings` and nothing said that 91% of
+  them came from a single check. `warn_dominant_code` prints a `[WARN]` naming
+  the code and its share whenever one code is ≥50% of a run of 20 or more. It
+  does not judge the check and it does not suppress anything — it refuses to let
+  one code hide inside a total. Tests: `::test_a_dominant_code_is_warned_about`,
+  `::test_a_mixed_run_is_not_warned_about`.
+
+- **`wf-dashboard` findings: group headers are now collapsible.** GROUP BY CODE
+  and GROUP BY URL rendered every row under every header, so a real cycle opened
+  as a 1272-row scroll with the second code below the fold. Headers now collapse
+  by default and carry a chevron, a preview of the first finding in the bucket
+  and the count, so the whole shape of a site is 8 rows. A group filtered down
+  to one bucket auto-expands, since choosing it is the same as opening it.
+
+### Changed
+
+- **`wf-dashboard` fleet: cards carry their own border.** The grid used
+  `bg-outline-variant` + `gap-gutter` to fake hairlines between cards, which
+  only looks right when the columns are full — one client in a 3-column grid
+  rendered as a card next to a large grey slab. The container background is
+  gone and each card has `border border-outline-variant rounded-sm`.
 
 - **`run.sh` — one entry point for running any engine command in the
   container.** `./run.sh wf-onboard acme/site acme.com`, `./run.sh

@@ -3,6 +3,11 @@ const slug = requireClient();
 const tableEl = document.getElementById('table');
 const drawerEl = document.getElementById('drawer');
 let doc = null, findings = [], group = 'code', selected = null;
+// Which group headers are expanded. Collapsed by default: one code can carry a
+// thousand rows (leeserie.com opens with 1158 img_alt_missing), and a screen
+// that scrolls for a minute before reaching the second code hides the shape of
+// the site. Survives re-renders, so filtering does not close what you opened.
+const open = new Set();
 
 const ACTIVE = 'bg-surface-container-highest text-on-surface';
 const IDLE = 'text-on-surface-variant hover:text-on-surface';
@@ -69,12 +74,22 @@ function table(rows) {
     </tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function groupHeader(label, n) {
+// The header row IS the dropdown control: click to expand its findings. The
+// preview is the first finding in the bucket, so a collapsed group still says
+// what it is about instead of only how big it is.
+function groupHeader(label, fs) {
   const cols = findings.some((f) => f.lane) ? 5 : 4;
-  return `<tr class="bg-surface-container-high"><td colspan="${cols}" class="px-md py-xs border-y border-outline-variant">
-    <div class="flex justify-between">
-      <span class="font-mono-base text-mono-base text-primary">${esc(label)}</span>
-      <span class="font-mono-sm text-mono-sm text-on-surface-variant">${n}</span></div></td></tr>`;
+  const on = open.has(label);
+  const f = fs[0];
+  const preview = [f.location, f.detail, f.context].filter(Boolean).join('  ');
+  return `<tr data-grp="${esc(label)}" class="bg-surface-container-high hover:bg-surface-container-highest cursor-pointer">
+    <td colspan="${cols}" class="px-md py-xs border-y border-outline-variant">
+    <div class="flex items-center gap-sm">
+      <span class="material-symbols-outlined text-on-surface-variant shrink-0" style="font-size:16px">${on ? 'expand_more' : 'chevron_right'}</span>
+      <span class="font-mono-base text-mono-base text-primary shrink-0">${esc(label)}</span>
+      <span class="font-mono-sm text-mono-sm text-on-surface-variant/70 truncate">${on ? '' : esc(preview)}</span>
+      <span class="font-mono-sm text-mono-sm text-on-surface-variant ml-auto shrink-0">${fs.length}</span>
+    </div></td></tr>`;
 }
 
 function render() {
@@ -99,10 +114,20 @@ function render() {
     const key = group === 'code' ? 'code' : 'location';
     const buckets = {};
     for (const f of shown) (buckets[f[key]] ||= []).push(f);
+    // Filtering down to one group means you already chose it — collapsing it
+    // would make the filter look like it returned a single empty row.
+    const keys = Object.keys(buckets);
+    if (keys.length === 1) open.add(keys[0]);
     tableEl.innerHTML = table(Object.entries(buckets)
       .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-      .map(([k, fs]) => groupHeader(k, fs.length) + fs.map(row).join('')).join(''));
+      .map(([k, fs]) => groupHeader(k, fs) + (open.has(k) ? fs.map(row).join('') : '')).join(''));
   }
+  tableEl.querySelectorAll('tr[data-grp]').forEach((tr) =>
+    tr.addEventListener('click', () => {
+      const k = tr.dataset.grp;
+      open.has(k) ? open.delete(k) : open.add(k);
+      render();
+    }));
   tableEl.querySelectorAll('tr[data-fp]').forEach((tr) =>
     tr.addEventListener('click', () => { selected = tr.dataset.fp; render(); drawer(); }));
   if (selected) drawer();

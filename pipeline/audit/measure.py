@@ -113,8 +113,14 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
 
     # images — one finding per offending image, src as the stable identity.
     # A page with no images emits nothing.
+    #
+    # `alt=""` is NOT missing alt text: it is the WCAG marker for a decorative
+    # image, and flagging it inverts the standard. The old test was
+    # `alt="[^"]+"`, which failed on the empty string — on leeserie.com that
+    # emitted 1158 of 1272 findings (B-009), all of them false, and buried every
+    # real one. Only an ABSENT alt attribute is a defect.
     for img in re.findall(r"<img[^>]*>", html):
-        if not re.search(r'\salt="[^"]+"', img):
+        if not re.search(r"\salt=", img):
             src = re.search(r'\ssrc="([^"]*)"', img)
             add("health.img_alt_missing", context=src.group(1) if src else img[:80])
 
@@ -290,7 +296,29 @@ def main() -> int:
     out_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
     print(f"[OK] {checked} URLs measured, {len(findings)} findings -> {out_path}")
+    warn_dominant_code(findings)
     return 1 if findings else 0
+
+
+# One check owning most of a report is the shape a false positive makes. B-009
+# was exactly this: 91% of a run was a single broken regex, and nothing in the
+# output said so — the operator read "1272 findings" as 1272 problems. This does
+# not judge the check, it just refuses to let one code hide behind a total.
+DOMINANCE_SHARE = 0.5
+
+
+def warn_dominant_code(findings: list) -> None:
+    if len(findings) < 20:            # too few for a share to mean anything
+        return
+    counts = {}
+    for f in findings:
+        counts[f.code] = counts.get(f.code, 0) + 1
+    code, n = max(counts.items(), key=lambda kv: kv[1])
+    if n / len(findings) >= DOMINANCE_SHARE:
+        print(f"[WARN] {code} is {n}/{len(findings)} ({n / len(findings):.0%}) of this run. "
+              f"One check carrying a report is how a false positive looks — verify it "
+              f"against the live HTML before planning work from these numbers.",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

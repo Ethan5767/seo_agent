@@ -25,7 +25,7 @@ function card(c) {
   // A client that failed to load stays visible carrying its error. Dropping it
   // would read as "no problems here", which is the opposite of the truth.
   if (c.error) {
-    return `<div class="bg-surface p-md">
+    return `<div class="bg-surface p-md border border-outline-variant rounded-sm">
       <div class="flex justify-between items-start mb-sm">
         <div><h3 class="font-mono-base text-mono-base text-error">${esc(c.slug)}</h3>
         <p class="font-body-sm text-body-sm text-on-surface-variant">${esc(c.path)}</p></div>
@@ -46,7 +46,7 @@ function card(c) {
   const total = c.findings_total == null
     ? '<span class="text-on-surface-variant/60" title="No findings.json yet — run site-health">not run</span>'
     : c.findings_total;
-  return `<a href="${link}" class="bg-surface p-md hover:bg-surface-container transition-colors group block">
+  return `<a href="${link}" class="bg-surface p-md border border-outline-variant rounded-sm hover:bg-surface-container transition-colors group block">
     <div class="flex justify-between items-start mb-sm">
       <div>
         <h3 class="font-mono-base text-mono-base text-primary mb-xs group-hover:underline">${esc(c.slug)}</h3>

@@ -189,6 +189,32 @@ def test_img_alt_is_per_image_with_src_as_context():
     assert len({h.fingerprint for h in hits}) == 2, "distinct images, distinct findings"
 
 
+def test_decorative_alt_is_not_a_missing_alt():
+    """B-009. `alt=""` is the WCAG marker for a decorative image, not an absent
+    alt. The old `alt="[^"]+"` test failed on the empty string and reported every
+    correctly-marked icon: 1158 of 1272 findings on the first leeserie.com run."""
+    page = build_page(images=('<img src="/icon.svg" alt="">',
+                              '<img src="/hero.jpg" alt="A roof">',
+                              '<img src="/real.jpg">'))
+    hits = [x for x in check(page) if x.code == "health.img_alt_missing"]
+    assert [h.context for h in hits] == ["/real.jpg"]
+
+
+def test_a_dominant_code_is_warned_about(capsys):
+    """A single check owning half a run is the shape a false positive makes."""
+    m.warn_dominant_code([m.Finding(gate="site_health", code="health.img_alt_missing",
+                                    location="/") for _ in range(30)])
+    assert "health.img_alt_missing is 30/30" in capsys.readouterr().err
+
+
+def test_a_mixed_run_is_not_warned_about(capsys):
+    findings = ([m.Finding(gate="site_health", code="health.a", location="/")] * 10 +
+                [m.Finding(gate="site_health", code="health.b", location="/")] * 9 +
+                [m.Finding(gate="site_health", code="health.c", location="/")] * 9)
+    m.warn_dominant_code(findings)
+    assert capsys.readouterr().err == ""
+
+
 def test_page_with_zero_images_has_no_alt_finding():
     """audit_live.py used `len(imgs) > 0 and not missing_alt`, so an image-free
     page reported an alt violation. That is a false positive."""

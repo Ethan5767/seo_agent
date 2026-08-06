@@ -8,6 +8,55 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`wf-dashboard`: picking a cycle was silently dropped the moment you changed
+  screen.** Five selects (Client, Findings, Worklist, Report, Changelog) changed
+  what was rendered without touching the URL, and the sidebar builds every link
+  from `location.search` once at page load. Choose 2026-07 on Worklist, click
+  Changelog, land on 2026-08 — with nothing to indicate the choice had been
+  thrown away. `setCycle()` now writes the selection back with `replaceState`
+  and re-points the nav; `cycleScreen()` in `app.js` replaces the three
+  copy-pasted bootstraps that carried the defect. Verified in a browser: the
+  Changelog link goes `/changelog?client=acme` → `/changelog?client=acme&cycle=2026-07`,
+  and Fleet correctly stays parameter-free.
+
+- **`wf-dashboard`: one malformed `gate-baseline.json` blanked the whole fleet.**
+  `baseline_state` caught `JSONDecodeError` and `AttributeError`, so a file
+  containing `{"entries": 5}` raised `TypeError` out of `/api/clients` and every
+  client vanished from the console. `discover_clients` twenty lines above already
+  states the rule — a client that will not load is returned WITH its error rather
+  than dropped — and the new code did not honour it. Now `except Exception`, and
+  the `BASELINE BAD` chip renders it.
+
+  ```
+  $ echo '{"entries": 5}' > acme-site/docs/gate-baseline.json
+  $ curl -s -o /dev/null -w "%{http_code}" localhost:8793/api/clients
+  200      # was: 500, fleet empty
+  ```
+
+- **`wf-site-remediate` exit 0 rendered as "Clean — every check passed".**
+  `remediate.py:339` returns 0 when it fixed *nothing* — a `--dry-run`, or a run
+  where every item errored. The rail's exit vocabulary was applied to it by
+  default, so the console's most destructive command reported its emptiest
+  outcome in green. Every entry in `COMMANDS` now declares `exits` (an empty
+  dict being the deliberate statement "this speaks the rail's vocabulary"), and
+  `test_every_command_states_which_exit_vocabulary_it_speaks` makes the silence
+  impossible.
+
+  ```
+  $ POST /api/clients/acme/runs {"command":"site-remediate","args":{"cycle":"2026-08","dry-run":true}}
+  exit: {'code': 0, 'kind': 'warn', 'text': 'Ran, fixed nothing — a dry run, or every item errored. Read the changelog'}
+  ```
+
+- **`gate-baseline` was one allow-list entry wearing two commands' exit codes.**
+  Check mode reads; record mode WRITES the accepted-debt file into the client
+  repo — and exit 1 and exit 2 mean different things in each. The single entry's
+  table told an operator running `--check` against a client with *no baseline*
+  (the exact state the new `NO BASELINE` chip exists to surface) that a baseline
+  already existed. Worse, record mode was the flagless default: three unticked
+  checkboxes and EXECUTE wrote to a client repo. Split into
+  `gate-baseline-check` (no arguments at all — it cannot be made to write) and
+  `gate-baseline-record`, each with an exit table that is true.
+
 - **`wf-dashboard`: the Runs console could not run any command that takes a
   `--cycle`.** `renderArgs()` rendered exactly two widgets — a number input for
   `int` and a text input for everything else — and `collect()` split every
@@ -78,6 +127,13 @@ see `CLAUDE.md` (the sync contract).
   every command declares and asserts `build_argv` handles the type. The bug
   above existed because a type could be declared with nothing on either side
   knowing how to carry it.
+
+- **`test_every_declared_argument_type_has_a_widget`** — the sibling that covers
+  the half that actually broke. The server could always build `cycle` and
+  `flag`; the *screen* could not ask for them. A grep of `page-runs.js`,
+  deliberately: the type vocabulary lives in Python and in no-build-step JS, and
+  sharing it means generating a constant — more machinery than a four-value enum
+  is worth. Mutation-checked (rename the `cycle` branch, the test fails).
 
 - **`wf-onboard` — a repo and a domain in, a worklist out.** Onboarding was six
   commands in a specific order, each with its own exit-code vocabulary, and the

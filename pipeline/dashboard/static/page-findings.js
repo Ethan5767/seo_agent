@@ -138,5 +138,7 @@ document.querySelectorAll('.grp').forEach((b) =>
   b.addEventListener('click', () => { group = b.dataset.group; render(); }));
 ['f-code', 'f-lane', 'f-url'].forEach((id) =>
   document.getElementById(id).addEventListener('input', render));
-document.getElementById('f-cycle').addEventListener('change', (e) => load(e.target.value));
+document.getElementById('f-cycle').addEventListener('change', (e) => {
+  setCycle(e.target.value); load(e.target.value);
+});
 load();

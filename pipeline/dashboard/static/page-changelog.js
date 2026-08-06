@@ -6,29 +6,17 @@ const bodyEl = document.getElementById('body');
 document.getElementById('phase').textContent = 'produced by wf-site-remediate';
 
 // A refusal is not a completion. Same rule as the exit chips: the status a run
-// reports has to survive being rendered.
+// reports has to survive being rendered — including a status this map has never
+// heard of, which reads as UNKNOWN rather than being repainted as an error.
 const STATUS = {
   fixed: 'border border-green-500/50 text-green-400',
   no_change: 'border border-outline text-on-surface-variant',
   error: 'bg-error-container text-on-error-container',
   refused: 'bg-error-container text-on-error-container',
 };
-
-async function load() {
-  try {
-    const cycles = await api(`/api/clients/${encodeURIComponent(slug)}/cycles`);
-    const sel = document.getElementById('cycle');
-    if (!cycles.length) {
-      sel.disabled = true;
-      return void (bodyEl.innerHTML = emptyState('No cycles yet',
-        'Run site-health, then site-plan, then site-remediate — the changelog is the last of the three.'));
-    }
-    sel.innerHTML = cycles.map((c) => `<option>${esc(c)}</option>`).join('');
-    sel.value = currentCycle() || cycles[0];
-    sel.addEventListener('change', () => show(sel.value));
-    show(sel.value);
-  } catch (err) { fail(bodyEl, err); }
-}
+const statusChip = (s, text) =>
+  `<span class="${STATUS[s] || 'bg-tertiary-container text-on-tertiary-container'} font-mono-sm text-mono-sm px-xs py-[2px] rounded-sm uppercase"
+    ${STATUS[s] ? '' : 'title="wf-site-remediate reported a status this screen does not know"'}>${esc(text ?? s)}</span>`;
 
 async function show(ym) {
   const bundle = await api(`/api/clients/${encodeURIComponent(slug)}/cycles/${ym}`);
@@ -53,8 +41,7 @@ function summary(doc, tally) {
   const cell = (label, value, tone = 'text-on-surface') => `<div>
     <div class="font-label-caps text-label-caps text-on-surface-variant mb-xs">${esc(label)}</div>
     <div class="font-mono-base text-mono-base ${tone}">${esc(value ?? '—')}</div></div>`;
-  const chips = Object.entries(tally).map(([k, n]) =>
-    `<span class="${STATUS[k] || STATUS.error} font-mono-sm text-mono-sm px-xs py-[2px] rounded-sm">${esc(k)} ${n}</span>`).join(' ');
+  const chips = Object.entries(tally).map(([k, n]) => statusChip(k, `${k} ${n}`)).join(' ');
   return `<div class="border border-outline-variant rounded bg-surface-container-low p-md mb-md flex items-center gap-lg flex-wrap">
     ${cell('CYCLE', doc.cycle)}
     ${cell('QUEUED', doc.queued)}
@@ -82,7 +69,7 @@ function item(i) {
   return `<div class="border border-outline-variant rounded p-md mb-sm bg-surface-container-low">
     <div class="flex items-center gap-md mb-xs flex-wrap">
       <span class="font-mono-base text-mono-base text-primary">${esc(i.id)}</span>
-      <span class="${STATUS[i.status] || STATUS.error} font-mono-sm text-mono-sm px-xs py-[2px] rounded-sm uppercase">${esc(i.status)}</span>
+      ${statusChip(i.status)}
       <span class="font-mono-sm text-mono-sm text-on-surface-variant">${esc(i.code)} · ${esc(i.kind)}</span>
       ${i.lane ? `<span class="font-mono-sm text-mono-sm px-xs py-[2px] rounded-sm bg-surface-container-high">${esc(i.lane)}</span>` : ''}
       <span class="ml-auto font-mono-sm text-mono-sm text-on-surface-variant">${esc(i.url)}</span>
@@ -110,4 +97,5 @@ function files(doc) {
   </section>`;
 }
 
-load();
+cycleScreen(slug, document.getElementById('cycle'), bodyEl, show,
+  'Run site-health, then site-plan, then site-remediate — the changelog is the last of the three.');

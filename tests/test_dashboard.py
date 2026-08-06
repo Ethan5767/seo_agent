@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 import yaml
@@ -324,16 +325,49 @@ def test_remediate_caps_must_be_positive_integers():
 def test_gate_baseline_is_in_the_allow_list():
     """A client with no baseline runs the gates BARE. Recording one has to be
     something the operator can do from the console, not lore in a doc."""
-    assert build_argv("gate-baseline", "/p", {}) == \
+    assert build_argv("gate-baseline-record", "/p", {}) == \
         ["wf-gate-baseline", "--project", "/p"]
-    assert build_argv("gate-baseline", "/p", {"check": True})[-1] == "--check"
+    assert build_argv("gate-baseline-check", "/p", {})[-1] == "--check"
+
+
+def test_the_read_only_baseline_check_cannot_be_made_to_write():
+    """Check and record are separate entries precisely so the destructive one is
+    never a forgotten checkbox away. --check takes no arguments at all."""
+    assert COMMANDS["gate-baseline-check"]["args"] == {}
+    for flag in ("refresh", "accept-new", "check"):
+        with pytest.raises(ValueError, match="unknown argument"):
+            build_argv("gate-baseline-check", "/p", {flag: True})
 
 
 def test_gate_baseline_exit_1_reads_as_a_refusal_not_findings():
     """Exit 1 means "wrote what it found" for the rail and "the ratchet broke"
     for the baseline. Rendering the second as the first launders a regression."""
     assert interpret_exit(1)["kind"] == "findings"
-    assert interpret_exit(1, "gate-baseline")["kind"] == "refused"
+    assert interpret_exit(1, "gate-baseline-check")["kind"] == "refused"
+
+
+def test_check_mode_exit_2_does_not_claim_a_baseline_already_exists():
+    """Exit 2 from --check means the baseline is ABSENT or will not load, which
+    is the state the fleet's NO BASELINE chip exists to surface. Telling that
+    operator a baseline already exists sends them in the wrong direction."""
+    assert "already exists" not in interpret_exit(2, "gate-baseline-check")["text"]
+    assert "already exists" in interpret_exit(2, "gate-baseline-record")["text"]
+
+
+def test_remediate_exit_0_is_never_reported_as_clean():
+    """remediate returns 0 when it fixed NOTHING — a dry run, or every item
+    errored. "Clean, every check passed" over that is the same lie as a green
+    chip on a failed pull."""
+    assert interpret_exit(0)["kind"] == "clean"
+    assert interpret_exit(0, "site-remediate")["kind"] == "warn"
+
+
+def test_every_command_states_which_exit_vocabulary_it_speaks():
+    """An absent `exits` key means nobody asked whether this command's exit
+    codes mean what the rail's mean. That silence is how a failed `git pull`
+    came to render as "Findings written". An empty dict is a deliberate yes."""
+    for name, spec in COMMANDS.items():
+        assert "exits" in spec, f"{name}: declare `exits` ({{}} = speaks the rail's vocabulary)"
 
 
 def test_a_failed_git_action_is_never_a_success():
@@ -350,6 +384,23 @@ def test_every_declared_argument_type_has_a_builder():
         for arg, kind in spec["args"].items():
             assert kind in samples, f"{name}.{arg}: no sample for type {kind}"
             build_argv(name, "/p", {arg: samples[kind]})
+
+
+def test_every_declared_argument_type_has_a_widget():
+    """The half that actually broke was the CLIENT: page-runs.js rendered a
+    path-list input for every type it did not know, so `cycle` and `flag` were
+    sent as lists and refused on arrival. The server being able to build a type
+    proves nothing about the screen being able to ask for it.
+
+    A grep, deliberately. The type vocabulary lives in Python and in no-build-step
+    JS; sharing it means generating a constant, which is more machinery than this
+    four-value enum is worth."""
+    js = (Path(__file__).parents[1] / "pipeline" / "dashboard" / "static"
+          / "page-runs.js").read_text()
+    for name, spec in COMMANDS.items():
+        for arg, kind in spec["args"].items():
+            assert f"'{kind}'" in js, \
+                f"page-runs.js has no widget for {name}.{arg} (type {kind})"
 
 
 # ── the baseline chip on the fleet card ──────────────────────────────────────

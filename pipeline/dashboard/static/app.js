@@ -63,7 +63,8 @@ function renderShell() {
       : disabled
         ? 'text-on-surface-variant/40 pointer-events-none border-l-2 border-transparent'
         : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest border-l-2 border-transparent';
-    return `<li><a href="${disabled ? '#' : href}" class="${cls} cursor-pointer flex items-center gap-sm px-md py-sm">
+    const keep = n.keepClient === false ? '' : ` data-nav="${n.href}"`;
+    return `<li><a href="${disabled ? '#' : href}"${keep} class="${cls} cursor-pointer flex items-center gap-sm px-md py-sm">
       <span class="material-symbols-outlined" style="font-size:16px">${n.icon}</span>
       <span class="font-label-caps text-label-caps">${n.label}</span></a></li>`;
   }).join('');
@@ -83,6 +84,24 @@ function renderShell() {
       <ul class="flex flex-col">${items}</ul>
     </nav>`);
   if (slug) document.getElementById('shell-client').textContent = slug;
+}
+
+// The sidebar hrefs are built once from location.search. Anything that changes
+// the query has to say so, or the links keep pointing at the state the page
+// loaded with — which is how picking a cycle here still landed you on the
+// newest one over there.
+function syncNav() {
+  document.querySelectorAll('nav a[data-nav]').forEach((a) => {
+    if (a.getAttribute('href') !== '#') a.href = withParams(a.dataset.nav);
+  });
+}
+
+// Every screen that lets you change cycle goes through here. Five selects used
+// to change what was rendered without touching the URL, so the choice was lost
+// the moment you moved screens.
+function setCycle(ym) {
+  history.replaceState(null, '', withParams(location.pathname, { cycle: ym }));
+  syncNav();
 }
 
 // ── render helpers ───────────────────────────────────────────────────────────
@@ -125,6 +144,25 @@ function fail(el, err) {
   el.innerHTML = `<div class="m-md p-md border border-error/50 bg-error-container/20 rounded">
     <div class="font-label-caps text-label-caps text-error mb-xs">ERROR</div>
     <div class="font-mono-base text-mono-base text-on-surface">${esc(err.message || err)}</div></div>`;
+}
+
+// Worklist, Report and Changelog are the same screen over a different artifact:
+// pick a cycle, render it. The selection is written back into the URL because
+// the sidebar builds every link from location.search — without this, choosing
+// 2026-07 here and clicking Changelog silently lands you on the newest cycle.
+async function cycleScreen(slug, sel, bodyEl, show, emptyCopy) {
+  try {
+    const cycles = await api(`/api/clients/${encodeURIComponent(slug)}/cycles`);
+    if (!cycles.length) {
+      sel.disabled = true;
+      bodyEl.innerHTML = emptyState('No cycles yet', emptyCopy);
+      return;
+    }
+    sel.innerHTML = cycles.map((c) => `<option>${esc(c)}</option>`).join('');
+    sel.value = currentCycle() || cycles[0];
+    sel.addEventListener('change', () => { setCycle(sel.value); show(sel.value); });
+    show(sel.value);
+  } catch (err) { fail(bodyEl, err); }
 }
 
 // Requires a client in the URL; sends you back to the fleet if there is none.

@@ -7,13 +7,16 @@ let commands = {}, stream = null, clientCycles = [];
 
 async function init() {
   try {
-    commands = await api('/api/commands');
+    // Independent calls. The cycle widget offers the cycles that exist rather
+    // than a free-text box: the server refuses anything that is not YYYY-MM, and
+    // a typo costs a round-trip to find out. A failure here throws into fail()
+    // below — an empty cycle list must never quietly look like "no cycles".
+    [commands, clientCycles] = await Promise.all([
+      api('/api/commands'),
+      api(`/api/clients/${encodeURIComponent(slug)}/cycles`),
+    ]);
     cmdEl.innerHTML = Object.entries(commands)
       .map(([k, v]) => `<option value="${esc(k)}">${esc(k)} — ${esc(v.label)}</option>`).join('');
-    // The cycle widget offers the cycles that exist rather than a free-text box:
-    // the server refuses anything that is not YYYY-MM, and a typo there costs a
-    // round-trip to find out.
-    clientCycles = await api(`/api/clients/${encodeURIComponent(slug)}/cycles`).catch(() => []);
     renderArgs();
     history();
   } catch (err) { fail(logEl, err); }

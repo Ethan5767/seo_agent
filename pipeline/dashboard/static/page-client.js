@@ -30,7 +30,7 @@ async function load() {
     sel.innerHTML = client.cycles.map((c) => `<option>${esc(c)}</option>`).join('');
     sel.value = currentCycle() || client.cycles[0];
     renderCycle(sel.value);
-    sel.addEventListener('change', () => renderCycle(sel.value));
+    sel.addEventListener('change', () => { setCycle(sel.value); renderCycle(sel.value); });
   } catch (err) { fail(document.getElementById('header'), err); }
 }
 

@@ -33,64 +33,101 @@ RUN_LOGS = Path.home() / ".cache" / "seo_agent" / "runs"
 # POST /api/runs takes a NAME from this dict, never a shell string, and argv is
 # never joined into one. Without this the dashboard is a remote shell bound to
 # a port. `{project}` resolves only to a path discover_clients() found.
+# Every entry declares `exits`. An empty dict is the deliberate statement "this
+# command speaks the rail's exit vocabulary" — the alternative is the key being
+# absent because nobody asked, which is how a failed `git pull` and a broken
+# ratchet both came to render as a green success chip.
 COMMANDS = {
     "site-health": {
         "argv": ["wf-site-health", "--project", "{project}"],
         "args": {"limit": "int", "url": "path-list"},
         "label": "Measure live site",
+        "exits": {},
     },
     "site-plan": {
         "argv": ["wf-site-plan", "--project", "{project}"],
         "args": {"cycle": "cycle"},
         "label": "Plan lanes + worklist",
+        "exits": {},
     },
-    # Phase 5. `dry-run` prints the prompts and writes nothing, which is the right
-    # first click against any client — the console has no undo.
+    # `dry-run` prints the prompts and writes nothing, which is the right first
+    # click against any client — the console has no undo.
     "site-remediate": {
         "argv": ["wf-site-remediate", "--project", "{project}"],
         "args": {"cycle": "cycle", "max-items": "int", "max-files": "int",
                  "dry-run": "flag"},
         "label": "Remediate worklist (agent writes)",
+        # remediate returns 0 when it fixed NOTHING (and after a --dry-run).
+        # "Clean — every check passed" over a run where every item errored is
+        # the same lie the git and ratchet overrides exist to stop.
+        "exits": {0: ("warn", "Ran, fixed nothing — a dry run, or every item "
+                              "errored. Read the changelog")},
     },
-    # Phase 4. Runnable locally so the operator can see the verdict before the PR
+    # Gates, runnable locally so the operator sees the verdict before the PR
     # does. None of them mutate anything.
     "tier-check": {
         "argv": ["wf-tier-check", "--project", "{project}"],
         "args": {},
         "label": "Check the diff against the tier",
+        "exits": {},
     },
     "claim-provenance": {
         "argv": ["wf-claim-provenance-check", "--project", "{project}"],
         "args": {"cycle": "cycle"},
         "label": "Check claims are sourced",
+        "exits": {},
     },
     "acceptance-check": {
         "argv": ["wf-acceptance-check", "--project", "{project}"],
         "args": {"cycle": "cycle"},
         "label": "Re-measure the claimed fixes",
+        "exits": {},
     },
     "preflight": {
         "argv": ["wf-preflight", "--project", "{project}"],
         "args": {},
         "label": "Pre-flight checks",
+        "exits": {},
     },
     "client-profile": {
         "argv": ["wf-client-profile", "--project", "{project}"],
         "args": {},
         "label": "Resolve build dir / framework",
+        "exits": {},
     },
-    # Sharp edge #1: a client with no docs/gate-baseline.json runs the gates BARE,
-    # so every piece of inherited debt reads as blocking. With no flags this
-    # RECORDS the first baseline; --check is the read-only ratchet verdict.
-    "gate-baseline": {
+    # Sharp edge #1: a client with no docs/gate-baseline.json runs the gates
+    # BARE, so every piece of inherited debt reads as blocking on their first
+    # PR. wf-gate-baseline is two commands wearing one name — check mode reads,
+    # record mode WRITES the accepted-debt file into the client repo — and they
+    # do not share an exit vocabulary. Splitting them is what lets each carry an
+    # exit table that is true, and stops the destructive mode being the one you
+    # get by forgetting to tick a box.
+    "gate-baseline-check": {
+        "argv": ["wf-gate-baseline", "--project", "{project}", "--check"],
+        "args": {},
+        "label": "Check the gate baseline ratchet (read-only)",
+        "exits": {
+            1: ("refused", "REFUSED — findings absent from the baseline. Regressions, not legacy debt"),
+            2: ("error", "No baseline to check against, or it will not load. Record one first"),
+            3: ("error", "Baseline error — see the output"),
+        },
+    },
+    "gate-baseline-record": {
         "argv": ["wf-gate-baseline", "--project", "{project}"],
-        "args": {"check": "flag", "refresh": "flag", "accept-new": "flag"},
-        "label": "Record / check the gate baseline (the ratchet)",
+        "args": {"refresh": "flag", "accept-new": "flag"},
+        "label": "RECORD the gate baseline (writes to the client repo)",
+        "exits": {
+            1: ("refused", "REFUSED to grow the baseline. It may only shrink — "
+                           "fix them, or accept them with --refresh --accept-new"),
+            2: ("refused", "REFUSED — a baseline already exists. --refresh to drop fixed entries"),
+            3: ("error", "Baseline error — see the output"),
+        },
     },
 }
 
 # Exit codes are meaningful and a bare number communicates nothing. A refusal
 # must read as a refusal — a run that measured nothing is not a clean site.
+# This is the RAIL's vocabulary; a command that differs says so in its `exits`.
 EXIT_MEANING = {
     0: ("clean", "Clean — every check passed"),
     1: ("findings", "Findings written"),
@@ -107,22 +144,15 @@ EXIT_MEANING = {
 }
 
 
-# Exit 1 is not universal. For the rail commands it means "it wrote what it
-# found"; for the ratchet and for git it means the run FAILED. Rendering a
-# failed `git pull --ff-only` as a blue "Findings written" chip is exactly the
-# confusion the table exists to prevent, so the two liars get an override.
-COMMAND_EXITS = {
-    "gate-baseline": {
-        1: ("refused", "REFUSED — findings absent from the baseline. Regressions, not legacy debt"),
-        2: ("refused", "REFUSED — a baseline already exists. Use --check, or --refresh to shrink it"),
-        3: ("error", "Baseline error — see the output"),
-    },
-}
 GIT_EXITS = {0: ("clean", "Done"), 1: ("error", "git/gh refused — read the output")}
 
 
 def interpret_exit(code, command=None):
-    table = GIT_EXITS if (command or "").startswith("git:") else COMMAND_EXITS.get(command, {})
+    """The command's own table first, the rail's second. Exit 1 is not universal:
+    for the rail it means "it wrote what it found", for git and for the ratchet
+    it means the run failed."""
+    table = GIT_EXITS if (command or "").startswith("git:") \
+        else COMMANDS.get(command, {}).get("exits", {})
     kind, text = table.get(code) or EXIT_MEANING.get(code, ("error", f"Exited {code}"))
     return {"code": code, "kind": kind, "text": text}
 
@@ -226,13 +256,17 @@ def baseline_state(path):
         doc = json.loads(f.read_text())
         return {"present": True, "entries": len(doc.get("entries", [])),
                 "recorded": doc.get("recorded")}
-    except (json.JSONDecodeError, AttributeError):
+    except Exception:
         # Present but unreadable is NOT the same as absent, and it is not fine.
+        # Broad on purpose, same rule as discover_clients: one malformed file in
+        # one client repo must not blank the whole fleet view. `{"entries": 5}`
+        # is a TypeError, not a JSONDecodeError.
         return {"present": True, "entries": None, "recorded": None}
 
 
 def lane_counts(findings_doc):
-    """None until phase 3 — phase 1's findings.json carries no lanes."""
+    """None until wf-site-plan stamps the lanes back onto the findings, so a
+    measured-but-unplanned cycle reads as unplanned rather than as four zeros."""
     if not isinstance(findings_doc, dict):
         return None
     lanes = [f.get("lane") for f in findings_doc.get("findings", [])]

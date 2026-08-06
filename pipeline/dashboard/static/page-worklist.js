@@ -4,22 +4,6 @@ const slug = requireClient();
 const bodyEl = document.getElementById('body');
 document.getElementById('phase').textContent = 'produced by wf-site-plan';
 
-async function load() {
-  try {
-    const cycles = await api(`/api/clients/${encodeURIComponent(slug)}/cycles`);
-    const sel = document.getElementById('cycle');
-    if (!cycles.length) {
-      sel.disabled = true;
-      return void (bodyEl.innerHTML = emptyState('No cycles yet',
-        'Run site-health first — the worklist is derived from a cycle\'s findings.'));
-    }
-    sel.innerHTML = cycles.map((c) => `<option>${esc(c)}</option>`).join('');
-    sel.value = currentCycle() || cycles[0];
-    sel.addEventListener('change', () => show(sel.value));
-    show(sel.value);
-  } catch (err) { fail(bodyEl, err); }
-}
-
 async function show(ym) {
   const bundle = await api(`/api/clients/${encodeURIComponent(slug)}/cycles/${ym}`);
   const doc = bundle.artifacts['worklist.json'];
@@ -60,4 +44,5 @@ function item(i) {
   </div>`;
 }
 
-load();
+cycleScreen(slug, document.getElementById('cycle'), bodyEl, show,
+  "Run site-health first — the worklist is derived from a cycle's findings.");

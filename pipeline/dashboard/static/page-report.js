@@ -4,21 +4,6 @@ const slug = requireClient();
 const bodyEl = document.getElementById('body');
 document.getElementById('phase').textContent = 'produced by wf-site-plan';
 
-async function load() {
-  try {
-    const cycles = await api(`/api/clients/${encodeURIComponent(slug)}/cycles`);
-    const sel = document.getElementById('cycle');
-    if (!cycles.length) {
-      sel.disabled = true;
-      return void (bodyEl.innerHTML = emptyState('No cycles yet', 'Run site-health first.'));
-    }
-    sel.innerHTML = cycles.map((c) => `<option>${esc(c)}</option>`).join('');
-    sel.value = currentCycle() || cycles[0];
-    sel.addEventListener('change', () => show(sel.value));
-    show(sel.value);
-  } catch (err) { fail(bodyEl, err); }
-}
-
 async function show(ym) {
   const bundle = await api(`/api/clients/${encodeURIComponent(slug)}/cycles/${ym}`);
   const md = bundle.artifacts['report.md'];
@@ -77,4 +62,4 @@ const inline = (s) => esc(s)
   .replace(/`([^`]+)`/g, '<code class="font-mono-base text-mono-base text-primary bg-surface-container px-xs rounded-sm">$1</code>')
   .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold text-on-surface">$1</strong>');
 
-load();
+cycleScreen(slug, document.getElementById('cycle'), bodyEl, show, 'Run site-health first.');

@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-06** · 5 packages, 38 modules, 5 workflows, 31 `wf-*` commands, 311 tests.
+**As of 2026-08-06** · 5 packages, 39 modules, 5 workflows, 32 `wf-*` commands, 326 tests.
 One line per module: what it does and why it exists. Deeper detail: `gate-reference.md`
 (per-gate contracts + exit codes), `HOW-IT-WORKS.md` (the flow in plain language),
 `CLAUDE.md` (the sync contract + where workflows live).
@@ -13,7 +13,9 @@ See `SITE-AUDIT-PIPELINE.md` §3 for what was removed and why.
 The flow these modules implement:
 
 ```
-GitHub repo + domain
+GitHub repo (collaborator access) + domain
+        │  ONBOARD      wf-onboard ──► clone, config, preflight, profile, docs
+        ▼               stops at the interview; re-run resumes
         │  MEASURE      wf-site-health ──► docs/audit/<YYYY-MM>/findings.json
         ▼
         │  PLAN         wf-site-plan ──► worklist.json + report.md
@@ -77,9 +79,9 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 | `proof-assert.sh` | Blocking meta-gate: the deploy proof exists and is non-empty ("no proof = it didn't happen"). |
 | `indexnow_submit.py` | The one IndexNow submitter (gated on a healthy deploy, never at build time). |
 
-## `pipeline/audit` — measure, plan, write, onboard (10)
+## `pipeline/audit` — measure, plan, write, onboard (11)
 
-`client_profile.py` (who/shape/states/build — the pipeline's front door) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `plan.py` (the ratchet over the monthly cycle folders: RESOLVED / PERSISTING / NEW / REGRESSION, `worklist.json` + `report.md` — `wf-site-plan`) · `remediate.py` (**the writer** — hands each work item to Claude Code one at a time so the file→item map in `changelog.json` is a measurement rather than a claim; judges every touched file with the same `tier_verdict` the PR gate uses; hard `--max-items` / `--max-files` caps that stop cleanly — `wf-site-remediate`) · `providers.py` (CrUX field CWV, Search Console CTR + cannibalization, DataForSEO on-page crawl; credentials from the environment only, and a provider with no credentials returns a **named skip** that is written into the artifact so a skip is never mistaken for a clean measurement) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `update_sitemap_dates.py` (lastmod hygiene).
+`onboard.py` (**the front door** — a repo and a domain in, a worklist out; sequences the six onboarding commands and translates their exit codes. Checks with `gh` what permission we actually hold rather than assuming it, because the flow is "the client adds us as a collaborator". Stops at the interview step — the TODOs no generator can invent — reports it as RESUMABLE rather than failed, and continues from there on a re-run — `wf-onboard`) · `client_profile.py` (who/shape/states/build) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `plan.py` (the ratchet over the monthly cycle folders: RESOLVED / PERSISTING / NEW / REGRESSION, `worklist.json` + `report.md` — `wf-site-plan`) · `remediate.py` (**the writer** — hands each work item to Claude Code one at a time so the file→item map in `changelog.json` is a measurement rather than a claim; judges every touched file with the same `tier_verdict` the PR gate uses; hard `--max-items` / `--max-files` caps that stop cleanly — `wf-site-remediate`) · `providers.py` (CrUX field CWV, Search Console CTR + cannibalization, DataForSEO on-page crawl; credentials from the environment only, and a provider with no credentials returns a **named skip** that is written into the artifact so a skip is never mistaken for a clean measurement) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `update_sitemap_dates.py` (lastmod hygiene).
 
 ## `skills/site-remediation` — the doctrine the writer is given
 

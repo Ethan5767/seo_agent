@@ -11,23 +11,39 @@ modules, gates, workflows, tests, and the lessons encoded in them — is real.
 
 ## The flow
 
+A client gives you two things: collaborator access to their repo, and their
+domain. Everything below follows from those.
+
 ```
-team DOCX / Drive link / Discord drop
-        │  INTAKE (fleet-wide crons, this repo)
+repo + domain
+        │  ONBOARD      wf-onboard <repo> <domain>
+        ▼               clone → config → preflight → profile → docs → measure → plan
+        │  MEASURE      wf-site-health ──► docs/audit/<YYYY-MM>/findings.json
         ▼
-pre-flight fix-list ──► content team fixes at handoff, not at emit
-        │
-        ▼  GENERATE (per-client, button-triggered)
-distill → classify → brief → emit_ts ──► typed data + PR in the CLIENT repo
-        │
-        ▼  GATES (run on that PR, green-on-legacy via the baseline)
-19 quality gates ──► operator merges = the ONLY path to production
-        │
-        ▼  DEPLOY
-build → capture → deploy → verify-live + crawler check → auto-rollback
-        │
-        ▼  AUDIT / OPS
-cycle state, live audits, monthly loops
+        │  PLAN         wf-site-plan ──► worklist.json + report.md
+        ▼               RESOLVED / PERSISTING / NEW / REGRESSION
+        │  REMEDIATE    wf-site-remediate ──► Claude Code edits in tier ──► changelog.json
+        ▼               ─── everything above runs locally, or in the container ───
+        │  GATES        19 quality gates on the client PR, green-on-legacy via the baseline
+        ▼
+        │  HUMAN MERGE  the operator merges = the ONLY path to production
+        ▼
+        │  DEPLOY       build → capture → deploy → verify-live + crawler check → auto-rollback
+```
+
+```bash
+wf-onboard acme/roofing-site acmeroofing.com     # stops at the interview, resumable
+wf-site-remediate --project ~/clients/roofing-site --max-items 1 --dry-run
+```
+
+Or the same thing in the container, which is the only place the four tools it
+needs — Python, git, `gh`, Claude Code — are guaranteed to exist together:
+
+```bash
+docker build -t seo-agent .
+docker run --rm -it -e ANTHROPIC_API_KEY \
+  -v "$HOME/clients:/clients" -v "$HOME/.config/gh:/root/.config/gh:ro" \
+  seo-agent wf-onboard /clients/roofing-site acmeroofing.com
 ```
 
 ## What's here

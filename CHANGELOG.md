@@ -8,6 +8,66 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **`wf-onboard` — a repo and a domain in, a worklist out.** Onboarding was six
+  commands in a specific order, each with its own exit-code vocabulary, and the
+  order lived in nobody's head but the operator's. `wf-onboard <repo> <domain>`
+  runs them: clone → `wf-bootstrap-config` → `wf-preflight` → `wf-client-profile`
+  → `wf-scaffold-client-docs` → `wf-site-health` → `wf-site-plan`.
+
+  `repo` takes any form a client will actually send — a checkout path, an
+  `owner/name` slug, or a git URL, `.git` and trailing slash included.
+
+  - **The interview is a stop, not a failure.** `bootstrap_config` cannot invent
+    a client's hours or licence number; it writes TODOs and `preflight` exits 12
+    until a human replaces them. `wf-onboard` exits **1**, names the step in the
+    imperative, and resumes from there on a re-run — every underlying step was
+    already idempotent. Exit 3 is reserved for a checkout that genuinely failed,
+    so the two cases a new operator will hit constantly are never confused.
+  - **Access is checked, not assumed.** The flow this serves is "the client adds
+    us as a collaborator", so step 2 asks `gh` for `viewerPermission` and prints
+    it. READ is a **warning, not a stop** — measuring a repo you can only read
+    still produces a report worth delivering — but it says out loud that no PR
+    can ever be opened from this checkout. Finding that out at onboarding beats
+    finding it out after a remediation run has spent money.
+  - **A stop stops everything after it.** Tested per step: an onboarding that
+    carries on past a failed preflight measures a site it was just told not to
+    trust.
+  - `wf-site-plan` exits 1 when it writes a worklist. That is the success case
+    and `wf-onboard` reads it as one — treating it as a failure would stop every
+    client that has findings, which is every client.
+  - The static-export precondition (v3 §6) is reported inline from
+    `detect_static_export`, because `orphan_check` and `parity_check` derive
+    routes from the built HTML tree and report green when there is not one.
+
+  ```
+  $ .venv/bin/python -m pytest -q
+  ........................................................................ [ 66%]
+  ........................................................................ [ 88%]
+  ......................................                                   [100%]
+  326 passed in 2.41s
+
+  $ wf-onboard . example.com --dry-run
+  [ok] checkout: /Users/…/seo_ai
+  [ok] access: ADMIN — we can open a PR
+  [DRY RUN] would bootstrap, preflight, scaffold, measure and plan /Users/…/seo_ai
+
+  $ wf-onboard /tmp/nope acme.com --skip-clone
+  [ERROR] /Users/…/clients/nope does not exist and --skip-clone was given   exit=3
+
+  $ wf-onboard "not a repo!" acme.com --skip-clone
+  [ERROR] cannot read 'not a repo!' as a path, an owner/name slug, or a git URL
+                                                                            exit=3
+  ```
+
+  `README.md` gains the onboarding quick start and loses its pre-v3 flow diagram
+  (the DOCX rail, deleted in v3 §3) — the other half of the `SITE-AUDIT-PIPELINE.md`
+  §10 doc debt. `HOW-IT-WORKS.md` still describes the old rail and is untouched.
+
+  **Not verified:** the two `docker run` invocations added to `README.md` and the
+  `Dockerfile` comment. The Docker daemon was not running on this box, so the
+  image was never built and the mounts were never exercised. The flags are read
+  off the CLIs they invoke, which are tested; the container path is not.
+
 - **Phases 4 through 8 — the safety floor, the writer, and the external
   providers** (`SITE-AUDIT-PIPELINE.md` §4.1–4.3, §4.7, §5, §7). This closes the
   v3 build sequence: phases 1–3 measured a site and planned the work; these five

@@ -54,6 +54,7 @@ wf-indexnow-submit = "pipeline.deploy.indexnow_submit:main"
 wf-dashboard = "pipeline.dashboard.server:main"
 
 # ── audit / setup ────────────────────────────────────────────────────────────
+wf-onboard = "pipeline.audit.onboard:main"
 wf-site-health = "pipeline.audit.measure:main"
 wf-site-plan = "pipeline.audit.plan:main"
 wf-site-remediate = "pipeline.audit.remediate:main"

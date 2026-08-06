@@ -26,8 +26,16 @@ RUN pip install --no-cache-dir .
 # environment. There is nothing in this image for a leak to take.
 #
 #   docker build -t seo-agent .
-#   docker run --rm -it -v "$PWD/../acme-roofing-site:/client" \
-#     -e ANTHROPIC_API_KEY -v "$HOME/.config/gh:/root/.config/gh:ro" \
-#     seo-agent wf-site-health --project /client
+#
+#   # onboard a repo you were just given access to (mount the parent, not one repo —
+#   # wf-onboard clones into --clients-dir when the checkout is not there yet)
+#   docker run --rm -it -e ANTHROPIC_API_KEY \
+#     -v "$HOME/clients:/clients" -v "$HOME/.config/gh:/root/.config/gh:ro" \
+#     seo-agent wf-onboard acme/roofing-site acmeroofing.com --clients-dir /clients
+#
+#   # then let the agent write, one work item at a time
+#   docker run --rm -it -e ANTHROPIC_API_KEY \
+#     -v "$HOME/clients:/clients" -v "$HOME/.config/gh:/root/.config/gh:ro" \
+#     seo-agent wf-site-remediate --project /clients/roofing-site --max-items 1
 WORKDIR /client
 CMD ["wf-site-plan", "--project", "/client"]

@@ -34,7 +34,7 @@
 #     contents: read
 #   jobs:
 #     health:
-#       uses: richardnhek/seo-content-pipeline/.github/workflows/seo-health.reusable.yml@v0.1.0
+#       uses: Ethan5767/seo_agent/.github/workflows/seo-health.reusable.yml@v3.0.0
 #       with:
 #         domain: "example.com"
 #         critical_pages: "/ /services/ /contact/"
@@ -86,7 +86,7 @@ on:
         required: false
       PIPELINE_REPO_TOKEN:
         description: >-
-          Optional PAT with read access to richardnhek/seo-content-pipeline,
+          Optional PAT with read access to Ethan5767/seo_agent,
           used ONLY for the pipeline checkout. Required while this repo is
           private. Omit once the pipeline repo is public.
         required: false
@@ -125,8 +125,8 @@ env:
   # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha
   # (see "Resolve pipeline ref"). Advanced at every tag-cut; self-consistent
   # because the stamp lives IN the versioned file.
-  PIPELINE_REF: "v2.1.0"
-  PIPELINE_REPO: "richardnhek/seo-content-pipeline"
+  PIPELINE_REF: "v3.0.0"
+  PIPELINE_REPO: "Ethan5767/seo_agent"
 
 jobs:
   health:

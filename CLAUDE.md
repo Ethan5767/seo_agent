@@ -130,7 +130,7 @@ Then **tell the other side what changed** — do not assume they will read the l
 Read `docs/BUG-LEDGER.md` for the live list. The ones that bite hardest:
 
 1. **Drive intake selects by time window, not by month.** `--since-hours` is the only filter. **Moving or reorganizing files in Drive updates their `modifiedTime`**, so a bulk reorg can make six months of old content look brand new to the next run.
-2. **Client callers must pin an exact tag** (`@vX.Y.Z`, latest: `v2.1.0` — verify with `git tag -l`). The old note "no tag has been cut" is obsolete; tags exist and the shared `uses:` path is live. Vendored `.pipeline/` copies in client repos are the legacy interim and drift unless re-synced.
+2. **Client callers must pin an exact tag** (`@vX.Y.Z`, latest: `v3.0.0` — verify with `git tag -l`). `v3.0.0` is the FIRST tag this repo has carried; the `v2.x` tags belong to `richardnhek/seo-content-pipeline`, the repo v3 was imported from, and pinning one now points a client at a different organisation's engine. `tests/test_pipeline_pin.py` asserts the stamps, the examples and the tag agree. Vendored `.pipeline/` copies in client repos are the legacy interim and drift unless re-synced.
 3. **Branch protection cannot be enabled.** GitHub Free does not support it on private repos. The gate reports but cannot block. See `ADMIN-CHECKLIST.md` §2.
 4. **A human collaborator grant is not Actions access.** Being a collaborator on this private repo does not let another repo's workflow check it out. That needs a `PIPELINE_REPO_TOKEN` secret.
 
@@ -192,7 +192,7 @@ These **must** be per-repo: GitHub only runs a workflow on the repo that contain
 They are ~30-line **thin callers**. All real logic lives in the `*.reusable.yml` files here, pulled in by tag:
 
 ```yaml
-uses: richardnhek/seo-content-pipeline/.github/workflows/quality-gate.reusable.yml@v2.0.1
+uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.0.0
 secrets: inherit
 ```
 

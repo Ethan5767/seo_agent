@@ -142,7 +142,7 @@ on:
         required: false
       PIPELINE_REPO_TOKEN:
         description: >-
-          Optional PAT with read access to richardnhek/seo-content-pipeline,
+          Optional PAT with read access to Ethan5767/seo_agent,
           used ONLY for the second (pipeline) checkout. Required while this repo
           is private, because a client repo's GITHUB_TOKEN cannot read a
           different private repo. Omit once the pipeline repo is public.
@@ -163,8 +163,8 @@ env:
   # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha
   # (see "Resolve pipeline ref" below). Advanced at every tag-cut. Self-consistent
   # because the stamp lives IN the versioned file.
-  PIPELINE_REF: "v2.1.0"
-  PIPELINE_REPO: "richardnhek/seo-content-pipeline"
+  PIPELINE_REF: "v3.0.0"
+  PIPELINE_REPO: "Ethan5767/seo_agent"
 
 jobs:
   # -------------------------------------------------------------------------

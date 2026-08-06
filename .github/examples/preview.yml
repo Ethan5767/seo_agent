@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   preview:
-    uses: richardnhek/seo-content-pipeline/.github/workflows/preview.reusable.yml@v2.1.0
+    uses: Ethan5767/seo_agent/.github/workflows/preview.reusable.yml@v3.0.0
     with:
       # Homepage + 2 real deep routes for this client. MONITORING only.
       lighthouse_routes: "/ /about/ /contact/"

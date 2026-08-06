@@ -449,10 +449,12 @@ per-client cost attribution for free.
 
 1. **Which model authors, and what is the per-cycle token ceiling?** Needed before
    phase 5. There should be a hard cap, the way `--limit` caps pages.
-2. **What does a client repo pin?** Client callers pin the engine by tag. `seo_agent`
-   needs its own tagging discipline from day one, and the `PIPELINE_REF` stamp in
-   `quality-gate.reusable.yml` still reads `v2.1.0` / `richardnhek/seo-content-pipeline`
-   — must be updated before any client points at this repo.
+2. ~~**What does a client repo pin?**~~ **DECIDED 2026-08-06: `Ethan5767/seo_agent@v3.0.0`,
+   the first tag this repo has ever carried.** All four reusable workflows stamp it,
+   all three example callers pin it, and `tests/test_pipeline_pin.py` asserts the three
+   agree — including that no example pins `@main` or a moving `@v3`. The stamp stays
+   self-referential (v3.0.0's copy of a file stamps v3.0.0), so a tagged checkout is
+   always internally consistent. Advance it at every tag-cut, in the tagged commit.
 3. **What are the real `noncommodity_check` thresholds for agent output?** Cannot be
    answered without a phase-5 run to measure against.
 4. **What happens to a client that does not statically export?** §6. Onboard at T1

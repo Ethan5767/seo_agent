@@ -431,6 +431,38 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **Every workflow pointed a client at a different organisation's engine.** All
+  four reusable workflows stamped `PIPELINE_REPO: "richardnhek/seo-content-pipeline"`
+  / `PIPELINE_REF: "v2.1.0"`, and all three example callers pinned
+  `richardnhek/seo-content-pipeline/...@v2.1.0`. That is the repo v3 was
+  *imported from* and the engine it was imported *at* — so a client copying an
+  example verbatim would have been gated by the v2 DOCX-era suite (16 gates, no
+  tiering, no authorship floor) while every doc here said 19. Repointed to
+  `Ethan5767/seo_agent@v3.0.0`, **the first tag this repo has ever carried**
+  (`git tag -l` was empty).
+
+  `tests/test_pipeline_pin.py` holds the three sources together: the stamps in
+  the four workflows, the `uses:` lines in the three examples, and semver on
+  both. It also refuses `@main` and a moving `@v3` — these workflows gate
+  production, and a mutable ref means the thing guarding a client's live site
+  can change without a PR — and fails on any surviving mention of the import
+  source.
+
+  ```
+  $ .venv/bin/python -m pytest -q
+  371 passed in 2.51s
+
+  # the negative control
+  $ python -c "…rewrite the example's pin to @main…"
+  $ .venv/bin/python -m pytest tests/test_pipeline_pin.py -q
+  FAILED …::test_every_example_pins_an_exact_tag_at_the_stamped_repo[quality-gate.yml]
+  1 failed, 9 passed in 0.02s
+  ```
+
+  This closes open decision #2 in `SITE-AUDIT-PIPELINE.md` §9. The stamp stays
+  self-referential — v3.0.0's copy of a file stamps v3.0.0 — so advance it *in
+  the tagged commit* at every cut, never after.
+
 - **B-007 — the ratchet was implemented, tested, and called by nothing.** Not
   one of the 7 baselineable gates in `quality-gate.reusable.yml` was invoked
   with `--baseline`, and `add_baseline_args` defaults it to `None` with no

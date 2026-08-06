@@ -431,6 +431,30 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`CLAUDE.md` documented the pipeline v3 replaced.** It is auto-loaded into
+  every Claude session in this repo, so it was not merely stale — it was
+  actively instructing both operators and every agent from a map of a deleted
+  system. It described `pipeline/intake` and `pipeline/generate`, told you to
+  run `wf-cycle-status --claim` before any step (that command has not existed
+  since v3 §3), warned at length about a Drive-intake `modifiedTime` footgun in
+  a module that is gone, drew a flow through `drive-poll → handoff → cycle-emit`
+  where none of the three workflows exist, and closed with the emitter's exit-code
+  table. Rewritten against the code.
+
+  The Sync Contract is unchanged — it was the part that was still true, and it is
+  what caught all of this. Added to it: **implemented is not wired** (B-007's
+  lesson — a green unit test proves the function works, not that anything calls
+  it), a `docs/MODULES.md` row in the documentation table, and derivation-only as
+  a writing standard that binds operators the same way `claim_provenance_check`
+  binds the agent.
+
+  New sections for what actually exists: the tier model and why the deny floor
+  cannot be shrunk, the five client workflows and what each does, and six sharp
+  edges that are current rather than historical — an unrecorded gate baseline,
+  B-008, `PIPELINE_REPO_TOKEN`, the static-export precondition, branch protection,
+  and the unverified provider network paths. `docs/HOW-IT-WORKS.md` is flagged
+  in the file-map as still describing the old rail; it is the last doc that does.
+
 - **Every workflow pointed a client at a different organisation's engine.** All
   four reusable workflows stamped `PIPELINE_REPO: "richardnhek/seo-content-pipeline"`
   / `PIPELINE_REF: "v2.1.0"`, and all three example callers pinned

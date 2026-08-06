@@ -1,4 +1,4 @@
-# CLAUDE.md — seo-content-pipeline V2
+# CLAUDE.md — seo_agent (v3)
 
 **Read this before you touch anything. It is auto-loaded by Claude Code for every session in this repo.**
 
@@ -29,6 +29,7 @@ Every push must carry its own paper trail. Never "I will write it up after."
 | Fixed a bug from the ledger | Move it to Fixed, add the proof |
 | Changed what a human must do by hand | `docs/ADMIN-CHECKLIST.md` |
 | Changed the gate suite | `docs/gate-reference.md` |
+| Added/removed a module or command | `docs/MODULES.md` (including the header counts) |
 
 **A commit that changes behavior with no CHANGELOG entry is incomplete work.** The other side pulls and has no idea what moved.
 
@@ -36,7 +37,7 @@ Every push must carry its own paper trail. Never "I will write it up after."
 
 Docs go stale silently. Code does not. Before you state that something is broken, missing, or blocked, **run the command and paste the output.**
 
-This is not a style preference. On 2026-07-28 a state-audit doc listed six blocking defects; all six had already been fixed days earlier. Anyone who trusted that doc would have "fixed" working code.
+This is not a style preference. On 2026-07-28 a state-audit doc listed six blocking defects; all six had already been fixed days earlier. On 2026-08-06 `docs/MODULES.md` still documented 20 modules that had been deleted a release earlier, and `README.md` still drew the DOCX flow. Anyone trusting either would have "fixed" working code or looked for a package that no longer exists.
 
 ```bash
 # Good: a claim with evidence
@@ -52,7 +53,9 @@ $ gh api repos/your-org/acme-roofing-site/branches/main/protection
 
 The gate suite is built on this principle; hold the code to it too. A fix is not done because it looks right. It is done when you have run it and can show the output. Paste real terminal output into the CHANGELOG or ledger entry. Never paraphrase a result you did not see.
 
-**Never claim tests pass without showing the run.** If you could not verify something, say exactly that and say why.
+**Never claim tests pass without showing the run.** If you could not verify something, say exactly that and say why — the phase 6 provider network paths are in the CHANGELOG as unverified for exactly this reason.
+
+**Implemented is not wired.** B-007: `lib/baseline.py` was complete, tested and called by nothing on a PR for a whole release. A green unit test proves the function works, not that anything invokes it. When you add something the CI has to call, assert the call site too.
 
 ⚠️ **Do not pipe a verification command into `tail`, `head`, or `grep` inside an `&&` chain.** The pipeline's exit status is the *last* command's, so a failing `pytest` piped to `tail` reports success and the chain continues to `git push`. This happened on 2026-07-28. Run the check on its own line, read the result, then push.
 
@@ -67,17 +70,49 @@ git push origin main      # separate step
 
 ### 6. No secrets. No client PII. Ever.
 
-No API keys, tokens, `.env` files, Cloudflare or Google credentials, or client data in this repo. Client config lives in the client's own repo (**Model A**). Real rosters go under `**/secrets/**`, which is gitignored. When you must reference a credential, reference it **by name only**.
+No API keys, tokens, `.env` files, Cloudflare or Google credentials, or client data in this repo. Client config lives in the client's own repo (**Model A**). Real rosters go under `**/secrets/**`, which is gitignored. When you must reference a credential, reference it **by name only**. The container bakes in nothing: `git`/`gh` use the operator's mounted config, the model uses `ANTHROPIC_API_KEY` from the environment.
 
 ---
 
 ## What This Repo Is
 
-The **engine**. It takes the SEO content team's messy handoff, reformats it into clean pipeline-ready data, classifies each page against the live site, edits typed data files in the client's own repo, gates every step, opens a PR, waits for the operator's merge, deploys, and verifies live.
+The **engine**. Point it at a client's GitHub repo and their domain, and it measures the live site, ratchets this month's findings against previous months, plans the work, hands each item to Claude Code inside the client's checkout, and gates everything the agent wrote before a human merges it.
 
-**Model A:** this repo holds engine code only. Every client repo is that client's single source of truth — its own `docs/client-config.yml`, its own `docs/banned-phrases.txt`, its own Cloudflare secrets, in the client's own Cloudflare account.
+```
+repo + domain
+   ↓  ONBOARD    wf-onboard          clone, config, preflight, docs, first measurement
+   ↓  MEASURE    wf-site-health      live site → docs/audit/<YYYY-MM>/findings.json
+   ↓  PLAN       wf-site-plan        RESOLVED / PERSISTING / NEW / REGRESSION → worklist.json + report.md
+   ↓  REMEDIATE  wf-site-remediate   Claude Code edits, inside the tier → changelog.json
+   ───────────── everything above runs locally, or in the container ─────────────
+   ↓  GATES      19 gates on the client's PR, in Actions on the client repo
+   ↓  HUMAN MERGE  always. the only path to production.
+   ↓  DEPLOY     build → capture → deploy → verify-live → crawler check → auto-rollback → proof
+```
 
-**The contract:** messy team handoff in → clean, standardized, pipeline-ready data out, rendered into the client's template architecture and gated at every step.
+**Every arrow is a JSON file with a schema.** No stage talks to the next through memory or a prompt. That is what makes each stage re-runnable and testable offline.
+
+**Model A:** this repo holds engine code only. Every client repo is that client's single source of truth — its own `docs/client-config.yml` (including its tier), its own `docs/gate-baseline.json`, its own `docs/audit/<YYYY-MM>/` artifacts, its own Cloudflare secrets in the client's own Cloudflare account. The audit artifacts ship **inside the PR**, so the worker holds no state and the host is swappable.
+
+**v3 deleted the DOCX rail.** `pipeline/intake` (Discord, Drive, DOCX pre-flight), `pipeline/generate` (distill → classify → brief → emit_ts), both fleet-wide cron pollers, `cycle-emit`, and `wf-cycle-status` are all gone — see `SITE-AUDIT-PIPELINE.md` §3. **Claude Code is the only writer now.** If you find a doc describing that rail, it is stale; fix it.
+
+---
+
+## Tiering — the thing to understand before you touch the agent
+
+A tier is a **path + operation allow-list**, declared per client in their own `docs/client-config.yml`, and enforced by a gate on the PR diff. It answers "what may the agent touch", never "who approves".
+
+| | May do |
+|---|---|
+| **T1** copy | Modify files matching `text_paths`. No creates, no deletes. |
+| **T2** content | T1 + create under `content.location`, wired into `content.registry`. Unavailable without a declared location. |
+| **T3** full | Anything not denied. |
+
+**The deny floor applies at every tier, T3 included**, and is unioned in from `lib/common.DEFAULT_DENY` so a client config can never shrink it: `.github/**` (the agent must never edit the gates that judge it), `docs/client-config.yml` (it must never raise its own tier), `package*.json`, `wrangler.toml`, `.env*`.
+
+`wf-bootstrap-config` writes `tier: 1`. **T2 and T3 exist in the code but are unreachable for a client until a human raises that tier in a human PR.** That is enforcement, not a release schedule — and it is stronger than staging the features.
+
+What keeps agent authorship safe is not the prompt. It is `tier_check` on the diff, `claim_provenance_check` on the claims, `acceptance_check` on the result, and the operator's merge.
 
 ---
 
@@ -88,6 +123,7 @@ The gates enforce these on client sites. Match them in anything that renders pub
 - **Title Case on every heading.** "Florida's Only Active Stone Quarry", never "Florida's only active stone quarry". Enforced by `check_headings`.
 - **No em dashes in public-facing copy.** Enforced by `em_dash_check`. **This does NOT apply to internal markdown, code comments, or commit messages** — write those however reads best.
 - **No possessive contractions in headings.** "Summer Is Around the Corner", not "Summer's Around the Corner".
+- **Derivation only, never invention.** A rating, review count, licence number, year-count or warranty term must trace to the client's config, a work item's evidence, a citation, or the previous version of the file. `claim_provenance_check` refuses the rest. This applies to you as much as to the agent.
 - Proper grammar and spelling everywhere. Proofread before pushing.
 
 ---
@@ -100,7 +136,8 @@ pytest -q                          # 2. tests pass (paste the output)
 git diff --stat                    # 3. scope is what you think it is
 #    4. CHANGELOG.md updated under [Unreleased]?
 #    5. New bug found → docs/BUG-LEDGER.md?
-#    6. No secrets in the diff?
+#    6. Module/command added or removed → docs/MODULES.md counts?
+#    7. No secrets in the diff?
 git push origin main
 ```
 
@@ -113,15 +150,46 @@ Then **tell the other side what changed** — do not assume they will read the l
 | Path | What |
 |---|---|
 | `CHANGELOG.md` | **Every change, newest first.** Read this first after a pull. |
+| `SITE-AUDIT-PIPELINE.md` | The v3 design doc — what was removed, the tier model, the build sequence, the open decisions |
 | `docs/BUG-LEDGER.md` | Open and fixed bugs, each with reproduction and evidence |
-| `docs/ADMIN-CHECKLIST.md` | Human-only setup + live status table (GitHub, Cloudflare, Discord, Drive) |
 | `docs/MODULES.md` | **The complete module map** — every package/gate/workflow, one line each |
-| `docs/HOW-IT-WORKS.md` | Plain-language walkthrough |
-| `docs/gate-reference.md` | What each gate checks |
-| `pipeline/gates/` | The gate suite |
-| `pipeline/intake/` | Discord + Google Drive intake |
+| `docs/gate-reference.md` | What each gate checks, its exit code, and whether it is baselineable |
+| `docs/ADMIN-CHECKLIST.md` | Human-only setup + live status table |
+| `docs/HOW-IT-WORKS.md` | ⚠️ **Stale** — still describes the deleted DOCX rail |
+| `pipeline/audit/` | The rail: `onboard` · `measure` · `plan` · `remediate` · `providers`, plus client bootstrap/preflight |
+| `pipeline/gates/` | The 19 gates |
+| `pipeline/lib/` | `common.py` (config + tiering), `baseline.py` (the ratchet), `client_docs.py` |
+| `pipeline/dashboard/` | `wf-dashboard` — a 127.0.0.1 console over the client-repo artifacts. No database, no accounts, no merge action. |
+| `skills/site-remediation/` | The doctrine inlined into every remediation prompt |
 | `.github/workflows/*.reusable.yml` | Workflows client repos call by tag |
 | `.github/examples/` | Thin callers to copy into a client repo |
+| `Dockerfile` | Python + git + gh + Claude Code. The only place all four are guaranteed together. |
+
+---
+
+## Where Workflows Live
+
+**There are no cron workflows.** Both fleet-wide pollers went with the intake rail, taking ~2,180 Actions minutes/month with them — which was the entire argument for making this repo public. `seo_agent` can stay private.
+
+`ci.yml` runs here. Everything else runs **in the client repo**, because GitHub only runs a workflow on the repo that contains it: a PR against Acme can only be gated by a workflow inside Acme.
+
+A client repo holds ~30-line **thin callers** copied from `.github/examples/`. All real logic lives in the `*.reusable.yml` files here, pulled in by tag:
+
+```yaml
+uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.0.0
+secrets: inherit
+```
+
+That is why bumping one tag upgrades every client at once. Edit **only** the `with:` values.
+
+**Pin an exact tag. Never `@main`, never a moving `@v3`.** These workflows gate production; a mutable ref means the thing guarding a client's live site can change without a PR. `tests/test_pipeline_pin.py` enforces this, plus the agreement between the stamped `PIPELINE_REF`/`PIPELINE_REPO`, the examples, and the tag. **The stamp is self-referential** — v3.0.0's copy of a file stamps v3.0.0 — so advance it *in the tagged commit*, never after.
+
+| Client workflow | Trigger | Does |
+|---|---|---|
+| `quality-gate.yml` | every PR | build once, run 19 gates, sticky comment. Set it as a **required status check** — red gate = un-clickable Merge = prod blocked by construction. |
+| `preview.yml` | every PR | Cloudflare preview URL + Lighthouse. Monitoring only, never blocks. |
+| `deploy-prod.yml` | push to main (= the merge) | build, capture, deploy, verify live, crawler check, auto-rollback, proof, IndexNow |
+| `seo-health.yml` | daily | live-site monitor, never blocks. **No example caller exists** — `seo-health.reusable.yml` is here, the thin caller has to be written. |
 
 ---
 
@@ -129,111 +197,24 @@ Then **tell the other side what changed** — do not assume they will read the l
 
 Read `docs/BUG-LEDGER.md` for the live list. The ones that bite hardest:
 
-1. **Drive intake selects by time window, not by month.** `--since-hours` is the only filter. **Moving or reorganizing files in Drive updates their `modifiedTime`**, so a bulk reorg can make six months of old content look brand new to the next run.
-2. **Client callers must pin an exact tag** (`@vX.Y.Z`, latest: `v3.0.0` — verify with `git tag -l`). `v3.0.0` is the FIRST tag this repo has carried; the `v2.x` tags belong to `richardnhek/seo-content-pipeline`, the repo v3 was imported from, and pinning one now points a client at a different organisation's engine. `tests/test_pipeline_pin.py` asserts the stamps, the examples and the tag agree. Vendored `.pipeline/` copies in client repos are the legacy interim and drift unless re-synced.
-3. **Branch protection cannot be enabled.** GitHub Free does not support it on private repos. The gate reports but cannot block. See `ADMIN-CHECKLIST.md` §2.
-4. **A human collaborator grant is not Actions access.** Being a collaborator on this private repo does not let another repo's workflow check it out. That needs a `PIPELINE_REPO_TOKEN` secret.
+1. **A client with no `docs/gate-baseline.json` runs the gates BARE.** Record one before their first PR (`wf-gate-baseline --project <repo> --out docs/gate-baseline.json`, committed to *their* repo) or every piece of inherited debt reads as blocking. The workflow warns loudly rather than failing, which is deliberate — but "warns" is not "handled" (B-007).
+2. **`em_dash_check` accepts no baseline at all.** One em dash in a client's legacy copy blocks every PR forever, with no recording that can accept it. Open as **B-008**; needs a human decision, not a workaround.
+3. **A human collaborator grant is not Actions access.** Being a collaborator on this private repo does not let a client repo's workflow check it out. That needs a `PIPELINE_REPO_TOKEN` secret in the client repo.
+4. **Static export is an onboarding precondition, not a footnote.** `orphan_check` and `parity_check` derive routes from the built HTML tree. A site that emits no tree makes both gates scan nothing and report **green** — worse than not running them. `wf-onboard` reports the verdict; `None` means "cannot tell", not "fine".
+5. **Branch protection cannot be enabled.** GitHub Free does not support it on private repos. The gate reports but cannot block. See `ADMIN-CHECKLIST.md` §2.
+6. **The DataForSEO / GSC / CrUX network paths have never run live.** Only the parsers are tested. Read the status string on the first real run, not the finding count — a provider with no credentials returns a *named skip* precisely so a silent zero can never look like a clean site.
 
 ---
 
 ## Two Operators, One Pipeline
 
-Alex and Robin both run this and never see each other's screens. **Before you run any cycle step, ask what is already done:**
+Alex and Robin both run this and never see each other's screens. The `wf-cycle-status` ledger went with the DOCX rail, so **there is no automated claim/mark step any more.** Coordination is the sync contract above plus one habit:
 
 ```bash
-git -C <client-repo> pull --ff-only
-wf-cycle-status <client-repo> --client <slug>
+git -C <client-repo> pull --ff-only     # the client repo carries the artifacts
+ls <client-repo>/docs/audit/            # which cycles have been measured
 ```
 
-That reads `docs/cycle-logs/<YYYY-MM>/cycle-state.json` in the **client** repo — shared through git, no server involved — and reports every step, who ran it, and when.
+`docs/audit/<YYYY-MM>/` in the **client** repo is the shared state: `findings.json` means it was measured, `worklist.json` means it was planned, `changelog.json` means an agent ran. All three ship inside the PR, so a `git pull` in the client repo tells you what the other side already did. Nothing is coordinated through this repo, and nothing needs a server.
 
-**Wrap steps so a rerun is a safe no-op:**
-
-```bash
-wf-cycle-status "$REPO" --client "$SLUG" --claim distill || exit 0   # exit 3 = already done
-run-the-step
-wf-cycle-status "$REPO" --client "$SLUG" --mark distill --status done --detail "12 pages"
-git -C "$REPO" add docs/cycle-logs && git -C "$REPO" commit -m "cycle: distill done" && git -C "$REPO" push
-```
-
-**The state is only as good as the push.** Marking a step and not pushing is worse than not marking it — the other side confidently redoes finished work. `wf-cycle-status` warns when your checkout is behind origin, but it cannot push for you.
-
----
-
-## Where Workflows Live — Fleet-Wide vs Per-Client
-
-There are two kinds and they live in different repos. Putting one in the wrong place is the easiest structural mistake to make here, so check this before adding any workflow.
-
-### Fleet-wide — ONE copy, in THIS repo
-
-```
-seo-content-pipeline/.github/workflows/
-  drive-poll.yml     polls Google Drive for EVERY client
-  intake-poll.yml    polls Discord for every mapped channel
-  ci.yml             this repo's own test suite
-```
-
-`drive-poll.yml` reads `config/drive-intake.yml`, loops over every client, and checks each one's Drive folder in a single run. **Adding a sixth client is one config entry — no new workflow anywhere.**
-
-🔴 **Never copy `drive-poll.yml` or `intake-poll.yml` into a client repo.** Five copies would mean five jobs hammering the same Drive, five times the Actions minutes, five files drifting out of sync, and five separate ingest ledgers that each think they are the only one.
-
-### Per-client — ONE copy in EACH client repo
-
-```
-acme-roofing-site/.github/workflows/
-  quality-gate.yml   gates THIS repo's pull requests
-  preview.yml        previews THIS repo's site
-  cycle-emit.yml     runs a content cycle and opens a PR in THIS repo
-  deploy-prod.yml    deploys THIS repo (not installed yet)
-```
-
-These **must** be per-repo: GitHub only runs a workflow on the repo that contains it. A PR against Acme can only be gated by a workflow inside Acme — and a workflow can only **write** to Acme from inside Acme without a cross-repo PAT, which is why `cycle-emit` is on this list and not the fleet-wide one.
-
-They are ~30-line **thin callers**. All real logic lives in the `*.reusable.yml` files here, pulled in by tag:
-
-```yaml
-uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.0.0
-secrets: inherit
-```
-
-That is why bumping one tag upgrades every client at once, and why the callers stay tiny. Copy them from `.github/examples/` and edit **only** the `with:` values.
-
-**Pin an exact tag. Never `@main`, never a moving `@v2`.** These workflows gate production; a mutable ref means the thing guarding a client's live site can change without a PR.
-
-### The whole flow
-
-```
-drive-poll.yml            (HERE, every 3h)  → finds team content, routes it per client
-        ↓
-HANDOFF stage (same run, only when CLIENT_REPOS_TOKEN exists)
-  └→ wf-client-handoff → cycle/<slug>-<YYYY-MM> branch in the CLIENT repo,
-     DOCX committed to docs/intake/<YYYY-MM>/, ONE intake PR per client per
-     month (body = the pre-flight fix list), then dispatches ↓ on that branch
-        ↓
-cycle-emit.yml            (CLIENT repo, workflow_dispatch — by a human OR by the handoff stage)
-  └→ cycle-emit.reusable.yml (HERE)          → wf-distill → wf-classify → wf-brief → wf-emit-ts
-        ↓
-emit commits land on the SAME cycle/ branch — the intake PR ripens into the content PR
-        ↓
-quality-gate.yml + preview.yml  (CLIENT repo) → 18 gates + a preview URL
-        ↓
-Alex merges → deploy
-```
-
-**Intake is central. Gates, emit and deploy are local.** `cycle-emit` is per-client for the same reason the gates are: it **writes** into a client repo, so it runs inside that repo on that repo's own `GITHUB_TOKEN`.
-
-**Cross-repo writes are PR-ONLY (the operator's override, 2026-08).** The original design refused any cross-repo write PAT; that left the last hop unowned and a month's delivered pages stopped at an expiring artifact. Alex explicitly overrode it for PR-mediated writes: the handoff stage in `drive-poll.yml` holds `CLIENT_REPOS_TOKEN` (fine-grained PAT, the five client repos only — mint spec in `docs/ADMIN-CHECKLIST.md` §9) and may create `cycle/` branches, commit intake DOCX, open/update PRs and dispatch `cycle-emit`. It must **never** push a client's default branch and **never** merge — the operator's merge stays the only path to production, and without the secret the stage skips green and the old artifact-only behavior stands.
-
-`dry_run` defaults to **true**: the first run against any client runs the whole chain and writes nothing.
-
-The emitter's exit code decides whether a PR happens, and the workflow honours it literally:
-
-| exit | meaning | action |
-|---|---|---|
-| 0 | every draft emitted clean | commit + PR |
-| 1 | emitted, warn flags in the ledger | commit + PR |
-| 15 | some pages HELD for curation | commit + PR for what emitted; held pages are **never** green |
-| 9 | REFUSED — a BLOCK finding | **no PR**, run fails, `docs/briefs/_curation.md` uploaded as the fix list |
-| 16 | unsegmentable DOCX / 0 pages | **no PR**, run fails |
-
-Step one is `wf-cycle-status --claim emit`; exit 3 (the other operator already ran it) ends the run clean having touched nothing.
+**Re-running is safe by design** — `wf-onboard` resumes, `wf-site-plan` is byte-identical over an unchanged cycle, `wf-site-remediate` leaves un-worked items in the worklist. Prefer a re-run to a guess.

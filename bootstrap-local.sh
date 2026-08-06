@@ -5,13 +5,12 @@ set -euo pipefail
 
 ENGINE="${1:-$(cd "$(dirname "$0")" && pwd)}"
 VENV="$HOME/.wf-pipeline-venv"
-HERE="$ENGINE"
 
 echo "── checks ──"
 command -v python3 >/dev/null || { echo "FATAL: python3 missing"; exit 1; }
-command -v pandoc  >/dev/null || { echo "FATAL: pandoc missing (brew install pandoc)"; exit 1; }
 command -v git     >/dev/null || { echo "FATAL: git missing"; exit 1; }
 command -v gh      >/dev/null && gh auth status >/dev/null 2>&1 && echo "gh: authed" || echo "WARN: gh missing/unauthed — PR creation will need it"
+command -v claude  >/dev/null && echo "claude: on PATH" || echo "WARN: claude missing — wf-site-remediate has no writer"
 
 if [ ! -d "$ENGINE/pipeline" ]; then
   echo "FATAL: engine not found at: $ENGINE"
@@ -32,21 +31,12 @@ pip install --quiet -e "$ENGINE"
 pip install --quiet pyyaml
 
 echo "── verify engine commands ──"
-for c in wf-distill wf-classify wf-emit-ts wf-preflight-docx wf-cycle-status; do
+# ponytail: one command per stage of the rail, not all 40 — if these four
+# resolve, the entry points installed.
+for c in wf-onboard wf-site-health wf-site-plan wf-site-remediate; do
   command -v "$c" >/dev/null || { echo "FATAL: $c not on PATH after install"; exit 1; }
 done
 echo "engine commands: OK"
-
-echo "── distiller skill ──"
-SKILL_SRC="$HERE/distiller"
-SKILL_DST="$HOME/.claude/skills/seo-distiller"
-if [ -d "$SKILL_SRC" ]; then
-  mkdir -p "$SKILL_DST"
-  cp -R "$SKILL_SRC/." "$SKILL_DST/"
-  echo "distiller skill installed/synced from module"
-else
-  echo "WARN: distiller/ not found in repo — install the distiller manually"
-fi
 
 echo ""
 echo "READY. Activate with:  source $VENV/bin/activate"

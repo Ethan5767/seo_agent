@@ -6,7 +6,66 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed
+
+- **`docs/ADMIN-CHECKLIST.md` rewritten against the code.** Four of its eight
+  rows were secrets for the intake rail v3 deleted — `DISCORD_BOT_TOKEN`,
+  `DRIVE_*`, `PIPELINE_DRIVE_PARENT_FOLDER_ID`, `CLIENT_REPOS_TOKEN` — and
+  nothing outside `docs/` has referenced any of them since:
+
+  ```
+  $ grep -rln "DISCORD_BOT_TOKEN\|DRIVE_\|CLIENT_REPOS_TOKEN" \
+      --include="*.yml" --include="*.py" --include="*.sh" .
+  $ echo $?
+  1
+  ```
+
+  Worse, it omitted `PIPELINE_REPO_TOKEN`, the one secret whose absence stops
+  every gate on every client repo from starting: the thin caller's second
+  checkout reads this private repo, and a client repo's `GITHUB_TOKEN` cannot.
+  It was written down only in `CLAUDE.md` §"Known Sharp Edges" and the
+  workflows' own `secrets:` blocks, so a human working the checklist would not
+  have found it. The new file lists each secret against the workflows that
+  consume it (verified by grepping `.github/`), the per-client one-time setup
+  including the gate-baseline and static-export preconditions, the operator's
+  `ANTHROPIC_API_KEY`, the three optional measurement credentials that return
+  named skips, and a closing section naming the dead secrets so nobody mints
+  them again. Docs-only.
+
 ### Fixed
+
+- **`bootstrap-local.sh` could not complete on a clean machine.** Its verify
+  loop checked five commands that v3 deleted with the DOCX rail —
+  `wf-distill`, `wf-classify`, `wf-emit-ts`, `wf-preflight-docx`,
+  `wf-cycle-status` — so the script installed the engine correctly and then
+  killed itself on the line after, under `set -e`:
+
+  ```
+  ── verify engine commands ──
+  FATAL: wf-distill not on PATH after install
+  ```
+
+  It also `FATAL`ed on a missing `pandoc`, which nothing in v3 uses
+  (`grep -rn pandoc --include=*.py --include=*.yml --include=Dockerfile .`
+  returns nothing), and copied a `distiller/` skill directory that no longer
+  exists in the repo, so the run always ended with a `WARN` about it. Verify
+  loop now names one command per stage of the live rail; the `pandoc` gate is
+  replaced by a `claude` check, which is what
+  `pipeline/audit/remediate.py:362` actually requires; the distiller block is
+  gone. Full run on a machine with no existing venv:
+
+  ```
+  $ bash bootstrap-local.sh
+  ── checks ──
+  gh: authed
+  claude: on PATH
+  ── engine venv ──
+  using: /opt/homebrew/bin/python3.11
+  ── verify engine commands ──
+  engine commands: OK
+
+  READY. Activate with:  source /Users/ethan/.wf-pipeline-venv/bin/activate
+  ```
 
 - **`wf-dashboard`: picking a cycle was silently dropped the moment you changed
   screen.** Five selects (Client, Findings, Worklist, Report, Changelog) changed

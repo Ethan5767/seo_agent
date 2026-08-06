@@ -431,6 +431,33 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`docs/HOW-IT-WORKS.md` walked through a pipeline that no longer exists.**
+  The last doc still describing the DOCX rail: a team Word document landing in
+  Drive, a Discord nudge, `wf-distill → wf-classify → wf-brief → wf-emit-ts`,
+  `cycle-emit.yml`, "twenty-one gates", and a monthly regression loop built on a
+  manual Sitebulb crawl routed to named humans. **Twelve of its links were dead**
+  — ten `modules/*.md` files, `consuming-the-pipeline.md` and
+  `DOCTRINE-GATE-MATRIX.md` — none of which are in the repo.
+
+  Rewritten as the v3 walkthrough: onboarding from a repo and a domain, the 18
+  `health.*` checks, the four ratchet lanes and why a finding getting *worse*
+  stays PERSISTING, the tier table and the deny floor, one-item-per-invocation
+  remediation and why the file→item map has to be a measurement, the three gate
+  waves, and deploy through rollback to proof. Deploy is unchanged from v2 and
+  is described as it still runs — verified against `deploy.reusable.yml`'s steps
+  rather than carried over on trust.
+
+  Two sections earned their place and are new: **the ratchet**, without which
+  these gates cannot be pointed at a site that already exists, carrying the
+  warning that an unrecorded baseline runs them bare; and **implemented is not
+  wired** in "Why it's built this way", so B-007 is written down where the next
+  person designing a CI step will read it.
+
+  Every remaining relative link was checked to resolve, and the two numbers
+  quoted (18 health checks, capsule 60/61 on the pilot) were read out of
+  `measure.py` and `gate-reference.md`. `CLAUDE.md` loses the ⚠️ stale flag it
+  carried in the file map — no doc in the repo describes the old rail now.
+
 - **`CLAUDE.md` documented the pipeline v3 replaced.** It is auto-loaded into
   every Claude session in this repo, so it was not merely stale — it was
   actively instructing both operators and every agent from a map of a deleted

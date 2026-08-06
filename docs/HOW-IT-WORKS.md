@@ -1,116 +1,156 @@
 # How It Works
 
-Plain-language walkthrough of the whole pipeline, start to finish. Read this first. The detail lives in [`gate-reference.md`](./gate-reference.md), [`consuming-the-pipeline.md`](./consuming-the-pipeline.md), and the module docs in [`modules/`](./modules/).
+Plain-language walkthrough of the whole pipeline, start to finish. Read this first. The detail lives in [`gate-reference.md`](./gate-reference.md) (per-gate contracts and exit codes), [`MODULES.md`](./MODULES.md) (every module, one line each), and [`../SITE-AUDIT-PIPELINE.md`](../SITE-AUDIT-PIPELINE.md) (the v3 design doc and its open decisions).
 
 ---
 
 ## The one-line version
 
-The content team hands over one big Word document per client per cycle. The pipeline strips it down, turns it into clean typed data, edits the client's repo, audits every page at every stage, opens a pull request — **and then stops and waits for Alex.** the operator's merge is the deploy. After deploy it tells the search engines, checks the live site, and files the proof.
+A client gives us collaborator access to their repo and their domain. The pipeline measures the live site, compares this month against every previous month, decides what is worth fixing and what the agent is even allowed to touch, hands each item to Claude Code one at a time, and opens a pull request — **then stops and waits for a human.** The operator's merge is the deploy. After deploy it tells the search engines, checks the live site, and files the proof.
 
 ---
 
 ## The flow, step by step
 
-### 1. Team DOCX lands in Drive
+### 1. Onboarding: a repo and a domain
 
-GrowMinion (the content team) drops the cycle's Word document into that client's Google Drive folder. The pipeline watches the folder, detects the upload, and nudges/confirms on Discord. Nobody has to remember to kick anything off.
+```bash
+wf-onboard acme/roofing-site acmeroofing.com
+```
 
-*Module: [`03-intake-content.md`](./modules/03-intake-content.md).*
+One command runs the whole sequence: clone, generate `docs/client-config.yml`, verify the live site responds, check the config coheres, scaffold the client-repo docs contract, measure, plan.
 
-### 2. Client profile is resolved
+It **stops** at the one step nothing can automate. `wf-bootstrap-config` can read a framework off disk and scrape a business name off the homepage, but it cannot invent a client's hours, their licence number, or the services they refuse to perform. It writes `TODO` and preflight refuses until a human replaces them. `wf-onboard` exits 1, names the step, and resumes from there when you run it again.
 
-Before touching anything, the pipeline reads that client's `docs/client-config.yml` — the single source of truth living in the client's own repo (**Model A**). That file describes the client's shape: topology, how many sites, which states, which framework, where the build output goes, the forbidden-phrase ledger, the proprietary-variable allow-list.
+It also asks `gh` what permission we actually hold. Read access is not fatal — measuring a site you can only read still produces a report worth delivering — but it means no PR can ever be opened from that checkout, and that is better known now than after a paid agent run.
 
-Everything downstream reads from this. No client fact is ever hardcoded in a script. If a required key is missing, the run stops and asks — it never guesses.
+### 2. The client profile is the source of truth
 
-### 3. Generate: DOCX → clean typed data
+Everything downstream reads `docs/client-config.yml` in the **client's own repo** (**Model A**). It describes the client's shape: topology, states, framework, where the build output lands, the forbidden-phrase ledger, the NAP block, the trust signals — and the **tier**, which decides what the agent may touch.
 
-The document is parsed, segmented, and classified page by page against the live site. Each section is distilled into a **core body** (the 800–1500-word substantive block, not the whole page), enriched, and passed through a judgment ledger that records a verdict per decision. The output is **typed data files** — entries in `src/data/*.ts` — not hand-written page components.
+No client fact is ever hardcoded in a script. A missing required key stops the run rather than being guessed at.
 
-This is the load-bearing architectural rule: **pages are data + four templates.** A hand-rolled bespoke `page.tsx` per route is drift, and there is a gate that catches it.
+### 3. Measure: the live site becomes typed findings
 
-Four commands do this, in order, and each is a registered `wf-*` entry point:
+```bash
+wf-site-health --project ~/clients/roofing-site
+```
 
-| Command | In | Out |
-|---|---|---|
-| `wf-distill` | the team DOCX | structured page drafts |
-| `wf-classify` | drafts + the live repo | NEW / UPDATE / SKIP / INVALID per page |
-| `wf-brief` | drafts | `docs/briefs/*.json` — the §19 content contract |
-| `wf-emit-ts` | drafts + decisions | typed entries in `src/data/*.ts` |
+Fetches every URL the sitemap declares and runs 18 `health.*` checks per page — title and description bands, H1 count, canonical, noindex, OG image, business/FAQ/breadcrumb schema, forbidden phrases, tel links, GA4, image alt text, thin content. Out comes `docs/audit/<YYYY-MM>/findings.json`, one typed `Finding` per problem.
 
-**This runs in CI, not on a laptop.** `cycle-emit.yml` lives in the **client's own repo** (thin caller; the logic is `cycle-emit.reusable.yml` here) and is started by a human with `workflow_dispatch` — never a cron. It writes with that repo's built-in `GITHUB_TOKEN`, so no cross-repo write token exists anywhere in the fleet.
+Three external providers can be switched on — CrUX for field Core Web Vitals, Search Console for impressions and cannibalization, DataForSEO for an on-page crawl. All are **off by default and credentialed from the environment only**. A provider with no credentials returns a **named skip that is written into the artifact**, because a provider that silently returned nothing would make the site look cleaner than last month and the ratchet would report the difference as RESOLVED.
 
-Three things about it are worth knowing before you run one:
+### 4. Plan: four lanes and a worklist
 
-- **`dry_run` defaults to true.** The whole chain runs and nothing is written or opened. Do that first for a client you have not run before.
-- **It is a safe rerun.** It claims the `emit` step in the shared cycle log first; if the other operator already ran it this cycle, the run ends green having touched nothing.
-- **A refusal is red and produces a fix list.** If the emitter refuses (a blocking finding) or the document cannot be segmented, **no PR is opened**, the run fails, and `docs/briefs/_curation.md` is uploaded as a run artifact naming the offending text and a proposed fix per page. Pages *held* for curation are surfaced in the PR body and do not ship.
+```bash
+wf-site-plan --project ~/clients/roofing-site
+```
 
-*Modules: [`03-intake-content.md`](./modules/03-intake-content.md), [`05-core-body-distillation.md`](./modules/05-core-body-distillation.md), [`06-template-uiux.md`](./modules/06-template-uiux.md).*
+Compares this cycle's findings against the earlier monthly folders — **the monthly folders are the time series**, there is no second database — and sorts every finding into a lane:
 
-### 4. Gates: three stages of auditing
+- **RESOLVED** — was there, is gone. Good.
+- **PERSISTING** — was there, still there. Aging.
+- **NEW** — appeared this cycle.
+- **REGRESSION** — we fixed this before and it came back. **The lane the module exists for.**
 
-The generated changes go onto a branch and a PR opens. Twenty-one gates run in three waves:
+Fingerprints deliberately exclude the measured detail, so a finding that merely gets *worse* (`len=71` degrading to `len=210`) stays PERSISTING instead of masquerading as new.
 
-- **PRE-build** — against the source. Is anything SSR-unsafe? Are pages still data-driven? Do the content briefs carry their fan-out, capsule, semantic triples, and a proprietary variable?
-- **BUILT** — against the actual rendered output. Are there orphan pages (the original Acme bug — every sitemap URL must have something linking to it)? Does the sitemap match the built routes match `llms.txt`? Any forbidden phrases, em dashes, non-Title-Case headings, invisible tracking characters? Does every page carry an answer-first content capsule and something proprietary to this client? Are images inside their byte budget? Is the schema right?
-- **LIVE** — after deploy, against the real site. Do the pages actually load? And critically: **can the AI crawlers reach us?** A silent Cloudflare "Block AI Crawlers" toggle would zero the entire AEO pillar while every build metric stayed green — that check has to run at the edge, because it is invisible in the build output.
+Out come two files. `report.md` lists **every** finding — the tier filter never hides one. `worklist.json` carries only what the client's tier permits the agent to act on; everything else appears in the report under *Not Actionable at T1* with the tier that would unlock it, or *Needs a Human* when no acceptance criterion maps to it.
 
-Every gate exits with its own numbered code, so a red run names the gate that failed without anyone reading logs. Full table in [`gate-reference.md`](./gate-reference.md).
+### 5. Tiering: what the agent may touch
 
-The gates are real, not aspirational: 19 of 21 were verified against a live Acme build — each one proven to pass when clean *and* to go red on a deliberately seeded violation.
+A tier is a **path + operation allow-list**, declared per client and enforced by a gate on the PR diff — not by the prompt, and not by trust.
 
-### 5. Alex merges — and that is the deploy
+| | May do |
+|---|---|
+| **T1** copy | Modify files matching `text_paths`. No creates, no deletes. |
+| **T2** content | T1 + create under `content.location`, wired into `content.registry`. |
+| **T3** full | Anything not denied. |
 
-**This is the sacred gate.** Nothing reaches production except through a pull request that Alex merges. Not the automation, not a bot, not a force-push. `main` is protected by a ruleset that requires the quality gate to be green and blocks direct pushes.
+**The deny floor applies at every tier, T3 included**, and is unioned in from the code so a client config cannot shrink it: `.github/**`, `docs/client-config.yml`, `package*.json`, `wrangler.toml`, `.env*`. The agent can never edit the gates that judge it, and can never raise its own tier.
+
+Every repo bootstraps at `tier: 1`. T2 and T3 exist in the code but are **unreachable for a client until a human raises that tier in a human PR** — which is enforcement rather than a release schedule.
+
+### 6. Remediate: Claude Code fixes one item at a time
+
+```bash
+wf-site-remediate --project ~/clients/roofing-site --max-items 5
+```
+
+Each work item is handed to Claude Code **in its own invocation**, inside the client checkout, with the remediation doctrine inlined into the prompt.
+
+The obvious design hands the whole worklist over at once. Then the file→item mapping is something the model *asserts*, and `changelog.json` — the artifact the acceptance gate re-measures against — becomes a claim. One item per invocation makes the mapping a **measurement**: the files that changed between two `git status` snapshots are the files that item touched, whatever the model says it did.
+
+- Every file the agent actually touched is judged by the **same function the PR gate runs**. An out-of-tier edit ends the run and is never recorded as fixed.
+- `--max-items` / `--max-files` are hard caps that stop **cleanly**: what landed stays, what is left is named, and the remaining items keep their place for the next run. REGRESSION items are worked first, so a cap never cuts the lane that says a fix did not hold.
+- It does not commit, push, or open a PR.
+
+The container is where all four required tools are guaranteed to exist together:
+
+```bash
+docker run --rm -it -e ANTHROPIC_API_KEY \
+  -v "$HOME/clients:/clients" -v "$HOME/.config/gh:/root/.config/gh:ro" \
+  seo-agent wf-site-remediate --project /clients/roofing-site --max-items 1
+```
+
+### 7. Gates: 19 checks on the PR
+
+The changes go onto a branch and a PR opens in the client's repo. `quality-gate.yml` there calls the reusable workflow here, which builds once and runs every gate in three waves:
+
+- **PRE (the diff)** — `tier_check` refuses any path or operation the tier does not permit, judging a rename as a delete plus a create. `claim_provenance_check` refuses changed text carrying a rating, review count, licence number, year-count or superlative that traces to no config field, no work-item evidence, no citation, **and not to the previous version of the file**. That last source is what keeps the gate usable rather than flagging every reflowed paragraph.
+- **PRE (the source)** — SSR-unsafe `window`/`document`, the forbidden-phrase ruleset's own self-test.
+- **BUILT (the rendered output)** — orphan pages (the original Acme bug: every sitemap URL must have something linking to it), sitemap↔routes↔`llms.txt` parity, forbidden phrases, em dashes, heading casing, invisible tracking characters, content capsules, non-commodity checks, image budgets, LCP hygiene, robots access for citation crawlers, the 30-point per-page audit — and `acceptance_check`, which re-runs each *claimed* fix's criterion against the build output using the same code that produced the finding, and refuses when it still fires. **A claimed URL with no built page refuses too: silence is not proof.**
+
+Every gate exits with its own numbered code, so a red run names the gate without anyone reading logs. Full table in [`gate-reference.md`](./gate-reference.md).
+
+**The ratchet is what makes this usable on a site that already exists.** A client's inherited debt would fail these gates en masse — on the Acme pilot, 60 of 61 pages on capsule alone. So `wf-gate-baseline` records today's findings once, into the client's own repo, and each baselineable gate then reports a recorded finding as PRE-EXISTING and blocks only what is new. The recorded debt stays visible, countable, and can only shrink.
+
+Seven gates accept a baseline. **Nine never can** — a legal exposure, a runtime crash, a broken invariant, a fabricated credential, an out-of-tier edit or a fix that never landed is a live liability, not aging debt, and baselining it would mean the pipeline formally signs off on shipping it.
+
+> ⚠️ **A client with no recorded baseline runs the gates bare.** The workflow warns rather than failing, but every piece of their pre-existing debt then reads as blocking. Record one before the first PR.
+
+### 8. A human merges — and that is the deploy
+
+**This is the sacred gate.** Nothing reaches production except through a pull request a human merges. Not the automation, not a bot, not a force-push. The quality gate is set as a required status check, so a red run makes the Merge button un-clickable.
 
 The same gate governs everything: content changes, gate-logic changes, dependency bumps, pipeline version bumps. They all arrive as a PR and they all wait for the same merge.
 
-If the gate is red, Alex sees why on the PR before deciding.
+### 9. Deploy → verify → rollback → proof
 
-### 6. Deploy → IndexNow → live verify → proof
+Merging `main` fires the deploy workflow: build, **capture the current production deployment id as a rollback target**, deploy to that client's Cloudflare Pages account, then:
 
-Merging `main` fires the deploy workflow: build, push to that client's Cloudflare Pages account, then:
-
-- **IndexNow** — push the changed URLs straight to Bing and the Copilot AI surfaces for near-instant pickup. (Google doesn't support IndexNow; the sitemap with accurate `lastmod` is the Google path.)
 - **Live verify** — hit the real domain, confirm key routes return 200 with the expected content.
-- **AI-crawler check** — confirm the citation bots get through the Cloudflare edge unchallenged.
-- **Proof** — write a deploy-proof record to a tracked path in the repo and commit it.
+- **AI-crawler check** — confirm the citation bots reach the live edge unchallenged. A silent Cloudflare "Block AI Crawlers" toggle would zero the entire AEO pillar while every build metric stayed green, so this check has to run at the edge — it is invisible in build output.
+- **Auto-rollback** — a failed verification promotes the captured deployment back and independently re-verifies. It only ever promotes an **existing** deployment; there is no second path to prod.
+- **IndexNow** — push the changed URLs to Bing and the Copilot surfaces. (Google does not support IndexNow; an accurate sitemap `lastmod` is the Google path.)
+- **Proof** — write a deploy-proof record to a tracked path and commit it.
 
-**"No proof, it didn't happen."** The proof file is a blocking meta-gate: if it is missing or empty, the run goes red. This exists because a repo that gitignored the proof directory would silently ship to prod with no record at all — which is what "we deployed and nothing was written down" looks like from the outside.
-
-*Modules: [`02-deploy.md`](./modules/02-deploy.md), [`08-indexing-ops.md`](./modules/08-indexing-ops.md).*
+**"No proof, it didn't happen."** The proof file is a blocking meta-gate: missing or empty goes red. This exists because a repo that gitignored the proof directory would silently ship to prod with no record at all.
 
 ---
 
-## The monthly Sitebulb regression loop
+## The monthly loop
 
-The cycle above is the weekly forward motion. Once a month there is a second, slower loop whose only job is to make sure the site is getting *better*, not just newer.
+Steps 3 through 9 are the loop. Run it monthly per client and the artifacts accumulate in `docs/audit/<YYYY-MM>/`, which *is* the time series.
 
-1. **Crawl.** Alex runs Sitebulb (manual, about five clicks) and auto-exports to that client's synced folder.
-2. **Ingest and diff.** The pipeline parses the export and diffs it against last month's, classifying every finding into one of four lanes:
-   - **RESOLVED** — was there, is gone. Good.
-   - **PERSISTING** — was there, still there. Aging; escalates.
-   - **NEW** — appeared this month.
-   - **REGRESSION** — we already fixed this and it came back. The one that matters most.
-3. **Route.** A config map (not code) sends each issue type to its owner: **CODE** → Robin, **CONTENT** → GrowMinion, **NOISE** → an explicit ignore-ledger. Nothing is silently dropped, and no issue type is allowed to be unmapped.
-4. **Fix with proof.** Every fix is verified — grep, curl, or build output. Sitebulb findings are leads, not gospel; verify before fixing.
-5. **Confirm.** A re-crawl closes the loop.
-6. **Escalate to the gate.** This is the part that compounds: a **REGRESSION** on something that was previously gated gets fed back as a **blocking required check on the next PR.** Once something has been fixed, the pipeline refuses to let it come back.
+The metric is simple: **the finding list shrinks every month, and REGRESSION stays empty.** A regression means a fix did not hold, and it is worked before anything else. If the list is not shrinking, that is a process escalation, not a to-do item.
 
-**The metric is simple: the issue list shrinks every month.** If it doesn't, that is a process escalation, not a to-do item.
-
-*Module: [`04-monthly-qa.md`](./modules/04-monthly-qa.md). Visual regression: [`07-visual-qa-autoshot.md`](./modules/07-visual-qa-autoshot.md).*
+Because every artifact ships inside the PR and lives in the client's repo, a `git pull` there tells either operator exactly what has already been done this cycle: `findings.json` means measured, `worklist.json` means planned, `changelog.json` means an agent ran.
 
 ---
 
 ## Why it's built this way
 
-**Everything is gated, nothing is trusted.** Every rule the team learned the hard way — the orphan-page bug, the em-dash rule, no dollar amounts on site, Title Case headings, no bespoke per-route pages, conversion tracking via a real `/thank-you/` page instead of a modal — became a piece of code that blocks a merge. A lesson that only lives in someone's head gets re-learned. Provenance for each one is in [`DOCTRINE-GATE-MATRIX.md`](./DOCTRINE-GATE-MATRIX.md).
+**Every arrow is a JSON file with a schema.** No stage talks to the next through memory or a prompt. That is what makes each stage re-runnable, testable offline, and inspectable when something goes wrong.
 
-**One engine, five clients, zero copies.** Client repos hold three small workflow files pointing at this repo, pinned to an exact version tag. Gate logic lives here once. Fixing a gate fixes it everywhere, and each client adopts the fix by merging a version-bump PR — through the same gate.
+**Everything is gated, nothing is trusted.** Every rule learned the hard way — the orphan-page bug, the em-dash rule, no dollar amounts on site, Title Case headings — became a piece of code that blocks a merge. A lesson that only lives in someone's head gets re-learned.
 
-**A gate that can't run must refuse, not pass.** The forbidden-phrase gate and the non-commodity gate both exit with a distinct "empty ruleset" code rather than reporting green on zero rules. A silent green is worse than a red, because nobody investigates a green.
+**The safety is in the gates, not the prompt.** The remediation prompt states the tier because that is efficient. What actually keeps agent authorship safe is `tier_check` on the diff, `claim_provenance_check` on the claims, `acceptance_check` on the result, and the human merge. Any of those failing stops the change; the prompt failing does not.
 
-**Client config lives with the client.** Real config, credentials, and knowledge stay in each client's own repo. This shared repo ships only a sanitized starter template with placeholder values. No secrets, ever.
+**A gate that cannot run must refuse, not pass.** The forbidden-phrase and non-commodity gates exit with a distinct "empty ruleset" code rather than reporting green on zero rules. The diff gates refuse when the checkout has no history to diff against. A silent green is worse than a red, because nobody investigates a green.
+
+**Implemented is not wired.** `lib/baseline.py` was complete and fully tested for a release while the CI workflow called none of it, so the ratchet did nothing on any PR (B-007). A green unit test proves a function works, not that anything invokes it.
+
+**One engine, many clients, zero copies.** Client repos hold thin workflow callers pinned to an exact version tag. Gate logic lives here once. Fixing a gate fixes it everywhere, and each client adopts the fix by merging a version-bump PR — through the same gate.
+
+**Client config lives with the client.** Real config, credentials and knowledge stay in each client's own repo. This repo ships a sanitized starter template with placeholder values, and the container bakes in no credentials at all. No secrets, ever.

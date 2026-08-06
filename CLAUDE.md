@@ -155,7 +155,7 @@ Then **tell the other side what changed** — do not assume they will read the l
 | `docs/MODULES.md` | **The complete module map** — every package/gate/workflow, one line each |
 | `docs/gate-reference.md` | What each gate checks, its exit code, and whether it is baselineable |
 | `docs/ADMIN-CHECKLIST.md` | Human-only setup + live status table |
-| `docs/HOW-IT-WORKS.md` | ⚠️ **Stale** — still describes the deleted DOCX rail |
+| `docs/HOW-IT-WORKS.md` | Plain-language walkthrough of the whole v3 flow, onboarding to proof |
 | `pipeline/audit/` | The rail: `onboard` · `measure` · `plan` · `remediate` · `providers`, plus client bootstrap/preflight |
 | `pipeline/gates/` | The 19 gates |
 | `pipeline/lib/` | `common.py` (config + tiering), `baseline.py` (the ratchet), `client_docs.py` |

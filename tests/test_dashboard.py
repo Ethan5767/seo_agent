@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from pipeline.dashboard.server import (
+    COMMANDS,
     build_argv,
     build_git_argv,
     cycles,
@@ -95,6 +96,13 @@ def test_url_argument_accepts_real_paths():
 def test_url_argument_must_be_a_list():
     with pytest.raises(ValueError, match="must be a list"):
         build_argv("site-health", "/tmp/proj", {"url": "/roofing/"})
+
+
+def test_cycle_argument_is_a_month_or_nothing():
+    assert build_argv("site-plan", "/p", {"cycle": "2026-08"})[-2:] == ["--cycle", "2026-08"]
+    for bad in ("2026-8", "../../etc", "2026-08; rm -rf /", 202608):
+        with pytest.raises(ValueError, match="YYYY-MM"):
+            build_argv("site-plan", "/p", {"cycle": bad})
 
 
 # ── git actions: no merge, no default-branch push ────────────────────────────
@@ -287,3 +295,25 @@ def test_known_exit_codes_map_to_their_kind(code, kind):
 
 def test_unknown_exit_code_is_an_error_never_a_success():
     assert interpret_exit(42)["kind"] == "error"
+
+
+# ── phases 4-8: the new commands in the allow-list ───────────────────────────
+
+def test_the_agent_commands_are_in_the_allow_list():
+    for name in ("site-remediate", "tier-check", "claim-provenance", "acceptance-check"):
+        assert name in COMMANDS
+
+
+def test_a_flag_argument_must_be_an_explicit_true():
+    """`{"dry-run": false}` must not silently run the agent for real."""
+    argv = build_argv("site-remediate", "/p", {"dry-run": True})
+    assert argv[-1] == "--dry-run"
+    with pytest.raises(ValueError, match="flag"):
+        build_argv("site-remediate", "/p", {"dry-run": False})
+
+
+def test_remediate_caps_must_be_positive_integers():
+    with pytest.raises(ValueError):
+        build_argv("site-remediate", "/p", {"max-items": "10"})
+    assert build_argv("site-remediate", "/p", {"max-items": 5})[-2:] == \
+        ["--max-items", "5"]

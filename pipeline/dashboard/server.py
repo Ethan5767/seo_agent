@@ -39,6 +39,36 @@ COMMANDS = {
         "args": {"limit": "int", "url": "path-list"},
         "label": "Measure live site",
     },
+    "site-plan": {
+        "argv": ["wf-site-plan", "--project", "{project}"],
+        "args": {"cycle": "cycle"},
+        "label": "Plan lanes + worklist",
+    },
+    # Phase 5. `dry-run` prints the prompts and writes nothing, which is the right
+    # first click against any client — the console has no undo.
+    "site-remediate": {
+        "argv": ["wf-site-remediate", "--project", "{project}"],
+        "args": {"cycle": "cycle", "max-items": "int", "max-files": "int",
+                 "dry-run": "flag"},
+        "label": "Remediate worklist (agent writes)",
+    },
+    # Phase 4. Runnable locally so the operator can see the verdict before the PR
+    # does. None of them mutate anything.
+    "tier-check": {
+        "argv": ["wf-tier-check", "--project", "{project}"],
+        "args": {},
+        "label": "Check the diff against the tier",
+    },
+    "claim-provenance": {
+        "argv": ["wf-claim-provenance-check", "--project", "{project}"],
+        "args": {"cycle": "cycle"},
+        "label": "Check claims are sourced",
+    },
+    "acceptance-check": {
+        "argv": ["wf-acceptance-check", "--project", "{project}"],
+        "args": {"cycle": "cycle"},
+        "label": "Re-measure the claimed fixes",
+    },
     "preflight": {
         "argv": ["wf-preflight", "--project", "{project}"],
         "args": {},
@@ -57,11 +87,15 @@ EXIT_MEANING = {
     0: ("clean", "Clean — every check passed"),
     1: ("findings", "Findings written"),
     2: ("error", "Usage error — bad arguments, or a sitemap with no <loc> entries"),
-    9: ("refused", "REFUSED — a BLOCK finding. No PR"),
+    4: ("refused", "REFUSED — the gate's ruleset is empty. It cannot run, so it will not pass"),
+    9: ("refused", "REFUSED — a BLOCK finding, or an edit outside the declared tier. No PR"),
     10: ("error", "Missing docs/client-config.yml"),
     15: ("warn", "Emitted, some pages held for curation"),
     16: ("refused", "REFUSED — nothing to process"),
+    17: ("refused", "REFUSED — the diff changes files the declared tier does not permit"),
+    18: ("refused", "REFUSED — changed text states a fact that traces to no source"),
     19: ("refused", "REFUSED — every source unreachable. Nothing was written"),
+    20: ("refused", "REFUSED — a claimed fix does not clear the finding it claims to fix"),
 }
 
 
@@ -248,6 +282,22 @@ def build_argv(command, project, args):
                 if not isinstance(item, str) or not re.fullmatch(r"[\w\-./~:]{1,300}", item):
                     raise ValueError(f"bad {key} value: {item!r}")
                 argv += [f"--{key}", item]
+        elif kind == "cycle":
+            if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}", value):
+                raise ValueError(f"{key} must be YYYY-MM")
+            argv += [f"--{key}", value]
+        elif kind == "flag":
+            # A flag carries no value, so anything other than an explicit true is
+            # a caller that thinks it is setting something. Refuse rather than
+            # guess: `{"dry-run": false}` must not silently run for real.
+            if value is not True:
+                raise ValueError(f"{key} is a flag — pass true or omit it")
+            argv += [f"--{key}"]
+        else:
+            # A type with no branch here would be silently dropped, and a
+            # silently ignored argument is a run that did not do what the
+            # operator asked. Refuse instead.
+            raise ValueError(f"unhandled argument type for {key}: {kind}")
     return argv
 
 

@@ -18,6 +18,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from pipeline.audit.providers import crux_findings, dataforseo_findings, gsc_findings
 from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
 from pipeline.lib.common import curl, curl_status, load_config
 
@@ -209,6 +210,17 @@ def main() -> int:
     ap.add_argument("--url", action="append", default=[], metavar="PATH",
                     help="measure exactly these URLs instead of the live sitemap")
     ap.add_argument("--limit", type=int, help="stop after N URLs")
+    # Phase 6 providers. Off by default: two of the three need an account and one
+    # of them costs money, so measuring with them is a decision, not a default.
+    ap.add_argument("--with-crux", action="store_true",
+                    help="field Core Web Vitals from CrUX (needs CRUX_API_KEY)")
+    ap.add_argument("--with-gsc", action="store_true",
+                    help="impressions, CTR and cannibalization (needs GSC_ACCESS_TOKEN)")
+    ap.add_argument("--with-dataforseo", action="store_true",
+                    help="crawl-wide broken pages, depth and duplicates (PAID; needs "
+                         "DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD)")
+    ap.add_argument("--max-crawl-pages", type=int, default=100,
+                    help="DataForSEO crawl ceiling (billed per page)")
     args = ap.parse_args()
 
     cfg = load_config(args.project)
@@ -238,6 +250,27 @@ def main() -> int:
               f"so no findings file was written", file=sys.stderr)
         return 19
 
+    # Providers run only after the HTTP pass proved the site is reachable. Their
+    # status strings are written into the artifact: a provider that returned
+    # nothing because it was never asked must not read as a provider that
+    # returned nothing because the site is clean.
+    providers: dict = {}
+    if args.with_crux:
+        # ponytail: origin-level only — one request instead of one per URL. CrUX
+        # has no record for most individual pages on a small site anyway. Pass
+        # `urls` here if per-page field CWV ever earns the request budget.
+        found, providers["crux"] = crux_findings(cfg["domain"])
+        findings.extend(found)
+    if args.with_gsc:
+        found, providers["gsc"] = gsc_findings(cfg["domain"], urls)
+        findings.extend(found)
+    if args.with_dataforseo:
+        found, providers["dataforseo"] = dataforseo_findings(cfg["domain"],
+                                                             max_pages=args.max_crawl_pages)
+        findings.extend(found)
+    for name, status in providers.items():
+        print(f"[{name}] {status}", file=sys.stderr)
+
     out_dir = Path(args.project) / "docs" / "audit" / date.today().strftime("%Y-%m")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "findings.json"
@@ -247,6 +280,8 @@ def main() -> int:
         "domain": cfg["domain"],
         "urls_checked": checked,
         "urls_unreachable": unreachable,
+        # {} when no provider was asked for; a status string per provider that was.
+        "providers": providers,
         # sort_findings + sorted keys: the artifact must be byte-identical across
         # two runs over an unchanged site, or every run produces a noise diff.
         "findings": [dict(f.to_json(), fingerprint=f.fingerprint)

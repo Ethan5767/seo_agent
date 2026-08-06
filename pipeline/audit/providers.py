@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""providers.py — the three external measurement sources (v3 §5, phase 6).
+
+Phase 1 measured a live site with `curl` and no accounts. This adds what HTTP
+alone cannot see:
+
+| Source | Buys | Cost |
+|---|---|---|
+| **CrUX** | *field* Core Web Vitals — what Google actually ranks on, not Lighthouse's lab numbers | free |
+| **Google Search Console** | impressions, clicks, CTR, position, and query cannibalization | free |
+| **DataForSEO On-Page** | crawl-wide truth: broken pages, redirect chains, click depth, duplicate meta | ~$0.25 per 2,000-page crawl |
+
+ONE MODULE, THREE FUNCTIONS
+---------------------------
+Not a `providers/` package with an ABC and a registry. v3 §5 is explicit: add the
+abstraction when a second vendor in a category lands, not in advance of one.
+
+EVERY PROVIDER IS OPTIONAL AND EVERY SKIP IS LOUD
+-------------------------------------------------
+Credentials come from the environment and nowhere else — no `.env` is read and
+nothing is stored in either repo. A provider with no credentials returns
+`([], "skipped: ...")`, and `measure.py` records that string in `findings.json`
+under `providers`. This matters more than it looks: **a provider that silently
+returned nothing would make a site look cleaner than the last cycle**, and the
+ratchet would report the difference as RESOLVED. A skip is not a measurement.
+
+The parse functions are pure and take already-fetched payloads. That is the
+testable seam — the whole suite runs offline, exactly as `check_page` does.
+
+Environment:
+  CRUX_API_KEY            CrUX / PageSpeed Insights API key
+  GSC_ACCESS_TOKEN        OAuth access token with webmasters.readonly
+  GSC_SITE_URL            property id (default: `sc-domain:<domain>`)
+  DATAFORSEO_LOGIN        DataForSEO account
+  DATAFORSEO_PASSWORD
+"""
+from __future__ import annotations
+
+import base64
+import json
+import os
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from pipeline.lib.baseline import Finding, assign_ordinals
+
+# ── field Core Web Vitals thresholds (Google's own "good" boundaries) ────────
+CWV_GOOD = {
+    "largest_contentful_paint": 2500,       # ms
+    "interaction_to_next_paint": 200,       # ms
+    "cumulative_layout_shift": 0.10,        # unitless
+}
+CWV_CODES = {
+    "largest_contentful_paint": "crux.lcp_above_good",
+    "interaction_to_next_paint": "crux.inp_above_good",
+    "cumulative_layout_shift": "crux.cls_above_good",
+}
+
+GSC_MIN_IMPRESSIONS = 100       # below this, CTR is noise
+GSC_LOW_CTR = 0.02
+GSC_CANNIBAL_MIN_IMPRESSIONS = 50
+DFS_MAX_CLICK_DEPTH = 3
+
+
+# ── HTTP (stdlib only — the repo's one runtime dependency stays PyYAML) ──────
+
+def _request(url: str, payload=None, headers=None, timeout: int = 45):
+    """(json, error). Never raises: a provider that is down is a skip, not a crash."""
+    data = json.dumps(payload).encode() if payload is not None else None
+    hdrs = {"Content-Type": "application/json", **(headers or {})}
+    req = urllib.request.Request(url, data=data, headers=hdrs,
+                                 method="POST" if data else "GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode()), None
+    except urllib.error.HTTPError as exc:
+        return None, f"HTTP {exc.code} from {url.split('?')[0]}"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+# ── CrUX — field Core Web Vitals ─────────────────────────────────────────────
+
+def parse_crux(record: dict, location: str) -> list:
+    """Findings for one CrUX record. Fires on any metric outside Google's "good"
+    band, carrying the p75 as `detail` — which the fingerprint excludes, so a page
+    whose LCP degrades stays PERSISTING instead of pretending to be NEW."""
+    out = []
+    for metric, good in CWV_GOOD.items():
+        p75 = ((record.get("metrics") or {}).get(metric) or {}).get("percentiles", {}).get("p75")
+        if p75 is None:
+            continue
+        try:
+            value = float(p75)
+        except (TypeError, ValueError):
+            continue
+        if value > good:
+            out.append(Finding("crux", CWV_CODES[metric], location,
+                               detail=f"p75={p75} (good <= {good})"))
+    return out
+
+
+def crux_findings(domain: str, urls=None) -> tuple:
+    """(findings, status). Origin-level by default; per-URL when `urls` is given.
+
+    A 404 from CrUX means the origin has too little traffic to have field data.
+    That is a fact about the dataset, not a defect in the site, so it emits no
+    finding — but it is reported in the status so nobody reads the silence as a pass.
+    """
+    key = os.environ.get("CRUX_API_KEY")
+    if not key:
+        return [], "skipped: CRUX_API_KEY unset"
+
+    endpoint = f"https://chromeuxreport.googleapis.com/v1/records:queryRecord?key={key}"
+    targets = [("origin", f"https://{domain}", "/")] if not urls else \
+              [("url", u, "/" + u.split("//", 1)[-1].split("/", 1)[-1]) for u in urls]
+
+    findings, missing, errors = [], 0, []
+    for field, value, location in targets:
+        doc, err = _request(endpoint, {field: value})
+        if err:
+            if "404" in err:
+                missing += 1
+            else:
+                errors.append(err)
+            continue
+        findings += parse_crux((doc or {}).get("record") or {}, location)
+
+    if errors:
+        return assign_ordinals(findings), f"partial: {len(errors)} request(s) failed ({errors[0]})"
+    if missing == len(targets):
+        return [], f"no field data: CrUX has no record for {domain} (too little traffic)"
+    return assign_ordinals(findings), f"ok: {len(targets)} record(s)"
+
+
+# ── Google Search Console ────────────────────────────────────────────────────
+
+def parse_gsc_pages(rows: list, measured_urls=None) -> list:
+    """Per-page findings: low CTR on real impression volume, and — when the
+    measured URL set is known — pages the index never showed at all."""
+    out, seen = [], set()
+    for row in rows:
+        page = (row.get("keys") or [""])[0]
+        path = "/" + page.split("//", 1)[-1].split("/", 1)[-1] if "//" in page else page
+        seen.add(path.rstrip("/") + "/")
+        impressions = row.get("impressions") or 0
+        ctr = row.get("ctr") or 0.0
+        if impressions >= GSC_MIN_IMPRESSIONS and ctr < GSC_LOW_CTR:
+            out.append(Finding("gsc", "gsc.low_ctr", path,
+                               detail=f"ctr={ctr:.3f} impressions={int(impressions)} "
+                                      f"position={row.get('position', 0):.1f}"))
+    for url in measured_urls or []:
+        path = "/" + url.split("//", 1)[-1].split("/", 1)[-1] if "//" in url else url
+        if path.rstrip("/") + "/" not in seen:
+            out.append(Finding("gsc", "gsc.no_impressions", path,
+                               detail="0 impressions in the window"))
+    return out
+
+
+def parse_gsc_cannibalization(rows: list) -> list:
+    """One finding per query answered by two or more of the client's own pages.
+
+    `context` is the query, so the fingerprint is stable while the pages and
+    positions underneath it move around.
+    """
+    by_query: dict = {}
+    for row in rows:
+        keys = row.get("keys") or []
+        if len(keys) < 2:
+            continue
+        query, page = keys[0], keys[1]
+        if (row.get("impressions") or 0) < GSC_CANNIBAL_MIN_IMPRESSIONS:
+            continue
+        by_query.setdefault(query, []).append((page, row.get("position") or 999))
+
+    out = []
+    for query, pages in sorted(by_query.items()):
+        if len(pages) < 2:
+            continue
+        pages.sort(key=lambda p: p[1])
+        best = pages[0][0]
+        path = "/" + best.split("//", 1)[-1].split("/", 1)[-1] if "//" in best else best
+        out.append(Finding("gsc", "gsc.cannibalization", path, context=query,
+                           detail=f"{len(pages)} pages compete; best position "
+                                  f"{pages[0][1]:.1f}"))
+    return out
+
+
+def gsc_findings(domain: str, urls=None, days: int = 28) -> tuple:
+    token = os.environ.get("GSC_ACCESS_TOKEN")
+    if not token:
+        return [], "skipped: GSC_ACCESS_TOKEN unset"
+    site = os.environ.get("GSC_SITE_URL") or f"sc-domain:{domain}"
+
+    from datetime import date, timedelta
+    end = date.today() - timedelta(days=2)        # GSC data lags ~2 days
+    start = end - timedelta(days=days)
+    endpoint = ("https://searchconsole.googleapis.com/webmasters/v3/sites/"
+                f"{urllib.parse.quote(site, safe='')}/searchAnalytics/query")
+    headers = {"Authorization": f"Bearer {token}"}
+    window = {"startDate": start.isoformat(), "endDate": end.isoformat()}
+
+    pages, err = _request(endpoint, dict(window, dimensions=["page"], rowLimit=5000), headers)
+    if err:
+        return [], f"failed: {err}"
+    queries, err2 = _request(endpoint, dict(window, dimensions=["query", "page"],
+                                            rowLimit=5000), headers)
+    findings = parse_gsc_pages((pages or {}).get("rows") or [], urls)
+    if not err2:
+        findings += parse_gsc_cannibalization((queries or {}).get("rows") or [])
+    status = f"ok: {len((pages or {}).get('rows') or [])} page rows, {window['startDate']}..{window['endDate']}"
+    return assign_ordinals(findings), status + (f" (query dimension failed: {err2})" if err2 else "")
+
+
+# ── DataForSEO On-Page ───────────────────────────────────────────────────────
+
+DFS_CHECK_CODES = {
+    "duplicate_title": "dfs.duplicate_title",
+    "duplicate_description": "dfs.duplicate_description",
+    "duplicate_content": "dfs.duplicate_content",
+    "is_redirect": "dfs.redirect",
+    "canonical_chain": "dfs.canonical_chain",
+    "is_orphan_page": "dfs.orphan_page",
+    "broken_links": "dfs.broken_links",
+    "large_page_size": "dfs.large_page_size",
+    "no_image_alt": "dfs.image_alt_missing",
+}
+
+
+def parse_dataforseo_pages(items: list) -> list:
+    """Findings from `/v3/on_page/pages` items — the crawl-wide facts a per-page
+    HTTP check cannot see (depth from the homepage, duplicates across the site,
+    redirect chains)."""
+    out = []
+    for page in items or []:
+        url = page.get("url") or ""
+        path = "/" + url.split("//", 1)[-1].split("/", 1)[-1] if "//" in url else url
+        status = page.get("status_code")
+        if isinstance(status, int) and status >= 400:
+            out.append(Finding("dataforseo", "dfs.broken_page", path,
+                               detail=f"status={status}"))
+        depth = page.get("click_depth")
+        if isinstance(depth, int) and depth > DFS_MAX_CLICK_DEPTH:
+            out.append(Finding("dataforseo", "dfs.click_depth", path,
+                               detail=f"depth={depth} (max {DFS_MAX_CLICK_DEPTH})"))
+        for check, fired in (page.get("checks") or {}).items():
+            if fired and check in DFS_CHECK_CODES:
+                out.append(Finding("dataforseo", DFS_CHECK_CODES[check], path))
+    return out
+
+
+def dataforseo_findings(domain: str, max_pages: int = 100, poll_seconds: int = 15,
+                        max_polls: int = 20) -> tuple:
+    """(findings, status). Posts a crawl, polls the summary, reads the pages.
+
+    NOTE: the network path here has never been run against the live API — it is
+    written from the documented request/response shapes and only the parser is
+    covered by tests. Treat the first real run as the verification, and read the
+    status string, not the finding count.
+    """
+    login = os.environ.get("DATAFORSEO_LOGIN")
+    password = os.environ.get("DATAFORSEO_PASSWORD")
+    if not (login and password):
+        return [], "skipped: DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset"
+
+    auth = base64.b64encode(f"{login}:{password}".encode()).decode()
+    headers = {"Authorization": f"Basic {auth}"}
+    base = "https://api.dataforseo.com/v3/on_page"
+
+    posted, err = _request(f"{base}/task_post",
+                           [{"target": domain, "max_crawl_pages": max_pages,
+                             "load_resources": False, "enable_javascript": False}],
+                           headers)
+    if err:
+        return [], f"failed: {err}"
+    try:
+        task_id = posted["tasks"][0]["id"]
+    except (KeyError, IndexError, TypeError):
+        return [], "failed: no task id in the task_post response"
+
+    for _ in range(max_polls):
+        time.sleep(poll_seconds)
+        summary, err = _request(f"{base}/summary/{task_id}", None, headers)
+        if err:
+            return [], f"failed: {err}"
+        try:
+            result = summary["tasks"][0]["result"][0]
+        except (KeyError, IndexError, TypeError):
+            continue
+        if result.get("crawl_progress") == "finished":
+            break
+    else:
+        return [], (f"timed out: the crawl of {domain} did not finish within "
+                    f"{max_polls * poll_seconds}s — nothing was measured")
+
+    pages, err = _request(f"{base}/pages", [{"id": task_id, "limit": max_pages}], headers)
+    if err:
+        return [], f"failed: {err}"
+    try:
+        items = pages["tasks"][0]["result"][0]["items"]
+    except (KeyError, IndexError, TypeError):
+        return [], "failed: no items in the pages response"
+    return assign_ordinals(parse_dataforseo_pages(items)), f"ok: {len(items)} page(s) crawled"

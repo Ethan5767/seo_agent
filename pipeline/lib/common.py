@@ -227,6 +227,116 @@ DEFAULT_DENY = [
 
 NEXT_CONFIG_NAMES = ("next.config.mjs", "next.config.js", "next.config.ts")
 
+# The cycle's own artifacts ride INSIDE the PR (v3 §1). They are written by the
+# pipeline, never by the agent's file edits, and every tier must be able to carry
+# them or every remediation PR would be refused by its own tier gate. Create and
+# modify only — a tier that cannot delete cannot delete an audit trail either.
+ARTIFACT_PATHS = ["docs/audit/**"]
+
+
+def glob_re(pattern: str) -> "re.Pattern":
+    """Compile a gitignore-flavoured path glob.
+
+    `**/` spans any number of segments (including none), `*` and `?` stay inside
+    one segment. `fnmatch` cannot express that distinction — its `*` eats `/` —
+    and `PurePath.match` only learned `**` in 3.13, so this is the one matcher
+    the tier allow-list and the deny floor both compile through.
+    """
+    out, i = [], 0
+    while i < len(pattern):
+        if pattern[i:i + 3] == "**/":
+            out.append("(?:[^/]+/)*")
+            i += 3
+        elif pattern[i:i + 2] == "**":
+            out.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif pattern[i] == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(pattern[i]))
+            i += 1
+    return re.compile("^" + "".join(out) + "$")
+
+
+def path_matches(path: str, patterns) -> bool:
+    """True when `path` (repo-relative, POSIX) matches any pattern.
+
+    A pattern with no `/` also matches at any depth: `.env*` on the deny floor
+    must stop `apps/web/.env.local`, not only a root `.env`. Anchored patterns
+    (anything containing a slash) stay anchored at the repo root.
+    """
+    # NOT lstrip("./") — that strips CHARACTERS, so `.github/workflows/ci.yml`
+    # becomes `github/...` and walks straight through the deny floor.
+    while path.startswith("./"):
+        path = path[2:]
+    path = path.lstrip("/")
+    for pat in patterns or []:
+        if glob_re(pat).match(path):
+            return True
+        if "/" not in pat and glob_re(pat).match(path.rsplit("/", 1)[-1]):
+            return True
+    return False
+
+
+# ── the tier verdict (v3 §2) ─────────────────────────────────────────────────
+# ONE judge, called by `tier_check` on the PR diff and by `remediate` before it
+# lets the agent near a file. Two copies of this rule would drift, and the copy
+# that drifts loose is the one that ships an unauthorized edit.
+
+_OPS = {"A": "create", "M": "modify", "D": "delete"}
+
+
+def tier_verdict(profile: dict, path: str, op: str) -> tuple:
+    """(allowed: bool, reason: str) for one changed path under one operation.
+
+    `op` is a git name-status letter: A create · M modify · D delete.
+    The deny floor is checked FIRST and applies at every tier, T3 included.
+    """
+    op = (op or "M")[0].upper()
+    verb = _OPS.get(op, "change")
+
+    if path_matches(path, profile.get("deny")):
+        return False, f"{path}: on the deny list — refused at every tier, T3 included"
+    if path_matches(path, ARTIFACT_PATHS):
+        if op == "D":
+            return False, f"{path}: the cycle's own audit artifacts are never deleted"
+        return True, f"{path}: cycle artifact"
+
+    tier = profile.get("tier")
+    if tier is None:
+        return False, (f"{path}: no `tier:` declared in docs/client-config.yml — the agent "
+                       f"has no authority over this repo, so every {verb} is refused")
+
+    if op == "D":
+        if tier >= 3:
+            return True, f"{path}: T3 may delete"
+        return False, f"{path}: delete refused — only T3 may delete files"
+
+    if tier >= 3:
+        return True, f"{path}: T3 may {verb} anything not denied"
+
+    if path_matches(path, profile.get("text_paths")):
+        if op == "A" and tier < 2:
+            return False, (f"{path}: T1 may only modify EXISTING files; creating one needs "
+                           f"T2 and a declared content.location")
+        return True, f"{path}: matches text_paths"
+
+    location = profile.get("content_location")
+    if tier >= 2 and location:
+        loc = location.rstrip("/") + "/"
+        if path.startswith(loc):
+            return True, f"{path}: under content.location"
+        if op == "M" and path_matches(path, profile.get("content_registry")):
+            return True, f"{path}: a content.registry file, wired so the page is not an orphan"
+
+    return False, (f"{path}: {verb} not permitted at T{tier} — it matches no text_paths glob"
+                   + (f", is not under content.location ({location})" if tier >= 2 and location else "")
+                   + ".")
+
 
 def detect_static_export(project, family, framework_raw: str = ""):
     """True / False / None (cannot tell) — does this repo build a full static HTML

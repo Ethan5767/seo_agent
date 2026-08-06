@@ -8,6 +8,235 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Phases 4 through 8 — the safety floor, the writer, and the external
+  providers** (`SITE-AUDIT-PIPELINE.md` §4.1–4.3, §4.7, §5, §7). This closes the
+  v3 build sequence: phases 1–3 measured a site and planned the work; these five
+  let something act on the plan and prove that it did.
+
+  **Phase 4 — three gates, and the reason they come before authorship.**
+  Shipping agent writes against the previous 16 gates would have meant shipping
+  unvalidated model claims to client sites.
+
+  - `wf-tier-check` (exit **17**) walks the PR diff and refuses any path or
+    operation the declared tier does not permit. **The deny floor applies at
+    every tier, T3 included**, and is unioned in from `lib/common.DEFAULT_DENY`
+    so a client config cannot shrink it — the agent can never edit the gates that
+    judge it, and never raise its own tier. A rename is judged as a delete plus a
+    create, because collapsing it to "modify" is exactly how a T1 agent would
+    move a file out of its allow-list and keep editing it.
+  - `wf-claim-provenance-check` (exit **18**, exit **4** on an empty corpus)
+    refuses changed text carrying a factual claim — a rating, a review count, a
+    licence number, a year-count, a warranty term, a superlative — that resolves
+    to no config field, no work-item evidence, no citation, and **not to the
+    previous version of the file**. That last source is what keeps the gate
+    usable: without it, every reflowed paragraph would be reported as a fresh
+    fabrication and the gate would get switched off. Scanning is narrow on
+    purpose — prose in markdown, quoted string literals only in code — because a
+    gate that flags `id: 4471` gets ignored.
+  - `wf-acceptance-check` (exit **20**) re-runs each *claimed* fix's acceptance
+    criterion against the build output and refuses when the finding still fires.
+    It reuses `measure.check_page` verbatim; a second implementation of "what
+    does a bad meta description look like" would drift from the one that produced
+    the finding, and then the loop proves nothing. **Silence is not proof**: a
+    claimed URL with no page in the build output, an unimplemented `check`, and a
+    provider code that `check_page` could never emit all refuse rather than pass.
+  - All three are in `NEVER_BASELINEABLE`. You cannot grandfather a fabricated
+    credential, an out-of-tier edit, or a fix that never landed.
+  - `quality-gate.reusable.yml` gains the three steps, their rows in the summary
+    table and sticky comment, and their entries in the Evaluate registry. The
+    client checkout moves to `fetch-depth: 0` — the two diff gates cannot judge a
+    diff they cannot see, and a gate that cannot run must refuse (exit 2), not
+    report an unexamined PR clean. **The gate count is 19 again**, which makes
+    `README.md` correct for the first time since the v3 deletion.
+
+  **Phase 5 — `wf-site-remediate`, the writer.** Reads `worklist.json`, hands
+  each actionable item to Claude Code in the client checkout, writes
+  `changelog.json` mapping every changed file to the item that changed it.
+
+  - **One item per invocation.** Handing the whole worklist over in one prompt
+    makes the file→item map something the model asserts; running one item at a
+    time makes it a **measurement** — the files that changed between two
+    `git status` snapshots are the files that item touched, whatever the model
+    says. `changelog.json` is what `acceptance_check` re-measures, so it has to
+    be an observation.
+  - Every file the agent actually touched is judged by `lib/common.tier_verdict`
+    — the *same* function `tier_check` runs on the PR — and an out-of-tier edit
+    ends the run at exit 9 and is never recorded as fixed.
+  - `--max-items` / `--max-files` are hard caps. Hitting one stops **cleanly**:
+    what landed stays, `stopped` names what is left, and the remaining items keep
+    their place for the next run. REGRESSION items are worked first, so a cap
+    never cuts the lane that says a fix did not hold.
+  - It does not commit, push, or open a PR. That path already exists with its
+    "never push a default branch" guard in `pipeline/dashboard/server.py`, and a
+    second copy of a safety guard is a guard that drifts. This is a deliberate
+    deviation from §4.7's "the CLI commits and opens the PR".
+  - `skills/site-remediation/SKILL.md` — the doctrine, inlined into every prompt,
+    with the ported prose references reachable via `--add-dir`.
+  - `Dockerfile` — 20 lines, the four tools v3 §5 names, no credentials baked in.
+
+  **Phases 7 and 8 — T2 and T3 — ship in the same commit, and the staging is
+  per client rather than per release.** `bootstrap_config` writes `tier: 1`, and
+  `docs/client-config.yml` is on the deny floor, so an agent can never raise its
+  own authority: T2 and T3 exist in the code but stay unreachable for a client
+  until a human raises the tier in a human PR. That is a stronger guarantee than
+  a release gate, and it is enforced rather than scheduled.
+
+  **Phase 6 — `pipeline/audit/providers.py`**, wired into `wf-site-health`
+  behind `--with-crux` / `--with-gsc` / `--with-dataforseo`, all off by default.
+  One module and three functions, not a `providers/` package with an ABC — the
+  abstraction waits for a second vendor in a category. Credentials come from the
+  environment only. **A provider with no credentials returns a named skip, and
+  the skip is written into `findings.json` under `providers`**: a provider that
+  silently returned nothing would make a site look cleaner than last month, and
+  the ratchet would report the difference as RESOLVED. Named `providers.py`
+  rather than §5's `dataforseo.py`, because CrUX and GSC needed a home too.
+
+  **Not verified, and named as such:** the DataForSEO network path has never run
+  against the live API — it is written from the documented request/response
+  shapes, and only the parser is covered by tests. Same for the GSC and CrUX HTTP
+  calls. Treat the first real run as the verification and read the status string,
+  not the finding count. Everything else below was run.
+
+  ```
+  $ .venv/bin/python -m pytest -q
+  ........................................................................ [ 23%]
+  ........................................................................ [ 46%]
+  ........................................................................ [ 69%]
+  ........................................................................ [ 92%]
+  .......................                                                  [100%]
+  311 passed in 2.36s
+
+  # A REAL end-to-end run against a fixture client repo: plan -> agent -> gates.
+  $ wf-site-remediate --project <fixture> --max-items 1 --model sonnet
+  [FIXED] wi-2026-08-0001 health.desc_length on /roofing/ -> src/data/services.ts
+  [OK] 1 fixed, 1 attempted of 1 queued, 1 file(s) changed, $0.4054 -> .../changelog.json
+
+  $ git -C <fixture> --no-pager diff HEAD~1 -- src/data/services.ts
+  -  description: "Roofing services.",
+  +  description: "Professional roofing services in Charlotte, NC from a licensed
+  +  contractor serving the area since 1998. Schedule your roof inspection today.",
+
+  $ wf-tier-check --project <fixture> --base HEAD~1
+  [ok] docs/audit/2026-08/changelog.json: cycle artifact
+  [ok] src/data/services.ts: matches text_paths
+  [OK] tier-check: 2 changed path(s), all within T1.                    exit=0
+
+  $ wf-claim-provenance-check --project <fixture> --base HEAD~1
+  [CORPUS] 16 words from: docs/client-config.yml, docs/audit/2026-08/worklist.json
+  [OK] claim-provenance: every claim in 2 changed file(s) resolves to a source.
+                                                                        exit=0
+  $ wf-acceptance-check --project <fixture> --out <fixture>/out
+  [ok] wi-2026-08-0001: health.desc_length is gone from /roofing/       exit=0
+  ```
+
+  The same three gates, probed with the failures they exist for:
+
+  ```
+  # an edit outside T1
+  $ wf-tier-check --project <fixture> --base HEAD~1
+  [REFUSED] src/components/Hero.tsx: create not permitted at T1 — it matches no
+            text_paths glob.
+  [BLOCKED] 1 of 3 changed path(s) exceed T1.                          exit=17
+
+  # invented credentials in a copy edit ("since 1998" IS in trust_signals and passes)
+  $ wf-claim-provenance-check --project <fixture> --base HEAD~1
+  [UNSOURCED] src/data/services.ts: '4.9 stars' (rating) — '4.9' appears in no
+              config field, no work-item evidence, and not in the previous
+              version of this file.
+  [UNSOURCED] src/data/services.ts: '1,200 reviews' (reviews) — …
+  [UNSOURCED] src/data/services.ts: '28 years' (years) — …
+  [BLOCKED] 3 unsourced claim(s).                                      exit=18
+
+  # a fix the changelog claims but the build output disproves
+  $ wf-acceptance-check --project <fixture> --out <fixture>/out
+  [FAILED] wi-2026-08-0001: health.desc_length STILL FIRES on /roofing/ (len=5)
+           — the fix did not land
+  [BLOCKED] 1 of 1 claimed fix(es) did not clear the finding.          exit=20
+  ```
+
+  Four defects were found and fixed during the build; all four are in
+  `docs/BUG-LEDGER.md` (B-003 … B-006). The one worth repeating here: the
+  remediation prompt is a markdown document, and passing it as an argv positional
+  made the CLI's option parser read its leading `---` as a malformed flag. Every
+  hermetic test stubbed that function out, so **only the live run could find it**
+  — the same lesson B-001 taught. The prompt now goes on stdin.
+
+- **Phase 3 — the ratchet: four lanes, a typed worklist, and `report.md`**
+  (`SITE-AUDIT-PIPELINE.md` §4.6, §7 phase 3). `wf-site-plan --project <dir>
+  [--cycle YYYY-MM]` reads `docs/audit/<YYYY-MM>/findings.json`, compares it
+  against the earlier monthly folders, and writes `worklist.json` + `report.md`
+  beside it.
+
+  - **The monthly folders ARE the time series** — there is no second baseline
+    file and no second ratchet. Fingerprints come from `lib/baseline.py`
+    unchanged, so a finding cannot become "new" merely by getting worse
+    (`detail` is excluded from the fingerprint; a `len=71` that degrades to
+    `len=210` stays PERSISTING).
+  - **REGRESSION is the lane that earns the module.** Absent from the previous
+    cycle but present in an earlier one means the fix did not hold. A naive
+    "in last month? no → NEW" implementation loses exactly this signal, so it
+    has its own test.
+  - **The tier filter never drops a finding.** The report lists every finding;
+    the worklist carries only what the tier permits, and the rest appear under
+    *Not Actionable at T1* with the tier that would unlock them. No declared
+    tier means no authority, so every item is reported blocked.
+  - **A code with no acceptance mapping never enters the worklist.** `ACTIONS`
+    maps each of the 18 `health.*` codes to a kind, a minimum tier, and an
+    acceptance criterion; anything absent from it lands in the report under
+    *Needs a Human*. Every acceptance is the same one check
+    (`{"check": "code_absent", "code": …}`) so phase 4's `acceptance_check`
+    implements one thing, not eighteen.
+  - **Lanes are stamped back onto `findings.json`** — the dashboard's fleet view
+    reads `findings[].lane`, and re-running the planner over an unchanged cycle
+    is byte-identical rather than a noise diff (tested).
+  - The dashboard gains a `site-plan` command in the allow-list with a new
+    `cycle` argument type (`\d{4}-\d{2}`, nothing else). `build_argv` now
+    **refuses** an argument type it has no branch for; it used to drop it
+    silently, and a silently ignored argument is a run that did not do what the
+    operator asked.
+
+  ```
+  $ .venv/bin/python -m pytest -q
+  ........................................................................ [ 31%]
+  ........................................................................ [ 62%]
+  ........................................................................ [ 94%]
+  .............                                                            [100%]
+  229 passed in 1.86s
+
+  $ wf-site-plan --project <fixture>      # 3 cycles: a fix that did not hold
+  [REGRESSION] 1 finding(s) were fixed before and are back
+  [OK] 2 new, 1 persisting, 1 regression, 0 resolved -> <fixture>/docs/audit/2026-08
+       worklist: 2 actionable, 1 above tier, 1 needing a human
+  $ echo $?
+  1
+
+  $ head -18 <fixture>/docs/audit/2026-08/report.md
+  # Site Health Report: 2026-08
+
+  - Domain: `acmeroofing.com`
+  - Measured: 2026-08-05 (3 URLs checked, 0 unreachable)
+  - Compared Against: 2026-07
+  - Tier: T1
+
+  ## Summary
+
+  | Lane | Count |
+  |---|---|
+  | REGRESSION | 1 |
+  | NEW | 2 |
+  | PERSISTING | 1 |
+  | RESOLVED | 0 |
+
+  4 current findings. 2 in the worklist, 1 not actionable at T1, 1 needing a human.
+
+  $ md5 -q docs/audit/2026-08/*.json docs/audit/2026-08/*.md   # before / after a re-run
+  88baa0b52fb702678e3f55b0adb65b41  4393ac9bb8c16cff5c8b134c4225e26e  f0ced5d9de82646b68e0933edb71eeb2
+  88baa0b52fb702678e3f55b0adb65b41  4393ac9bb8c16cff5c8b134c4225e26e  f0ced5d9de82646b68e0933edb71eeb2
+  ```
+
+  Exit codes: `0` no current findings · `1` worklist written · `2` nothing
+  measured yet, or a `findings.json` that will not parse.
+
 - **Phase 2 — tiering: a repo now declares what the agent may touch**
   (`SITE-AUDIT-PIPELINE.md` §2, §6, §7 phase 2). `wf-bootstrap-config` writes the
   tier block into the config it generates, and `wf-bootstrap-config <dir> <domain>
@@ -141,6 +370,24 @@ see `CLAUDE.md` (the sync contract).
   ```
 
 ### Fixed
+
+- **`docs/MODULES.md` described a repo that no longer exists.** It still carried
+  the header counts from before the v3 deletion (6 packages, 55 modules, 8
+  workflows, 47 commands, 327 tests), a flow diagram routing through
+  `distill → classify → brief → emit_ts`, full sections for `pipeline/intake`
+  (14 modules) and `pipeline/generate` (6), a `lib/cycle_state.py` row, and
+  three workflows — `intake-poll`, `drive-poll`, `cycle-emit` — that were
+  deleted with the rail they served. All of it is gone; the counts are now the
+  measured ones (5 packages, 38 modules, 5 workflows, 31 `wf-*` commands, 311
+  tests) and the diagram is the v3 §1 flow. `SITE-AUDIT-PIPELINE.md` §10 named
+  this debt; this closes the `MODULES.md` half of it.
+
+  ```
+  $ ls pipeline/
+  __init__.py  audit  dashboard  deploy  gates  lib
+  $ grep -c '^wf-' pyproject.toml
+  31
+  ```
 
 - **B-002 — every config `wf-bootstrap-config` generated was unloadable YAML.**
   The last of the three template blocks was missing its `f` prefix, so it wrote

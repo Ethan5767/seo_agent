@@ -39,7 +39,7 @@ cycle state, live audits, monthly loops
 | `pipeline/generate` | The emitter: distill → classify → brief → validate → emit typed data |
 | `pipeline/gates` | 19 quality gates (forbidden-phrase sweep, orphan check, parity, capsule, rules self-test, …) |
 | `pipeline/deploy` | Verify-live, crawler reachability, capture + auto-rollback, IndexNow |
-| `pipeline/audit` | Client profile, cycle status, live audits, onboarding scaffolds |
+| `pipeline/audit` | Client profile, onboarding scaffolds, and the v3 audit rail: measure (`wf-site-health`) → plan (`wf-site-plan`) → remediate (`wf-site-remediate`), plus the CrUX/GSC/DataForSEO providers |
 | `distiller/` | The one judgment stage: repair a raw team doc to 0-BLOCK before the engine parses it |
 | `.github/workflows` | Fleet crons (intake/drive polls), CI, and reusable workflows client repos call `@tag` |
 | `docs/` | `MODULES.md` (the complete map), `gate-reference.md`, `HOW-IT-WORKS.md` |

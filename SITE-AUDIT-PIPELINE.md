@@ -378,22 +378,40 @@ parse changed text; watch gate-job duration on the larger repos.
 ## 7. Build sequence
 
 Each phase ships alone. Do not start one before the phase above is merged. ✅ = shipped
-(1 and 2 on 2026-08-05; see `CHANGELOG.md`).
+(all eight on 2026-08-05; see `CHANGELOG.md`).
 
 | # | Phase | Ships |
 |---|---|---|
 | 1 ✅ | `audit_live` returns typed `Finding`s + `wf-site-health` | every existing check, ratchet-ready, zero spend |
 | 2 ✅ | Onboarding — extend `bootstrap_config` with the tier block; static-export precondition check | any repo declares its tier and content home |
-| 3 | **`plan.py` on `lib/baseline.py`** | four lanes, REGRESSION detection, `report.md` |
-| 4 | **`claim_provenance_check` + `tier_check` + `acceptance_check`** | the safety floor |
-| 5 | `remediate.py` + `site-remediation` skill + Dockerfile, **T1 only** | agent does copy fixes |
-| 6 | DataForSEO + GSC + CrUX providers | redirects, broken links, depth, field CWV, cannibalization |
-| 7 | **T2** — content authoring (needs `content.location`) | agent writes pages |
-| 8 | **T3** — structural | agent touches components and templates |
+| 3 ✅ | **`plan.py` on `lib/baseline.py`** | four lanes, REGRESSION detection, `report.md` |
+| 4 ✅ | **`claim_provenance_check` + `tier_check` + `acceptance_check`** | the safety floor |
+| 5 ✅ | `remediate.py` + `site-remediation` skill + Dockerfile | agent does copy fixes |
+| 6 ✅ | DataForSEO + GSC + CrUX providers | redirects, broken links, depth, field CWV, cannibalization |
+| 7 ✅ | **T2** — content authoring (needs `content.location`) | agent writes pages |
+| 8 ✅ | **T3** — structural | agent touches components and templates |
+
+**Phases 5, 7 and 8 shipped together, and the staging moved from the release to
+the client.** The plan was T1-only in phase 5 so that the first agent writes were
+the least risky. That staging is stronger where it actually sits: `bootstrap_config`
+writes `tier: 1`, and `docs/client-config.yml` is on the deny floor — so T2 and T3
+exist in `remediate.py` and `tier_check.py` but are **unreachable for any client**
+until a human raises that client's tier in a human PR. A release gate is a
+schedule; the deny floor is enforcement.
+
+Two other deviations, both recorded in `CHANGELOG.md`:
+
+- §4.7 says the CLI commits and opens the PR. It does not. That path already
+  exists, with its "never push a default branch" guard, in the dashboard's
+  `GIT_ACTIONS` — and a second copy of a safety guard is a guard that drifts.
+- §5 names the provider module `dataforseo.py`. It is `providers.py`, because
+  CrUX and Search Console needed a home too. Still one flat module and three
+  functions; still no ABC and no registry.
 
 **Phase 3 is the highest-value stopping point if you stall.** Health + ratchet +
 REGRESSION detection, with humans remediating, delivers most of the value at none of
-the model risk.
+the model risk. It remains the right place for a client to sit while you decide
+whether to give the agent a tier at all: everything above phase 4 is measurement.
 
 **Gates before authorship — phase 4 precedes 5 deliberately.** Shipping agent writes
 against the current 16 gates means shipping unvalidated model claims to client sites.

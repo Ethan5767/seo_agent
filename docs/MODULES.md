@@ -1,74 +1,55 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-01** · 6 packages, 55 modules, 8 workflows, 47 `wf-*` commands, 327 tests.
+**As of 2026-08-06** · 5 packages, 38 modules, 5 workflows, 31 `wf-*` commands, 311 tests.
 One line per module: what it does and why it exists. Deeper detail: `gate-reference.md`
 (per-gate contracts + exit codes), `HOW-IT-WORKS.md` (the flow in plain language),
 `CLAUDE.md` (the sync contract + where workflows live).
 
+**v3 deleted the DOCX rail.** `pipeline/intake` (Discord, Drive, DOCX pre-flight) and
+`pipeline/generate` (distill → classify → brief → emit_ts) are gone, along with the
+two fleet-wide cron workflows and `cycle-emit`. Claude Code is the only writer now.
+See `SITE-AUDIT-PIPELINE.md` §3 for what was removed and why.
+
 The flow these modules implement:
 
 ```
-team DOCX / Drive link / Discord drop
-        │  INTAKE (fleet-wide crons, this repo)
+GitHub repo + domain
+        │  MEASURE      wf-site-health ──► docs/audit/<YYYY-MM>/findings.json
         ▼
-pre-flight fix-list ──► content team fixes at handoff, not at emit
-        │
-        ▼  GENERATE (per-client, button-triggered)
-distill → classify → brief → emit_ts ──► typed data + PR in the CLIENT repo
-        │
-        ▼  GATES (run on that PR, green-on-legacy via the baseline)
-19 quality gates ──► Alex merges = the ONLY path to production
-        │
-        ▼  DEPLOY
-build → capture → wrangler deploy → verify-live + cf-crawler → auto-rollback
-        │
-        ▼  AUDIT / OPS
-cycle state, live audits, monthly loops
+        │  PLAN         wf-site-plan ──► worklist.json + report.md
+        ▼               (RESOLVED / PERSISTING / NEW / REGRESSION)
+        │  REMEDIATE    wf-site-remediate ──► Claude Code edits, in tier ──► changelog.json
+        ▼               ─── everything above runs locally, in a container ───
+        │  GATES        19 quality gates on the client PR (green-on-legacy via the baseline)
+        ▼
+        │  HUMAN MERGE  Alex merges = the ONLY path to production
+        ▼
+        │  DEPLOY       build → capture → wrangler deploy → verify-live + cf-crawler → auto-rollback
+        ▼
+        │  AUDIT / OPS  wf-dashboard, live monitors, monthly cycles
 ```
 
 ---
 
-## `pipeline/lib` — shared foundation (4)
+## `pipeline/lib` — shared foundation (3)
 
 | Module | What it does |
 |---|---|
 | `common.py` | Config loader, self-describing client profile (topology, states, shape), `framework_family` + `resolve_build_dir` (Next→`out`, Vite→`dist`, stale-path tolerant), curl helpers, topology URL patterns, and the **tiering block** (v3 §2): `tier`/`text_paths`/`content.*` parsed into the profile, `DEFAULT_DENY` unioned in so a config cannot shrink the floor, `detect_static_export` for the §6 precondition. Everything else imports this. |
 | `baseline.py` | The ratchet. Fingerprints legacy findings (stable across HTML reflow — never line numbers) so gates run **green-on-legacy, red-on-new**. Shrink-only; re-record refuses; growth needs `--accept-new`; five safety gates are hard-coded never-baselineable. |
-| `cycle_state.py` | Shared cycle ledger committed in the **client** repo (`docs/cycle-logs/<YYYY-MM>/cycle-state.json`). Two operators claim/mark steps so neither redoes finished work. |
 | `client_docs.py` | The client-repo docs contract (work log, cycle-logs, intake-archive) that `client_docs_check` enforces and `scaffold_client_docs` creates. |
 
-## `pipeline/intake` — content in (14)
-
-| Module | What it does |
-|---|---|
-| `discord_intake.py` | REST-polls the SEO-Team channels (no gateway daemon). DoH DNS override (some ISPs blackhole discord.com). Skips a denied channel instead of aborting. Routing never guesses a client — `unrouted/` is the floor. |
-| `discord_notify.py` | Posts the pre-flight digest back into the SOURCE channel — feedback lands where the team already works. Reuses the poller's auth + DoH. |
-| `drive_intake.py` | Month-scoped Drive ingest with a version-fingerprint ledger, so a bulk Drive reorg cannot make six months of old content look new. |
-| `client_handoff.py` | **The last hop (the operator's 2026-08 PR-only override).** Retrieved DOCX → `cycle/<slug>-<YYYY-MM>` branch + monthly intake PR on the client repo (body = pre-flight fix list) + cycle-emit dispatch on that branch. Idempotent by content sha; never touches a default branch, never merges; inert without `CLIENT_REPOS_TOKEN`. |
-| `drive_survey.py` / `drive_reorg.py` / `drive_cleanup_root.py` | Drive folder mapping, reorg planning/execution, root hygiene. |
-| `link_intake.py` / `link_router.py` | The team shares LINKS, not files (78 links, zero DOCX). Ingests shared Doc links; routes by Drive folder first, then brand/domain content signature; **refuses when folder and content disagree**. |
-| `preflight_docx.py` | **The handoff gate.** Turns a team DOCX into a plain-English fix-list (exact sentence, why, suggested rewrite — using each client's own phrasing rules). Contract: it must PREDICT emit-time refusals exactly, so every check is the emitter's own code. |
-| `validate_docx_intake.py` / `verify_docx_coverage.py` | DOCX sanity + section-coverage checks. |
-| `bootstrap_drive_oauth.py` | One-time browser OAuth for a **read-only** Drive token. |
-| `roster.py` | Client roster loading (slug = `client_slug` in the client repo config — canonical per Alex 2026-07-31). |
-
-## `pipeline/generate` — the emitter (6)
-
-| Module | What it does |
-|---|---|
-| `distill.py` | DOCX → structured `PageDraft`s. Handles three authoring layouts in one document (labelled / unlabelled-after-H1 / markerless hero). Core-body distillation to the 800–1500 band. Fails LOUD: unsegmentable doc = exit 16, state-ambiguous slug on a multi-state client = block, never "confident but wrong". |
-| `classify.py` | NEW / UPDATE / SKIP / INVALID per draft against the live site data — a cycle never silently duplicates or clobbers a page. `--strict-topology` rejects off-pattern URLs outright. |
-| `brief.py` | §19 fan-out briefs (`docs/briefs/*.json`): ≥6 fan-out queries, capsule, semantic triples, proprietary variable from the client's allow-list (never fabricated). Reads BOTH keyword schemas — flat and Crestline's per-state `states[]` nesting. |
-| `validators.py` | V1–V6 constraints (hero 25w/2s/160ch with hook extraction, title band, em-dash, Title Case, card-grid counts 3/4/5/6, alt text) + produce-by-construction §20/§21. Severity model: BLOCK (would ship harm) vs CURATE (human call — page HELD, never suppresses siblings). |
-| `emit_ts.py` | Writes validated drafts into the client's REAL typed data files (anchor-spliced, byte-idempotent), wires an inbound link so no emitted page is ever an orphan, registers routes. Exit contract: 0 clean · 1 shipped-with-flags · 15 held for curation · 9 refused · 16 unsegmentable. Cross-checks `EMIT_SUMMARY` against exit status and refuses on disagreement. |
-| `models.py` | `PageDraft` + `to_ts_entry` (real TS shape) + `to_brief`; the bands (standard §04/§02); `CURATION_CODES ∩ HARM_CODES = ∅` asserted at import. |
-
 ## `pipeline/gates` — the 19 quality gates
+
+**16 inherited + the 3 agent-authorship gates (v3 phase 4).** `pages_are_data_check`, `brief_fanout_check` and `validate_multistate_config` were deleted with the emitter; see `SITE-AUDIT-PIPELINE.md` §3.
 
 Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still live liability).
 
 | Gate | Checks | 
 |---|---|
+| ⛔ `tier_check.py` | **The gate that makes tiering real.** Walks the PR diff and refuses any path or operation the declared tier does not permit. The deny floor applies at every tier, T3 included, and is unioned in from `DEFAULT_DENY` so a config cannot shrink it. A rename is judged as a delete plus a create. Exit 17. |
+| ⛔ `claim_provenance_check.py` | **Derivation only, never invent.** Refuses changed text carrying a rating, review count, licence number, year-count, warranty term, price or superlative that traces to no config field, no work-item evidence, no citation, and not to the previous version of the file. Empty corpus = exit 4, same rule as the forbidden sweep. Exit 18. |
+| ⛔ `acceptance_check.py` | **The loop-closer.** Re-runs each fix `changelog.json` CLAIMS against the build output using `measure.check_page` itself, and refuses when the finding still fires. A claimed URL with no built page refuses too — silence is not proof. Exit 20. |
 | ⛔ `forbidden_sweep.py` | The legal gate. Union of YAML regex rules + `banned-phrases.txt` (per-client), `<script>`-masked so RSC payloads can't false-positive, fails LOUD on an empty ruleset, and lints wrong-file rule placement (the "fails silently" footgun). |
 | ⛔ `rules_selftest.py` | The ruleset's OWN gate: every union pattern compiles, no dead regex lines in the txt ledger (BUG-018), no plain line defeating a YAML lookahead exception (free-system class), case audit (BUG-019), and per-client `docs/rule-fixtures.yml` must_match/must_not_match proof samples run through the production matcher. |
 | ⛔ `orphan_check.py` | Every sitemap URL has ≥1 inbound internal link (the original Acme bug). |
@@ -77,17 +58,14 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 | ⛔ `audit_ssr.py` | No unguarded `window`/`document` in server-rendered paths (the blank-shell disasters). |
 | `capsule_check.py` | §20: interrogative H2 → answer-first → TL;DR (only >1500w, per standard §01). |
 | `noncommodity_check.py` | §21: proprietary variable per page + sibling 5-gram overlap thresholds. |
-| `brief_fanout_check.py` | §19 brief completeness. |
 | `check_headings.py` | Title Case, no possessive contractions. |
 | `em_dash_check.py` | No em dashes in public text (script/style-stripped, line-preserving). |
 | `llms_sales_purge.py` | llms.txt carries no sales/CTA copy (§30). |
 | `image_budget_check.py` | Per-tier image byte budgets (hero/content/thumb). |
 | `lcp_hygiene_check.py` | No lazy-loaded declared hero; `<img>` width/height present. |
-| `pages_are_data_check.py` | Pages are data + templates, not bespoke TSX (Lesson 1). |
 | `robots_aicrawler_check.py` | robots.txt allows every CITATION crawler (training-bot blocking is fine). |
 | `audit_built.py` | The 30-point per-page checklist (meta bands, schema, links, uniqueness…). Bands = the Content Team Operating Standard, config-overridable. |
 | `client_docs_check.py` | The client-repo docs contract is present. |
-| `validate_multistate_config.py` | Multi-state config addendum consistency. |
 
 ## `pipeline/deploy` — ship + recover (5)
 
@@ -99,32 +77,43 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 | `proof-assert.sh` | Blocking meta-gate: the deploy proof exists and is non-empty ("no proof = it didn't happen"). |
 | `indexnow_submit.py` | The one IndexNow submitter (gated on a healthy deploy, never at build time). |
 
-## `pipeline/audit` — ops + client state (7)
+## `pipeline/audit` — measure, plan, write, onboard (10)
 
-`client_profile.py` (who/shape/states/build — the pipeline's front door) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `update_sitemap_dates.py` (lastmod hygiene).
+`client_profile.py` (who/shape/states/build — the pipeline's front door) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `plan.py` (the ratchet over the monthly cycle folders: RESOLVED / PERSISTING / NEW / REGRESSION, `worklist.json` + `report.md` — `wf-site-plan`) · `remediate.py` (**the writer** — hands each work item to Claude Code one at a time so the file→item map in `changelog.json` is a measurement rather than a claim; judges every touched file with the same `tier_verdict` the PR gate uses; hard `--max-items` / `--max-files` caps that stop cleanly — `wf-site-remediate`) · `providers.py` (CrUX field CWV, Search Console CTR + cannibalization, DataForSEO on-page crawl; credentials from the environment only, and a provider with no credentials returns a **named skip** that is written into the artifact so a skip is never mistaken for a clean measurement) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `update_sitemap_dates.py` (lastmod hygiene).
+
+## `skills/site-remediation` — the doctrine the writer is given
+
+`SKILL.md` is inlined into every remediation prompt: derivation only (never invent a rating, a licence, a year-count or a superlative), fix exactly one finding, stay inside the tier, where content actually lives, the per-finding definition of "fixed", the house writing standards, and the T2/T3 rules. `references/anti-slop-prose.md` and `references/serp-title-meta-craft.md` are the ported distiller doctrine, reachable by the agent through `--add-dir`.
 
 ## `pipeline/dashboard` — the local operator console (1 + static)
 
 `server.py` (`wf-dashboard`) — a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state and no credentials. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. `static/` holds the eight screens (fleet · client · findings · worklist · report · runs · git · config) as plain HTML + `app.js`, no build step.
 
-## `.github/workflows` — the runtime (8)
+## `.github/workflows` — the runtime (5)
+
+**No cron workflows.** v3 deleted both fleet-wide pollers with the intake rail, which
+took ~2,180 Actions minutes/month with them — the entire argument for making this repo
+public. Everything below the PR line still runs in the client repo, on that repo's own
+`GITHUB_TOKEN`.
 
 | Workflow | Where it runs | Trigger |
 |---|---|---|
-| `intake-poll.yml` | THIS repo (fleet-wide) | hourly cron — Discord drops → pre-flight → digest back to the channel; skips green until secrets exist |
-| `drive-poll.yml` | THIS repo (fleet-wide) | every 3h — Drive/link ingest for every client in one run; with `CLIENT_REPOS_TOKEN` set, the HANDOFF stage then opens the monthly intake PR per client and dispatches cycle-emit (PR-only, never main) |
-| `ci.yml` | THIS repo | every push/PR — the 274-test suite on 3 Pythons |
-| `quality-gate.reusable.yml` | called by client repos `@tag` | every client PR — build once, run all gates with the client's baseline |
+| `ci.yml` | THIS repo | every push/PR — the test suite on 3 Pythons |
+| `quality-gate.reusable.yml` | called by client repos `@tag` | every client PR — build once, run all 19 gates with the client's baseline. `fetch-depth: 0`, because the two diff gates cannot judge a diff they cannot see |
 | `preview.reusable.yml` | called by client repos | client PR — Cloudflare preview + verify |
-| `cycle-emit.reusable.yml` | called by client repos | **workflow_dispatch only** — started by a human or by drive-poll's handoff stage (on the cycle branch); distill→classify→brief→emit→PR; 9/16 = no PR, fail loud |
 | `deploy.reusable.yml` | called by client repos | push to client main (= the operator's merge) — build, capture, deploy, verify, auto-rollback, proof, IndexNow |
 | `seo-health.reusable.yml` | called by client repos | daily — live-site monitor, never blocks |
 
+`.github/actions/build-site` is the composite build step the reusable workflows share;
+it shells out to `wf-client-profile` to resolve framework and build dir.
+`.github/examples/` holds the thin callers to copy into a client repo.
+
 ## `config/`
 
-`client-config.starter.yml` (sanitized onboarding template) · `discord-intake.yml` (channel→slug map; canonical slugs; Pat's shared channel disambiguates by hints or refuses) · `drive-intake.yml` (per-client Drive roster, exact folder ids) · `discord-intake.example.yml`.
+`client-config.starter.yml` — the sanitized onboarding template `wf-bootstrap-config`
+writes from. The Discord and Drive rosters went with the intake rail.
 
 ## The two layers that are not code
 
-- **Client repos** — each is its own source of truth (Model A): `docs/client-config.yml`, `docs/gate-baseline.json`, cycle logs, rule ledgers, thin workflow callers pinned `@tag`.
-- **The judgment layer** — operators in Claude sessions handle everything NOVEL (new doc formats, rule conflicts, misfiled content); the content team fixes copy; **the operator's PR merge is the only path to production, by design**. The modules handle the known; humans handle the new.
+- **Client repos** — each is its own source of truth (Model A): `docs/client-config.yml` (including the tier block), `docs/gate-baseline.json`, `docs/audit/<YYYY-MM>/` (findings, worklist, report, changelog — the artifacts ship *inside* the PR), rule ledgers, thin workflow callers pinned `@tag`.
+- **The judgment layer** — a human raises a client's tier, and does it in a human PR, because `docs/client-config.yml` is on the deny floor and the agent can never raise its own authority. Operators handle everything NOVEL (findings with no acceptance mapping, ambiguous scope, rule conflicts); **the operator's PR merge is the only path to production, by design**. The modules handle the known; humans handle the new.

@@ -124,6 +124,11 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          # Full history: tier-check and claim-provenance judge the PR DIFF, and
+          # a depth-1 checkout has no base commit to diff against. A gate that
+          # cannot see the diff cannot judge it, and it must refuse (exit 2)
+          # rather than report an unexamined PR clean.
+          fetch-depth: 0
 
       # ---------------------------------------------------------------------
       # Resolve the pipeline ref for CHECKOUT 2.
@@ -184,6 +189,26 @@ jobs:
           python3 -m pip install --quiet --upgrade pip
           python3 -m pip install --quiet ./.pipeline
           echo "Installed pipeline from ref ${{ steps.pipe.outputs.ref }}"
+
+      # --- PRE gates: the agent-authorship safety floor (v3 §4.1-4.2) ---------
+      # These two judge the DIFF, not the tree, so they run on every PR — an
+      # out-of-tier edit or an invented credential is the same risk whether a
+      # model or a human wrote it. Both soft-skip a repo with no `tier:` block
+      # only insofar as tier-check then refuses everything, which is the point:
+      # no declared authority means no authorized change.
+      - name: "PRE: tier-check, the PR diff stays inside the declared tier (BLOCK)"
+        id: tier
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: wf-tier-check --project . --base "$BASE_SHA"
+
+      - name: "PRE: claim provenance, no invented credentials (BLOCK)"
+        id: provenance
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: wf-claim-provenance-check --project . --base "$BASE_SHA"
 
       # --- PRE gates (source, pre-build; python-only, no node_modules) --------
       # wf-audit-ssr is config-free: masks strings/comments, tracks brace-scoped
@@ -346,6 +371,15 @@ jobs:
         continue-on-error: true
         run: wf-lcp-hygiene-check --out "$BUILD_DIR" --project .
 
+      # The loop-closer (v3 §4.3): every fix docs/audit/*/changelog.json CLAIMS
+      # is re-measured against the build output, and a claim whose finding still
+      # fires blocks the merge. A PR that claims nothing skips green.
+      - name: "OUT: acceptance, the claimed fixes actually landed (BLOCK)"
+        id: acceptance
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: wf-acceptance-check --project . --out "$BUILD_DIR"
+
       # --- Report: step summary table ----------------------------------------
       - name: Build report (step summary)
         if: always()
@@ -358,6 +392,9 @@ jobs:
           RECIPE_HASH: ${{ steps.build.outputs.recipe_hash }}
           TSC: ${{ steps.tsc.outcome }}
           SSR: ${{ steps.ssr.outcome }}
+          TIER: ${{ steps.tier.outcome }}
+          PROVENANCE: ${{ steps.provenance.outcome }}
+          ACCEPTANCE: ${{ steps.acceptance.outcome }}
           RULES_SELFTEST: ${{ steps.rules_selftest.outcome }}
           BUILD: ${{ steps.build.outcome }}
           HEADINGS: ${{ steps.headings.outcome }}
@@ -394,6 +431,8 @@ jobs:
             echo "| PRE | tsc --noEmit | 1 | $(mark "$TSC") |"
             echo "| PRE | SSR safety (source) | 9/10 | $(mark "$SSR") |"
             echo "| PRE | rules-selftest (ruleset integrity) | 3/4 | $(mark "$RULES_SELFTEST") |"
+            echo "| PRE | tier-check (diff within declared tier) | 17 | $(mark "$TIER") |"
+            echo "| PRE | claim provenance (no invented facts) | 18/4 | $(mark "$PROVENANCE") |"
             echo "| BUILD | ${FAMILY} build -> ${BUILD_DIR} | 1 | $(mark "$BUILD") |"
             echo "| OUT | Heading casing | 1 | $(mark "$HEADINGS") |"
             echo "| OUT | No-orphan gate | 3 | $(mark "$ORPHAN") |"
@@ -408,6 +447,7 @@ jobs:
             echo "| OUT | llms.txt sales purge | 1 | $(mark "$LLMS") |"
             echo "| OUT | Image budget | 1 | $(mark "$IMAGE") |"
             echo "| OUT | LCP hygiene | 1 | $(mark "$LCP") |"
+            echo "| OUT | acceptance (claimed fixes landed) | 20 | $(mark "$ACCEPTANCE") |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           # Plain-English sticky comment body for non-technical review.
@@ -430,6 +470,9 @@ jobs:
           [ "$LLMS" = "failure" ]         && add_fail "llms.txt — sales/CTA language is polluting the factual llms.txt brief."
           [ "$IMAGE" = "failure" ]        && add_fail "Image budget — a built image exceeds its size ceiling (LCP/CWV risk)."
           [ "$LCP" = "failure" ]          && add_fail "LCP hygiene — a lazy-loaded hero or a dimensionless image will hurt Core Web Vitals."
+          [ "$TIER" = "failure" ]         && add_fail "Tier — this PR changes a file the repo's declared tier does not permit (or no tier is declared, which permits nothing)."
+          [ "$PROVENANCE" = "failure" ]   && add_fail "Claim provenance — changed text states a fact (a rating, a review count, a licence, a year-count, a superlative) that traces to no config field, no measurement, and no citation. Remove it or add the fact to docs/client-config.yml first."
+          [ "$ACCEPTANCE" = "failure" ]   && add_fail "Acceptance — a fix this PR claims to have made does not clear the finding it claims to fix. Re-measured against the build output."
 
           if [ -n "$fail_lines" ]; then
             STATUS="RED — do not merge"
@@ -473,6 +516,9 @@ jobs:
         env:
           TSC: ${{ steps.tsc.outcome }}
           SSR: ${{ steps.ssr.outcome }}
+          TIER: ${{ steps.tier.outcome }}
+          PROVENANCE: ${{ steps.provenance.outcome }}
+          ACCEPTANCE: ${{ steps.acceptance.outcome }}
           RULES_SELFTEST: ${{ steps.rules_selftest.outcome }}
           BUILD: ${{ steps.build.outcome }}
           HEADINGS: ${{ steps.headings.outcome }}
@@ -510,13 +556,16 @@ jobs:
               LLMS)         echo "1 : llms.txt sales purge (§30)" ;;
               IMAGE)        echo "1 : image budget" ;;
               LCP)          echo "1 : LCP hygiene" ;;
+              TIER)         echo "17 : tier-check (diff outside declared tier)" ;;
+              PROVENANCE)   echo "18/4 : claim provenance (unsourced claim / empty corpus)" ;;
+              ACCEPTANCE)   echo "20 : acceptance (a claimed fix did not land)" ;;
               *)            echo "? : unknown gate" ;;
             esac
           }
           red=0
           for g in TSC SSR RULES_SELFTEST BUILD HEADINGS ORPHAN PARITY EMDASH \
                    AUDIT_BUILT FORBIDDEN ROBOTS CAPSULE NONCOMMODITY FINGERPRINT \
-                   LLMS IMAGE LCP; do
+                   LLMS IMAGE LCP TIER PROVENANCE ACCEPTANCE; do
             v="${!g}"
             if [ "$v" = "failure" ]; then
               echo "::error::Blocking gate failed: ${g}  (exit $(reg "$g"))"

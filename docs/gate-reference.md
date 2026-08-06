@@ -37,6 +37,10 @@ Each gate claims a distinct code so the workflow can name the failing gate from 
 | `11`–`14` | `pipeline/audit/preflight.py` — 11 missing config fields · 12 unresolved TODOs · 13 homepage non-200 · 14 Cloudflare challenge |
 | `15` | **data-gen emitter: pages HELD for curation** (emitted what it could; held pages did not ship) |
 | `16` | **Unsegmentable DOCX** — `distill` / `preflight_docx` / the emitter chain refuse a non-empty handoff that segments to 0 pages (unrecognized page-boundary format). Never reported as "clean". First free code above the fleet. |
+| `17` | **Tier violation** — `tier_check`: the PR diff changes a path or performs an operation the repo's declared tier does not permit (or no tier is declared, which permits nothing). |
+| `18` | **Unsourced claim** — `claim_provenance_check`: changed text states a fact that resolves to no config field, no work-item evidence, no citation, and not to the previous version of the file. |
+| `19` | **Nothing measured** — `wf-site-health`: every source was unreachable. A run that measured nothing must be red, never a green report with zero findings. |
+| `20` | **A claimed fix did not land** — `acceptance_check`: a work item `changelog.json` reports as fixed still fires its finding against the build output, or has no built page to check at all. |
 
 ### `pipeline/generate/` — the data-gen emitter (not a gate; it feeds them)
 
@@ -85,6 +89,9 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 | `parity-check` | **NEVER** | Structural truth. sitemap == routes == llms.txt is a bidirectional invariant, not a defect count — a "pre-existing" mismatch means the site's own map is lying, and every downstream gate reasons off that map. |
 | `orphan-check` | **NEVER** | Structural truth + the original Acme bug, highest-value gate in the suite. An orphaned URL is unreachable and uncrawlable *today*; age does not soften it. |
 | `rules-selftest` | **NEVER** | Meta-integrity. This gate checks the forbidden-phrase ruleset itself (BUG-018 dead rules, BUG-019 case escapes, defeated lookahead exceptions, fixture proofs). A baselined defect here is a silently disarmed legal gate. |
+| `claim-provenance-check` | **NEVER** | Legal exposure. An invented credential is a live falsehood however old the run that wrote it — the same argument as `forbidden-sweep`, arriving by a different route. |
+| `tier-check` | **NEVER** | Authority. Accepting a past out-of-tier edit as debt is how the tier stops meaning anything; the whole safety argument for letting a model write files is that this line holds. |
+| `acceptance-check` | **NEVER** | Proof. A fix that never landed is not fixed. Baselining it would grandfather the lie the gate exists to catch. |
 | `capsule-check` | yes | Missing §20 capsule — content debt, worked down page by page. |
 | `noncommodity-check` | yes | Missing §21 proprietary variable / sibling duplication — content debt. |
 | `image-budget-check` | yes | Oversized image bytes — content debt (fingerprinted on the path+tier, not the size). |
@@ -94,11 +101,28 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 | `llms-sales-purge` | yes | CTA copy in llms.txt — content debt (fingerprinted on phrase + line text). |
 | `audit-built` | yes | The 30-point per-page audit (titles, metas, alt text, FAQ, schema) — content debt (fingerprinted per page URL + check key). |
 
-Everything not listed (em-dash, robots-aicrawler, brief-fanout, validate-multistate-config, proof-assert, the live post-deploy checks) is either already clean on the pilot or out of scope for baselining; only the eight `yes` gates carry legacy content debt and accept `--baseline`.
+Everything not listed (em-dash, robots-aicrawler, proof-assert, the live post-deploy checks) is either already clean on the pilot or out of scope for baselining; only the eight `yes` gates carry legacy content debt and accept `--baseline`. Nine gates are now never-baselineable: the six inherited plus the three phase-4 authorship gates.
 
 ---
 
 ## The gates
+
+### PRE-build — the agent-authorship floor (v3 phase 4, 2026-08-05)
+
+These three exist because a model writes into client repos. They judge the **PR
+diff**, not the tree, so they run on every PR regardless of who authored it — an
+out-of-tier edit or an invented credential is the same risk from a human hand.
+All three are **never-baselineable**: you cannot grandfather a fabricated
+credential, an unauthorized edit, or a fix that never landed.
+
+The client checkout must be `fetch-depth: 0`. A gate that cannot see the diff
+refuses (exit 2) rather than reporting an unexamined PR clean.
+
+| Gate | What it checks | Blocking? | Exit | Status |
+|---|---|---|---:|---|
+| `tier_check.py` | Every changed path and operation against the repo's declared tier. T1 modifies `text_paths`; T2 adds creates under `content.location` and modifies `content.registry`; T3 anything not denied, deletes included. **The deny floor (`.github/**`, `docs/client-config.yml`, `package*.json`, `wrangler.toml`, `.env*`) applies at every tier and is unioned in from `DEFAULT_DENY`, so a client config cannot shrink it.** No declared tier permits nothing. A rename is judged as delete + create. `docs/audit/**` rides along at every tier (create/modify only) because the cycle's own artifacts ship inside the PR. | BLOCKING | 17 | **WORKS** — verified against a real agent diff: in-tier edit exit 0, a `src/components/Hero.tsx` create exit 17 |
+| `claim_provenance_check.py` | Every factual claim in **added** text — rating, review count, licence number, year-count, `since <year>`, warranty term, price, percentage, jobs-completed, superlative — must resolve to `docs/client-config.yml`, to a work item's `evidence`, to an explicit citation on the line, or **to the previous version of the same file** (a claim already on the site was not invented by this run). Markdown is scanned as prose; code and data files are scanned **only inside string literals**, so a bare `id: 4471` is not a claim. Empty corpus refuses. | BLOCKING | 18 · 4 (empty corpus) | **WORKS** — `4.9 stars` / `1,200 reviews` / `28 years` blocked; `since 1998` passed off `trust_signals` |
+| `acceptance_check.py` | Re-runs each fix `docs/audit/<YYYY-MM>/changelog.json` **claims** (`status: fixed`) against the build output, using `measure.check_page` itself rather than a second implementation. Refuses when the finding still fires, when the claimed URL has no built page, when the `check` is unimplemented, and when the code is a phase-6 provider code that `check_page` could never emit (a vacuous pass is worse than no gate). A PR claiming nothing skips green. | BLOCKING | 20 | **WORKS** — a `len=5` description claimed as fixed went red; the real agent fix went green |
 
 ### PRE-build
 

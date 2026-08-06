@@ -38,6 +38,10 @@ wf-audit-built = "pipeline.gates.audit_built:main"
 wf-forbidden-sweep = "pipeline.gates.forbidden_sweep:main"
 wf-rules-selftest = "pipeline.gates.rules_selftest:main"
 wf-client-docs-check = "pipeline.gates.client_docs_check:main"
+# ── the agent-authorship safety floor (v3 §4.1–4.3, phase 4) ─────────────────
+wf-tier-check = "pipeline.gates.tier_check:main"
+wf-claim-provenance-check = "pipeline.gates.claim_provenance_check:main"
+wf-acceptance-check = "pipeline.gates.acceptance_check:main"
 wf-scaffold-client-docs = "pipeline.audit.scaffold_client_docs:main"
 
 # ── baseline / ratchet (pre-existing-debt bookkeeping for the gates above) ───
@@ -51,6 +55,8 @@ wf-dashboard = "pipeline.dashboard.server:main"
 
 # ── audit / setup ────────────────────────────────────────────────────────────
 wf-site-health = "pipeline.audit.measure:main"
+wf-site-plan = "pipeline.audit.plan:main"
+wf-site-remediate = "pipeline.audit.remediate:main"
 wf-poll-live = "pipeline.audit.poll_live:main"
 wf-preflight = "pipeline.audit.preflight:main"
 wf-update-sitemap-dates = "pipeline.audit.update_sitemap_dates:main"

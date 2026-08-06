@@ -136,6 +136,12 @@ NEVER_BASELINEABLE = {
     "parity_check": "structural truth — sitemap/routes/llms parity is an invariant, not a defect count",
     "orphan_check": "structural truth — an orphaned URL is unreachable today regardless of age",
     "rules_selftest": "meta-integrity — a broken ruleset checker is a disarmed legal gate; it can never carry accepted debt",
+    # v3 §4.3: the three agent-authorship gates. You cannot grandfather a
+    # fabricated credential, an edit outside the tier, or a fix that never landed
+    # — each is a live falsehood, not aging debt.
+    "claim_provenance_check": "legal exposure — an invented credential is a live falsehood however old the run that wrote it",
+    "tier_check": "authority — accepting a past out-of-tier edit as debt is how the tier stops meaning anything",
+    "acceptance_check": "proof — a fix that never landed is not fixed; baselining it would grandfather the lie",
 }
 
 BASELINEABLE = {

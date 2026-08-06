@@ -6,7 +6,157 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **`run.sh` — one entry point for running any engine command in the
+  container.** `./run.sh wf-onboard acme/site acme.com`, `./run.sh
+  wf-site-health --project /clients/site`, `./run.sh bash`. It exists because
+  three credential facts are easy to get wrong one at a time:
+
+  - **`GH_TOKEN`, not the `-v ~/.config/gh` mount the Dockerfile documents.** On
+    macOS the `gh` token lives in the login keyring, so that mount carries the
+    config and no credential, and every `gh` call inside the container 401s.
+  - **`GH_TOKEN` authenticates `gh` but not plain `git`**, so a clean
+    `wf-site-remediate` would still fail on the push. `GIT_CONFIG_COUNT=1` +
+    `credential.https://github.com.helper=!gh auth git-credential` hands git the
+    same token.
+  - **`remediate.py` only shells out to `claude`; it never reads
+    `ANTHROPIC_API_KEY`.** So either auth works — a key in the environment, or a
+    subscription login persisted in `~/.claude-docker`. The script warns when
+    neither is present rather than letting the remediation step discover it.
+
+  `wf-dashboard` is the only command that needs a port, so the publish is
+  conditional on it: `-p 127.0.0.1:8765:8765` plus `--host 0.0.0.0`. The bind
+  address is the CONTAINER's interface; the exposure on the operator's machine
+  stays host loopback only, behind the per-run token.
+
+- **`wf-dashboard`: Add Client on the fleet screen.** Repo, live domain and an
+  optional GitHub token in three boxes, `POST /api/onboard`, and `wf-onboard`
+  streams into the panel. It is the one run with no client to attach to, so it
+  is a route of its own rather than a `COMMANDS` entry — every entry there is
+  per-project and gets offered on the run console, where this one has no
+  `{project}` to resolve.
+
+  Both fields are normalised to the shape `wf-onboard` documents, because an
+  operator pastes the browser URL, not an `owner/name` slug. The domain goes
+  through `urlparse().hostname` rather than a hand-rolled scheme-stripper, which
+  is both shorter and accepts the port and path a real clipboard carries:
+
+  ```
+  https://github.com/acme/roofing-site.git      → acme/roofing-site
+  http://AcmeRoofing.com:8080/index.html?utm=x  → acmeroofing.com
+  ```
+
+  A repo path segment must **start alphanumeric and contain no `..`** — the same
+  two rules `build_git_argv` applies to a branch name. A leading `-` is read by
+  argparse as a flag, and `..` escapes `--clients-dir` *without cloning
+  anything*: `onboard.py` names the checkout `slug.split("/")[-1]`, so
+  `owner/..` resolves to the PARENT of the clients directory, finds it already
+  exists, skips the clone and scaffolds client docs into it.
+
+  ```
+  {"repo": "owner/.."}        → 400 "repo must be owner/name or a GitHub URL"
+  {"repo": "--clients-dir/x"} → 400  (a bare "--clients-dir" fails the shape check
+                                      for lack of a slash, which is NOT the same
+                                      invariant — the test asserts the dash case)
+  ```
+
+  **The token goes to the environment and nowhere else.** argv is written to
+  `~/.cache/seo_agent/runs/<id>.log`, listed in the run history and streamed to
+  the browser, so a credential there is a credential on disk. `Run` gained an
+  `env` parameter; the token rides as `GH_TOKEN`/`GITHUB_TOKEN` for that one
+  subprocess, the browser clears the field on submit, and nothing persists it —
+  re-enter it next time. Verified against a real run:
+
+  ```
+  $ cat ~/.cache/seo_agent/runs/19fd6361cef-02b5e1.log
+  $ wf-onboard nobody-here-9x/nope example.com --clients-dir /…/clients
+  HTTP 401: Bad credentials (https://api.github.com/graphql)
+  [ERROR] could not clone nobody-here-9x/nope — check the collaborator invite was accepted
+  $ grep -rl "ghp_aaa" ~/.cache/seo_agent/runs/
+  $ echo $?
+  1
+  ```
+
+  **What that 401 proves, and what it does not.** It proves the token reached
+  `gh` and was used against the API — without it, that run reports "Try
+  authenticating with: gh auth login" instead. It does **not** prove a *private*
+  repo clones on `GH_TOKEN` alone, because the git transport goes through the
+  credential helper, not the variable. **That path is unverified** and is
+  recorded here as unverified for the same reason the phase 6 provider network
+  paths are. Related: `onboard.py` falls back to `git clone git@github.com:…`
+  when `gh` is not on PATH, and `GH_TOKEN` means nothing to SSH — in that one
+  configuration the operator supplies a credential that is silently unused.
+
+  The browser reads the token field and clears it **before** the request, not
+  after: clearing on the success path only left it in a live DOM node on every
+  400, which is the likely path (mistype the repo). The input is
+  `autocomplete="new-password"`, not `off` — Chrome and Safari ignore `off` on a
+  password input and will offer to save the value to the keychain, which is the
+  opposite of "never stored".
+
+  `wf-onboard`'s exit vocabulary is its own, so `interpret_exit` gained a table
+  for it. **Exit 1 is the interview step, not a failure**: it means bootstrap
+  wrote TODOs a human must fill and the same command resumes from there. The
+  rail reads 1 as "findings written" and git reads it as "the run failed" —
+  both would be a lie here, so it renders as a warn chip that says to edit
+  `docs/client-config.yml` and run it again, and the panel and its log stay open
+  on exit rather than collapsing the instructions.
+
+  Covered by 22 new cases in `tests/test_dashboard.py` (URL normalisation, the
+  leading-dash and `..` refusals, the escape-the-clients-dir case with the
+  `Path` arithmetic that makes it real, token-never-in-argv, exit-1 semantics).
+  `test_every_command_states_which_exit_vocabulary_it_speaks` now asserts
+  `ONBOARD_EXITS` too, so the one command outside `COMMANDS` is not the one
+  command that invariant cannot see.
+
+  ```
+  $ .venv/bin/python -m pytest -q
+  410 passed in 2.63s
+  ```
+
 ### Changed
+
+- **`wf-dashboard --host`, and the Origin check that made it useless.** The
+  container has to bind `0.0.0.0` — `docker -p` reaches the container's external
+  interface, not its loopback — so the flag exists. But `_authorized` compared
+  `Origin` against a set hardcoded to `http://127.0.0.1:<port>`, and browsers
+  send `Origin` on every same-origin POST. Reaching that dashboard by any other
+  address 403'd **every** action while the pages still rendered: a console that
+  looks fine and cannot do anything.
+
+  `Origin` is now compared to the request's own `Host` header, which is the
+  same-origin test and needs no list at all — the hardcoded set is deleted, not
+  extended. A forged Origin still fails: the browser sets `Host` to whatever it
+  connected to, and an attacker's page cannot make the two agree.
+
+  ```
+  $ # server bound 0.0.0.0, reached over the LAN address
+  $ curl -o /dev/null -w '%{http_code}\n' -H "X-Dashboard-Token: $T" \
+      -H "Origin: http://192.168.1.46:8797" -d '…' http://192.168.1.46:8797/api/onboard
+  202                       # was 403 before this change
+  $ curl … -H "Origin: http://evil.com" http://127.0.0.1:8797/api/onboard
+  403                       # still refused
+  $ curl … (no token) http://127.0.0.1:8797/api/onboard
+  403
+  ```
+
+  The startup banner also printed `http://127.0.0.1:<port>` unconditionally.
+  `0.0.0.0` is a bind address, not a URL, so it now prints the address you can
+  actually browse to and names the bind separately:
+
+  ```
+  $ wf-dashboard --host 0.0.0.0 --port 8798
+  wf-dashboard  http://127.0.0.1:8798   (bound 0.0.0.0)
+  ```
+
+- **`Dockerfile`: `pip install -e .`, deliberately.** A regular install copies
+  only what package-data declares, and two things resolve through
+  `Path(__file__)` from the source tree: the dashboard's `static/*.html` and
+  `skills/site-remediation/SKILL.md`. Without `-e` the dashboard 404s every page
+  and remediate silently drops the doctrine — `if SKILL.is_file()` skips, it
+  does not fail, which is the worst of the two. The source is already in the
+  image via `COPY . /engine`.
 
 - **`docs/ADMIN-CHECKLIST.md` rewritten against the code.** Four of its eight
   rows were secrets for the intake rail v3 deleted — `DISCORD_BOT_TOKEN`,

@@ -10,6 +10,7 @@ See docs/superpowers/specs/2026-08-05-dashboard-design.md.
 import argparse
 import json
 import mimetypes
+import os
 import re
 import secrets
 import subprocess
@@ -146,13 +147,31 @@ EXIT_MEANING = {
 
 GIT_EXITS = {0: ("clean", "Done"), 1: ("error", "git/gh refused — read the output")}
 
+# wf-onboard is the one command that runs WITHOUT a client, because it is what
+# creates one. It is kept out of COMMANDS deliberately: every entry there is
+# per-project and gets offered on the run console, and this one has no project
+# to be offered against yet.
+ONBOARD_EXITS = {
+    0: ("clean", "READY — cloned, configured, measured and planned"),
+    1: ("warn", "STOPPED on the step a human must clear. Read the output, edit "
+                "docs/client-config.yml in the checkout, then run this again — "
+                "it resumes from here"),
+    2: ("error", "Usage error — read the output"),
+    3: ("error", "The checkout failed. Check the collaborator invite was accepted, "
+                 "and that gh is authenticated or a token was supplied"),
+}
+
 
 def interpret_exit(code, command=None):
     """The command's own table first, the rail's second. Exit 1 is not universal:
     for the rail it means "it wrote what it found", for git and for the ratchet
-    it means the run failed."""
-    table = GIT_EXITS if (command or "").startswith("git:") \
-        else COMMANDS.get(command, {}).get("exits", {})
+    it means the run failed, and for onboard it means "stopped, re-runnable"."""
+    if command == "onboard":
+        table = ONBOARD_EXITS
+    elif (command or "").startswith("git:"):
+        table = GIT_EXITS
+    else:
+        table = COMMANDS.get(command, {}).get("exits", {})
     kind, text = table.get(code) or EXIT_MEANING.get(code, ("error", f"Exited {code}"))
     return {"code": code, "kind": kind, "text": text}
 
@@ -305,12 +324,14 @@ class Run:
     """One subprocess. Lines land in a list (for SSE) and a log file (so a
     browser refresh does not lose the output of a run that already finished)."""
 
-    def __init__(self, run_id, slug, command, argv, cwd):
+    def __init__(self, run_id, slug, command, argv, cwd, env=None):
         self.id, self.slug, self.command, self.argv = run_id, slug, command, argv
         self.lines, self.exit_code, self.started = [], None, time.time()
         RUN_LOGS.mkdir(parents=True, exist_ok=True)
         self.log = RUN_LOGS / f"{run_id}.log"
-        self.proc = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
+        # `env` carries a credential and is never echoed. argv is — into the log
+        # file, the run history and the SSE stream — so nothing secret goes there.
+        self.proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, text=True, bufsize=1)
         threading.Thread(target=self._pump, daemon=True).start()
 
@@ -374,6 +395,58 @@ def build_argv(command, project, args):
             # operator asked. Refuse instead.
             raise ValueError(f"unhandled argument type for {key}: {kind}")
     return argv
+
+
+# ── onboarding a new client ──────────────────────────────────────────────────
+# Both fields are normalised to the shape wf-onboard documents rather than
+# passed through: an operator pastes the browser URL, not an owner/name slug.
+#
+# Each path segment must START alphanumeric and may not contain `..`, the same
+# two rules build_git_argv applies to a branch name and for the same reasons. A
+# leading `-` is read by argparse as a flag; `..` escapes --clients-dir, and it
+# escapes it WITHOUT cloning anything — onboard.py names the checkout
+# `slug.split("/")[-1]`, so `owner/..` resolves to the PARENT of the clients
+# directory, finds it already exists, and scaffolds client docs into it.
+REPO_RE = re.compile(
+    r"(?:https?://[\w.-]+/|git@[\w.-]+:)?([A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*?)(?:\.git)?/?")
+# ghp_/gho_/github_pat_ are alphanumeric + underscore. Refusing the rest turns a
+# pasted password or a stray newline into a message instead of a failed clone.
+TOKEN_RE = re.compile(r"[A-Za-z0-9_]{20,255}")
+# One label, then at least one more. No empty label (`a..b.com` is not a
+# hostname), no leading or trailing hyphen. ponytail: ASCII only — an IDN needs
+# `.encode("idna")` here and in every provider that fetches the site, so it is
+# a refusal with a message rather than a half-supported path.
+HOST_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+")
+
+
+def build_onboard(body, clients_dir):
+    """(slug, argv, env) for a new client, or ValueError with what to fix."""
+    raw_repo = (body.get("repo") or "").strip()
+    repo = REPO_RE.fullmatch(raw_repo)
+    if not repo or ".." in raw_repo:
+        raise ValueError("repo must be owner/name or a GitHub URL, e.g. acme/roofing-site")
+    # urlparse does scheme, port, path, query and userinfo correctly and lowercases
+    # the host; hand-rolling that refused `acme.com/index.html` and `acme.com:8080`,
+    # which is most of what an operator actually has in the clipboard.
+    raw_domain = (body.get("domain") or "").strip()
+    host = urlparse(raw_domain if "//" in raw_domain else f"//{raw_domain}").hostname or ""
+    if not HOST_RE.fullmatch(host):
+        raise ValueError("domain must be an ASCII hostname, e.g. acmeroofing.com")
+    slug = repo.group(1)
+    argv = ["wf-onboard", slug, host, "--clients-dir", str(clients_dir)]
+
+    token = (body.get("token") or "").strip()
+    if not token:
+        return slug, argv, None
+    if not TOKEN_RE.fullmatch(token):
+        raise ValueError("that does not look like a GitHub token")
+    # The token goes in the ENVIRONMENT and nowhere else. Nothing writes it to
+    # disk, it never reaches argv (which is logged and streamed), and CLAUDE.md
+    # §6 keeps it out of every repo. Re-enter it on the next run; that is the
+    # point. It is inherited by the whole SUBTREE, not just wf-onboard —
+    # bootstrap, preflight, scaffold, measure and plan all run under it, though
+    # only checkout() and check_access() have any use for it.
+    return slug, argv, {**os.environ, "GH_TOKEN": token, "GITHUB_TOKEN": token}
 
 
 # `merge` is deliberately absent and must stay absent: human merge is the only
@@ -442,9 +515,17 @@ class Handler(BaseHTTPRequestHandler):
         """127.0.0.1 is not a trust boundary: any page in the operator's browser
         can POST to localhost. The token is injected into served HTML, which
         CORS stops a cross-origin page from reading, so it cannot forge the
-        header. The Origin check is the second layer."""
+        header. The Origin check is the second layer.
+
+        Origin is compared to this request's own Host, which IS the same-origin
+        test and needs no list. The list it replaces was hardcoded to
+        `127.0.0.1:<port>`, so `--host 0.0.0.0` — the container's own flag —
+        made the server 403 every POST from a browser that reached it by any
+        other address. A forged Origin still fails: the browser sets Host to
+        whatever it connected to, and an attacker page cannot make the two agree.
+        """
         origin = self.headers.get("Origin")
-        if origin and origin not in self.server.origins:
+        if origin and urlparse(origin).netloc != self.headers.get("Host"):
             return False
         return self.headers.get("X-Dashboard-Token") == self.server.token
 
@@ -588,6 +669,17 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return self._err("bad JSON")
         parts = urlparse(self.path).path.strip("/").split("/")
+        # Not under /clients/<slug>/: there is no client until this succeeds.
+        if parts == ["api", "onboard"]:
+            try:
+                slug, argv, env = build_onboard(body, self.server.clients_dir)
+            except ValueError as exc:
+                return self._err(str(exc))
+            # The run is labelled with the checkout name onboard.py will create,
+            # not `owner/name`. Every other run's slug is a client slug, and a
+            # shape nothing else uses is a run that never joins its own client.
+            return self._launch(slug.split("/")[-1], str(self.server.clients_dir),
+                                "onboard", argv, env)
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "clients":
             client = self._client(parts[2])
             if client is None:
@@ -603,19 +695,19 @@ class Handler(BaseHTTPRequestHandler):
             argv = build_argv(body.get("command"), client["path"], body.get("args"))
         except ValueError as exc:
             return self._err(str(exc))
-        return self._launch(client, body.get("command"), argv)
+        return self._launch(client["slug"], client["path"], body.get("command"), argv)
 
     def _start_git(self, client, body):
         try:
             argv = build_git_argv(body.get("action"), client["path"], body.get("extra"))
         except ValueError as exc:
             return self._err(str(exc))
-        return self._launch(client, f"git:{body.get('action')}", argv)
+        return self._launch(client["slug"], client["path"], f"git:{body.get('action')}", argv)
 
-    def _launch(self, client, command, argv):
+    def _launch(self, slug, cwd, command, argv, env=None):
         run_id = f"{int(time.time() * 1000):x}-{secrets.token_hex(3)}"
         try:
-            RUNS[run_id] = Run(run_id, client["slug"], command, argv, client["path"])
+            RUNS[run_id] = Run(run_id, slug, command, argv, cwd, env)
         except FileNotFoundError as exc:
             return self._err(f"command not on PATH: {exc.filename}", 500)
         self._json({"run_id": run_id}, 202)
@@ -626,6 +718,12 @@ def main() -> int:
     ap.add_argument("--clients-dir", default="~/clients",
                     help="directory holding client repo checkouts (default: ~/clients)")
     ap.add_argument("--port", type=int, default=8765)
+    # ponytail: containers cannot publish a 127.0.0.1 bind — -p reaches the
+    # container's external interface, not its loopback. Publish it as
+    # `-p 127.0.0.1:8765:8765` and the exposure stays exactly what it was:
+    # host loopback only, still behind the per-run token.
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="bind address (default: 127.0.0.1; 0.0.0.0 inside a container)")
     ap.add_argument("--verbose", action="store_true", help="log every request")
     args = ap.parse_args()
 
@@ -634,14 +732,18 @@ def main() -> int:
         print(f"[ERROR] --clients-dir not a directory: {clients_dir}", file=sys.stderr)
         return 2
 
-    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     httpd.clients_dir = clients_dir
     httpd.token = secrets.token_urlsafe(16)
     httpd.verbose = args.verbose
-    httpd.origins = {f"http://127.0.0.1:{args.port}", f"http://localhost:{args.port}"}
 
     found = discover_clients(clients_dir)
-    print(f"wf-dashboard  http://127.0.0.1:{args.port}")
+    # 0.0.0.0 is a bind address, not somewhere you can browse to. Printing it as
+    # a URL sends the operator to a dead link; the container publishes this on
+    # the host's loopback, which is where they actually go.
+    reachable = "127.0.0.1" if args.host in ("0.0.0.0", "::", "") else args.host
+    print(f"wf-dashboard  http://{reachable}:{args.port}"
+          f"{'   (bound ' + args.host + ')' if reachable != args.host else ''}")
     print(f"  clients-dir  {clients_dir}  ({len(found)} client(s): "
           f"{', '.join(c['slug'] for c in found) or 'none found'})")
     print(f"  run logs     {RUN_LOGS}")

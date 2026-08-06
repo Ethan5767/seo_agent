@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-06** · 5 packages, 39 modules, 5 workflows, 32 `wf-*` commands, 378 tests.
+**As of 2026-08-06** · 5 packages, 39 modules, 5 workflows, 32 `wf-*` commands, 410 tests.
 One line per module: what it does and why it exists. Deeper detail: `gate-reference.md`
 (per-gate contracts + exit codes), `HOW-IT-WORKS.md` (the flow in plain language),
 `CLAUDE.md` (the sync contract + where workflows live).
@@ -89,7 +89,7 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 
 ## `pipeline/dashboard` — the local operator console (1 + static)
 
-`server.py` (`wf-dashboard`) — a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state and no credentials. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. The fleet card carries each client's baseline state, because a client with no `docs/gate-baseline.json` runs the gates bare. `static/` holds the nine screens (fleet · client · findings · worklist · report · changelog · runs · git · config) as plain HTML + `app.js`, no build step.
+`server.py` (`wf-dashboard`) — a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state, and stores no credential — the optional GitHub token on the Add Client form is passed to that one `wf-onboard` subprocess as `GH_TOKEN` and is never written to argv, the run log or disk. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain; **Add Client** on the fleet screen runs `wf-onboard <owner/name> <domain>` into that directory, which is the only run that has no client yet. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. The fleet card carries each client's baseline state, because a client with no `docs/gate-baseline.json` runs the gates bare. `static/` holds the nine screens (fleet · client · findings · worklist · report · changelog · runs · git · config) as plain HTML + `app.js`, no build step.
 
 ## `.github/workflows` — the runtime (5)
 
@@ -114,6 +114,12 @@ it shells out to `wf-client-profile` to resolve framework and build dir.
 
 `client-config.starter.yml` — the sanitized onboarding template `wf-bootstrap-config`
 writes from. The Discord and Drive rosters went with the intake rail.
+
+## The container
+
+`Dockerfile` — Python + git + `gh` + Claude Code, the only place all four are guaranteed together. Installed `pip install -e .` deliberately: `package-data` declares `pipeline.deploy/*.sh` and nothing else, so a regular install ships neither `pipeline/dashboard/static/` (resolved via `Path(__file__).parent`) nor `skills/site-remediation/SKILL.md` (resolved via `parents[2]`, outside the `pipeline*` packages entirely). Without `-e` the dashboard 404s every page and remediate silently drops its doctrine.
+
+`run.sh` — runs any engine command inside it with the operator's credentials: `./run.sh wf-onboard acme/site acme.com`. It passes `GH_TOKEN` from `gh auth token` rather than mounting `~/.config/gh` (on macOS the token is in the login keyring, so the mount carries config and no credential), hands plain `git` the same token through `GIT_CONFIG_*` + `gh auth git-credential`, and persists `~/.claude-docker` so a subscription login survives `--rm`. `./run.sh wf-dashboard` is the only form that publishes a port: `-p 127.0.0.1:8765:8765` with `--host 0.0.0.0` bound inside the container.
 
 ## The two layers that are not code
 

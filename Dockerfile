@@ -19,7 +19,12 @@ https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cl
 
 WORKDIR /engine
 COPY . /engine
-RUN pip install --no-cache-dir .
+# Editable, deliberately. A regular install copies only what package-data
+# declares, and two things resolve via Path(__file__) from the source tree:
+# the dashboard's static/*.html and skills/site-remediation/SKILL.md. Without
+# -e the dashboard 404s every page, and remediate silently drops the doctrine
+# (`if SKILL.is_file()` skips, it does not fail). The source is already here.
+RUN pip install --no-cache-dir -e .
 
 # No credentials are baked in. git and gh authenticate with the operator's own
 # mounted config; the model authenticates with ANTHROPIC_API_KEY from the

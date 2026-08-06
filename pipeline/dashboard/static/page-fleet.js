@@ -94,6 +94,64 @@ async function load() {
   } catch (err) { fail(grid, err); }
 }
 
+// ── onboard ──────────────────────────────────────────────────────────────────
+// wf-onboard STOPS on the interview step and exits 1, which is the normal first
+// result, not a failure. So the panel and its log stay open on exit: the output
+// names the file to edit, and the same button re-runs and resumes.
+const panel = document.getElementById('add-panel');
+const obLog = document.getElementById('ob-log');
+const obExit = document.getElementById('ob-exit');
+
+function obLine(text) {
+  const cls = /^\[(ERROR|STOPPED|BLOCKER|REFUSE)/.test(text) ? 'text-error'
+    : /^\[warn/i.test(text) ? 'text-tertiary'
+      : /^\[(ok|READY)/.test(text) ? 'text-green-400'
+        : /^\$ /.test(text) ? 'text-primary' : 'text-on-surface';
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = text;
+  obLog.appendChild(div);
+  obLog.scrollTop = obLog.scrollHeight;
+}
+
+async function onboard() {
+  const btn = document.getElementById('ob-run');
+  const tokenEl = document.getElementById('ob-token');
+  btn.disabled = true;
+  obLog.innerHTML = '';
+  obLog.classList.remove('hidden');
+  obExit.innerHTML = exitChip(null);
+  // Read and clear BEFORE the await. Clearing on the success path only left the
+  // token sitting in a live DOM node on every 400 — which is the likely path,
+  // not the exotic one: mistype the repo and the server refuses.
+  const token = tokenEl.value;
+  tokenEl.value = '';
+  try {
+    const { run_id } = await post('/api/onboard', {
+      repo: document.getElementById('ob-repo').value,
+      domain: document.getElementById('ob-domain').value,
+      token,
+    });
+    const stream = new EventSource(`/api/runs/${run_id}/stream`);
+    stream.addEventListener('line', (e) => obLine(JSON.parse(e.data).line));
+    stream.addEventListener('exit', (e) => {
+      obExit.innerHTML = exitChip(JSON.parse(e.data));
+      stream.close();
+      btn.disabled = false;
+      load();                          // exit 1 still leaves a checkout to show
+    });
+  } catch (err) {
+    obExit.innerHTML = '';
+    obLine(`[ERROR] ${err.message || err}`);
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('add').addEventListener('click', () => {
+  panel.classList.toggle('hidden');
+  if (!panel.classList.contains('hidden')) document.getElementById('ob-repo').focus();
+});
+document.getElementById('ob-run').addEventListener('click', onboard);
 document.getElementById('filter').addEventListener('input', render);
 document.getElementById('refresh').addEventListener('click', load);
 load();

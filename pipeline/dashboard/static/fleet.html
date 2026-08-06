@@ -22,7 +22,27 @@
 <button id="refresh" class="bg-surface-container-highest border border-outline-variant text-on-surface font-label-caps text-label-caps px-md py-sm rounded hover:bg-surface-bright transition-colors flex items-center gap-xs">
 <span class="material-symbols-outlined" style="font-size: 14px;">refresh</span> REFRESH
 </button>
+<button id="add" class="bg-primary-container text-on-primary-container border border-outline-variant font-label-caps text-label-caps px-md py-sm rounded hover:bg-surface-bright transition-colors flex items-center gap-xs">
+<span class="material-symbols-outlined" style="font-size: 14px;">add</span> ADD CLIENT
+</button>
 </div>
+</div>
+<!-- Onboard — wf-onboard, the one command that runs without a client -->
+<div id="add-panel" class="hidden border-b border-outline-variant bg-surface-container-low p-md shrink-0">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-md mb-md">
+<label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">GITHUB REPO</span>
+<input id="ob-repo" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="acme/roofing-site  ·  https://github.com/acme/roofing-site" type="text"/></label>
+<label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">LIVE DOMAIN</span>
+<input id="ob-domain" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="acmeroofing.com" type="text"/></label>
+<label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">GITHUB TOKEN — OPTIONAL</span>
+<input id="ob-token" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="leave blank if gh is already logged in" type="password" autocomplete="new-password"/></label>
+</div>
+<div class="flex gap-md items-center flex-wrap">
+<button id="ob-run" class="bg-primary text-on-primary font-label-caps text-label-caps px-md py-sm rounded hover:opacity-90 transition-opacity">ONBOARD</button>
+<span id="ob-exit"></span>
+<span class="font-body-sm text-body-sm text-on-surface-variant/70">Clone, config, preflight, measure, plan. The token is passed to this run's environment only: never stored, never logged, never written to a repo. Re-enter it next time.</span>
+</div>
+<pre id="ob-log" class="hidden mt-md max-h-80 overflow-auto bg-background border border-outline-variant rounded p-sm font-mono-sm text-mono-sm whitespace-pre-wrap"></pre>
 </div>
 <!-- Client Grid -->
 <div class="flex-1 overflow-auto p-panel-padding">

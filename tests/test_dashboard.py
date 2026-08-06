@@ -18,8 +18,10 @@ import yaml
 
 from pipeline.dashboard.server import (
     COMMANDS,
+    ONBOARD_EXITS,
     build_argv,
     build_git_argv,
+    build_onboard,
     cycles,
     default_branch,
     discover_clients,
@@ -365,14 +367,108 @@ def test_remediate_exit_0_is_never_reported_as_clean():
 def test_every_command_states_which_exit_vocabulary_it_speaks():
     """An absent `exits` key means nobody asked whether this command's exit
     codes mean what the rail's mean. That silence is how a failed `git pull`
-    came to render as "Findings written". An empty dict is a deliberate yes."""
+    came to render as "Findings written". An empty dict is a deliberate yes.
+
+    `onboard` is not in COMMANDS — it is the one command with no project to run
+    against — so it is asserted alongside rather than being the single command
+    this invariant cannot see."""
     for name, spec in COMMANDS.items():
         assert "exits" in spec, f"{name}: declare `exits` ({{}} = speaks the rail's vocabulary)"
+    assert set(ONBOARD_EXITS) == {0, 1, 2, 3}, "wf-onboard documents exactly these four"
 
 
 def test_a_failed_git_action_is_never_a_success():
     """`git pull --ff-only` exits 1 when it cannot fast-forward."""
     assert interpret_exit(1, "git:pull")["kind"] == "error"
+
+
+# ── onboarding a new client ──────────────────────────────────────────────────
+
+@pytest.mark.parametrize("repo", [
+    "acme/roofing-site",
+    "https://github.com/acme/roofing-site",
+    "https://github.com/acme/roofing-site.git",
+    "git@github.com:acme/roofing-site.git",
+])
+def test_onboard_normalises_every_way_an_operator_states_the_repo(repo):
+    """An operator pastes the browser URL. wf-onboard documents owner/name."""
+    slug, argv, env = build_onboard({"repo": repo, "domain": "acmeroofing.com"}, "/c")
+    assert slug == "acme/roofing-site"
+    assert argv == ["wf-onboard", "acme/roofing-site", "acmeroofing.com",
+                    "--clients-dir", "/c"]
+    assert env is None
+
+
+@pytest.mark.parametrize("raw", [
+    "acmeroofing.com",
+    "https://AcmeRoofing.com/",
+    "http://acmeroofing.com:8080/index.html?utm=x",   # what is actually in the clipboard
+])
+def test_onboard_reduces_a_pasted_url_to_its_hostname(raw):
+    _, argv, _ = build_onboard({"repo": "acme/site", "domain": raw}, "/c")
+    assert argv[2] == "acmeroofing.com"
+
+
+@pytest.mark.parametrize("repo", [
+    "--clients-dir/tmp",       # a LEADING DASH: argparse reads it as a flag
+    "-/-",
+    "owner/..",                # escapes --clients-dir. see below
+    "../../etc/passwd",
+    "acme/site; rm -rf /",
+    "acme site/x",
+    "",
+])
+def test_onboard_refuses_a_repo_that_is_not_owner_slash_name(repo):
+    with pytest.raises(ValueError, match="repo"):
+        build_onboard({"repo": repo, "domain": "acme.com"}, "/c")
+
+
+def test_onboard_refuses_a_repo_whose_checkout_would_land_outside_clients_dir(tmp_path):
+    """onboard.py names the checkout `slug.split("/")[-1]`, so `owner/..` is
+    Path(clients_dir)/".." — the PARENT. It exists, so onboard skips the clone
+    entirely and scaffolds client docs into it. This is the reason `..` is
+    refused here and not merely discouraged."""
+    clients = tmp_path / "clients"
+    clients.mkdir()
+    assert (clients / "owner/..".split("/")[-1]).resolve() == tmp_path.resolve()
+    with pytest.raises(ValueError):
+        build_onboard({"repo": "owner/..", "domain": "acme.com"}, str(clients))
+
+
+@pytest.mark.parametrize("domain", [
+    "-x", "not a domain", "", "a..b.com", "localhost", "münchen.de",
+])
+def test_onboard_refuses_anything_that_is_not_an_ascii_hostname(domain):
+    with pytest.raises(ValueError, match="domain"):
+        build_onboard({"repo": "acme/site", "domain": domain}, "/c")
+
+
+def test_onboard_token_reaches_the_environment_and_never_the_argv():
+    """argv is written to the run log, listed in the run history and streamed to
+    the browser. A credential in it is a credential on disk."""
+    slug, argv, env = build_onboard(
+        {"repo": "acme/site", "domain": "acme.com", "token": "ghp_" + "a" * 36}, "/c")
+    assert not any("ghp_" in tok for tok in argv)
+    assert env["GH_TOKEN"] == env["GITHUB_TOKEN"] == "ghp_" + "a" * 36
+    assert "PATH" in env, "the child needs the operator's PATH to find wf-onboard"
+
+
+@pytest.mark.parametrize("token", ["short", "has spaces in it", "tok\nen", "tok;en"])
+def test_onboard_refuses_a_token_that_is_not_one(token):
+    with pytest.raises(ValueError, match="token"):
+        build_onboard({"repo": "acme/site", "domain": "acme.com", "token": token}, "/c")
+
+
+def test_onboard_exit_1_is_the_interview_step_not_a_failure():
+    """wf-onboard exits 1 when it stopped on the TODOs a human must fill, and the
+    same command resumes from there. Rendering that as an error sends the
+    operator looking for a break; rendering it as the rail's "findings written"
+    claims a measurement that did not happen."""
+    ex = interpret_exit(1, "onboard")
+    assert ex["kind"] == "warn"
+    assert "again" in ex["text"]
+    assert interpret_exit(0, "onboard")["kind"] == "clean"
+    assert interpret_exit(3, "onboard")["kind"] == "error"
     assert interpret_exit(0, "git:pull")["kind"] == "clean"
 
 

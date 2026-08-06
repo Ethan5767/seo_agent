@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-06** · 5 packages, 39 modules, 5 workflows, 32 `wf-*` commands, 326 tests.
+**As of 2026-08-06** · 5 packages, 39 modules, 5 workflows, 32 `wf-*` commands, 378 tests.
 One line per module: what it does and why it exists. Deeper detail: `gate-reference.md`
 (per-gate contracts + exit codes), `HOW-IT-WORKS.md` (the flow in plain language),
 `CLAUDE.md` (the sync contract + where workflows live).
@@ -89,7 +89,7 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 
 ## `pipeline/dashboard` — the local operator console (1 + static)
 
-`server.py` (`wf-dashboard`) — a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state and no credentials. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. `static/` holds the eight screens (fleet · client · findings · worklist · report · runs · git · config) as plain HTML + `app.js`, no build step.
+`server.py` (`wf-dashboard`) — a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state and no credentials. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. The fleet card carries each client's baseline state, because a client with no `docs/gate-baseline.json` runs the gates bare. `static/` holds the nine screens (fleet · client · findings · worklist · report · changelog · runs · git · config) as plain HTML + `app.js`, no build step.
 
 ## `.github/workflows` — the runtime (5)
 

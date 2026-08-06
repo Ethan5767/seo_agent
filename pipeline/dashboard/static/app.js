@@ -45,6 +45,7 @@ const NAV = [
   { href: '/findings', icon: 'troubleshoot', label: 'Findings', needsClient: true },
   { href: '/worklist', icon: 'assignment', label: 'Worklist', needsClient: true },
   { href: '/report', icon: 'analytics', label: 'Report', needsClient: true },
+  { href: '/changelog', icon: 'history', label: 'Changelog', needsClient: true },
   { href: '/runs', icon: 'terminal', label: 'Runs', needsClient: true },
   { href: '/git', icon: 'commit', label: 'Git / PR', needsClient: true },
   { href: '/config', icon: 'tune', label: 'Config', needsClient: true },

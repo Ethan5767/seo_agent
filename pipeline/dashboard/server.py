@@ -79,6 +79,14 @@ COMMANDS = {
         "args": {},
         "label": "Resolve build dir / framework",
     },
+    # Sharp edge #1: a client with no docs/gate-baseline.json runs the gates BARE,
+    # so every piece of inherited debt reads as blocking. With no flags this
+    # RECORDS the first baseline; --check is the read-only ratchet verdict.
+    "gate-baseline": {
+        "argv": ["wf-gate-baseline", "--project", "{project}"],
+        "args": {"check": "flag", "refresh": "flag", "accept-new": "flag"},
+        "label": "Record / check the gate baseline (the ratchet)",
+    },
 }
 
 # Exit codes are meaningful and a bare number communicates nothing. A refusal
@@ -99,8 +107,23 @@ EXIT_MEANING = {
 }
 
 
-def interpret_exit(code):
-    kind, text = EXIT_MEANING.get(code, ("error", f"Exited {code}"))
+# Exit 1 is not universal. For the rail commands it means "it wrote what it
+# found"; for the ratchet and for git it means the run FAILED. Rendering a
+# failed `git pull --ff-only` as a blue "Findings written" chip is exactly the
+# confusion the table exists to prevent, so the two liars get an override.
+COMMAND_EXITS = {
+    "gate-baseline": {
+        1: ("refused", "REFUSED — findings absent from the baseline. Regressions, not legacy debt"),
+        2: ("refused", "REFUSED — a baseline already exists. Use --check, or --refresh to shrink it"),
+        3: ("error", "Baseline error — see the output"),
+    },
+}
+GIT_EXITS = {0: ("clean", "Done"), 1: ("error", "git/gh refused — read the output")}
+
+
+def interpret_exit(code, command=None):
+    table = GIT_EXITS if (command or "").startswith("git:") else COMMAND_EXITS.get(command, {})
+    kind, text = table.get(code) or EXIT_MEANING.get(code, ("error", f"Exited {code}"))
     return {"code": code, "kind": kind, "text": text}
 
 
@@ -192,6 +215,22 @@ def read_artifact(path, ym, name):
         return {"error": f"unparseable {name}: {exc}"}
 
 
+def baseline_state(path):
+    """Sharp edge #1: a client with no docs/gate-baseline.json runs the gates BARE,
+    so every piece of inherited debt reads as blocking on their first PR. Absent
+    is a state worth showing on the fleet card, not a thing to discover in CI."""
+    f = Path(path) / "docs" / "gate-baseline.json"
+    if not f.is_file():
+        return {"present": False, "entries": None}
+    try:
+        doc = json.loads(f.read_text())
+        return {"present": True, "entries": len(doc.get("entries", [])),
+                "recorded": doc.get("recorded")}
+    except (json.JSONDecodeError, AttributeError):
+        # Present but unreadable is NOT the same as absent, and it is not fine.
+        return {"present": True, "entries": None, "recorded": None}
+
+
 def lane_counts(findings_doc):
     """None until phase 3 — phase 1's findings.json carries no lanes."""
     if not isinstance(findings_doc, dict):
@@ -221,6 +260,7 @@ def fleet_entry(client):
         "findings_total": total,
         "findings_by_lane": lane_counts(doc),
         "generated": doc.get("generated") if isinstance(doc, dict) else None,
+        "baseline": baseline_state(path),
         "git": git_state(path),
         "error": client["error"],
     }
@@ -254,7 +294,8 @@ class Run:
         return {"run_id": self.id, "slug": self.slug, "command": self.command,
                 "argv": self.argv, "started": self.started, "lines": len(self.lines),
                 "running": self.exit_code is None,
-                "exit": None if self.exit_code is None else interpret_exit(self.exit_code)}
+                "exit": None if self.exit_code is None
+                else interpret_exit(self.exit_code, self.command)}
 
 
 RUNS = {}
@@ -338,7 +379,8 @@ def build_git_argv(action, path, extra):
 # ── HTTP ─────────────────────────────────────────────────────────────────────
 PAGES = {"/": "fleet.html", "/fleet": "fleet.html", "/client": "client.html",
          "/findings": "findings.html", "/runs": "runs.html", "/git": "git.html",
-         "/worklist": "worklist.html", "/report": "report.html", "/config": "config.html"}
+         "/worklist": "worklist.html", "/report": "report.html", "/config": "config.html",
+         "/changelog": "changelog.html"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -418,7 +460,11 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["clients"]:
             return self._json([fleet_entry(c) for c in discover_clients(self.server.clients_dir)])
         if parts == ["commands"]:
-            return self._json({k: {"label": v["label"], "args": v["args"]}
+            # argv rides along so the console can preview the REAL command. It
+            # guessed `wf-<name>` before, which is wrong for every entry whose
+            # binary is not named after its key (claim-provenance).
+            return self._json({k: {"label": v["label"], "args": v["args"],
+                                   "argv": v["argv"]}
                                for k, v in COMMANDS.items()})
         if parts == ["runs"]:
             return self._json([r.status() for r in
@@ -490,7 +536,7 @@ class Handler(BaseHTTPRequestHandler):
                     sent += 1
                 self.wfile.flush()
                 if run.exit_code is not None and sent >= len(run.lines):
-                    done = json.dumps(interpret_exit(run.exit_code))
+                    done = json.dumps(interpret_exit(run.exit_code, run.command))
                     self.wfile.write(f"event: exit\ndata: {done}\n\n".encode())
                     self.wfile.flush()
                     return

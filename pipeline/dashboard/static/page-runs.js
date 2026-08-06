@@ -3,38 +3,69 @@ const slug = requireClient();
 const logEl = document.getElementById('log');
 const cmdEl = document.getElementById('command');
 const argsEl = document.getElementById('args');
-let commands = {}, stream = null;
+let commands = {}, stream = null, clientCycles = [];
 
 async function init() {
   try {
     commands = await api('/api/commands');
     cmdEl.innerHTML = Object.entries(commands)
       .map(([k, v]) => `<option value="${esc(k)}">${esc(k)} — ${esc(v.label)}</option>`).join('');
+    // The cycle widget offers the cycles that exist rather than a free-text box:
+    // the server refuses anything that is not YYYY-MM, and a typo there costs a
+    // round-trip to find out.
+    clientCycles = await api(`/api/clients/${encodeURIComponent(slug)}/cycles`).catch(() => []);
     renderArgs();
     history();
   } catch (err) { fail(logEl, err); }
 }
 
-// Inputs come from the command's declared argument types. The server validates
-// them again on arrival — this is convenience, the allow-list is the boundary.
+// One widget per declared argument type. A kind with no branch here used to fall
+// through to the path-list input, which sent `["2026-08"]` for a `cycle` and a
+// list for a `flag` — every phase 3-5 command failed validation on arrival. A
+// missing branch is now a visible refusal, not a broken input.
+const CLS = 'w-full bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs mb-md focus:outline-none focus:border-primary';
+
+function widget(name, kind) {
+  const a = `class="${CLS} arg" data-arg="${esc(name)}" data-kind="${esc(kind)}"`;
+  if (kind === 'int') return `<input ${a} type="number" min="1" placeholder="default"/>`;
+  if (kind === 'path-list') return `<input ${a} placeholder="/one/ /two/ — blank uses the sitemap"/>`;
+  if (kind === 'cycle') {
+    return `<select ${a}><option value="">newest</option>${
+      clientCycles.map((c) => `<option>${esc(c)}</option>`).join('')}</select>`;
+  }
+  if (kind === 'flag') {
+    return `<label class="flex items-center gap-sm mb-md font-mono-base text-mono-base text-on-surface">
+      <input type="checkbox" class="arg accent-primary" data-arg="${esc(name)}" data-kind="flag"/>
+      <span>--${esc(name)}</span></label>`;
+  }
+  return `<div class="mb-md font-mono-sm text-mono-sm text-error">no input for argument type ${esc(kind)}</div>`;
+}
+
 function renderArgs() {
   const spec = commands[cmdEl.value];
   argsEl.innerHTML = Object.entries(spec.args).map(([name, kind]) => {
-    const label = `<label class="font-label-caps text-label-caps text-on-surface-variant block mb-xs">--${esc(name)}</label>`;
-    const cls = 'w-full bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs mb-md focus:outline-none focus:border-primary';
-    if (kind === 'int') return `${label}<input class="${cls} arg" data-arg="${esc(name)}" data-kind="int" type="number" min="1" placeholder="all"/>`;
-    return `${label}<input class="${cls} arg" data-arg="${esc(name)}" data-kind="path-list" placeholder="/one/ /two/ — blank uses the sitemap"/>`;
+    // The checkbox carries its own label, so the caps label would be a duplicate.
+    const label = kind === 'flag' ? ''
+      : `<label class="font-label-caps text-label-caps text-on-surface-variant block mb-xs">--${esc(name)}</label>`;
+    return label + widget(name, kind);
   }).join('') || '<div class="font-body-sm text-body-sm text-on-surface-variant/70 mb-md">No arguments.</div>';
-  argsEl.querySelectorAll('.arg').forEach((i) => i.addEventListener('input', preview));
+  argsEl.querySelectorAll('.arg').forEach((i) => {
+    i.addEventListener('input', preview);
+    i.addEventListener('change', preview);
+  });
   preview();
 }
 
 function collect() {
   const args = {};
   argsEl.querySelectorAll('.arg').forEach((i) => {
+    const kind = i.dataset.kind;
+    // A flag is only ever sent as an explicit true; the server refuses false.
+    if (kind === 'flag') { if (i.checked) args[i.dataset.arg] = true; return; }
     const v = i.value.trim();
     if (!v) return;
-    args[i.dataset.arg] = i.dataset.kind === 'int' ? parseInt(v, 10) : v.split(/\s+/);
+    args[i.dataset.arg] = kind === 'int' ? parseInt(v, 10)
+      : kind === 'path-list' ? v.split(/\s+/) : v;
   });
   return args;
 }
@@ -44,9 +75,10 @@ function collect() {
 function preview() {
   const args = collect();
   const flags = Object.entries(args).flatMap(([k, v]) =>
-    Array.isArray(v) ? v.flatMap((x) => [`--${k}`, x]) : [`--${k}`, v]);
-  document.getElementById('argv').textContent =
-    ['wf-' + cmdEl.value.replace(/^wf-/, ''), '--project', `<${slug}>`, ...flags].join(' ');
+    Array.isArray(v) ? v.flatMap((x) => [`--${k}`, x])
+      : v === true ? [`--${k}`] : [`--${k}`, v]);
+  const base = commands[cmdEl.value].argv.map((t) => t === '{project}' ? `<${slug}>` : t);
+  document.getElementById('argv').textContent = [...base, ...flags].join(' ');
 }
 
 async function execute() {

@@ -317,3 +317,60 @@ def test_remediate_caps_must_be_positive_integers():
         build_argv("site-remediate", "/p", {"max-items": "10"})
     assert build_argv("site-remediate", "/p", {"max-items": 5})[-2:] == \
         ["--max-items", "5"]
+
+
+# ── the ratchet is reachable from the console (sharp edge #1) ────────────────
+
+def test_gate_baseline_is_in_the_allow_list():
+    """A client with no baseline runs the gates BARE. Recording one has to be
+    something the operator can do from the console, not lore in a doc."""
+    assert build_argv("gate-baseline", "/p", {}) == \
+        ["wf-gate-baseline", "--project", "/p"]
+    assert build_argv("gate-baseline", "/p", {"check": True})[-1] == "--check"
+
+
+def test_gate_baseline_exit_1_reads_as_a_refusal_not_findings():
+    """Exit 1 means "wrote what it found" for the rail and "the ratchet broke"
+    for the baseline. Rendering the second as the first launders a regression."""
+    assert interpret_exit(1)["kind"] == "findings"
+    assert interpret_exit(1, "gate-baseline")["kind"] == "refused"
+
+
+def test_a_failed_git_action_is_never_a_success():
+    """`git pull --ff-only` exits 1 when it cannot fast-forward."""
+    assert interpret_exit(1, "git:pull")["kind"] == "error"
+    assert interpret_exit(0, "git:pull")["kind"] == "clean"
+
+
+def test_every_declared_argument_type_has_a_builder():
+    """A type with no branch in build_argv used to be silently dropped. Every
+    type any command declares must round-trip through the builder."""
+    samples = {"int": 1, "path-list": ["/a/"], "cycle": "2026-08", "flag": True}
+    for name, spec in COMMANDS.items():
+        for arg, kind in spec["args"].items():
+            assert kind in samples, f"{name}.{arg}: no sample for type {kind}"
+            build_argv(name, "/p", {arg: samples[kind]})
+
+
+# ── the baseline chip on the fleet card ──────────────────────────────────────
+
+def test_missing_baseline_is_reported_as_absent(tmp_path):
+    p = _repo(tmp_path, "acme")
+    assert fleet_entry(discover_clients(tmp_path)[0])["baseline"] == \
+        {"present": False, "entries": None}
+
+
+def test_baseline_entries_are_counted(tmp_path):
+    p = _repo(tmp_path, "acme")
+    (p / "docs" / "gate-baseline.json").write_text(json.dumps(
+        {"recorded": "2026-08-01", "entries": [{"gate": "audit_built"}, {"gate": "capsule_check"}]}))
+    bl = fleet_entry(discover_clients(tmp_path)[0])["baseline"]
+    assert bl == {"present": True, "entries": 2, "recorded": "2026-08-01"}
+
+
+def test_an_unreadable_baseline_is_not_reported_as_absent(tmp_path):
+    """Present-and-broken and absent are different problems with different fixes."""
+    p = _repo(tmp_path, "acme")
+    (p / "docs" / "gate-baseline.json").write_text("{not json")
+    bl = fleet_entry(discover_clients(tmp_path)[0])["baseline"]
+    assert bl["present"] is True and bl["entries"] is None

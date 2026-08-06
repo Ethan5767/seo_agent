@@ -2,17 +2,17 @@
 const slug = requireClient();
 let client = null;
 
-// Each artifact names the phase that produces it, so an absent file reads as
-// "not built yet", never as "nothing wrong here".
+// Each artifact names the command that produces it, so an absent file reads as
+// "that step has not been run", never as "nothing wrong here".
 const ARTIFACTS = [
-  { file: 'findings.json', label: 'Findings', phase: 1, href: '/findings',
+  { file: 'findings.json', label: 'Findings', by: 'wf-site-health', href: '/findings',
     count: (d) => (d.findings || []).length + ' findings' },
-  { file: 'worklist.json', label: 'Worklist', phase: 3, href: '/worklist',
+  { file: 'worklist.json', label: 'Worklist', by: 'wf-site-plan', href: '/worklist',
     count: (d) => (d.items || []).length + ' items' },
-  { file: 'report.md', label: 'Report', phase: 3, href: '/report',
+  { file: 'report.md', label: 'Report', by: 'wf-site-plan', href: '/report',
     count: (d) => String(d).split('\n').length + ' lines' },
-  { file: 'changelog.json', label: 'Changelog', phase: 5, href: null,
-    count: (d) => Object.keys(d).length + ' entries' },
+  { file: 'changelog.json', label: 'Changelog', by: 'wf-site-remediate', href: '/changelog',
+    count: (d) => `${(d.items || []).filter((i) => i.status === 'fixed').length} fixed of ${d.attempted ?? 0} attempted` },
 ];
 
 async function load() {
@@ -62,7 +62,7 @@ async function renderCycle(ym) {
     const present = doc != null;
     const body = present
       ? `<div class="font-mono-base text-mono-base text-on-surface">${esc(doc.error ? doc.error : a.count(doc))}</div>`
-      : `<div class="font-mono-sm text-mono-sm text-on-surface-variant/60">absent — ships in phase ${a.phase}</div>`;
+      : `<div class="font-mono-sm text-mono-sm text-on-surface-variant/60">absent — run ${esc(a.by)}</div>`;
     const link = present && a.href ? `?client=${encodeURIComponent(slug)}&cycle=${encodeURIComponent(ym)}` : null;
     const tag = link ? 'a' : 'div';
     const href = link ? `href="${a.href}${link}"` : '';

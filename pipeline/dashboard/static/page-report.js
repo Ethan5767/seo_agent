@@ -1,8 +1,8 @@
-// Report — phase 3. report.md rendered; a deliberately small markdown subset,
-// because the producer is ours and a full parser is a dependency we do not need.
+// Report — report.md rendered; a deliberately small markdown subset, because the
+// producer is ours and a full parser is a dependency we do not need.
 const slug = requireClient();
 const bodyEl = document.getElementById('body');
-document.getElementById('phase').textContent = 'produced by wf-site-plan · phase 3';
+document.getElementById('phase').textContent = 'produced by wf-site-plan';
 
 async function load() {
   try {
@@ -24,8 +24,8 @@ async function show(ym) {
   const md = bundle.artifacts['report.md'];
   bodyEl.innerHTML = md
     ? `<article class="max-w-4xl">${markdown(md)}</article>`
-    : emptyState('Report not built yet',
-        'wf-site-plan (phase 3) writes report.md with the four lanes: RESOLVED, PERSISTING, NEW, REGRESSION. Without the ratchet there is nothing for it to say that Findings does not already show.');
+    : emptyState('Not planned yet',
+        `Cycle ${ym} has no report.md. Run site-plan — it writes the four lanes: RESOLVED, PERSISTING, NEW, REGRESSION.`);
 }
 
 // Headings, lists, tables, code fences, inline code, bold. Enough for a file we

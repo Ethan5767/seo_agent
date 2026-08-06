@@ -10,7 +10,12 @@
 <link href="/static/theme.css" rel="stylesheet"/>
 </head>
 <body class="font-body-md text-body-md antialiased">
-<main class="md:ml-60 pt-12 min-h-screen flex flex-col p-md gap-md bg-background">
+<main class="md:ml-60 pt-12 min-h-screen flex flex-col bg-background">
+<div class="h-12 border-b border-outline-variant bg-surface-container flex items-center gap-md px-md shrink-0">
+<span class="font-label-caps text-label-caps text-on-surface-variant">Git / PR</span>
+<span class="ml-auto font-mono-sm text-mono-sm text-on-surface-variant">the write surface — it stops at the PR</span>
+</div>
+<div class="p-md flex flex-col gap-md">
 <div id="state"></div>
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-md">
   <section class="border border-outline-variant rounded bg-surface-container-low">
@@ -30,6 +35,7 @@
   <div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">OUTPUT</div>
   <div id="log" class="p-md font-mono-base text-mono-base max-h-64 overflow-auto"></div>
 </section>
+</div>
 </main>
 <script src="/static/app.js"></script>
 <script src="/static/page-git.js"></script>

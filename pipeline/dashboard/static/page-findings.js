@@ -31,7 +31,8 @@ const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort();
 function fillSelect(el, values, current, placeholder) {
   el.innerHTML = (placeholder ? `<option value="">${placeholder}</option>` : '') +
     values.map((v) => `<option ${v === current ? 'selected' : ''}>${esc(v)}</option>`).join('');
-  // A lane filter with no lanes to filter is noise until phase 3 ships the ratchet.
+  // A lane filter with no lanes to filter is noise: lanes are stamped on by
+  // wf-site-plan, so a measured-but-unplanned cycle has none.
   if (!placeholder) return;
   el.disabled = values.length === 0;
   el.classList.toggle('opacity-40', values.length === 0);

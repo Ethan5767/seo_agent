@@ -1,8 +1,8 @@
-// Worklist — phase 3. Renders worklist.json the moment plan.py starts writing it;
-// until then it says which phase ships it rather than showing a blank table.
+// Worklist — worklist.json: the typed work items wf-site-plan derives from a
+// cycle's findings, split by what the declared tier may act on.
 const slug = requireClient();
 const bodyEl = document.getElementById('body');
-document.getElementById('phase').textContent = 'produced by wf-site-plan · phase 3';
+document.getElementById('phase').textContent = 'produced by wf-site-plan';
 
 async function load() {
   try {
@@ -24,8 +24,8 @@ async function show(ym) {
   const bundle = await api(`/api/clients/${encodeURIComponent(slug)}/cycles/${ym}`);
   const doc = bundle.artifacts['worklist.json'];
   if (!doc) {
-    bodyEl.innerHTML = emptyState('Worklist not built yet',
-      'wf-site-plan (phase 3) turns findings into typed work items with machine-checkable acceptance criteria. Until it ships, the Findings screen is the full picture.');
+    bodyEl.innerHTML = emptyState('Not planned yet',
+      `Cycle ${ym} has findings but no worklist.json. Run site-plan — it turns findings into typed work items with machine-checkable acceptance criteria, and assigns the four lanes.`);
     return;
   }
   const items = doc.items || [];

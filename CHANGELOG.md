@@ -6,7 +6,78 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`wf-dashboard`: the Runs console could not run any command that takes a
+  `--cycle`.** `renderArgs()` rendered exactly two widgets — a number input for
+  `int` and a text input for everything else — and `collect()` split every
+  non-`int` value on whitespace before sending it. So a `cycle` left as
+  `["2026-08"]` and a `flag` left as `["true"]`, and the server refused both on
+  arrival. Every phase 3-5 command was affected: `site-plan`, `site-remediate`,
+  `claim-provenance`, `acceptance-check`. Four of the nine allow-listed commands
+  were unreachable from the screen built to reach them.
+
+  The widget is now chosen from the declared type — `cycle` is a `<select>` of
+  the cycles that actually exist in the client repo, `flag` is a checkbox that
+  sends `true` or nothing — and an undeclared type renders a visible refusal
+  instead of falling through to the path-list input that caused this.
+
+  ```
+  $ curl -X POST .../api/clients/acme/runs -d '{"command":"site-plan","args":{"cycle":["2026-08"]}}'
+  {"error": "cycle must be YYYY-MM"}            # what the old UI sent
+
+  $ curl -X POST .../api/clients/acme/runs -d '{"command":"site-plan","args":{"cycle":"2026-08"}}'
+  argv : ['wf-site-plan', '--project', '.../acme-site', '--cycle', '2026-08']
+  exit : {'code': 1, 'kind': 'findings', 'text': 'Findings written'}
+  out  : [OK] 1 new, 0 persisting, 0 regression, 0 resolved
+  ```
+
+- **Exit 1 read as success for git actions and for the ratchet.** `EXIT_MEANING`
+  is global, and exit 1 means "it wrote what it found" for the rail commands. It
+  means the opposite for `git pull --ff-only` (could not fast-forward) and for
+  `wf-gate-baseline` (findings that are NOT in the baseline — regressions). Both
+  rendered as a blue *Findings written* chip. `interpret_exit` now takes the
+  command and overrides those two:
+
+  ```
+  $ POST /api/clients/acme/git {"action":"pull"}       # repo has no upstream
+  exit: {'code': 1, 'kind': 'error', 'text': 'git/gh refused — read the output'}
+  ```
+
+- **The argv preview lied about `claim-provenance`.** It guessed `wf-<name>`;
+  the binary is `wf-claim-provenance-check`. `/api/commands` now returns the
+  real argv template and the preview renders that, so the line above the EXECUTE
+  button is the command that runs.
+
+- **Stale phase copy across four screens.** Worklist, Report, the Client
+  artifact cards and the Fleet lane cell all said an artifact "ships in phase 3
+  / phase 5". Phases 3 and 5 shipped: `wf-site-plan` and `wf-site-remediate` are
+  in `pyproject.toml` and on the rail. An absent artifact now names the command
+  that produces it, which is a thing an operator can act on.
+
 ### Added
+
+- **`wf-dashboard`: a Changelog screen.** `wf-site-remediate` writes
+  `docs/audit/<YYYY-MM>/changelog.json` — the agent's own record of what it
+  touched — and the console had no view of it at all; the Client page listed the
+  artifact with a `null` link. `/changelog` renders per-item status
+  (`fixed` · `no_change` · `error` · `refused`), the file→item map, cost, model,
+  and the `stopped` reason as a blocking banner. `queued` and `attempted` are
+  shown separately and never summed: a run that attempted ten items and fixed
+  none is not a quiet success.
+
+- **`wf-dashboard`: the gate baseline is visible and recordable.** Sharp edge #1
+  — a client with no `docs/gate-baseline.json` runs the gates BARE, so every
+  piece of inherited debt reads as blocking on their first PR, and the CI
+  workflow only warns. The fleet card now carries `NO BASELINE` / `BL <n>` /
+  `BASELINE BAD` (present-but-unparseable is a third state, not a synonym for
+  absent), and `gate-baseline` joins the command allow-list with its
+  `--check` / `--refresh` / `--accept-new` flags.
+
+- **`test_every_declared_argument_type_has_a_builder`** — walks every argument
+  every command declares and asserts `build_argv` handles the type. The bug
+  above existed because a type could be declared with nothing on either side
+  knowing how to carry it.
 
 - **`wf-onboard` — a repo and a domain in, a worklist out.** Onboarding was six
   commands in a specific order, each with its own exit-code vocabulary, and the

@@ -431,6 +431,62 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **B-007 — the ratchet was implemented, tested, and called by nothing.** Not
+  one of the 7 baselineable gates in `quality-gate.reusable.yml` was invoked
+  with `--baseline`, and `add_baseline_args` defaults it to `None` with no
+  auto-discovery of `docs/gate-baseline.json`. Every gate ran bare and reported
+  the client's *inherited* debt as blocking, so the first PR against any real
+  site was red across the board — and the two ways out of that are "fix the
+  whole site before we start" and "switch the gate off", the second of which
+  always wins. `lib/baseline.py` was complete and correct the whole time. Being
+  correct was not the property that mattered.
+
+  - A `Resolve the gate baseline` step decides once, by asking whether the file
+    exists, and each of the 7 gates takes `${{ steps.baseline.outputs.arg }}`.
+  - **No file means no flag, not a failure.** A client onboarding before their
+    first recording runs bare — the old behaviour exactly — with a `::warning::`
+    naming the command that fixes it. Running bare is legitimate on day one and
+    illegitimate on day ninety, and the annotation is what keeps it from
+    becoming permanent.
+  - **A `--baseline` pointing at a file that is not there stays a hard refusal**
+    (exit 3, `Baseline.load`). Not passing the flag and passing a bad path are
+    different things: if a missing file degraded to "no baseline", one typo
+    would silently disarm the ratchet across the fleet and every gate would go
+    quietly green. That is a worse bug than the one being fixed.
+  - No `NEVER_BASELINEABLE` gate is offered one. They refuse at exit 3 anyway;
+    the point is that the workflow never even asks.
+  - `pages_are_data_check` dropped from `BASELINEABLE` and `gate_argv` — it went
+    with the emitter in v3 §3 and had sat in both since. Passing it would have
+    surfaced as "produced no findings file" rather than a clean refusal.
+
+  ```
+  $ .venv/bin/python -m pytest -q
+  ........................................................................ [ 99%]
+  .                                                                        [100%]
+  361 passed in 2.54s
+
+  # the negative control — the wiring test earns its place
+  $ python -c "…strip the flag off wf-capsule-check…"
+  $ .venv/bin/python -m pytest tests/test_ratchet_wiring.py -q
+  FAILED tests/test_ratchet_wiring.py::test_every_baselineable_gate_receives_the_baseline[capsule_check]
+  1 failed, 34 passed in 0.02s
+  $ git checkout .github/workflows/quality-gate.reusable.yml
+  $ .venv/bin/python -m pytest tests/test_ratchet_wiring.py -q
+  35 passed in 0.01s
+  ```
+
+  `tests/test_ratchet_wiring.py` reads the workflow as text, because text is the
+  artifact the defect lived in. It also catches the two ways this rots: a new
+  baselineable gate added without the flag, and a gate named in `BASELINEABLE`
+  that no longer exists on disk.
+
+  **Found while tracing what a client actually has to merge, and it turned up a
+  second one.** `em_dash_check` is in neither set — it takes no baseline at all,
+  so this fix cannot reach it, and a legacy site with em dashes in its existing
+  copy is blocked forever with no recording that can accept it. Logged as
+  **B-008**, unfixed: adding a gate to `BASELINEABLE` is a documented human
+  decision and this one has a real argument on both sides.
+
 - **`docs/MODULES.md` described a repo that no longer exists.** It still carried
   the header counts from before the v3 deletion (6 packages, 55 modules, 8
   workflows, 47 commands, 327 tests), a flow diagram routing through

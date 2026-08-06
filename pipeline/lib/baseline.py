@@ -149,7 +149,6 @@ BASELINEABLE = {
     "noncommodity_check",
     "image_budget_check",
     "lcp_hygiene_check",
-    "pages_are_data_check",
     "check_headings",
     "llms_sales_purge",
     "audit_built",
@@ -443,7 +442,7 @@ def gate_argv(gate: str, project: Path) -> list:
     itself does the detection — this module never re-implements it."""
     build = _build_dir(project)
     mod = f"pipeline.gates.{gate}"
-    if gate in ("capsule_check", "noncommodity_check", "pages_are_data_check"):
+    if gate in ("capsule_check", "noncommodity_check"):
         return [sys.executable, "-m", mod, str(project)]
     if gate in ("image_budget_check", "lcp_hygiene_check"):
         return [sys.executable, "-m", mod, "--project", str(project)]

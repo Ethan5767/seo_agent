@@ -190,6 +190,35 @@ jobs:
           python3 -m pip install --quiet ./.pipeline
           echo "Installed pipeline from ref ${{ steps.pipe.outputs.ref }}"
 
+      # --- The ratchet (B-007) -----------------------------------------------
+      # The 7 BASELINEABLE gates take --baseline; recorded findings are reported
+      # PRE-EXISTING and do not fail the run, anything else is NEW and does. That
+      # is what makes it possible to point this suite at a client's EXISTING site
+      # without the first PR turning red on debt that was there before we
+      # arrived. Without it the only ways out are "fix the whole site first" or
+      # "switch the gate off", and the second one always wins.
+      #
+      # NOT PASSING the flag and passing a path that is not there are different
+      # things, deliberately. A missing --baseline means "no ratchet requested"
+      # and the gate reports everything. A --baseline pointing at a file that
+      # does not exist is a REFUSAL (exit 3, `Baseline.load`) — otherwise a
+      # typo'd path or a deleted baseline would silently disarm the ratchet
+      # across the whole fleet and every gate would go quietly green.
+      #
+      # So resolve it once, here, by asking whether the file exists. A client
+      # onboarding before their first `wf-gate-baseline` recording has none, and
+      # runs bare — which is exactly the old behaviour, not a new failure.
+      - name: Resolve the gate baseline
+        id: baseline
+        run: |
+          if [ -f docs/gate-baseline.json ]; then
+            echo "arg=--baseline docs/gate-baseline.json" >> "$GITHUB_OUTPUT"
+            echo "::notice::Ratchet ON — pre-existing findings in docs/gate-baseline.json are accepted as legacy debt; new ones block."
+          else
+            echo "arg=" >> "$GITHUB_OUTPUT"
+            echo "::warning::No docs/gate-baseline.json — every baselineable gate reports ALL findings, including debt that predates the pipeline. Record one with: wf-gate-baseline --project . --out docs/gate-baseline.json"
+          fi
+
       # --- PRE gates: the agent-authorship safety floor (v3 §4.1-4.2) ---------
       # These two judge the DIFF, not the tree, so they run on every PR — an
       # out-of-tier edit or an invented credential is the same risk whether a
@@ -269,7 +298,7 @@ jobs:
         id: headings
         if: steps.build.outcome == 'success'
         continue-on-error: true
-        run: wf-check-headings --out "$BUILD_DIR" --project .
+        run: wf-check-headings --out "$BUILD_DIR" --project . ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: No-orphan gate (BLOCK)"
         id: orphan
@@ -306,7 +335,7 @@ jobs:
             echo "::warning::no <loc> URLs found in $BUILD_DIR/sitemap*.xml — audit-built has nothing to audit. Skipped."
             exit 0
           fi
-          wf-audit-built . "$BUILD_DIR" $URLS
+          wf-audit-built . "$BUILD_DIR" $URLS ${{ steps.baseline.outputs.arg }}
 
       # Forbidden sweep — the only gate with legal exposure, BLOCKING.
       # FIXED INVOCATION: project is `.` (repo root) with --build-dir, NOT
@@ -339,13 +368,13 @@ jobs:
         id: capsule
         if: steps.build.outcome == 'success'
         continue-on-error: true
-        run: wf-capsule-check . --out "$BUILD_DIR"
+        run: wf-capsule-check . --out "$BUILD_DIR" ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: Non-commodity §21 (BLOCK)"
         id: noncommodity
         if: steps.build.outcome == 'success'
         continue-on-error: true
-        run: wf-noncommodity-check . --out "$BUILD_DIR"
+        run: wf-noncommodity-check . --out "$BUILD_DIR" ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: Invisible-char fingerprint (BLOCK)"
         id: fingerprint
@@ -357,19 +386,19 @@ jobs:
         id: llms
         if: steps.build.outcome == 'success'
         continue-on-error: true
-        run: wf-llms-sales-purge --out "$BUILD_DIR" --project .
+        run: wf-llms-sales-purge --out "$BUILD_DIR" --project . ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: Image budget (BLOCK)"
         id: image
         if: steps.build.outcome == 'success'
         continue-on-error: true
-        run: wf-image-budget-check --out "$BUILD_DIR" --project .
+        run: wf-image-budget-check --out "$BUILD_DIR" --project . ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: LCP hygiene (BLOCK)"
         id: lcp
         if: steps.build.outcome == 'success'
         continue-on-error: true
-        run: wf-lcp-hygiene-check --out "$BUILD_DIR" --project .
+        run: wf-lcp-hygiene-check --out "$BUILD_DIR" --project . ${{ steps.baseline.outputs.arg }}
 
       # The loop-closer (v3 §4.3): every fix docs/audit/*/changelog.json CLAIMS
       # is re-measured against the build output, and a claim whose finding still

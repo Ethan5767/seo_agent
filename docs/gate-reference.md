@@ -96,12 +96,22 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 | `noncommodity-check` | yes | Missing §21 proprietary variable / sibling duplication — content debt. |
 | `image-budget-check` | yes | Oversized image bytes — content debt (fingerprinted on the path+tier, not the size). |
 | `lcp-hygiene-check` | yes | Dimensionless `<img>` / lazy-loaded declared hero — content debt (fingerprinted on file+src, not line). |
-| `pages-are-data-check` | yes | Bespoke-heavy static route — architecture debt (fingerprinted on route, not line count). |
 | `check-headings` | yes | Heading casing — content debt (fingerprinted on file + heading text). |
 | `llms-sales-purge` | yes | CTA copy in llms.txt — content debt (fingerprinted on phrase + line text). |
 | `audit-built` | yes | The 30-point per-page audit (titles, metas, alt text, FAQ, schema) — content debt (fingerprinted per page URL + check key). |
 
-Everything not listed (em-dash, robots-aicrawler, proof-assert, the live post-deploy checks) is either already clean on the pilot or out of scope for baselining; only the eight `yes` gates carry legacy content debt and accept `--baseline`. Nine gates are now never-baselineable: the six inherited plus the three phase-4 authorship gates.
+**Seven** gates accept `--baseline`. Nine are never-baselineable: the six inherited plus the three phase-4 authorship gates. (`pages-are-data-check` was an eighth until 2026-08-06 — it went with the emitter in v3 §3 and its entry was dead.)
+
+Everything not listed — `em-dash`, `robots-aicrawler`, `client-docs-check`, `proof-assert`, the live post-deploy checks — is in a **third category**: neither baselineable nor declared never-baselineable, because on the pilot they were already clean. That is a property of the pilot, not of the gates. `em-dash` in particular blocks a legacy client's every PR with no recording that can accept it and no documented refusal explaining why it must not be — see **B-008**.
+
+### Wiring, not just implementation (B-007, 2026-08-06)
+
+The module above was complete and tested for a release while `quality-gate.reusable.yml` invoked every gate **bare**, so a client's inherited debt was reported as blocking and the ratchet did nothing on any PR. The workflow now resolves the flag once, by asking whether `docs/gate-baseline.json` exists:
+
+- **file present** → each of the seven gets `--baseline docs/gate-baseline.json`
+- **file absent** → no flag, gates run bare, and a `::warning::` names the recording command
+
+Not passing the flag and passing a path that is not there stay different things. The second is a refusal (exit 3), because a typo that degraded to "no baseline" would silently disarm the ratchet across the fleet. `tests/test_ratchet_wiring.py` asserts the wiring against the workflow text so it cannot rot back.
 
 ---
 

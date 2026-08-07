@@ -251,6 +251,55 @@ def parse_dataforseo_pages(items: list) -> list:
     return out
 
 
+# ── Bright Data SERP — the queries GSC cannot see ────────────────────────────
+# GSC only reports queries that already have impressions, so it is structurally
+# blind to "we rank nowhere for this". That gap is the entire reason this
+# provider exists; everything it can already tell you is left to gsc_findings.
+
+SERP_PAGE_ONE_MAX = 10          # on page one there is nothing to remediate
+SERP_PAGE_TWO_MAX = 30          # past ~page three the fix is content, not copy
+
+
+def _serp_host(url_or_domain: str) -> str:
+    """Comparable host for either a full URL or a bare domain. Substring
+    matching would let notacme.com satisfy a check for acme.com."""
+    s = url_or_domain if "//" in url_or_domain else "//" + url_or_domain
+    return urllib.parse.urlsplit(s).netloc.lower().removeprefix("www.")
+
+
+def parse_serp(payload: dict, domain: str, query: str) -> list:
+    """Findings from one `brd_json=1` Google response for one seed query.
+
+    `context` is the query and nothing else. Rank and the ranking URL are both
+    volatile, so they live in `detail`, which the fingerprint excludes — without
+    that, ordinary rank movement would read as RESOLVED plus NEW every cycle.
+
+    `location` is "/" for the same reason CrUX measures at origin level: which
+    page ranks is Google's choice and changes without the site changing.
+    """
+    organic = (payload or {}).get("organic") or []
+    if not organic:
+        # A missing or empty result set is a broken response, not a site that
+        # ranks for nothing. Inventing serp.absent here would be invention.
+        return []
+
+    want = _serp_host(domain)
+    for item in organic:
+        link = item.get("link") or ""
+        rank = item.get("global_rank") or item.get("rank")
+        if _serp_host(link) != want or not isinstance(rank, int):
+            continue
+        if rank <= SERP_PAGE_ONE_MAX:
+            return []
+        if rank <= SERP_PAGE_TWO_MAX:
+            return [Finding("serp", "serp.page_two", "/", context=query,
+                            detail=f"rank={rank} url={link}")]
+        break                                    # ranked, but far past useful
+
+    return [Finding("serp", "serp.absent", "/", context=query,
+                    detail=f"not in the top {len(organic)} organic results")]
+
+
 def dataforseo_findings(domain: str, max_pages: int = 100, poll_seconds: int = 15,
                         max_polls: int = 20) -> tuple:
     """(findings, status). Posts a crawl, polls the summary, reads the pages.

@@ -148,3 +148,63 @@ def test_a_provider_code_cannot_be_verified_against_a_build(tmp_path):
             "acceptance": {"check": "code_absent", "code": "crux.lcp_above_good"}}
     ok, msg = acc.verify_item(item, out, {}, "a.com")
     assert not ok and "external provider" in msg
+
+
+# ── Bright Data SERP ─────────────────────────────────────────────────────────
+
+def _serp(*ranked):
+    """A brd_json=1 payload: (rank, link) pairs in the `organic` array."""
+    return {"organic": [{"rank": r, "global_rank": r, "link": u,
+                         "title": "t", "description": "d"} for r, u in ranked]}
+
+
+def test_page_one_is_not_a_finding():
+    payload = _serp((3, "https://acme.com/roofing/"))
+    assert p.parse_serp(payload, "acme.com", "metal roofing") == []
+
+
+def test_page_two_fires_with_the_query_as_context():
+    payload = _serp((1, "https://other.com/"), (14, "https://acme.com/roofing/"))
+    found = p.parse_serp(payload, "acme.com", "metal roofing")
+    assert [f.code for f in found] == ["serp.page_two"]
+    assert found[0].context == "metal roofing"
+    assert found[0].location == "/"
+
+
+def test_rank_and_url_are_volatile_so_they_live_in_detail():
+    """The fingerprint must survive a rank change, or the ratchet reports
+    RESOLVED plus NEW every single cycle and means nothing."""
+    a = p.parse_serp(_serp((12, "https://acme.com/a/")), "acme.com", "q")[0]
+    b = p.parse_serp(_serp((27, "https://acme.com/b/")), "acme.com", "q")[0]
+    assert a.detail != b.detail
+    assert a.fingerprint == b.fingerprint
+
+
+def test_absent_from_the_results_is_a_finding():
+    found = p.parse_serp(_serp((1, "https://other.com/")), "acme.com", "siding")
+    assert [f.code for f in found] == ["serp.absent"]
+    assert found[0].context == "siding"
+
+
+def test_ranking_past_page_three_reads_as_absent_not_as_nothing():
+    found = p.parse_serp(_serp((61, "https://acme.com/deep/")), "acme.com", "q")
+    assert [f.code for f in found] == ["serp.absent"]
+
+
+def test_a_lookalike_domain_is_not_the_client():
+    """Substring matching would make notacme.com count as acme.com and report a
+    rank the client does not have."""
+    found = p.parse_serp(_serp((2, "https://notacme.com/x/")), "acme.com", "q")
+    assert [f.code for f in found] == ["serp.absent"]
+
+
+def test_www_and_bare_host_are_the_same_site():
+    assert p.parse_serp(_serp((4, "https://www.acme.com/x/")), "acme.com", "q") == []
+
+
+def test_an_empty_result_set_is_not_evidence_of_absence():
+    """No organic array means the fetch or the parse failed. Emitting
+    `serp.absent` there would invent a finding out of a broken response."""
+    assert p.parse_serp({}, "acme.com", "q") == []
+    assert p.parse_serp({"organic": []}, "acme.com", "q") == []
+    assert p.parse_serp(None, "acme.com", "q") == []

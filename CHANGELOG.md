@@ -22,7 +22,20 @@ see `CLAUDE.md` (the sync contract).
   question mining, then intent classification that drops navigational terms. The
   recipe is adapted from `AgriciDaniel/claude-seo` (MIT), skill `seo-cluster`
   steps 1 and 3. The agent gets `--allowedTools WebSearch` and nothing else — it
-  reads the web and writes no files.
+  reads the web and writes no files, and a test asserts the argv rather than
+  trusting the prompt, because the allow-list is what bounds an agent's
+  authority (`CLAUDE.md`) and every other test stays green when it widens.
+
+  **The agent is asked for a JSON array and the reply is `json.loads`-ed.** The
+  first draft asked for one query per line and recovered structure with
+  heuristics — strip bullets, over ten words is prose, a trailing colon is a
+  heading. A review killed it, and correctly: each rule was simultaneously too
+  loose and too tight. `stderr` was merged into stdout, so a single `claude` CLI
+  warning line passed every filter and would have been pasted into a client
+  config as a paid, permanently-fingerprinted query. And the `>10 words` rule
+  deleted exactly the eleven-word People Also Ask questions the recipe exists to
+  produce. A malformed reply is now a loud exit 20 carrying the raw text, never
+  a partial guess, and every drop is named on stderr.
 
   **Two design constraints drove the shape, and both are load-bearing:**
 
@@ -38,27 +51,36 @@ see `CLAUDE.md` (the sync contract).
      volume-ranked, so a query nobody searches would produce a real
      `serp.absent` finding that reads like a site defect.
 
-  The pure seam is `page_facts` (html → title + h1s) and `parse_query_list`
-  (agent reply → validated queries), so the whole suite runs offline. The brand
-  drop is exact-match on the normalized line, never a substring: `lee serie` is
-  navigational, but `lee serie stretch mark cream review` is commercial and
-  worth tracking — a substring check would kill both.
+  The pure seam is `page_facts` (html → title + h1s), `brand_names` (config →
+  every spelling of the client's own name), `parse_reply` (JSON → validated
+  queries) and `unwrap_envelope`, so the whole suite runs offline.
 
-  Exits: 2 no `claude` on PATH (checked *before* crawling 40 pages), 19 no page
-  answered, 20 the agent failed or returned nothing usable.
+  **The brand drop reads four fields, not one.** `business.legal_name` is the
+  *legal* name and carries entity suffixes; the query people type is the trade
+  name in `nap.name`. Matching only `legal_name` meant that on a client called
+  "Lee Serie Co., Ltd." the drop silently did nothing to `lee serie` — failing
+  on the exact case that motivated the feature. It now unions `client_name`,
+  `business.legal_name`, `business.trade`, `nap.name` and the de-slugged
+  `client_slug`. The match stays exact on the whole normalized query, never a
+  substring: `lee serie` is navigational, but `lee serie stretch mark cream
+  review` is commercial and worth tracking — a substring check kills both.
 
-  17 new tests, including a `main()`-level run with the network and agent
-  stubbed — B-007, a green test on `parse_query_list` proves the parser works,
-  not that anything calls it.
+  Exits: 2 no `claude` on PATH (checked *before* crawling 40 pages), 19 the
+  sitemap was unreachable or no page answered, 20 the agent failed or returned
+  no JSON array.
+
+  32 new tests, including a `main()`-level run with the network and agent
+  stubbed — B-007, a green test on `parse_reply` proves the parser works, not
+  that anything calls it.
 
   ```
   $ .venv/bin/python -m pytest -q
-  605 passed in 5.24s
+  620 passed in 5.01s
 
-  $ .venv/bin/wf-seed-queries --help
-  usage: wf-seed-queries [-h] [--project PROJECT] [--limit LIMIT]
-                         [--crawl-max CRAWL_MAX] [--model MODEL]
-                         [--timeout TIMEOUT]
+  $ .venv/bin/wf-seed-queries --project /tmp/sqtest      # unreachable domain
+  [REFUSED] https://no-such-host-xyz-12345.example/sitemap.xml is unreachable
+  and no --url was given: nothing to measure
+  EXIT=19
   ```
 
   **Not done, and deliberately:** no volume data. Google Ads Keyword Planner is
@@ -70,6 +92,19 @@ see `CLAUDE.md` (the sync contract).
   Also corrected while in the file: `client-config.starter.yml` documented the
   flag as `wf-site-measure --with-serp`. No such command exists; it is
   `wf-site-health`.
+
+- **`measure.urls_or_refuse` — `discover_urls` now ships with its exit codes.**
+  `discover_urls` raises `Unreachable` / `UsageError`, and `measure.main` mapped
+  them to 19 / 2 inline. `wf-seed-queries` borrowed the function bare, so an
+  unreachable sitemap — the single most likely first-run failure, and what
+  sharp edge #4 is about — produced a traceback and exit 1. The mapping is the
+  contract, not a detail, so it moved into `urls_or_refuse` next to the function
+  it guards and both CLIs call it. Behaviour for `wf-site-health` is unchanged.
+
+- **`serp_findings`' empty-list skip now names the command that fixes it.** It
+  said "there is nothing to look up" and stopped there. It now says to run
+  `wf-seed-queries`. A named skip that does not say what to do next is only half
+  a named skip.
 
 ### Fixed
 

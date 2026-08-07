@@ -189,6 +189,25 @@ def discover_urls(cfg: dict, url_args: list, limit: int | None = None) -> list:
     return urls[:limit] if limit else urls
 
 
+def urls_or_refuse(cfg: dict, url_args: list, limit: int | None) -> tuple:
+    """(urls, exit_code) — discover_urls with its two failures already mapped
+    onto the exit codes every caller reports: 19 nothing is measurable, 2 the
+    input was not a sitemap. exit_code 0 means urls is usable.
+
+    Shared because the mapping is the contract, not a detail: wf-seed-queries
+    borrowed `discover_urls` bare and turned an unreachable sitemap — the most
+    likely first-run failure — into a traceback and exit 1.
+    """
+    try:
+        return discover_urls(cfg, url_args, limit), 0
+    except Unreachable as e:
+        print(f"[REFUSED] {e}", file=sys.stderr)
+        return [], 19
+    except UsageError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return [], 2
+
+
 # ── the CLI ──────────────────────────────────────────────────────────────────
 
 # Checks that cannot run without a config value. Skipping one silently is the
@@ -236,14 +255,9 @@ def main() -> int:
     cfg = load_config(args.project)
     _warn_unmeasurable(cfg)
 
-    try:
-        urls = discover_urls(cfg, args.url, args.limit)
-    except Unreachable as e:
-        print(f"[REFUSED] {e}", file=sys.stderr)
-        return 19
-    except UsageError as e:
-        print(f"[ERROR] {e}", file=sys.stderr)
-        return 2
+    urls, refused = urls_or_refuse(cfg, args.url, args.limit)
+    if refused:
+        return refused
 
     findings, checked, unreachable = [], 0, 0
     for url in urls:

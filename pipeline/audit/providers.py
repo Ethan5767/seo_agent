@@ -389,7 +389,8 @@ def serp_findings(domain: str, queries=None) -> tuple:
     queries = [q.strip() for q in (queries or []) if q and q.strip()]
     if not queries:
         return [], ("skipped: no seed_queries in docs/client-config.yml — there "
-                    "is nothing to look up")
+                    "is nothing to look up. Run wf-seed-queries to generate a "
+                    "list, review it, and commit it to the client repo")
 
     headers = {"Authorization": f"Bearer {api_key}"}
     findings, measured, failed, last_err = [], 0, [], ""

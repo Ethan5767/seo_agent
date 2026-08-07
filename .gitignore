@@ -82,3 +82,7 @@ stitch_local_operator_dashboard/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Stray Playwright screenshots taken while verifying the console by hand.
+client.png
+*.png

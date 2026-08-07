@@ -8,6 +8,43 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **The dashboard now shows provider statuses** (`findings.html`,
+  `page-findings.js`). `measure.py` has always written a status string per
+  external source into `findings.json` under `providers`, for one reason: a
+  provider that returned nothing because it was never asked must not read as a
+  provider that returned nothing because the site is clean. **The dashboard
+  never read it** — `grep -rn "providers" pipeline/dashboard/` returned nothing
+  before this change.
+
+  So the screen a human actually looks at dropped the exact signal the artifact
+  carries it for. A cycle where all four providers skipped rendered identically
+  to a cycle where all four ran clean, and the empty state said, in words,
+  *"This site was measured and passed."*
+
+  Three states, because only one of them means the count below is complete:
+  green `ok:`, red `failed:`, amber for everything else (`skipped:`, `partial:`,
+  `timed out:`, `no field data:`). Amber is not a warning about the site — it is
+  a warning about the measurement.
+
+  The no-provider case gets a full-width amber sentence rather than an empty
+  strip, since that is the case that misleads: an HTTP-only cycle is a real
+  measurement, just not of anything CrUX, Search Console, DataForSEO or Bright
+  Data can see.
+
+  The strip wraps rather than scrolls. Verified in the browser first: with
+  `overflow-x-auto` the fourth provider fell off the right edge, and the one
+  clipped was the `skipped:` — a skip pushed off-screen defeats the only reason
+  the strip exists.
+
+  No server change was needed; `_cycle` already shipped the whole
+  `findings.json`. Wiring is asserted rather than assumed
+  (`test_the_findings_screen_actually_renders_the_provider_strip`), because
+  there is no JS test harness here and a helper nothing calls is B-007 again.
+
+  ```
+  586 passed in 5.02s
+  ```
+
 - **Bright Data SERP as a fourth optional provider** (`wf-site-measure
   --with-serp`, `pipeline/audit/providers.py`). One Google request per entry in
   the client config's `seed_queries`, firing `serp.page_two` (rank 11–30) and

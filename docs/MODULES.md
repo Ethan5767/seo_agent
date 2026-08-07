@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-07** · 5 packages, 39 modules, 5 workflows, 33 `wf-*` commands, 584 tests.
+**As of 2026-08-07** · 5 packages, 39 modules, 5 workflows, 33 `wf-*` commands, 586 tests.
 (Counted, not remembered: modules = `.py` under `pipeline/` excluding `__init__.py`;
 commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. The previous
 header said 39 modules and 410 tests, both stale.)

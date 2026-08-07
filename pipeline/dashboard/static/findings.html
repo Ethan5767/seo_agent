@@ -27,6 +27,12 @@
 <select id="f-cycle" class="bg-surface-container-highest border border-outline-variant text-on-surface font-mono-sm text-mono-sm rounded px-sm py-xs focus:outline-none focus:border-primary"></select>
 </div>
 </div>
+<!-- Provider statuses. measure.py writes one per source it was asked for; a
+     cycle that ran none renders identically to a clean one without this. -->
+<!-- Wraps rather than scrolls: with overflow-x-auto the fourth provider fell off
+     the right edge, and a skip pushed off-screen is exactly the failure this
+     strip exists to prevent. Two short lines beat one clipped one. -->
+<div id="providers" class="shrink-0 border-b border-outline-variant bg-surface-container-low px-md py-xs flex items-center flex-wrap gap-x-md gap-y-xs"></div>
 <div class="flex-1 flex overflow-hidden">
 <div id="table" class="flex-1 overflow-auto"></div>
 <aside id="drawer" class="hidden w-96 border-l border-outline-variant bg-surface-container-low overflow-auto shrink-0"></aside>

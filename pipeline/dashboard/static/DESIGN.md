@@ -159,6 +159,13 @@ The design system uses a "Soft" roundedness level (0.25rem / 4px) but applies it
   - `Error`: Solid Red background, white text.
 - **Sizing:** Fixed height (20px), minimal horizontal padding (6px).
 
+### Provider Status Strip (Findings)
+- **Design:** One line under the toolbar, `mono-sm`, `PROVIDERS` label in `label-caps`, one `name status` pair per external source read from `findings.json`'s `providers` map.
+- **Variants:** green `ok:` · red `failed:` · amber everything else (`skipped:`, `partial:`, `timed out:`, `no field data:`).
+- **Amber is about the measurement, not the site.** It means this cycle's finding count is incomplete, which no count on the screen can express on its own.
+- **Wraps, never scrolls.** With `overflow-x-auto` the fourth provider fell off the right edge, and a skip pushed off-screen defeats the strip's only purpose.
+- **The empty case is the loud one.** No providers at all renders a full-width amber sentence, because "0 findings" and "0 findings from sources nobody ran" are the same table otherwise.
+
 ### Compact Tables
 - **Styling:** No outer border, 1px horizontal dividers only.
 - **Cells:** Use `mono-base` for data columns. The first column (ID or Name) is typically `primary_color`.

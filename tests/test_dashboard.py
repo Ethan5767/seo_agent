@@ -1087,3 +1087,36 @@ def test_every_declared_argument_type_has_a_builder():
     for name, spec in COMMANDS.items():
         for arg, kind in spec["args"].items():
             assert kind in handled, f"{name}.{arg} declares unhandled type {kind}"
+
+
+# ── provider statuses reach the screen (B-007: implemented is not wired) ─────
+
+def test_the_cycle_bundle_carries_provider_statuses(tmp_path):
+    """The findings table cannot show a skip: zero rows looks identical whether a
+    provider was never asked or asked and found nothing. `page-findings.js` reads
+    `doc.providers` to say which — so the bundle has to actually carry it."""
+    p = _repo(tmp_path, "acme")
+    d = p / "docs" / "audit" / "2026-08"
+    d.mkdir(parents=True)
+    (d / "findings.json").write_text(json.dumps({
+        "schema": 1, "domain": "acme.com", "urls_checked": 3,
+        "providers": {"serp": "skipped: BRIGHTDATA_API_KEY / BRIGHTDATA_SERP_ZONE unset",
+                      "crux": "ok: 1 record(s)"},
+        "findings": [],
+    }))
+    doc = read_artifact(p, "2026-08", "findings.json")
+    assert doc["providers"]["serp"].startswith("skipped:")
+    assert doc["providers"]["crux"].startswith("ok:")
+    assert doc["findings"] == [], "zero findings AND a skip: the case the strip exists for"
+
+
+def test_the_findings_screen_actually_renders_the_provider_strip():
+    """Asserting the call site, not just the helper. The strip is dead weight if
+    the page never calls it or the element it targets is missing — and no JS test
+    harness exists here to catch that."""
+    static = Path(__file__).resolve().parents[1] / "pipeline" / "dashboard" / "static"
+    js = (static / "page-findings.js").read_text()
+    html = (static / "findings.html").read_text()
+    assert 'id="providers"' in html, "renderProviders writes into #providers"
+    assert "renderProviders(doc.providers)" in js, "helper defined but never called"
+    assert "function renderProviders" in js

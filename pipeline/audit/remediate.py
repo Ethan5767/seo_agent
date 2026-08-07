@@ -332,13 +332,23 @@ def read_changelog(project, cycle: str) -> dict:
 
 
 def already_fixed(changelog: dict) -> set:
-    """Work item ids this cycle's changelog records as fixed (B-013).
+    """Finding fingerprints this cycle's changelog records as fixed (B-013, B-020).
+
+    Keyed on `finding_fp`, never on `id`. Work item ids are POSITIONAL —
+    `wi-<cycle>-<idx>` from `plan.py:151` — so any re-measure that changes the
+    finding set renumbers them, and a "fixed" id silently comes to mean a
+    different finding. Measured on lee-series-web: three new SERP findings
+    shifted 19 of 20 fixed ids onto unrelated work, which would have skipped
+    nineteen unfixed items as done.
+
+    An item with no fingerprint is never skipped: attempting twice costs money,
+    but skipping a real finding while reporting it fixed is a lie in the artifact.
 
     See the module docstring on why the changelog decides what is ATTEMPTED and
     never what is VERIFIED.
     """
-    return {i.get("id") for i in changelog.get("items", [])
-            if i.get("status") == "fixed" and i.get("id")}
+    return {i.get("finding_fp") for i in changelog.get("items", [])
+            if i.get("status") == "fixed" and i.get("finding_fp")}
 
 
 def selectable(worklist: dict, profile: dict, done: set = frozenset()) -> list:
@@ -351,7 +361,7 @@ def selectable(worklist: dict, profile: dict, done: set = frozenset()) -> list:
     """
     order = {"REGRESSION": 0, "NEW": 1, "PERSISTING": 2}
     items = [i for i in worklist.get("items", [])
-             if not i.get("tier_blocked") and i.get("id") not in done]
+             if not i.get("tier_blocked") and i.get("finding_fp") not in done]
     return sorted(items, key=lambda i: (order.get(i.get("lane"), 3), i.get("id", "")))
 
 

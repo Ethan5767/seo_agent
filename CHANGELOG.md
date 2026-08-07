@@ -6,6 +6,41 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **B-020 — `wf-site-remediate` resumed on a positional id, so any re-measure
+  mis-resumed.** B-013 taught it to skip what the cycle's `changelog.json`
+  records as `fixed`, keyed on the work item `id`. But ids are
+  `f"wi-{cycle}-{idx:04d}"` (`plan.py:151`) — an enumeration index over the
+  sorted findings. Gain or lose one finding, re-plan, and every later id shifts
+  onto a different finding.
+
+  Found on `lee-series-web` while re-running 2026-08 with the new SERP provider.
+  Three `serp.absent` findings entered the set and **19 of 20 fixed ids landed
+  on unrelated work; zero stayed aligned**:
+
+  ```
+  wi-2026-08-0009  changelog fixed: health.title_length @ /about-us/
+                   that id now is : health.schema_breadcrumb_missing @ /about-us/
+  ```
+
+  The next run would have skipped nineteen untouched items as done. Caught at
+  the plan step, before any spend.
+
+  `already_fixed` now returns `finding_fp` values and `selectable` filters on
+  the item's fingerprint. `remediate.py:476` already said `finding_fp` "is the
+  only exact link from a fixed item back to the finding it fixed" — the resume
+  path just never used it. An item with no fingerprint is never skipped:
+  attempting twice costs money, skipping a real finding and recording it fixed
+  puts a falsehood in the artifact.
+
+  On the real cycle, post-renumbering: 20 fingerprints recorded fixed, **21
+  actionable, 1 queued, 20 correctly skipped.**
+
+  ```
+  588 passed in 5.03s
+  ```
+
 ### Added
 
 - **The dashboard now shows provider statuses** (`findings.html`,

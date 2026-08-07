@@ -315,7 +315,7 @@ def write_changelog(proj, doc):
 def test_a_rerun_skips_what_the_changelog_records_as_fixed(repo, monkeypatch, capsys):
     proj = repo(items=[item(1), item(2), item(3)])
     write_changelog(proj, {"cycle": "2026-08", "items": [
-        {"id": "wi-2026-08-0001", "status": "fixed"}]})
+        {"id": "wi-2026-08-0001", "finding_fp": "fp1", "status": "fixed"}]})
     monkeypatch.setattr(rem, "run_agent", agent_that(
         {"src/data/services.ts": "export const title = 'better'\n"}))
     log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
@@ -331,8 +331,8 @@ def test_a_status_other_than_fixed_is_retried(repo, monkeypatch):
     # an item that failed for a transient reason.
     proj = repo(items=[item(1), item(2)])
     write_changelog(proj, {"cycle": "2026-08", "items": [
-        {"id": "wi-2026-08-0001", "status": "error"},
-        {"id": "wi-2026-08-0002", "status": "no_change"}]})
+        {"id": "wi-2026-08-0001", "finding_fp": "fp1", "status": "error"},
+        {"id": "wi-2026-08-0002", "finding_fp": "fp2", "status": "no_change"}]})
     monkeypatch.setattr(rem, "run_agent", agent_that(
         {"src/data/services.ts": "export const title = 'better'\n"}))
     log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
@@ -342,7 +342,8 @@ def test_a_status_other_than_fixed_is_retried(repo, monkeypatch):
 def test_the_second_run_merges_rather_than_destroying_the_first(repo, monkeypatch):
     proj = repo(items=[item(1), item(2)])
     write_changelog(proj, {"cycle": "2026-08", "cost_usd": 2.5, "runs": 1, "items": [
-        {"id": "wi-2026-08-0001", "status": "fixed", "note": "run one"}],
+        {"id": "wi-2026-08-0001", "finding_fp": "fp1", "status": "fixed",
+         "note": "run one"}],
         "files": {"src/data/old.ts": ["wi-2026-08-0001"]}})
     monkeypatch.setattr(rem, "run_agent", agent_that(
         {"src/data/services.ts": "export const title = 'better'\n"}))
@@ -372,7 +373,7 @@ def test_a_fresh_attempt_replaces_its_own_earlier_entry(repo, monkeypatch):
 def test_a_dry_run_never_touches_the_record_of_runs_that_wrote(repo, monkeypatch):
     proj = repo(items=[item(1), item(2)])
     write_changelog(proj, {"cycle": "2026-08", "cost_usd": 2.5, "runs": 1, "items": [
-        {"id": "wi-2026-08-0001", "status": "fixed"}]})
+        {"id": "wi-2026-08-0001", "finding_fp": "fp1", "status": "fixed"}]})
     log, code = rem.remediate(proj, None, 10, 20, "sonnet", 60, True)
     assert code == 0
     assert log["runs"] == 0
@@ -398,3 +399,37 @@ def test_the_changelog_carries_the_fingerprint_of_the_finding_it_fixed(repo, mon
         {"src/data/services.ts": "export const title = 'better'\n"}))
     log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
     assert log["items"][0]["finding_fp"] == "fp1"
+
+
+# ── B-020: resume survives a renumbering ─────────────────────────────────────
+
+def test_a_remeasure_that_renumbers_ids_still_skips_what_was_fixed(repo, monkeypatch):
+    """Work item ids are positional (`wi-<cycle>-<idx>`), so re-measuring a live
+    site renumbers them: on lee-series-web three new SERP findings shifted 19 of
+    20 fixed ids onto unrelated findings. Keying resume on `id` would have
+    skipped nineteen UNFIXED items as done while re-attempting the fixed ones.
+    The fingerprint is the identity that survives."""
+    # The changelog fixed fp2 under its old id. After the re-measure fp2 sits at
+    # a different index, and the old id now belongs to fp1.
+    proj = repo(items=[item(1), item(2)])
+    write_changelog(proj, {"cycle": "2026-08", "items": [
+        {"id": "wi-2026-08-0002", "finding_fp": "fp2", "status": "fixed"}]})
+    monkeypatch.setattr(rem, "run_agent", agent_that(
+        {"src/data/services.ts": "export const title = 'better'\n"}))
+    log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
+    assert log["queued"] == 1, "only the unfixed finding should be queued"
+    worked = [i["id"] for i in log["items"] if i.get("finding_fp") == "fp1"]
+    assert worked == ["wi-2026-08-0001"]
+
+
+def test_an_item_with_no_fingerprint_is_attempted_not_skipped(repo, monkeypatch):
+    """A changelog from before the fingerprint was carried must not silently
+    match everything. Attempting twice costs money; skipping a real finding and
+    calling it fixed puts a falsehood in the artifact."""
+    proj = repo(items=[item(1)])
+    write_changelog(proj, {"cycle": "2026-08", "items": [
+        {"id": "wi-2026-08-0001", "status": "fixed"}]})     # no finding_fp
+    monkeypatch.setattr(rem, "run_agent", agent_that(
+        {"src/data/services.ts": "export const title = 'better'\n"}))
+    log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
+    assert log["queued"] == 1

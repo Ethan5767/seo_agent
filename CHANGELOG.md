@@ -83,6 +83,36 @@ see `CLAUDE.md` (the sync contract).
   EXIT=19
   ```
 
+  **First live run, `lee-series-web`, 2026-08-07.** Grounded in 26/26 sitemap
+  pages, 39 queries, `lee serie` correctly absent. Every query traces to a
+  product page on the site or to `primary_metro` / `service_areas` in the
+  config. Measured with all four providers:
+
+  ```
+  [crux]       no field data: CrUX has no record for www.leeserie.com
+  [dataforseo] failed: HTTP 403 from .../on_page/task_post
+  [serp]       partial: 31/39 queries measured (8 failed)
+  [OK] 26 URLs measured, 145 findings -> docs/audit/2026-08/findings.json
+  [OK] 145 new, 0 persisting, 0 regression, 0 resolved
+       worklist: 21 actionable, 93 above tier, 31 needing a human
+  ```
+
+  All 31 measured queries came back `serp.absent` — the site ranks for its own
+  name and nothing else, which is a coherent result for a young DTC brand and
+  exactly the gap the queries were chosen to expose. The 31 route to a human
+  rather than the agent because `acceptance_check`'s allowlist is
+  `code.startswith("health.")`; no change was needed for that to hold at 31
+  findings instead of 3.
+
+  The run surfaced **B-021**: the 8 SERP failures are transient, not
+  deterministic. Re-probed two by hand minutes later — one returned a
+  `JSONDecodeError`, the other succeeded with `organic=9`. Because the query is
+  the fingerprint, a query that fails one cycle and succeeds the next reads as
+  NEW, and one that succeeds then fails **reads as RESOLVED** — a fix that never
+  happened. Logged, not fixed; the structural fix needs `plan.py` to distinguish
+  "not measured" from "no longer a problem". Do not read a SERP RESOLVED as a
+  win until it lands.
+
   **Not done, and deliberately:** no volume data. Google Ads Keyword Planner is
   the correct source for ranking candidate queries by real demand, but it needs
   an Ads Manager account plus a developer token with Basic-access approval, and

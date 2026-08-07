@@ -26,22 +26,12 @@ const STATE_TITLE = {
   gone: 'Nothing in the working tree for these paths: already committed, or reverted',
 };
 
-async function load() {
-  try {
-    const cycles = await api(`/api/clients/${encodeURIComponent(slug)}/cycles`);
-    const sel = document.getElementById('cycle');
-    if (!cycles.length) {
-      sel.disabled = true;
-      document.getElementById('units').innerHTML = emptyState('No cycles yet',
-        'Nothing has been measured for this client. Run site-health from the Runs screen.');
-      return;
-    }
-    sel.innerHTML = cycles.map((c) => `<option>${esc(c)}</option>`).join('');
-    sel.value = currentCycle() || cycles[0];
-    sel.onchange = () => { setCycle(sel.value); show(sel.value); };
-    show(sel.value);
-  } catch (err) { fail(document.getElementById('units'), err); }
-}
+// app.js::cycleScreen is the shared "pick a cycle, render it" wiring three other
+// screens already use — including writing the choice back into the URL so the
+// sidebar links follow it.
+const load = () => cycleScreen(slug, document.getElementById('cycle'),
+  document.getElementById('units'), show,
+  'Nothing has been measured for this client. Run site-health from the Runs screen.');
 
 async function show(ym) {
   cycle = ym;
@@ -163,7 +153,8 @@ async function act(action, files) {
   try {
     const { run_id } = await post(`/api/clients/${encodeURIComponent(slug)}/review`,
       { action, cycle, files });
-    stream(run_id, () => show(cycle));
+    await streamRun(run_id, logEl);
+    show(cycle);
   } catch (err) { fail(logEl, err); }
 }
 
@@ -224,11 +215,9 @@ function step(id, label, icon, detail, primary) {
     <span class="font-body-sm text-body-sm text-on-surface-variant flex-1 min-w-[12rem]">${detail}</span></div>`;
 }
 
-const cycleBranch = () => `cycle/${slug}-${cycle}`;
-
 function wireFinish() {
   const on = (id, fn) => { const b = document.getElementById(id); if (b) b.onclick = fn; };
-  on('f-branch', () => git('branch', { branch: prompt('Branch name', cycleBranch()) }));
+  on('f-branch', () => git('branch', { branch: prompt('Branch name', cycleBranchName(slug, cycle)) }));
   on('f-commit', () => git('commit', {
     message: prompt('Commit message',
       `audit: ${slug} ${cycle} — ${(data.progress || {}).fixed ?? 0} fixed`),
@@ -245,7 +234,8 @@ async function git(action, extra) {
   logEl.innerHTML = '';
   try {
     const { run_id } = await post(`/api/clients/${encodeURIComponent(slug)}/git`, { action, extra });
-    stream(run_id, () => show(cycle));
+    await streamRun(run_id, logEl);
+    show(cycle);
   } catch (err) { fail(logEl, err); }
 }
 
@@ -257,27 +247,11 @@ async function runGates() {
     try {
       const { run_id } = await post(`/api/clients/${encodeURIComponent(slug)}/runs`,
         { command, args: command === 'claim-provenance' ? { cycle } : {} });
-      const ex = await new Promise((done) => stream(run_id, done));
+      const ex = await streamRun(run_id, logEl);
       if (ex && ex.kind !== 'clean' && ex.kind !== 'findings') break;   // red stops here
     } catch (err) { return void fail(logEl, err); }
   }
   show(cycle);
-}
-
-function stream(runId, then) {
-  const es = new EventSource(`/api/runs/${runId}/stream`);
-  es.addEventListener('line', (e) => {
-    const d = document.createElement('div');
-    d.textContent = JSON.parse(e.data).line;
-    logEl.appendChild(d);
-    logEl.scrollTop = logEl.scrollHeight;
-  });
-  es.addEventListener('exit', (e) => {
-    const ex = JSON.parse(e.data);
-    logEl.insertAdjacentHTML('beforeend', `<div class="mt-sm">${exitChip(ex)}</div>`);
-    es.close();
-    if (then) then(ex);
-  });
 }
 
 load();

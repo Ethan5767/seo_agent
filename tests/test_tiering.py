@@ -216,7 +216,8 @@ def test_add_tier_is_a_no_op_when_a_tier_already_exists(tmp_path):
 # and wf-onboard writes this into a commit on the default branch. What changed is
 # WHEN the human declares it.
 
-from pipeline.audit.bootstrap_config import TierError, parse_args, tier_block
+from pipeline.audit.bootstrap_config import build_parser, registry_paths, tier_block
+from pipeline.lib.common import TierRefused, UnsafePath
 
 
 def test_the_default_tier_is_one(tmp_path):
@@ -232,14 +233,14 @@ def test_t3_needs_no_content_block(tmp_path):
 
 
 def test_t2_is_refused_without_a_content_location(tmp_path):
-    with pytest.raises(TierError, match="content-location"):
+    with pytest.raises(TierRefused, match="content location"):
         tier_block(tmp_path, 2, content_registry=["src/data/posts.ts"])
 
 
 def test_t2_is_refused_without_a_registry(tmp_path):
     # A location with no registry is the worse half: the agent creates a page,
     # nothing links to it, and orphan_check refuses the PR after the spend.
-    with pytest.raises(TierError, match="content-registry"):
+    with pytest.raises(TierRefused, match="registry path"):
         tier_block(tmp_path, 2, content_location="src/content/blog/")
 
 
@@ -247,7 +248,7 @@ def test_a_refused_t2_is_never_silently_downgraded(tmp_path):
     # The failure mode this replaces: a config that says T2 and behaves as T1.
     try:
         tier_block(tmp_path, 2)
-    except TierError as exc:
+    except TierRefused as exc:
         assert "authority over nowhere" in str(exc)
     else:
         raise AssertionError("T2 with neither field was written")
@@ -272,21 +273,36 @@ def test_the_deny_floor_is_written_at_every_tier(tmp_path):
 
 @pytest.mark.parametrize("bad", ["../escape", "-flag", "/abs/path"])
 def test_a_content_path_that_is_not_repo_relative_is_refused(tmp_path, bad):
-    with pytest.raises(TierError):
+    with pytest.raises(UnsafePath):
         tier_block(tmp_path, 3, content_location=bad)
 
 
 def test_an_out_of_range_tier_is_refused(tmp_path):
-    with pytest.raises(TierError, match="1, 2 or 3"):
+    with pytest.raises(TierRefused, match="1, 2 or 3"):
         tier_block(tmp_path, 4)
 
 
 def test_the_tier_flag_takes_a_value_and_does_not_eat_the_domain():
-    # The old argv handling filtered out `--add-tier` by equality, which would have
-    # left `2` from `--tier 2` sitting where DOMAIN goes.
-    project, domain, add_only, tier, loc, reg = parse_args(
+    # The old hand-rolled argv filter dropped `--add-tier` by equality, which would
+    # have left `2` from `--tier 2` sitting where DOMAIN goes. argparse cannot make
+    # that mistake, which is the reason to use it.
+    args = build_parser().parse_args(
         ["/tmp/acme", "acme.com", "--tier", "2", "--content-location", "src/c/",
          "--content-registry", "a.ts,b.ts"])
-    assert domain == "acme.com"
-    assert (tier, loc, reg) == (2, "src/c/", ["a.ts", "b.ts"])
-    assert add_only is False
+    assert args.domain == "acme.com"
+    assert (args.tier, args.content_location) == (2, "src/c/")
+    assert registry_paths(args.content_registry) == ["a.ts", "b.ts"]
+    assert args.add_tier is False
+
+
+def test_a_registry_is_repeatable_as_well_as_comma_separated():
+    args = build_parser().parse_args(
+        ["/tmp/a", "a.com", "--content-registry", "a.ts", "--content-registry", "b.ts,c.ts"])
+    assert registry_paths(args.content_registry) == ["a.ts", "b.ts", "c.ts"]
+
+
+def test_argparse_refuses_an_out_of_range_tier_without_our_own_check(capsys):
+    # `choices=(1,2,3)` does what a hand-rolled `re.fullmatch(r"[123]")` did.
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["/tmp/a", "a.com", "--tier", "4"])
+    assert "invalid choice" in capsys.readouterr().err

@@ -62,8 +62,19 @@ from pipeline.lib import baseline as bl
 GATE = "em_dash_check"
 SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 
-EM_FORMS = ["—", "&mdash;", "&#8212;", "&#x2014;", "&#X2014;"]
-EN_FORMS = ["–", "&ndash;", "&#8211;", "&#x2013;"]
+# glyph -> rule name. The rule name is part of the FINGERPRINT, so it must not
+# change once a client has recorded a baseline. Held as one dict per dash rather
+# than a list plus a parallel lookup: adding a form to a bare list without touching
+# the lookup would silently file it as "other", collapsing two distinct rules into
+# one fingerprint — in a gate that is now baselineable, which means a baseline entry
+# accepting more than it was recorded for.
+EM_RULES = {"—": "literal", "&mdash;": "mdash_entity", "&#8212;": "decimal_entity",
+            "&#x2014;": "hex_entity", "&#X2014;": "hex_entity"}
+EN_RULES = {"–": "en_literal", "&ndash;": "ndash_entity",
+            "&#8211;": "en_decimal_entity", "&#x2013;": "en_hex_entity"}
+EM_FORMS = list(EM_RULES)
+EN_FORMS = list(EN_RULES)
+RULES = {**EM_RULES, **EN_RULES}
 
 
 def blank_keep_lines(match: re.Match) -> str:
@@ -114,7 +125,7 @@ def main() -> int:
         for line_no, form, snippet in scan_file(path, forms):
             # code = the glyph form, so `&mdash;` and a literal — are separate rules
             # a reviewer can tell apart in the baseline file.
-            findings.append(bl.Finding(GATE, f"em_dash.{_slug(form)}", rel,
+            findings.append(bl.Finding(GATE, f"em_dash.{RULES[form]}", rel,
                                        context=snippet,
                                        detail=f"line {line_no}: [{form}] …{snippet}…"))
 
@@ -142,14 +153,6 @@ def main() -> int:
     print("PASS: no em dashes in public HTML text.")
     return 0
 
-
-def _slug(form: str) -> str:
-    """A stable rule name per glyph form. Part of the fingerprint, so it must not
-    change once a client has recorded a baseline."""
-    return {"—": "literal", "&mdash;": "mdash_entity", "&#8212;": "decimal_entity",
-            "&#x2014;": "hex_entity", "&#X2014;": "hex_entity",
-            "–": "en_literal", "&ndash;": "ndash_entity",
-            "&#8211;": "en_decimal_entity", "&#x2013;": "en_hex_entity"}.get(form, "other")
 
 
 if __name__ == "__main__":

@@ -172,18 +172,6 @@ function renderTiers() {
   }));
 }
 
-function obLine(text) {
-  const cls = /^\[(ERROR|STOPPED|BLOCKER|REFUSE)/.test(text) ? 'text-error'
-    : /^\[warn/i.test(text) ? 'text-tertiary'
-      : /^\[(ok|READY)/.test(text) ? 'text-green-400'
-        : /^\$ /.test(text) ? 'text-primary' : 'text-on-surface';
-  const div = document.createElement('div');
-  div.className = cls;
-  div.textContent = text;
-  obLog.appendChild(div);
-  obLog.scrollTop = obLog.scrollHeight;
-}
-
 async function onboard() {
   const btn = document.getElementById('ob-run');
   const tokenEl = document.getElementById('ob-token');
@@ -206,17 +194,12 @@ async function onboard() {
         .split(/[\s,]+/).filter(Boolean),
       token,
     });
-    const stream = new EventSource(`/api/runs/${run_id}/stream`);
-    stream.addEventListener('line', (e) => obLine(JSON.parse(e.data).line));
-    stream.addEventListener('exit', (e) => {
-      obExit.innerHTML = exitChip(JSON.parse(e.data));
-      stream.close();
-      btn.disabled = false;
-      load();                          // exit 1 still leaves a checkout to show
-    });
+    await streamRun(run_id, obLog, { exitEl: obExit });
+    btn.disabled = false;
+    load();                            // exit 1 still leaves a checkout to show
   } catch (err) {
     obExit.innerHTML = '';
-    obLine(`[ERROR] ${err.message || err}`);
+    runLine(obLog, `[ERROR] ${err.message || err}`);
     btn.disabled = false;
   }
 }

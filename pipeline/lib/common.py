@@ -262,6 +262,72 @@ def glob_re(pattern: str) -> "re.Pattern":
     return re.compile("^" + "".join(out) + "$")
 
 
+class UnsafePath(ValueError):
+    """A path that will not be written into a config or handed to git."""
+
+
+def safe_path(value, label: str, maxlen: int = 200) -> str:
+    """A repo-relative path, or raise.
+
+    Two rules, and they are the same two everywhere this repo accepts a path from
+    outside: it must START alphanumeric, because a leading `-` is read as a flag by
+    both argparse and git; and it must carry no `..`, because that escapes the
+    directory the caller thinks it bounded.
+
+    ONE definition, because there were three — `bootstrap_config` (content paths
+    into the config the gates read), the dashboard's onboard endpoint (the same
+    paths off a form), and `build_git_argv`'s branch-name check. Three copies of a
+    security rule is a rule that holds in two places after the next edit.
+    """
+    if not isinstance(value, str):
+        raise UnsafePath(f"{label} must be text")
+    value = value.strip()
+    if not value:
+        raise UnsafePath(f"{label} is empty")
+    if ".." in value or not re.fullmatch(rf"[A-Za-z0-9][\w\-./]{{0,{maxlen - 1}}}", value):
+        raise UnsafePath(f"bad {label}: {value!r} — must start with a letter or digit, "
+                         f"contain no '..', and be at most {maxlen} characters")
+    return value
+
+
+class TierRefused(ValueError):
+    """A tier that will not be written as asked. Refused, never downgraded."""
+
+
+def resolve_tier(tier, content_location="", content_registry=None) -> tuple:
+    """(tier, location, [registry]) validated, or raise.
+
+    **T2 is refused without both fields.** T2 means "may CREATE under
+    `content.location` and wire it into `content.registry`", so without both it
+    grants authority over nowhere while claiming more than T1 — and a location with
+    no registry is the worse half: the agent creates a page, nothing links to it,
+    and `orphan_check` refuses the PR after the money is spent.
+
+    ONE definition, called by `bootstrap_config` (writing the config) and by the
+    dashboard's onboard endpoint (refusing at the form, before a clone and a network
+    round-trip). Both used to state the rule in their own prose, which is two rules
+    that agree until someone edits one.
+    """
+    if isinstance(tier, str) and tier.strip().isdigit():
+        tier = int(tier.strip())
+    if tier not in (1, 2, 3):
+        raise TierRefused(f"tier must be 1, 2 or 3 — got {tier!r}")
+
+    location = safe_path(content_location, "content location") if \
+        (content_location or "").strip() else ""
+    registry = [safe_path(r, "content registry path")
+                for r in (content_registry or []) if str(r).strip()]
+
+    if tier == 2 and not (location and registry):
+        missing = [n for n, v in (("a content location", location),
+                                  ("at least one registry path", registry)) if not v]
+        raise TierRefused(
+            f"T2 needs {' and '.join(missing)}. T2 means \"may CREATE pages there and "
+            f"wire them in\", so without both it grants authority over nowhere while "
+            f"claiming more than T1. Declare them, or onboard at tier 1.")
+    return tier, location, registry
+
+
 def path_matches(path: str, patterns) -> bool:
     """True when `path` (repo-relative, POSIX) matches any pattern.
 

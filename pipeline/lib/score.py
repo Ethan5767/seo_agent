@@ -1,43 +1,27 @@
 #!/usr/bin/env python3
 """score.py — findings.json -> an SEO score and an AEO score, plus cycle progress.
 
-WHY A PASS RATE AND NOT A WEIGHTED SUM
---------------------------------------
-The unit is a **(page, check) pair**: a check either fires on a page or it does
-not.
-
     score = 100 x (1 - failing_pairs / total_pairs)
 
     total_pairs   = urls_checked x (codes in this family that actually ran)
     failing_pairs = distinct (location, code) pairs present in findings.json
 
-Three properties fall out of that shape, and each one is a real failure this
-module exists to avoid:
+A pass rate over **(page, check) pairs** rather than a weighted sum, because the
+weights would be invented here and every weight becomes an argument later. Three
+properties follow from the shape, and each one is a real failure this avoids:
 
-1. **It cannot be swamped by multiplicity.** B-009 emitted 1158
-   `health.img_alt_missing` findings from one page and one broken regex — 91% of
-   the run. Counting distinct pairs means one page contributes at most one failure
-   per check, however many images are on it.
-2. **A check that never ran cannot inflate it.** `tel_link_missing`,
-   `phone_missing`, `ga4_missing` and `forbidden_phrase` are skipped when their
-   config field is unset (`measure._CONFIG_GATED`). Those codes leave the
-   DENOMINATOR entirely and are named in `skipped`. Scoring an unmeasured check as
-   a pass is the "green means not measured" lie the whole rail is built against.
-3. **Unmeasured is not 100.** `urls_checked == 0` returns `None`, and every caller
-   renders that as "not measured".
+  * DISTINCT pairs, so one broken check on one page cannot swamp a report (B-009).
+  * A config-gated check that never ran leaves the DENOMINATOR (see CONFIG_GATED).
+    Scoring an unmeasured check as a pass is the "green means not measured" lie.
+  * `urls_checked == 0` returns None. Unmeasured is not a clean site.
 
-The weighted-severity alternative was rejected deliberately: the weights would be
-invented here, and every weight becomes an argument later. A pass rate is a fact
-about what was measured.
-
-WHAT SEO AND AEO MEAN HERE
---------------------------
-Only the codes `measure.check_page` can actually emit. AEO rests on FOUR checks
-(schema x3, thin content), so it moves in large steps on a small site — that is a
-property of what is measurable from the live HTML, not a bug, and `total` is
-returned alongside `score` so a caller can say so.
+AEO rests on FOUR checks, so it moves in large steps on a small site — a property
+of what is measurable from live HTML, which is why `total` is returned alongside
+`score` so a caller can say so.
 """
 from __future__ import annotations
+
+from pipeline.audit.measure import _CONFIG_GATED
 
 # code -> family. Every code `measure.check_page` emits appears exactly once; a
 # code missing from here is scored by neither family, which is why
@@ -69,21 +53,19 @@ AEO_CODES = {
 
 FAMILIES = {"seo": SEO_CODES, "aeo": AEO_CODES}
 
-# A check that does not run without a config value, and the config path it needs.
-# Mirrors measure._CONFIG_GATED — the same four, expressed as code -> getter, so
-# the denominator drops exactly the checks that were skipped.
+# code -> the predicate that decides whether that check ran at all, DERIVED from
+# measure's own list rather than re-typed. measure decides what runs and this module
+# decides what counts; two copies of the four lambdas agree until someone moves
+# `nap.phone`, and then the score silently keeps scoring a check that no longer
+# fires. `_CONFIG_GATED` is (config_key, code, getter), so this is the same
+# knowledge with the key dropped.
 #
 # ponytail: which checks ran is derived from the config as it reads NOW, not as it
 # read when the cycle was measured. Fill in `ga4_id` after August's run and
 # August's score shifts. The alternative is stamping `checks_run` into
 # findings.json, which is a second source of truth and a schema change — not worth
 # it until a cycle's score is quoted to a client.
-CONFIG_GATED = {
-    "health.tel_link_missing": lambda c: (c.get("nap") or {}).get("phone_tel"),
-    "health.phone_missing": lambda c: (c.get("nap") or {}).get("phone"),
-    "health.ga4_missing": lambda c: c.get("ga4_id"),
-    "health.forbidden_phrase": lambda c: c.get("forbidden_phrases"),
-}
+CONFIG_GATED = {code: get for _, code, get in _CONFIG_GATED}
 
 
 def skipped_codes(cfg: dict) -> set:
@@ -128,10 +110,9 @@ def score(findings_doc: dict, cfg: dict = None) -> dict:
 
 
 def fixed_fingerprints(changelog: dict) -> set:
-    """Fingerprints of findings this cycle's changelog claims are fixed.
+    """Fingerprints of findings this cycle's changelog CLAIMS are fixed.
 
-    A CLAIM, not a measurement — `acceptance_check` is what verifies it. Named for
-    what it is so no caller can read it as a result.
+    A claim, not a measurement. `acceptance_check` is what verifies it.
     """
     if not isinstance(changelog, dict):
         return set()

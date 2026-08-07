@@ -11,6 +11,29 @@ from pathlib import Path
 from pipeline.lib.common import load_config, curl, curl_status
 
 
+def todo_paths(cfg) -> list:
+    """Dotted paths of every unresolved `TODO` in the config — the interview list.
+
+    Exported because the dashboard's stage rail asks THIS function whether a client
+    is at the interview gate. A second walk over there would be a rail whose stage
+    stops matching the exit code this module returns.
+    """
+    todos = []
+
+    def walk(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                walk(v, f"{path}.{k}")
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                walk(v, f"{path}[{i}]")
+        elif isinstance(obj, str) and obj == "TODO":
+            todos.append(path)
+
+    walk(cfg)
+    return todos
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: preflight.py [PROJECT_DIR]", file=sys.stderr); sys.exit(1)
@@ -32,15 +55,7 @@ def main():
     missing = [k for k in required if not cfg.get(k)]
     if missing:
         print(f"[STOP] Config missing fields: {missing}"); sys.exit(11)
-    todos = []
-    def walk(obj, path=""):
-        if isinstance(obj, dict):
-            for k, v in obj.items(): walk(v, f"{path}.{k}")
-        elif isinstance(obj, list):
-            for i, v in enumerate(obj): walk(v, f"{path}[{i}]")
-        elif isinstance(obj, str) and obj == "TODO":
-            todos.append(path)
-    walk(cfg)
+    todos = todo_paths(cfg)
     if todos:
         print(f"[STOP] Config has unresolved TODOs: {todos}"); sys.exit(12)
 

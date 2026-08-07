@@ -16,20 +16,22 @@ from pathlib import Path
 import pytest
 import yaml
 
+from pipeline.dashboard.review import build_git_argv
 from pipeline.dashboard.server import (
     COMMANDS,
     ONBOARD_EXITS,
     RUNS,
     build_argv,
-    busy_run,
-    build_git_argv,
     build_onboard,
+    busy_run,
+    interpret_exit,
+)
+from pipeline.dashboard.state import (
     cycles,
     default_branch,
     discover_clients,
     fleet_entry,
     git_state,
-    interpret_exit,
     lane_counts,
     read_artifact,
 )
@@ -648,14 +650,14 @@ def _committed_repo(tmp_path, name="acme"):
 
 
 def test_an_uncommitted_tree_has_nothing_for_those_gates_to_judge(tmp_path):
-    from pipeline.dashboard.server import commits_to_judge
+    from pipeline.dashboard.state import commits_to_judge
     p = _committed_repo(tmp_path)
     (p / "src.ts").write_text("export const x = 1\n")     # dirty, uncommitted
     assert commits_to_judge(p) == 0
 
 
 def test_a_cycle_commit_gives_those_gates_something_to_judge(tmp_path):
-    from pipeline.dashboard.server import commits_to_judge
+    from pipeline.dashboard.state import commits_to_judge
     p = _committed_repo(tmp_path)
     (p / "src.ts").write_text("export const x = 1\n")
     for cmd in (["add", "-A"], ["commit", "-qm", "cycle"]):
@@ -666,7 +668,7 @@ def test_a_cycle_commit_gives_those_gates_something_to_judge(tmp_path):
 def test_no_remote_ref_is_cannot_tell_not_nothing_to_judge(tmp_path):
     # A repo with no origin/<default> must let the gate run and speak for itself.
     # Reading "cannot tell" as "empty diff" would refuse every local-only checkout.
-    from pipeline.dashboard.server import commits_to_judge
+    from pipeline.dashboard.state import commits_to_judge
     p = tmp_path / "bare"
     (p / "docs").mkdir(parents=True)
     for cmd in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t.t"],
@@ -693,7 +695,7 @@ def test_only_the_three_dot_gates_carry_needs_commit():
 # sequence.
 
 def _client(path, cfg=None):
-    from pipeline.dashboard.server import discover_clients
+    from pipeline.dashboard.state import discover_clients
     for c in discover_clients(Path(path).parent):
         if c["path"] == str(path):
             return c
@@ -709,7 +711,7 @@ def _cycle_artifacts(path, ym="2026-08", **files):
 
 
 def test_a_config_with_todos_is_the_interview_gate(tmp_path):
-    from pipeline.dashboard.server import next_action
+    from pipeline.dashboard.state import next_action
     p = _repo(tmp_path, "acme", {"business": {"trade": "TODO"}})
     n = next_action(_client(p))
     assert n["stage"] == "INTERVIEW"
@@ -720,14 +722,14 @@ def test_a_config_with_todos_is_the_interview_gate(tmp_path):
 
 
 def test_no_cycle_at_all_is_measure(tmp_path):
-    from pipeline.dashboard.server import next_action
+    from pipeline.dashboard.state import next_action
     p = _repo(tmp_path, "acme", {"domain": "acme.com"})
     n = next_action(_client(p))
     assert (n["stage"], n["command"]) == ("MEASURE", "site-health")
 
 
 def test_a_measured_but_unplanned_cycle_is_plan(tmp_path):
-    from pipeline.dashboard.server import next_action
+    from pipeline.dashboard.state import next_action
     p = _repo(tmp_path, "acme")
     _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []})
     n = next_action(_client(p))
@@ -735,7 +737,7 @@ def test_a_measured_but_unplanned_cycle_is_plan(tmp_path):
 
 
 def test_a_worklist_with_items_left_is_remediate_and_says_how_many(tmp_path):
-    from pipeline.dashboard.server import next_action
+    from pipeline.dashboard.state import next_action
     p = _repo(tmp_path, "acme")
     _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []},
                      worklist_json={"items": [{"id": "wi-1"}, {"id": "wi-2"}]})
@@ -745,7 +747,7 @@ def test_a_worklist_with_items_left_is_remediate_and_says_how_many(tmp_path):
 
 
 def test_a_dirty_tree_after_remediation_is_the_review_gate(tmp_path):
-    from pipeline.dashboard.server import next_action
+    from pipeline.dashboard.state import next_action
     p = _repo(tmp_path, "acme")
     _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []},
                      worklist_json={"items": [{"id": "wi-1"}]},
@@ -757,7 +759,7 @@ def test_a_dirty_tree_after_remediation_is_the_review_gate(tmp_path):
 
 
 def test_staged_work_is_commit(tmp_path):
-    from pipeline.dashboard.server import next_action
+    from pipeline.dashboard.state import next_action
     p = _repo(tmp_path, "acme")
     _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []},
                      worklist_json={"items": [{"id": "wi-1"}]},
@@ -769,7 +771,7 @@ def test_staged_work_is_commit(tmp_path):
 
 
 def test_a_broken_config_is_its_own_stage_not_a_silent_measure(tmp_path):
-    from pipeline.dashboard.server import next_action
+    from pipeline.dashboard.state import next_action
     p = _repo(tmp_path, "broken", raw_cfg="client: [unclosed\n  bad: :\n")
     n = next_action(_client(p))
     assert n["stage"] == "ERROR"
@@ -853,7 +855,7 @@ def _changelog(p):
 def test_items_that_share_a_file_are_one_approval_unit(tmp_path):
     """Two items that both edited lib/page-meta.ts cannot be approved separately —
     the diff is not separable, and offering the choice loses a fix."""
-    from pipeline.dashboard.server import review_units
+    from pipeline.dashboard.review import review_units
     p = _remediated(tmp_path, {"lib/page-meta.ts": ["wi-1", "wi-2"]})
     units = review_units(p, _changelog(p))
     assert len(units) == 1
@@ -863,7 +865,7 @@ def test_items_that_share_a_file_are_one_approval_unit(tmp_path):
 def test_transitively_shared_files_collapse_into_one_unit(tmp_path):
     # wi-2 touches both files, so all three items are one unit even though wi-1 and
     # wi-3 share nothing directly.
-    from pipeline.dashboard.server import review_units
+    from pipeline.dashboard.review import review_units
     p = _remediated(tmp_path, {"a.ts": ["wi-1", "wi-2"], "b.ts": ["wi-2", "wi-3"]})
     units = review_units(p, _changelog(p))
     assert len(units) == 1
@@ -872,13 +874,13 @@ def test_transitively_shared_files_collapse_into_one_unit(tmp_path):
 
 
 def test_independent_items_are_separate_units(tmp_path):
-    from pipeline.dashboard.server import review_units
+    from pipeline.dashboard.review import review_units
     p = _remediated(tmp_path, {"a.ts": ["wi-1"], "b.ts": ["wi-2"]})
     assert len(review_units(p, _changelog(p))) == 2
 
 
 def test_an_unstaged_unit_is_pending_and_a_staged_one_is_approved(tmp_path):
-    from pipeline.dashboard.server import review_units
+    from pipeline.dashboard.review import review_units
     p = _remediated(tmp_path, {"a.ts": ["wi-1"], "b.ts": ["wi-2"]})
     assert {u["state"] for u in review_units(p, _changelog(p))} == {"pending"}
     subprocess.run(["git", "-C", str(p), "add", "--", "a.ts"], check=True, capture_output=True)
@@ -889,7 +891,7 @@ def test_an_unstaged_unit_is_pending_and_a_staged_one_is_approved(tmp_path):
 def test_a_unit_carries_the_diff_of_a_new_file(tmp_path):
     """An untracked file has no `git diff` at all. Showing nothing would read as
     "no changes" for exactly the case where everything is a change."""
-    from pipeline.dashboard.server import review_units
+    from pipeline.dashboard.review import review_units
     p = _remediated(tmp_path, {"new.ts": ["wi-1"]})
     unit = review_units(p, _changelog(p))[0]
     assert "changed" in unit["diff"]
@@ -897,7 +899,7 @@ def test_a_unit_carries_the_diff_of_a_new_file(tmp_path):
 
 
 def test_a_modified_tracked_file_shows_both_sides(tmp_path):
-    from pipeline.dashboard.server import review_units
+    from pipeline.dashboard.review import review_units
     p = _repo(tmp_path, "acme")
     (p / "a.ts").write_text("before\n")
     subprocess.run(["git", "-C", str(p), "add", "-A"], check=True, capture_output=True)
@@ -914,7 +916,7 @@ def test_a_modified_tracked_file_shows_both_sides(tmp_path):
 # the pathspec boundary
 
 def test_approving_stages_exactly_the_named_paths(tmp_path):
-    from pipeline.dashboard.server import build_review_argv
+    from pipeline.dashboard.review import build_review_argv
     p = _remediated(tmp_path, {"a.ts": ["wi-1"]})
     assert build_review_argv("approve", p, _changelog(p), ["a.ts"]) == \
         ["git", "add", "--", "a.ts"]
@@ -931,21 +933,21 @@ def test_a_path_outside_the_changelog_is_refused(tmp_path, path):
     `git restore` over any path the browser names, bound to a port. The changelog is
     the record of what the agent actually touched, so it is the only legitimate
     source of a path here."""
-    from pipeline.dashboard.server import build_review_argv
+    from pipeline.dashboard.review import build_review_argv
     p = _remediated(tmp_path, {"a.ts": ["wi-1"]})
     with pytest.raises(ValueError, match="not a file this cycle's changelog records"):
         build_review_argv("approve", p, _changelog(p), [path])
 
 
 def test_a_cycle_with_no_recorded_files_can_approve_nothing(tmp_path):
-    from pipeline.dashboard.server import build_review_argv
+    from pipeline.dashboard.review import build_review_argv
     p = _remediated(tmp_path, {})
     with pytest.raises(ValueError, match="nothing to approve"):
         build_review_argv("approve", p, _changelog(p), ["a.ts"])
 
 
 def test_an_unknown_review_action_is_refused(tmp_path):
-    from pipeline.dashboard.server import build_review_argv
+    from pipeline.dashboard.review import build_review_argv
     p = _remediated(tmp_path, {"a.ts": ["wi-1"]})
     for bad in ("merge", "commit", "push", "clean"):
         with pytest.raises(ValueError, match="unknown review action"):
@@ -953,7 +955,7 @@ def test_an_unknown_review_action_is_refused(tmp_path):
 
 
 def test_rejecting_a_tracked_file_restores_it(tmp_path):
-    from pipeline.dashboard.server import build_review_argv
+    from pipeline.dashboard.review import build_review_argv
     p = _repo(tmp_path, "acme")
     (p / "a.ts").write_text("before\n")
     subprocess.run(["git", "-C", str(p), "add", "-A"], check=True, capture_output=True)
@@ -971,7 +973,7 @@ def test_rejecting_a_new_file_is_refused_rather_than_deleting_it(tmp_path):
     """`git restore` cannot revert a create, and the honest alternative
     (`git clean -f`) silently deletes a file. A console that quietly destroys the
     agent's work on a misclick is worse than one that says no."""
-    from pipeline.dashboard.server import build_review_argv
+    from pipeline.dashboard.review import build_review_argv
     p = _remediated(tmp_path, {"new.ts": ["wi-1"]})
     with pytest.raises(ValueError, match="delete it yourself"):
         build_review_argv("reject", p, _changelog(p), ["new.ts"])
@@ -979,7 +981,7 @@ def test_rejecting_a_new_file_is_refused_rather_than_deleting_it(tmp_path):
 
 
 def test_review_needs_at_least_one_file(tmp_path):
-    from pipeline.dashboard.server import build_review_argv
+    from pipeline.dashboard.review import build_review_argv
     p = _remediated(tmp_path, {"a.ts": ["wi-1"]})
     for bad in ([], None, "a.ts"):
         with pytest.raises(ValueError, match="name the files"):
@@ -987,7 +989,7 @@ def test_review_needs_at_least_one_file(tmp_path):
 
 
 def test_review_is_empty_without_a_changelog(tmp_path):
-    from pipeline.dashboard.server import review_units
+    from pipeline.dashboard.review import review_units
     p = _repo(tmp_path, "acme")
     assert review_units(p, None) == []
     assert review_units(p, {"cycle": "2026-08"}) == []
@@ -1030,7 +1032,7 @@ def test_an_unpushed_cycle_commit_is_the_pr_stage_not_the_merge_stage(tmp_path):
     """The bug this pins: with `ahead` as the test, a committed-but-unpushed cycle
     branch fell through to MERGE — telling the operator to go read a PR on GitHub
     that does not exist, and skipping the gates."""
-    from pipeline.dashboard.server import next_action
+    from pipeline.dashboard.state import next_action
     p = _repo(tmp_path, "acme")
     subprocess.run(["git", "-C", str(p), "update-ref", "refs/remotes/origin/main", "HEAD"],
                    check=True, capture_output=True)

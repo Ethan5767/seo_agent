@@ -129,6 +129,82 @@ see `CLAUDE.md` (the sync contract).
   **The CI wiring itself has not run against a live Cloudflare preview — see
   B-017.**
 
+  Full suite for everything above:
+  `.venv/bin/python -m pytest -q` → `564 passed in 4.87s`.
+
+### Changed
+
+- **Single-definition cleanup across the changes above**, after a review found nine
+  copy-paste sites in them — each one annotated with a comment naming the file it
+  was copied from, which is documentation of a defect rather than a rationale. This
+  repo's contract is single-definition (`ARTIFACT_PATHS` is deliberately shared
+  between two gates for exactly this reason), and the first pass applied that rule
+  once and broke it eight more times.
+
+  - `common.safe_path()` and `common.resolve_tier()` are now the only definitions of
+    "a repo-relative path we will accept" and "T2 needs both content fields". They
+    replaced three copies of the path regex (`bootstrap_config`, the onboard
+    endpoint, `build_git_argv`) and two copies of the T2 refusal written in
+    different words.
+  - `score.CONFIG_GATED` is **derived** from `measure._CONFIG_GATED` rather than
+    re-typing its four lambdas. measure decides what runs and score decides what
+    counts; two copies agree until someone moves `nap.phone`, and then the score
+    silently keeps scoring a check that no longer fires.
+  - `state.has_todos()` calls `preflight.todo_paths()`. The rail's whole promise is
+    that the stage it shows matches what the command will do, so a second definition
+    of "unresolved TODO" is a rail that sends the operator to a button that refuses.
+  - `app.js` gained `streamRun`, `runLine` and `cycleBranchName`. There were **four**
+    identical EventSource blocks (runs, git, fleet, review) and only `page-runs.js`
+    coloured its log lines — so a `[REFUSED]` on the diff review screen, where a
+    refusal matters most, rendered in the same grey as everything else. Now one call
+    site, and it returns the exit so the review screen can stop at the first red gate.
+  - `em_dash_check` derives its rule names from the glyph lists instead of a parallel
+    dict. Adding a form without touching the dict would have filed it as `"other"`,
+    collapsing two rules into one fingerprint — in a gate that is now baselineable,
+    that is a baseline entry accepting more than it was recorded for.
+  - `bootstrap_config` uses `argparse`, like every other entry point in the package
+    and like `onboard.py`, which declares these same three flags in three lines. The
+    40-line hand parser existed only because the module's old style could not handle
+    a flag that takes a value — which is a reason to stop matching that style.
+
+- **`pipeline/dashboard/server.py` split at the two seams it already marked**, after
+  this work pushed it past 1300 lines. `state.py` is what the console KNOWS (pure
+  derivation from disk: discovery, git state, the cycle bundle, the score,
+  `next_action`) and `review.py` is Gate 2 plus the git actions. `server.py` is back
+  to what its docstring claims — the allow-list, the `Run` class and the HTTP
+  handler — at 781 lines.
+
+- **Fewer redundant git subprocesses.** `fleet_entry` read every artifact and then
+  called `next_action`, which read all of them again plus `git_state` twice more and
+  a third time inside `commits_to_judge` — about 20 sequential `git` spawns per
+  client on `GET /api/clients`, for data the caller already had. `cycle_bundle()`
+  reads once and is passed down. `review_units` likewise spawned one
+  `git ls-files --error-unmatch` **per file** to re-derive the `??` its single
+  `git status` already reported.
+
+### Fixed
+
+- **`blocked_by` on the stage rail is populated, not just declared.** It was
+  hardcoded `None` on all eleven return paths, with a comment on the REMEDIATE
+  branch asserting *"Read access is a fact to check, not assume"* — a comment
+  describing intent as if it were behavior, on the line that did not have it. It now
+  reports, before any money is spent, that a client has no gate baseline (so the
+  gates will run bare and inherited debt reads as blocking) and that
+  `acceptance_check` cannot run (so the fixes ship unverified). Both are exactly
+  what happened to `lee-series-web`'s 2026-08 cycle, and both were discoverable on
+  disk beforehand.
+
+- **The PR summary says when the HTML came from a crawl.** `FAMILY=crawl` was
+  written to `$GITHUB_ENV` and then overridden by a step-level `env:` that reads
+  `steps.build.outputs.framework_family` — empty on a crawl client, because the
+  build failed. So on precisely the SSR client the render source exists for, the
+  summary rendered a blank framework and a blank build dir and never mentioned the
+  crawl. `steps.tree.outputs.source` was computed for this and wired to nothing;
+  the BUILD row now reads `**crawled** <url> -> <dir> (no static export)` with the
+  snapshot step's own outcome. `snapshot.py` insists this distinction is
+  load-bearing — a crawl of a deployment and a local build are not the same
+  evidence — so the artifact that a human actually reads has to carry it.
+
 - **The operator declares the client's tier at onboarding.** The ADD CLIENT panel
   offers T1 / T2 / T3 defaulting to **T1**, and `wf-onboard` / `wf-bootstrap-config`
   take `--tier`, `--content-location` and `--content-registry`. Raising a tier used

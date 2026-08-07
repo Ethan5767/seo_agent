@@ -3,7 +3,7 @@ const slug = requireClient();
 const logEl = document.getElementById('log');
 const cmdEl = document.getElementById('command');
 const argsEl = document.getElementById('args');
-let commands = {}, stream = null, clientCycles = [];
+let commands = {}, clientCycles = [];
 
 async function init() {
   try {
@@ -109,29 +109,14 @@ async function execute() {
   } finally { btn.disabled = false; }
 }
 
-function line(text) {
-  const cls = /^\[(ERROR|BLOCKER|REFUSE)/.test(text) ? 'text-error'
-    : /^\[WARN/.test(text) ? 'text-tertiary'
-    : /^\$ /.test(text) ? 'text-primary'
-    : 'text-on-surface';
-  const div = document.createElement('div');
-  div.className = cls;
-  div.textContent = text;
-  logEl.appendChild(div);
-  logEl.scrollTop = logEl.scrollHeight;
-}
+const line = (text) => runLine(logEl, text);
 
 function attach(runId, label) {
   document.getElementById('stream-label').textContent = label;
-  if (stream) stream.close();
-  stream = new EventSource(`/api/runs/${runId}/stream`);
-  stream.addEventListener('line', (e) => line(JSON.parse(e.data).line));
-  stream.addEventListener('exit', (e) => {
-    const ex = JSON.parse(e.data);
-    document.getElementById('stream-exit').innerHTML = exitChip(ex);
-    stream.close(); stream = null; history();
+  streamRun(runId, logEl, {
+    exitEl: document.getElementById('stream-exit'),
+    onExit: history,
   });
-  document.getElementById('stream-exit').innerHTML = exitChip(null);
 }
 
 async function history() {

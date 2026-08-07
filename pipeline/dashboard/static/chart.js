@@ -12,14 +12,11 @@
 // either.
 //
 // COLOR
-// Two series, so two categorical hues assigned in fixed order and never cycled:
-// SEO always cyan, AEO always amber, whichever is on screen. They are the
-// dashboard's own primary/tertiary ramps stepped down into the dark-mode mark band
-// (OKLCH L 0.48–0.67) — validated with the dataviz six-checks validator against
-// surface #0b1326: lightness, chroma, CVD separation (ΔE 24.6 worst adjacent under
-// deuteranopia), normal-vision floor (28.4), and contrast all pass. The theme's own
-// #38bdf8/#f1a02b sit at L 0.75+ because a Material dark theme tunes its accents
-// for text, not for marks.
+// SEO is always cyan and AEO always amber, assigned in fixed order and never
+// cycled, so a filter can never repaint a series. These are the theme's own
+// primary/tertiary ramps stepped into the dark-mode mark band — the theme's
+// #38bdf8/#f1a02b are tuned for text, not marks. Validation figures are in the
+// CHANGELOG entry.
 const SERIES = [
   { key: 'seo', label: 'SEO', color: '#0284c7', projected: 'projected_seo' },
   { key: 'aeo', label: 'AEO', color: '#b45309', projected: 'projected_aeo' },

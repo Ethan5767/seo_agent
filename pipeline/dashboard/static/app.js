@@ -134,6 +134,51 @@ const exitChip = (ex) => ex == null
   ? '<span class="font-mono-sm text-mono-sm text-on-surface-variant animate-pulse">RUNNING…</span>'
   : `<span class="${EXIT_CHIP[ex.kind]} font-mono-sm text-mono-sm px-xs py-[2px] rounded-sm">${esc(ex.text)}</span>`;
 
+// One log line, coloured by what it says. Lives here because four screens stream
+// runs and only page-runs.js used to colour them — so a `[REFUSED]` on the diff
+// review screen, the screen where a refusal matters most, rendered in the same grey
+// as everything else.
+function runLine(el, text) {
+  const cls = /^\[(ERROR|BLOCKER|REFUSE|STOPPED)/.test(text) ? 'text-error'
+    : /^\[warn/i.test(text) ? 'text-tertiary'
+      : /^\[(ok|OK|READY|resume|chain)/.test(text) ? 'text-green-400'
+        : /^\$ /.test(text) ? 'text-primary' : 'text-on-surface';
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = text;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  return div;
+}
+
+// The one EventSource call site. There were four (runs, git, fleet, review), all
+// the same nine lines. Resolves with the exit object so a caller can sequence runs
+// — the review screen stops at the first red gate.
+function streamRun(runId, logEl, { exitEl = null, onExit = null } = {}) {
+  return new Promise((resolve) => {
+    const es = new EventSource(`/api/runs/${runId}/stream`);
+    if (exitEl) exitEl.innerHTML = exitChip(null);
+    es.addEventListener('line', (e) => runLine(logEl, JSON.parse(e.data).line));
+    es.addEventListener('exit', (e) => {
+      const ex = JSON.parse(e.data);
+      if (exitEl) exitEl.innerHTML = exitChip(ex);
+      else logEl.insertAdjacentHTML('beforeend', `<div class="mt-sm">${exitChip(ex)}</div>`);
+      es.close();
+      if (onExit) onExit(ex);
+      resolve(ex);
+    });
+  });
+}
+
+// The cycle branch name. Takes the cycle being worked on, because naming the branch
+// after the artifacts it carries is the point; falls back to the current month for
+// the Git screen, which has no cycle selected.
+function cycleBranchName(slug, cycle) {
+  if (cycle) return `cycle/${slug}-${cycle}`;
+  const d = new Date();
+  return `cycle/${slug}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function emptyState(title, detail) {
   return `<div class="flex flex-col items-center justify-center py-xl gap-sm text-center">
     <div class="font-headline-sm text-headline-sm text-on-surface-variant">${esc(title)}</div>

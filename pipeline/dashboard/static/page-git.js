@@ -3,11 +3,6 @@ const slug = requireClient();
 const logEl = document.getElementById('log');
 let st = null;
 
-const cycleBranch = () => {
-  const d = new Date();
-  return `cycle/${slug}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
-
 async function load() {
   try {
     st = await api(`/api/clients/${encodeURIComponent(slug)}/git`);
@@ -65,7 +60,7 @@ function renderActions() {
   document.getElementById('actions').innerHTML = [
     button('a-pull', 'PULL --FF-ONLY', 'download', false, false),
     button('a-branch', 'CREATE CYCLE BRANCH', 'call_split', false, !onDefault,
-      onDefault ? `Creates ${cycleBranch()}` : 'Already on a non-default branch'),
+      onDefault ? `Creates ${cycleBranchName(slug)}` : 'Already on a non-default branch'),
     button('a-stage', 'STAGE ALL CHANGES', 'add', false, st.changed.length === 0,
       'git add -A — the audit artifacts AND the files the remediator edited'),
     button('a-commit', 'COMMIT', 'check', false, st.changed.length === 0),
@@ -82,7 +77,7 @@ function renderActions() {
   wire('a-push', 'push');
   wire('a-pr', 'pr');
   document.getElementById('a-branch').addEventListener('click', () =>
-    run('branch', { branch: prompt('Branch name', cycleBranch()) }));
+    run('branch', { branch: prompt('Branch name', cycleBranchName(slug)) }));
   document.getElementById('a-commit').addEventListener('click', () =>
     run('commit', { message: prompt('Commit message', `audit: ${slug} cycle artifacts`) }));
 }
@@ -94,17 +89,8 @@ async function run(action, extra) {
   logEl.innerHTML = '';
   try {
     const { run_id } = await post(`/api/clients/${encodeURIComponent(slug)}/git`, { action, extra });
-    const es = new EventSource(`/api/runs/${run_id}/stream`);
-    es.addEventListener('line', (e) => {
-      const d = document.createElement('div');
-      d.textContent = JSON.parse(e.data).line;
-      logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
-    });
-    es.addEventListener('exit', (e) => {
-      const ex = JSON.parse(e.data);
-      logEl.insertAdjacentHTML('beforeend', `<div class="mt-sm">${exitChip(ex)}</div>`);
-      es.close(); load();
-    });
+    await streamRun(run_id, logEl);
+    load();
   } catch (err) { fail(logEl, err); }
 }
 

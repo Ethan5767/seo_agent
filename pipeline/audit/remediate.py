@@ -29,10 +29,10 @@ The prompt states the tier. That is efficiency. The safety is:
   * `acceptance_check` — the finding must actually be gone (v3 §4.3)
   * the operator's merge
 
-**Tier staging is per client, not per release.** A repo bootstraps at `tier: 1`
-and `docs/client-config.yml` is on the deny floor, so the agent can never raise
-its own authority: T2 and T3 exist in this module but are unreachable for a
-client until a human raises the tier in a human PR.
+**Tier staging is per client, not per release.** The operator declares the tier at
+onboarding (`wf-onboard --tier`, T1 by default), and `docs/client-config.yml` is on
+the deny floor at every tier including T3 — so the AGENT can never raise its own
+authority, whatever this module is told it may do.
 
 CAPS, AND WHAT A RE-RUN DOES
 ---------------------------
@@ -332,18 +332,10 @@ def read_changelog(project, cycle: str) -> dict:
 
 
 def already_fixed(changelog: dict) -> set:
-    """Work item ids this cycle's changelog records as fixed.
+    """Work item ids this cycle's changelog records as fixed (B-013).
 
-    B-013: `selectable` rebuilt the queue from worklist.json alone, so a run that
-    stopped on --max-items started again at item 1 and re-attempted the same first
-    N — while `main` overwrote the changelog, destroying the record of the items
-    that HAD been fixed. The documented "run 10, then run 10 more" did the same 10
-    twice and cleared the audit trail.
-
-    This makes the changelog decide what gets ATTEMPTED. It decides nothing about
-    what is VERIFIED: `acceptance_check` re-measures every claimed fix against the
-    build output and refuses if the finding is still there. A changelog entry that
-    lies about a fix costs one item's budget and is then caught by the gate.
+    See the module docstring on why the changelog decides what is ATTEMPTED and
+    never what is VERIFIED.
     """
     return {i.get("id") for i in changelog.get("items", [])
             if i.get("status") == "fixed" and i.get("id")}

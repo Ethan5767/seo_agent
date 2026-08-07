@@ -12,9 +12,10 @@ Never overwrites an existing config.
 
 Usage: python3 bootstrap-config.py [PROJECT_DIR] [DOMAIN]
 """
+import argparse
 import sys, re, json
 from pathlib import Path
-from pipeline.lib.common import curl, yaml
+from pipeline.lib.common import TierRefused, curl, resolve_tier, yaml
 
 
 def detect_deploy_platform(project_dir: Path) -> str:
@@ -147,30 +148,6 @@ def detect_text_paths(project_dir: Path) -> list:
     return [glob for d, glob in candidates if (project_dir / d).is_dir()]
 
 
-class TierError(RuntimeError):
-    """A tier that cannot be written as asked. Refused, never downgraded."""
-
-
-# A content path is written into a config the gates read, so it is validated on
-# the way in rather than trusted: must start alphanumeric (a leading `-` reads as
-# a flag downstream), no `..`, no absolute paths, bounded length. Same two rules
-# build_git_argv applies to a branch name, for the same reasons.
-_CONTENT_PATH_RE = re.compile(r"[A-Za-z0-9][\w\-./]{0,199}")
-
-
-def _clean_paths(values, label: str) -> list:
-    out = []
-    for v in values or []:
-        v = str(v).strip()
-        if not v:
-            continue
-        if not _CONTENT_PATH_RE.fullmatch(v) or ".." in v:
-            raise TierError(f"bad {label} path: {v!r} — must be a repo-relative path "
-                            f"starting with a letter or digit, with no '..'")
-        out.append(v)
-    return out
-
-
 def tier_block(project_dir: Path, tier: int = 1, content_location: str = "",
                content_registry=None) -> str:
     """The v3 §2 tiering block.
@@ -178,30 +155,12 @@ def tier_block(project_dir: Path, tier: int = 1, content_location: str = "",
     Defaults to T1 — the tier that can only reword what already exists — because
     raising a tier is a deliberate act, never something you get by omission.
 
-    T2 REFUSES without both `content.location` and `content.registry`. The rule is
-    not new (see the commented template this replaces: "No content.location -> T2
-    is unavailable"); what is new is that it fails here instead of producing a
-    config that claims T2 and behaves as T1. A location with no registry is worse
-    still: the agent creates a page, nothing links to it, and `orphan_check`
-    refuses the PR after the money is spent.
-
-    T3 needs neither — it may change anything not denied.
+    The rules live in `common.resolve_tier`, which the dashboard's onboard endpoint
+    calls too: T2 is refused without both content fields, and paths are validated by
+    `common.safe_path`. Stating either here as well would be the same rule in two
+    places, agreeing until someone edits one.
     """
-    if tier not in (1, 2, 3):
-        raise TierError(f"tier must be 1, 2 or 3 — got {tier!r}")
-    location = (content_location or "").strip()
-    registry = _clean_paths(content_registry, "content.registry")
-    if location:
-        location = _clean_paths([location], "content.location")[0]
-
-    if tier == 2 and not (location and registry):
-        missing = [n for n, v in (("--content-location", location),
-                                  ("--content-registry", registry)) if not v]
-        raise TierError(
-            f"T2 requires {' and '.join(missing)}. T2 means \"may CREATE under "
-            f"content.location and wire it into content.registry\" — without both, "
-            f"T2 grants authority over nowhere and behaves as T1 while claiming "
-            f"more. Declare them, or onboard at tier 1.")
+    tier, location, registry = resolve_tier(tier, content_location, content_registry)
 
     found = detect_text_paths(project_dir)
     paths = "\n".join(f"  - {p}" for p in found) if found else \
@@ -273,75 +232,61 @@ def warn_unresolved_registry(project_dir: Path, content_registry) -> None:
                   f"page. Confirm the path before remediating at T2.")
 
 
-def parse_args(args: list) -> tuple:
-    """(project_dir, domain, add_tier_only, tier, location, registry).
-
-    Hand-parsed, matching this module's existing style, but the tier flags DO take
-    values — `--tier 2` as two tokens — so the old `[a for a in argv if a !=
-    "--add-tier"]` filter would have left `2` sitting where DOMAIN goes.
-    """
-    positional, add_tier_only = [], False
-    tier, location, registry = 1, "", []
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a == "--add-tier":
-            add_tier_only = True
-        elif a in ("--tier", "--content-location", "--content-registry"):
-            if i + 1 >= len(args):
-                raise TierError(f"{a} needs a value")
-            value = args[i + 1]
-            i += 1
-            if a == "--tier":
-                if not re.fullmatch(r"[123]", value):
-                    raise TierError(f"--tier must be 1, 2 or 3 — got {value!r}")
-                tier = int(value)
-            elif a == "--content-location":
-                location = value
-            else:
-                # Repeatable AND comma-separated: a registry is usually one file
-                # and occasionally two, and both spellings are what a caller
-                # reaches for.
-                registry += [p for p in value.split(",") if p.strip()]
-        elif a.startswith("--"):
-            raise TierError(f"unknown option: {a}")
-        else:
-            positional.append(a)
-        i += 1
-    if len(positional) < 2:
-        raise TierError("need PROJECT_DIR and DOMAIN")
-    return (Path(positional[0]).resolve(), positional[1], add_tier_only,
-            tier, location, registry)
+# argparse, like every other entry point in this package — including onboard.py,
+# which declares these same three flags in three lines. The old hand-rolled
+# `[a for a in argv if a != "--add-tier"]` filter worked only because no flag took a
+# value; `--tier 2` is two tokens, which is what broke it. That the style ran out is
+# a reason to stop matching it, not to extend it by forty lines.
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="wf-bootstrap-config",
+        description="Generate docs/client-config.yml, or append the tiering block.")
+    ap.add_argument("project_dir", type=Path)
+    ap.add_argument("domain")
+    ap.add_argument("--add-tier", action="store_true",
+                    help="append the tier block to an existing config and stop")
+    ap.add_argument("--tier", type=int, choices=(1, 2, 3), default=1,
+                    help="the agent's authority over this repo (default: 1, copy only)")
+    ap.add_argument("--content-location", default="",
+                    help="T2+: the directory the agent may CREATE pages under")
+    # Repeatable AND comma-separated: a registry is usually one file and
+    # occasionally two, and both spellings are what a caller reaches for.
+    ap.add_argument("--content-registry", action="append", default=[], metavar="PATH",
+                    help="T2+: the nav/data file a new page must be wired into")
+    return ap
 
 
-USAGE = ("Usage: bootstrap-config.py PROJECT_DIR DOMAIN [--add-tier] "
-         "[--tier 1|2|3] [--content-location PATH] [--content-registry PATH[,PATH]]")
+def registry_paths(values) -> list:
+    return [p for v in values for p in str(v).split(",") if p.strip()]
 
 
 def main():
-    try:
-        project_dir, domain, add_tier_only, tier, location, registry = \
-            parse_args(sys.argv[1:])
-    except TierError as e:
-        print(f"[ERROR] {e}\n{USAGE}", file=sys.stderr); sys.exit(1)
+    args = build_parser().parse_args()
+    project_dir = args.project_dir.resolve()
+    registry = registry_paths(args.content_registry)
 
     target = project_dir / "docs" / "client-config.yml"
     if target.exists():
-        if add_tier_only:
+        if args.add_tier:
             try:
-                code = add_tier(target, tier, location, registry)
-            except TierError as e:
+                code = add_tier(target, args.tier, args.content_location, registry)
+            except TierRefused as e:
                 print(f"[STOP] {e}", file=sys.stderr); sys.exit(4)
             warn_unresolved_registry(project_dir, registry)
             sys.exit(code)
         print(f"[OK] Config already exists: {target}"); sys.exit(0)
     target.parent.mkdir(exist_ok=True)
 
+    domain = args.domain
+    tier = args.tier
+
     # Built BEFORE anything is written or fetched: a refused tier must cost a
     # message, not a half-scaffolded checkout and a network round-trip.
     try:
-        tier_yaml = tier_block(project_dir, tier, location, registry)
-    except TierError as e:
+        tier_yaml = tier_block(project_dir, tier, args.content_location, registry)
+    except TierRefused as e:
+        print(f"[STOP] {e}", file=sys.stderr); sys.exit(4)
+
         print(f"[STOP] {e}", file=sys.stderr); sys.exit(4)
 
     claude = extract_from_claudemd(project_dir / "CLAUDE.md")

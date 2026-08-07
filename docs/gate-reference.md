@@ -102,7 +102,9 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 
 **Seven** gates accept `--baseline`. Nine are never-baselineable: the six inherited plus the three phase-4 authorship gates. (`pages-are-data-check` was an eighth until 2026-08-06 — it went with the emitter in v3 §3 and its entry was dead.)
 
-Everything not listed — `em-dash`, `robots-aicrawler`, `client-docs-check`, `proof-assert`, the live post-deploy checks — is in a **third category**: neither baselineable nor declared never-baselineable, because on the pilot they were already clean. That is a property of the pilot, not of the gates. `em-dash` in particular blocks a legacy client's every PR with no recording that can accept it and no documented refusal explaining why it must not be — see **B-008**.
+`em-dash` **moved into the baselineable set on 2026-08-07** (B-008). A legacy em dash in a client's pre-existing copy is content debt of the same class as a heading that is not in Title Case, and `check-headings` was always baselineable; the never-baselineable list is for live falsehoods and structural invariants, and this is neither. It sat outside both lists only because it predated the ratchet and printed tuples rather than `Finding`s.
+
+Everything still not listed — `robots-aicrawler`, `client-docs-check`, `proof-assert`, the live post-deploy checks — is in a **third category**: neither baselineable nor declared never-baselineable, because on the pilot they were already clean. That is a property of the pilot, not of the gates, and each is a decision waiting to be made rather than a decision already made.
 
 ### Wiring, not just implementation (B-007, 2026-08-06)
 

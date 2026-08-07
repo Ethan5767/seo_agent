@@ -54,5 +54,26 @@ jobs:
       #   node prerender.mjs
       # build_output_dir: "./dist"
 
+      # ---- SSR / no static export (v3 sharp edge #4) -------------------------
+      # Nine OUT gates read <build_output_dir>/**/*.html. A repo that does NOT set
+      # `output: 'export'` emits no such tree, the build step exits 1, and all nine
+      # are SKIPPED — including forbidden_sweep, which is NEVER_BASELINEABLE for
+      # legal exposure. Point render_url at the rendered deployment and
+      # wf-render-snapshot crawls it into the tree those gates already read.
+      #
+      # Leave both EMPTY unless this client genuinely has no static export: a repo
+      # that can build must be judged on its OWN build, because that is what the PR
+      # produces. A deployment is what some earlier state produced.
+      #
+      # preview.reusable.yml resolves the Cloudflare preview alias and exposes it as
+      # the `preview_url` output, so the usual wiring is a job that needs it:
+      #   needs: [notify-preview]
+      #   render_url: ${{ needs.notify-preview.outputs.preview_url }}
+      # render_url: ""
+      #
+      # Only when the sitemap is a GENERATED route (app/sitemap.ts) rather than a
+      # static file, so there is nothing to read from the live domain:
+      # render_urls: "/ /about/ /services/ /contact/"
+
       node_version: "20"
     secrets: inherit

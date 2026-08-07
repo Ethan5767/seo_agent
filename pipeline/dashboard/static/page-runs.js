@@ -17,9 +17,14 @@ async function init() {
     ]);
     cmdEl.innerHTML = Object.entries(commands)
       .map(([k, v]) => `<option value="${esc(k)}">${esc(k)} — ${esc(v.label)}</option>`).join('');
-    // The step you come to this screen for. It is also the only one that writes,
-    // so it lands preselected with nothing filled in — RUN is still a click.
-    if ('site-remediate' in commands) cmdEl.value = 'site-remediate';
+    // The stage rail links here with the command it worked out, so arriving from
+    // "what do I do next" lands on that command rather than on a guess. Falls back
+    // to site-remediate, the step an operator arriving unprompted usually wants.
+    // Either way RUN is still a click — the preselection costs a keystroke, never a
+    // safety property.
+    const asked = params.get('command');
+    if (asked && asked in commands) cmdEl.value = asked;
+    else if ('site-remediate' in commands) cmdEl.value = 'site-remediate';
     renderArgs();
     history();
   } catch (err) { fail(logEl, err); }
@@ -35,6 +40,9 @@ function widget(name, kind) {
   const a = `class="${CLS} arg" data-arg="${esc(name)}" data-kind="${esc(kind)}"`;
   if (kind === 'int') return `<input ${a} type="number" min="1" placeholder="default"/>`;
   if (kind === 'path-list') return `<input ${a} placeholder="/one/ /two/ — blank uses the sitemap"/>`;
+  // A URL, not a path. `type="url"` gets the browser's own validation for free, and
+  // the server refuses anything that is not an absolute http(s) origin anyway.
+  if (kind === 'url') return `<input ${a} type="url" placeholder="https://pr-34.acme.pages.dev"/>`;
   if (kind === 'cycle') {
     return `<select ${a}><option value="">newest</option>${
       clientCycles.map((c) => `<option>${esc(c)}</option>`).join('')}</select>`;

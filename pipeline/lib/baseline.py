@@ -152,6 +152,22 @@ BASELINEABLE = {
     "check_headings",
     "llms_sales_purge",
     "audit_built",
+    # B-008. An em dash in the client's PRE-EXISTING copy is legacy content debt,
+    # structurally identical to a heading that is not in Title Case — and
+    # `check_headings` is two lines above. The never-baselineable list is for live
+    # falsehoods (an invented credential, a fix that never landed) and structural
+    # invariants (sitemap parity, an orphaned route); a legacy em dash is neither.
+    #
+    # It sat in neither list only because it predates the ratchet and printed
+    # tuples instead of Findings, so `assert_baselineable` refused it as "not in the
+    # allow-list" — which left a legacy client's every PR permanently red with no
+    # recording that could accept the debt. `gate-reference.md` named that third
+    # category as "a property of the pilot, not of the gates".
+    #
+    # The ratchet does the work from here: legacy em dashes are recorded once, the
+    # baseline may only SHRINK, and an em dash in copy we wrote is a new finding
+    # that blocks.
+    "em_dash_check",
 }
 
 
@@ -448,6 +464,10 @@ def gate_argv(gate: str, project: Path) -> list:
         return [sys.executable, "-m", mod, "--project", str(project)]
     if gate == "check_headings":
         return [sys.executable, "-m", mod, "--out", str(build), "--project", str(project)]
+    # em_dash_check takes no --project: the banned glyph is a house rule, identical
+    # for every client, with nothing per-client to read.
+    if gate == "em_dash_check":
+        return [sys.executable, "-m", mod, "--out", str(build)]
     if gate == "llms_sales_purge":
         return [sys.executable, "-m", mod, "--out", str(build), "--project", str(project)]
     if gate == "audit_built":

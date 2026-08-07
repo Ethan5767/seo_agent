@@ -58,6 +58,9 @@ wf-onboard = "pipeline.audit.onboard:main"
 wf-site-health = "pipeline.audit.measure:main"
 wf-site-plan = "pipeline.audit.plan:main"
 wf-site-remediate = "pipeline.audit.remediate:main"
+# Crawls a rendered deployment into the static tree the nine OUT gates glob, so a
+# client with no static export can be gated at all (v3 sharp edge #4).
+wf-render-snapshot = "pipeline.audit.snapshot:main"
 wf-poll-live = "pipeline.audit.poll_live:main"
 wf-preflight = "pipeline.audit.preflight:main"
 wf-update-sitemap-dates = "pipeline.audit.update_sitemap_dates:main"

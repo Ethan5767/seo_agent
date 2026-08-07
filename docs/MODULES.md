@@ -1,6 +1,9 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-06** · 5 packages, 39 modules, 5 workflows, 32 `wf-*` commands, 410 tests.
+**As of 2026-08-07** · 5 packages, 37 modules, 5 workflows, 33 `wf-*` commands, 562 tests.
+(Counted, not remembered: modules = `.py` under `pipeline/` excluding `__init__.py`;
+commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. The previous
+header said 39 modules and 410 tests, both stale.)
 One line per module: what it does and why it exists. Deeper detail: `gate-reference.md`
 (per-gate contracts + exit codes), `HOW-IT-WORKS.md` (the flow in plain language),
 `CLAUDE.md` (the sync contract + where workflows live).
@@ -33,12 +36,13 @@ GitHub repo (collaborator access) + domain
 
 ---
 
-## `pipeline/lib` — shared foundation (3)
+## `pipeline/lib` — shared foundation (4)
 
 | Module | What it does |
 |---|---|
 | `common.py` | Config loader, self-describing client profile (topology, states, shape), `framework_family` + `resolve_build_dir` (Next→`out`, Vite→`dist`, stale-path tolerant), curl helpers, topology URL patterns, and the **tiering block** (v3 §2): `tier`/`text_paths`/`content.*` parsed into the profile, `DEFAULT_DENY` unioned in so a config cannot shrink the floor, `detect_static_export` for the §6 precondition. Everything else imports this. |
 | `baseline.py` | The ratchet. Fingerprints legacy findings (stable across HTML reflow — never line numbers) so gates run **green-on-legacy, red-on-new**. Shrink-only; re-record refuses; growth needs `--accept-new`; five safety gates are hard-coded never-baselineable. |
+| `score.py` | The SEO and AEO score, and cycle progress. A pass rate over **(page, check) pairs**, so one broken check on one page costs one pair rather than 1158 (B-009); a config-gated check that never ran leaves the DENOMINATOR rather than counting as a pass; and an unmeasured cycle is `None`, never 100. Also `progress()` — the "how many findings are left" answer — and `series()`, the one definition of the score over time that the chart and any report both read. |
 | `client_docs.py` | The client-repo docs contract (work log, cycle-logs, intake-archive) that `client_docs_check` enforces and `scaffold_client_docs` creates. |
 
 ## `pipeline/gates` — the 19 quality gates
@@ -61,7 +65,7 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 | `capsule_check.py` | §20: interrogative H2 → answer-first → TL;DR (only >1500w, per standard §01). |
 | `noncommodity_check.py` | §21: proprietary variable per page + sibling 5-gram overlap thresholds. |
 | `check_headings.py` | Title Case, no possessive contractions. |
-| `em_dash_check.py` | No em dashes in public text (script/style-stripped, line-preserving). |
+| `em_dash_check.py` | No em dashes in public text (script/style-stripped, line-preserving). **Baselineable since B-008** — a legacy em dash in the client's own copy is content debt of the same class as a heading that is not in Title Case, and it emits `Finding`s so the ratchet can hold it. Fingerprint is the offending TEXT, so a line moving does not re-block the PR. |
 | `llms_sales_purge.py` | llms.txt carries no sales/CTA copy (§30). |
 | `image_budget_check.py` | Per-tier image byte budgets (hero/content/thumb). |
 | `lcp_hygiene_check.py` | No lazy-loaded declared hero; `<img>` width/height present. |
@@ -79,9 +83,9 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 | `proof-assert.sh` | Blocking meta-gate: the deploy proof exists and is non-empty ("no proof = it didn't happen"). |
 | `indexnow_submit.py` | The one IndexNow submitter (gated on a healthy deploy, never at build time). |
 
-## `pipeline/audit` — measure, plan, write, onboard (11)
+## `pipeline/audit` — measure, plan, write, onboard (12)
 
-`onboard.py` (**the front door** — a repo and a domain in, a worklist out; sequences the six onboarding commands and translates their exit codes. Checks with `gh` what permission we actually hold rather than assuming it, because the flow is "the client adds us as a collaborator". Stops at the interview step — the TODOs no generator can invent — reports it as RESUMABLE rather than failed, and continues from there on a re-run — `wf-onboard`) · `client_profile.py` (who/shape/states/build) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `plan.py` (the ratchet over the monthly cycle folders: RESOLVED / PERSISTING / NEW / REGRESSION, `worklist.json` + `report.md` — `wf-site-plan`) · `remediate.py` (**the writer** — hands each work item to Claude Code one at a time so the file→item map in `changelog.json` is a measurement rather than a claim; judges every touched file with the same `tier_verdict` the PR gate uses; hard `--max-items` / `--max-files` caps that stop cleanly — `wf-site-remediate`) · `providers.py` (CrUX field CWV, Search Console CTR + cannibalization, DataForSEO on-page crawl; credentials from the environment only, and a provider with no credentials returns a **named skip** that is written into the artifact so a skip is never mistaken for a clean measurement) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `update_sitemap_dates.py` (lastmod hygiene).
+`onboard.py` (**the front door** — a repo and a domain in, a worklist out; sequences the six onboarding commands and translates their exit codes. Checks with `gh` what permission we actually hold rather than assuming it, because the flow is "the client adds us as a collaborator". Stops at the interview step — the TODOs no generator can invent — reports it as RESUMABLE rather than failed, and continues from there on a re-run — `wf-onboard`) · `client_profile.py` (who/shape/states/build) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `plan.py` (the ratchet over the monthly cycle folders: RESOLVED / PERSISTING / NEW / REGRESSION, `worklist.json` + `report.md` — `wf-site-plan`) · `remediate.py` (**the writer** — hands each work item to Claude Code one at a time so the file→item map in `changelog.json` is a measurement rather than a claim; judges every touched file with the same `tier_verdict` the PR gate uses; hard `--max-items` / `--max-files` caps that stop cleanly — `wf-site-remediate`) · `providers.py` (CrUX field CWV, Search Console CTR + cannibalization, DataForSEO on-page crawl; credentials from the environment only, and a provider with no credentials returns a **named skip** that is written into the artifact so a skip is never mistaken for a clean measurement) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `snapshot.py` (**the render source** — crawls a rendered deployment into the `<dir>/index.html` tree the nine build-tree gates already glob, so a client with no static export can be gated at all. v3 sharp edge #4: `lee-series-web` emits no route tree, `build-site` exits 1, and all nine were SKIPPED — including `forbidden_sweep`, never-baselineable for legal exposure. Refuses at exit 19 and writes nothing when no page answered, because an empty build dir makes every gate glob zero files and report green — `wf-render-snapshot`) · `update_sitemap_dates.py` (lastmod hygiene).
 
 ## `skills/site-remediation` — the doctrine the writer is given
 
@@ -89,7 +93,7 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 
 ## `pipeline/dashboard` — the local operator console (1 + static)
 
-`server.py` (`wf-dashboard`) — a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state, and stores no credential — the optional GitHub token on the Add Client form is passed to that one `wf-onboard` subprocess as `GH_TOKEN` and is never written to argv, the run log or disk. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain; **Add Client** on the fleet screen runs `wf-onboard <owner/name> <domain>` into that directory, which is the only run that has no client yet. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. The fleet card carries each client's baseline state, because a client with no `docs/gate-baseline.json` runs the gates bare. `static/` holds the nine screens (fleet · client · findings · worklist · report · changelog · runs · git · config) as plain HTML + `app.js`, no build step.
+`server.py` (`wf-dashboard`) — a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state, and stores no credential — the optional GitHub token on the Add Client form is passed to that one `wf-onboard` subprocess as `GH_TOKEN` and is never written to argv, the run log or disk. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain; **Add Client** on the fleet screen runs `wf-onboard <owner/name> <domain>` into that directory, which is the only run that has no client yet. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. The fleet card carries each client's baseline state, because a client with no `docs/gate-baseline.json` runs the gates bare. The client screen carries a **stage rail** — the seven stages and the three human gates, derived from the artifacts on disk — so one screen answers "what do I do now" instead of nine screens each showing an artifact; plus the SEO/AEO score and a chart of it per cycle (measured solid, projected dashed, verified only when `acceptance_check` can actually run). **Review Diff** is Gate 2: per-item diffs where approving is `git add`, so the git index IS the approval record and there is no parallel state to drift. Items that touched the same file are one approval unit, because those diffs are not separable. `static/` holds the ten screens (fleet · client · findings · worklist · **review** · report · changelog · runs · git · config) as plain HTML + `app.js` + `chart.js`, no build step.
 
 ## `.github/workflows` — the runtime (5)
 

@@ -19,6 +19,37 @@ function baselineChip(b) {
     title="Recorded ${esc(b.recorded || 'unknown')} — may only shrink from here">BL ${b.entries}</span>`;
 }
 
+// A score with nothing measured behind it is `null`, and it renders as a dash. A
+// zero would read as "measured, and terrible"; they are not the same claim.
+function scoreCell(label, fam) {
+  const v = fam && fam.score;
+  const colour = v == null ? 'text-on-surface-variant/50'
+    : v >= 90 ? 'text-green-400' : v >= 70 ? 'text-on-surface' : 'text-tertiary';
+  const title = v == null ? 'Not measured — run site-health'
+    : `${fam.failing} of ${fam.total} page-checks failing` +
+      ((fam.skipped || []).length ? ` · not scored: ${fam.skipped.join(', ')}` : '');
+  return `<div title="${esc(title)}">
+    <div class="font-label-caps text-label-caps text-on-surface-variant mb-[2px]">${label}</div>
+    <div class="font-mono-base text-mono-base ${colour}">${v == null ? '—' : v}</div></div>`;
+}
+
+// The one thing to do next, on the card, so the fleet view answers "who needs me"
+// without opening anything.
+function nextCell(next) {
+  if (!next) return '';
+  // `text-tertiary`, not `text-on-tertiary-container`: the "on-" token is the dark
+  // brown that belongs on a FULL amber container, and over a /40 tint on a dark
+  // surface it is unreadable.
+  const cls = next.human
+    ? 'bg-tertiary-container/20 text-tertiary border-tertiary/40'
+    : 'bg-surface-container-high border-outline-variant text-on-surface-variant';
+  const icon = next.human ? 'person' : 'play_arrow';
+  return `<div class="${cls} border rounded-sm px-sm py-xs mt-sm flex items-center gap-xs">
+    <span class="material-symbols-outlined" style="font-size:14px">${icon}</span>
+    <span class="font-label-caps text-label-caps">${esc(next.stage)}</span>
+    <span class="font-body-sm text-body-sm truncate">${esc(next.label || '')}</span></div>`;
+}
+
 function card(c) {
   const link = `/client?client=${encodeURIComponent(c.slug)}`;
   const tier = c.tier ? `T${c.tier}` : '—';
@@ -59,6 +90,13 @@ function card(c) {
       </div>
     </div>
     <div class="flex gap-lg border-t border-outline-variant pt-sm mt-sm">
+      ${scoreCell('SEO', c.score && c.score.seo)}
+      ${scoreCell('AEO', c.score && c.score.aeo)}
+      <div>
+        <div class="font-label-caps text-label-caps text-on-surface-variant mb-[2px]">LEFT</div>
+        <div class="font-mono-base text-mono-base ${(c.progress || {}).remaining ? 'text-tertiary' : 'text-on-surface'}"
+             title="Actionable worklist items not yet fixed">${(c.progress || {}).remaining ?? '—'}</div>
+      </div>
       <div>
         <div class="font-label-caps text-label-caps text-on-surface-variant mb-[2px]">FINDINGS</div>
         <div class="font-mono-base text-mono-base text-on-surface">${total}</div>
@@ -69,6 +107,7 @@ function card(c) {
         <div class="font-mono-base text-mono-base text-on-surface-variant">${esc(c.latest_cycle || '—')}</div>
       </div>
     </div>
+    ${nextCell(c.next)}
     <div class="font-mono-sm text-mono-sm text-on-surface-variant/60 mt-sm">${esc(c.git.branch || 'no branch')}${
       c.git.ahead ? ` · ${c.git.ahead} unpushed` : ''}${c.git.behind ? ` · ${c.git.behind} behind` : ''}</div>
   </a>`;

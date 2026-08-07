@@ -8,6 +8,127 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **An SEO score and an AEO score, and a graph of them per cycle**
+  (`pipeline/lib/score.py`). Nothing in the codebase scored anything before; the
+  operator could see a finding count and nothing else.
+
+  It is a **pass rate over (page, check) pairs** — a check either fires on a page
+  or it does not:
+
+  ```
+  score = 100 × (1 − failing_pairs / total_pairs)
+  total_pairs   = urls_checked × (codes in this family that actually ran)
+  failing_pairs = distinct (location, code) pairs in findings.json
+  ```
+
+  Three properties, each of which a simpler formula loses. **One page cannot be
+  counted many times:** B-009 emitted 1158 `img_alt_missing` findings from one page
+  and one broken regex — 91% of that run — and a per-pair score charges it one
+  pair. **A check that never ran cannot inflate it:** the four config-gated checks
+  leave the *denominator* and are listed under the number as `not scored`, because
+  scoring an unmeasured check as a pass is the "green means not measured" lie the
+  whole rail is built against. **Unmeasured is not 100:** `urls_checked == 0`
+  returns `None`, and every caller renders it as "not measured".
+
+  Weighted severity was considered and rejected: the weights would be invented
+  here and every weight becomes an argument later. A pass rate is a fact about
+  what was measured.
+
+  The chart (`static/chart.js`, inline SVG, no dependency) draws three visually
+  distinct states so a claim can never render as a measurement: solid for measured
+  cycles, dashed to a hollow marker for the score this cycle's changelog *claims*
+  it will reach, and a verification chip only when `acceptance_check` can actually
+  run. Its two hues are the dashboard's own primary/tertiary ramps stepped into
+  the dark-mode mark band and validated with the dataviz six-check validator
+  against surface `#0b1326` — lightness, chroma, CVD separation (worst adjacent
+  ΔE 24.6 under deuteranopia), normal-vision floor (28.4) and contrast all pass.
+  `tests/test_score.py` (24 tests).
+
+- **The client screen says which of eight stages a client is on, and offers one
+  next action.** The complaint was that the console is confusing; the cause was
+  that nine nav items each showed an artifact and no screen showed the sequence.
+  `next_action()` derives the stage from files already on disk — the console still
+  holds no state — and marks the three human gates as gates whether or not you are
+  standing on one. The fleet card carries the same thing, so the fleet view answers
+  "who needs me" without a click.
+  `tests/test_dashboard.py::test_a_config_with_todos_is_the_interview_gate` and
+  seven siblings, one per stage.
+
+- **`site-health` chains into `site-plan`.** A measured cycle with no lanes is the
+  one genuinely useless state in the rail — the fleet card had to render it as the
+  words "not planned" — and nobody has ever wanted to stop there. Declared as
+  `"then": "site-plan"` in `COMMANDS` rather than as a second orchestrator, fired
+  on exit 0 or 1 only, and launched before `exit_code` is published so the chain
+  cannot race the one-writer-per-checkout rule (B-012). Only a name already in
+  `COMMANDS` can be chained, and `test_the_chain_is_acyclic_and_only_reaches_declared_commands`
+  pins both properties.
+
+- **GATE 2: a diff review screen** (`/review`). Per-item diffs from
+  `changelog.json`, with **approving implemented as `git add`** — the git index IS
+  the approval record. No approvals file, no server-side state: `git status` shows
+  it, it survives a refresh and a restart, and there is nothing to drift out of
+  sync with the tree.
+
+  **Items that touched the same file are one approval unit.** Their diffs are not
+  separable — you cannot approve one and reject the other when both edited
+  `lib/page-meta.ts` — so the screen groups them transitively and says so, rather
+  than offering a choice it cannot honour.
+
+  Two refusals worth the code. **Every path is validated against that cycle's
+  `changelog.json` file map**, which is the security boundary: without it
+  `POST /review` is `git add` and `git restore` over any path a browser names,
+  bound to a port. And **rejecting a create is refused** — `git restore` cannot
+  revert one and the honest alternative (`git clean -f`) silently deletes a file,
+  so it says so instead and leaves the file alone.
+
+  Once nothing is pending the finish panel reveals commit → gate → push → **"Open
+  a pull request?"**, in that order and no other. The order is the B-015 fix
+  expressed as shape rather than as a sentence in the docs. No merge button.
+
+  Driven end to end against a fixture client before shipping. Approving staged both
+  files and flipped the unit to `approved`; `tier_check` then exited **17** on the
+  T1 client's created file — proof that approval does not bypass the gates —
+  and `claim-provenance` exited 0 on the real commit.
+  `tests/test_dashboard.py::test_items_that_share_a_file_are_one_approval_unit`,
+  `::test_a_path_outside_the_changelog_is_refused`,
+  `::test_rejecting_a_new_file_is_refused_rather_than_deleting_it`, and 12 more.
+
+- **`wf-render-snapshot` — a render source, so a client with no static export can
+  be gated at all** (v3 sharp edge #4). Nine gates read `<BUILD_DIR>/**/*.html`:
+  `acceptance_check`, `em_dash_check`, `check_headings`, `capsule_check`,
+  `noncommodity_check`, `fingerprint_check`, `forbidden_sweep`, `orphan_check`,
+  `parity_check`. `lee-series-web` is `nextjs-16-app-router` with no
+  `output: 'export'`, so `./out` never exists, `build-site` exits 1, and **all nine
+  were skipped** — including `forbidden_sweep`, which is `NEVER_BASELINEABLE` for
+  legal exposure.
+
+  Rather than teach nine gates a second way to find a page, this **crawls a
+  rendered deployment into the tree they already glob** — `<route>/index.html`,
+  plus `sitemap.xml` / `robots.txt` / `llms.txt`, which `parity_check` and
+  `robots_aicrawler_check` read and a crawl has to ask for by name.
+  `quality-gate.reusable.yml` says every OUT gate is deliberately FRAMEWORK-BLIND
+  ("it scans whatever BUILD_DIR points at") and this keeps that true.
+
+  It **exits 19 and writes nothing** when no page answered: an empty `--out` would
+  let all nine gates glob zero files and report PASS, which is worse than not
+  running them. The sitemap is read from the LIVE domain while pages are fetched
+  from the candidate, so a PR that dropped a route cannot also drop it from the set
+  of routes being judged.
+
+  The fifteen OUT steps now key on `steps.tree.outputs.ready` instead of
+  `steps.build.outcome`, because a crawled tree is not a successful build — wiring
+  the crawl without rewiring the guards would have produced the tree and then
+  skipped every gate that reads it.
+
+  Proven against a local HTTP server standing in for a deployment: 3 routes +
+  `sitemap.xml` captured, then `em_dash_check` found both legacy em dashes,
+  `check_headings` scanned 3 files and passed, and `parity_check` reported
+  `sitemap=3 built-routes=3` / `PASS: sitemap == built routes` — on a client with
+  no static export, where none of the three could previously run.
+  `tests/test_snapshot.py` (13 tests) + `tests/test_ratchet_wiring.py`.
+  **The CI wiring itself has not run against a live Cloudflare preview — see
+  B-017.**
+
 - **The operator declares the client's tier at onboarding.** The ADD CLIENT panel
   offers T1 / T2 / T3 defaulting to **T1**, and `wf-onboard` / `wf-bootstrap-config`
   take `--tier`, `--content-location` and `--content-registry`. Raising a tier used
@@ -39,6 +160,44 @@ see `CLAUDE.md` (the sync contract).
   enforcement is unchanged; the sentence describing it was no longer true.
 
 ### Fixed
+
+- **`em_dash_check` is baselineable, so a legacy client's PRs are no longer
+  permanently red (B-008).** It was in neither `BASELINEABLE` nor
+  `NEVER_BASELINEABLE`, so `assert_baselineable` refused it as "not in the
+  allow-list" — one em dash in a client's inherited copy blocked every PR forever,
+  with no recording that could accept it.
+
+  **The call, which is what B-008 was waiting for:** an em dash in pre-existing copy
+  is legacy *content* debt, structurally identical to a heading that is not in Title
+  Case — and `check_headings` was already baselineable. `NEVER_BASELINEABLE` is for
+  live falsehoods (an invented credential, a fix that never landed) and structural
+  invariants (sitemap parity, an orphaned route); a legacy em dash is neither.
+  `gate-reference.md` had already diagnosed it: that third category existed
+  "because on the pilot they were already clean. That is a property of the pilot,
+  not of the gates."
+
+  Three parts, because the registry entry alone does nothing (B-007 — *implemented
+  is not wired*): the gate emits `Finding`s instead of printing tuples (the only
+  reason it was never wired — the ratchet needs fingerprints), `gate_argv` learned
+  to invoke it, and the workflow passes the baseline arg. **That last one was caught
+  by an existing test**, `test_every_baselineable_gate_receives_the_baseline`, which
+  went red the moment the gate joined the set. Fingerprint is the offending TEXT
+  with the line number in `detail`, so an unrelated edit above a legacy em dash does
+  not turn it into a new finding.
+
+  ```
+  $ wf-gate-baseline --project ./scratch/ssrclient --out docs/gate-baseline.json
+    total entries: 2
+      em_dash_check          2
+  $ wf-em-dash-check --out ./out --baseline docs/gate-baseline.json
+    em_dash_check: 2 pre-existing (ignored), 0 new (blocking)
+  PASS: no new em dashes (2 pre-existing accepted as legacy debt).     exit=0
+
+  # then a third em dash, in copy we wrote:
+    services/index.html: line 2: [—] …Repair and replacement — fast, clean…
+    em_dash_check: 2 pre-existing (ignored), 1 new (blocking)
+  FAIL: 1 NEW em dash(es) in public text across 1 file(s).             exit=1
+  ```
 
 - **`wf-preflight` no longer stops every new client before the interview (B-010).**
   It required a top-level `industry` that nothing in `pipeline/` ever wrote —

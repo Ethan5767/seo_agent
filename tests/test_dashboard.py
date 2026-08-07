@@ -685,3 +685,403 @@ def test_only_the_three_dot_gates_carry_needs_commit():
     # neither looks at a diff, and refusing them on a clean tree would break the
     # normal flow.
     assert marked == {"tier-check", "claim-provenance"}
+
+
+# ── the stage rail: what do I do now ─────────────────────────────────────────
+# Derived entirely from files on disk, so the console still holds no state. The
+# complaint it answers: nine nav items showed nine artifacts and none showed the
+# sequence.
+
+def _client(path, cfg=None):
+    from pipeline.dashboard.server import discover_clients
+    for c in discover_clients(Path(path).parent):
+        if c["path"] == str(path):
+            return c
+    raise AssertionError(f"{path} not discovered")
+
+
+def _cycle_artifacts(path, ym="2026-08", **files):
+    d = Path(path) / "docs" / "audit" / ym
+    d.mkdir(parents=True, exist_ok=True)
+    for name, doc in files.items():
+        f = d / name.replace("_", ".", 1)
+        f.write_text(json.dumps(doc) if name.endswith("json") else doc)
+
+
+def test_a_config_with_todos_is_the_interview_gate(tmp_path):
+    from pipeline.dashboard.server import next_action
+    p = _repo(tmp_path, "acme", {"business": {"trade": "TODO"}})
+    n = next_action(_client(p))
+    assert n["stage"] == "INTERVIEW"
+    # The one gate that cannot be automated, and it must say why rather than look
+    # like a failure.
+    assert n["human"] is True
+    assert "invent" in n["detail"]
+
+
+def test_no_cycle_at_all_is_measure(tmp_path):
+    from pipeline.dashboard.server import next_action
+    p = _repo(tmp_path, "acme", {"domain": "acme.com"})
+    n = next_action(_client(p))
+    assert (n["stage"], n["command"]) == ("MEASURE", "site-health")
+
+
+def test_a_measured_but_unplanned_cycle_is_plan(tmp_path):
+    from pipeline.dashboard.server import next_action
+    p = _repo(tmp_path, "acme")
+    _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []})
+    n = next_action(_client(p))
+    assert (n["stage"], n["command"]) == ("PLAN", "site-plan")
+
+
+def test_a_worklist_with_items_left_is_remediate_and_says_how_many(tmp_path):
+    from pipeline.dashboard.server import next_action
+    p = _repo(tmp_path, "acme")
+    _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []},
+                     worklist_json={"items": [{"id": "wi-1"}, {"id": "wi-2"}]})
+    n = next_action(_client(p))
+    assert (n["stage"], n["command"]) == ("REMEDIATE", "site-remediate")
+    assert "2 item(s)" in n["label"]
+
+
+def test_a_dirty_tree_after_remediation_is_the_review_gate(tmp_path):
+    from pipeline.dashboard.server import next_action
+    p = _repo(tmp_path, "acme")
+    _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []},
+                     worklist_json={"items": [{"id": "wi-1"}]},
+                     changelog_json={"items": [{"id": "wi-1", "status": "fixed"}],
+                                     "files": {"src.ts": ["wi-1"]}})
+    (p / "src.ts").write_text("export const x = 2\n")
+    n = next_action(_client(p))
+    assert (n["stage"], n["human"]) == ("REVIEW", True)
+
+
+def test_staged_work_is_commit(tmp_path):
+    from pipeline.dashboard.server import next_action
+    p = _repo(tmp_path, "acme")
+    _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []},
+                     worklist_json={"items": [{"id": "wi-1"}]},
+                     changelog_json={"items": [{"id": "wi-1", "status": "fixed"}],
+                                     "files": {"src.ts": ["wi-1"]}})
+    (p / "src.ts").write_text("export const x = 2\n")
+    subprocess.run(["git", "-C", str(p), "add", "-A"], check=True, capture_output=True)
+    assert next_action(_client(p))["stage"] == "COMMIT"
+
+
+def test_a_broken_config_is_its_own_stage_not_a_silent_measure(tmp_path):
+    from pipeline.dashboard.server import next_action
+    p = _repo(tmp_path, "broken", raw_cfg="client: [unclosed\n  bad: :\n")
+    n = next_action(_client(p))
+    assert n["stage"] == "ERROR"
+
+
+def test_the_fleet_card_carries_the_score_and_what_is_left(tmp_path):
+    p = _repo(tmp_path, "acme", {"domain": "acme.com"})
+    _cycle_artifacts(p, findings_json={"urls_checked": 2, "findings": [
+        {"code": "health.title_missing", "location": "/", "fingerprint": "fp1"}]},
+        worklist_json={"items": [{"id": "wi-1"}, {"id": "wi-2"}]})
+    entry = fleet_entry(_client(p))
+    assert entry["score"]["seo"]["score"] is not None
+    assert entry["progress"]["remaining"] == 2
+    assert entry["next"]["stage"] == "REMEDIATE"
+
+
+# ── the measure -> plan chain ────────────────────────────────────────────────
+
+def test_site_health_declares_site_plan_as_its_follow_on():
+    # A measured cycle with no lanes is the one useless state in the rail: the
+    # fleet card has to render it as the words "not planned".
+    assert COMMANDS["site-health"]["then"] == "site-plan"
+
+
+def test_the_chain_is_acyclic_and_only_reaches_declared_commands():
+    # A `then` cycle would hang the server launching runs forever, and a `then`
+    # naming something outside COMMANDS would be a way to reach a command the
+    # console does not offer.
+    for name, spec in COMMANDS.items():
+        seen, cur = {name}, spec.get("then")
+        while cur is not None:
+            assert cur in COMMANDS, f"{name} chains to unknown command {cur}"
+            assert cur not in seen, f"chain from {name} cycles at {cur}"
+            seen.add(cur)
+            cur = COMMANDS[cur].get("then")
+
+
+def test_a_refusal_does_not_start_the_follow_on():
+    from pipeline.dashboard.server import chain_after
+
+    class FakeRun:
+        lines = []
+    start = chain_after("acme", "/tmp/acme", "site-health")
+    run = FakeRun()
+    run.lines = []
+    # 19 = every source unreachable. Planning on top of a run that measured nothing
+    # would produce a worklist from no data.
+    assert start(run, 19) is None
+    assert any("not started" in ln for ln in run.lines)
+
+
+def test_a_command_with_no_follow_on_has_no_hook():
+    from pipeline.dashboard.server import chain_after
+    assert chain_after("acme", "/tmp/acme", "site-plan") is None
+
+
+# ── GATE 2: the diff review ──────────────────────────────────────────────────
+# Approving is `git add`, so the git index IS the approval record — no state, no
+# parallel file to drift. What must be tested is the grouping (a shared file is not
+# separable) and the pathspec boundary (without it this endpoint is `git add` and
+# `git restore` over any path a browser names).
+
+def _remediated(tmp_path, files_map, write=True):
+    """A checkout with a changelog claiming `files_map`, and those files dirty."""
+    p = _repo(tmp_path, "acme")
+    d = p / "docs" / "audit" / "2026-08"
+    d.mkdir(parents=True)
+    (d / "changelog.json").write_text(json.dumps({"cycle": "2026-08", "files": files_map}))
+    if write:
+        for f in files_map:
+            full = p / f
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_text("changed\n")
+    return p
+
+
+def _changelog(p):
+    return json.loads((p / "docs" / "audit" / "2026-08" / "changelog.json").read_text())
+
+
+def test_items_that_share_a_file_are_one_approval_unit(tmp_path):
+    """Two items that both edited lib/page-meta.ts cannot be approved separately —
+    the diff is not separable, and offering the choice loses a fix."""
+    from pipeline.dashboard.server import review_units
+    p = _remediated(tmp_path, {"lib/page-meta.ts": ["wi-1", "wi-2"]})
+    units = review_units(p, _changelog(p))
+    assert len(units) == 1
+    assert units[0]["items"] == ["wi-1", "wi-2"]
+
+
+def test_transitively_shared_files_collapse_into_one_unit(tmp_path):
+    # wi-2 touches both files, so all three items are one unit even though wi-1 and
+    # wi-3 share nothing directly.
+    from pipeline.dashboard.server import review_units
+    p = _remediated(tmp_path, {"a.ts": ["wi-1", "wi-2"], "b.ts": ["wi-2", "wi-3"]})
+    units = review_units(p, _changelog(p))
+    assert len(units) == 1
+    assert units[0]["items"] == ["wi-1", "wi-2", "wi-3"]
+    assert units[0]["files"] == ["a.ts", "b.ts"]
+
+
+def test_independent_items_are_separate_units(tmp_path):
+    from pipeline.dashboard.server import review_units
+    p = _remediated(tmp_path, {"a.ts": ["wi-1"], "b.ts": ["wi-2"]})
+    assert len(review_units(p, _changelog(p))) == 2
+
+
+def test_an_unstaged_unit_is_pending_and_a_staged_one_is_approved(tmp_path):
+    from pipeline.dashboard.server import review_units
+    p = _remediated(tmp_path, {"a.ts": ["wi-1"], "b.ts": ["wi-2"]})
+    assert {u["state"] for u in review_units(p, _changelog(p))} == {"pending"}
+    subprocess.run(["git", "-C", str(p), "add", "--", "a.ts"], check=True, capture_output=True)
+    states = {u["files"][0]: u["state"] for u in review_units(p, _changelog(p))}
+    assert states == {"a.ts": "approved", "b.ts": "pending"}
+
+
+def test_a_unit_carries_the_diff_of_a_new_file(tmp_path):
+    """An untracked file has no `git diff` at all. Showing nothing would read as
+    "no changes" for exactly the case where everything is a change."""
+    from pipeline.dashboard.server import review_units
+    p = _remediated(tmp_path, {"new.ts": ["wi-1"]})
+    unit = review_units(p, _changelog(p))[0]
+    assert "changed" in unit["diff"]
+    assert unit["untracked"] == ["new.ts"]
+
+
+def test_a_modified_tracked_file_shows_both_sides(tmp_path):
+    from pipeline.dashboard.server import review_units
+    p = _repo(tmp_path, "acme")
+    (p / "a.ts").write_text("before\n")
+    subprocess.run(["git", "-C", str(p), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(p), "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-qm", "x"], check=True, capture_output=True)
+    d = p / "docs" / "audit" / "2026-08"
+    d.mkdir(parents=True)
+    (d / "changelog.json").write_text(json.dumps({"files": {"a.ts": ["wi-1"]}}))
+    (p / "a.ts").write_text("after\n")
+    diff = review_units(p, _changelog(p))[0]["diff"]
+    assert "-before" in diff and "+after" in diff
+
+
+# the pathspec boundary
+
+def test_approving_stages_exactly_the_named_paths(tmp_path):
+    from pipeline.dashboard.server import build_review_argv
+    p = _remediated(tmp_path, {"a.ts": ["wi-1"]})
+    assert build_review_argv("approve", p, _changelog(p), ["a.ts"]) == \
+        ["git", "add", "--", "a.ts"]
+
+
+@pytest.mark.parametrize("path", [
+    "../../etc/passwd",
+    "src/secret.env",
+    ".github/workflows/quality-gate.yml",
+    "docs/client-config.yml",
+])
+def test_a_path_outside_the_changelog_is_refused(tmp_path, path):
+    """THE security boundary. Without it, POST /review is `git add` and
+    `git restore` over any path the browser names, bound to a port. The changelog is
+    the record of what the agent actually touched, so it is the only legitimate
+    source of a path here."""
+    from pipeline.dashboard.server import build_review_argv
+    p = _remediated(tmp_path, {"a.ts": ["wi-1"]})
+    with pytest.raises(ValueError, match="not a file this cycle's changelog records"):
+        build_review_argv("approve", p, _changelog(p), [path])
+
+
+def test_a_cycle_with_no_recorded_files_can_approve_nothing(tmp_path):
+    from pipeline.dashboard.server import build_review_argv
+    p = _remediated(tmp_path, {})
+    with pytest.raises(ValueError, match="nothing to approve"):
+        build_review_argv("approve", p, _changelog(p), ["a.ts"])
+
+
+def test_an_unknown_review_action_is_refused(tmp_path):
+    from pipeline.dashboard.server import build_review_argv
+    p = _remediated(tmp_path, {"a.ts": ["wi-1"]})
+    for bad in ("merge", "commit", "push", "clean"):
+        with pytest.raises(ValueError, match="unknown review action"):
+            build_review_argv(bad, p, _changelog(p), ["a.ts"])
+
+
+def test_rejecting_a_tracked_file_restores_it(tmp_path):
+    from pipeline.dashboard.server import build_review_argv
+    p = _repo(tmp_path, "acme")
+    (p / "a.ts").write_text("before\n")
+    subprocess.run(["git", "-C", str(p), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(p), "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-qm", "x"], check=True, capture_output=True)
+    d = p / "docs" / "audit" / "2026-08"
+    d.mkdir(parents=True)
+    (d / "changelog.json").write_text(json.dumps({"files": {"a.ts": ["wi-1"]}}))
+    (p / "a.ts").write_text("after\n")
+    assert build_review_argv("reject", p, _changelog(p), ["a.ts"]) == \
+        ["git", "restore", "--staged", "--worktree", "--", "a.ts"]
+
+
+def test_rejecting_a_new_file_is_refused_rather_than_deleting_it(tmp_path):
+    """`git restore` cannot revert a create, and the honest alternative
+    (`git clean -f`) silently deletes a file. A console that quietly destroys the
+    agent's work on a misclick is worse than one that says no."""
+    from pipeline.dashboard.server import build_review_argv
+    p = _remediated(tmp_path, {"new.ts": ["wi-1"]})
+    with pytest.raises(ValueError, match="delete it yourself"):
+        build_review_argv("reject", p, _changelog(p), ["new.ts"])
+    assert (p / "new.ts").exists()
+
+
+def test_review_needs_at_least_one_file(tmp_path):
+    from pipeline.dashboard.server import build_review_argv
+    p = _remediated(tmp_path, {"a.ts": ["wi-1"]})
+    for bad in ([], None, "a.ts"):
+        with pytest.raises(ValueError, match="name the files"):
+            build_review_argv("approve", p, _changelog(p), bad)
+
+
+def test_review_is_empty_without_a_changelog(tmp_path):
+    from pipeline.dashboard.server import review_units
+    p = _repo(tmp_path, "acme")
+    assert review_units(p, None) == []
+    assert review_units(p, {"cycle": "2026-08"}) == []
+
+
+# ── an unpushed branch is not a pushed one ───────────────────────────────────
+# A fresh `cycle/` branch has no upstream, so `ahead` is 0 from the moment it is
+# created. Anything deciding "has this been pushed?" from `ahead` alone reads an
+# unpushed cycle as pushed — which skipped the gate step on exactly the branch that
+# needed it and offered a PR straight after the commit. Caught by driving the real
+# flow, not by a unit test.
+
+def test_a_branch_with_no_upstream_is_not_reported_as_pushed(tmp_path):
+    p = _committed_repo(tmp_path)
+    subprocess.run(["git", "-C", str(p), "checkout", "-qb", "cycle/acme-2026-08"],
+                   check=True, capture_output=True)
+    st = git_state(p)
+    assert st["ahead"] == 0            # no upstream to be ahead of
+    assert st["upstream"] is False
+    assert st["pushed"] is False       # the distinction that matters
+
+
+def test_a_branch_level_with_its_upstream_is_pushed(tmp_path):
+    p = _committed_repo(tmp_path)
+    st = git_state(p)                  # main tracks nothing in this fixture…
+    assert st["pushed"] is False
+    # `@{upstream}` needs a real `remote.origin` entry, not just a
+    # refs/remotes/origin/* ref — git refuses to resolve tracking against a ref that
+    # belongs to no configured remote.
+    for cmd in (["remote", "add", "origin", str(p)],
+                ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+                ["config", "branch.main.remote", "origin"],
+                ["config", "branch.main.merge", "refs/heads/main"]):
+        subprocess.run(["git", "-C", str(p), *cmd], check=True, capture_output=True)
+    st = git_state(p)
+    assert (st["upstream"], st["ahead"], st["pushed"]) == (True, 0, True)
+
+
+def test_an_unpushed_cycle_commit_is_the_pr_stage_not_the_merge_stage(tmp_path):
+    """The bug this pins: with `ahead` as the test, a committed-but-unpushed cycle
+    branch fell through to MERGE — telling the operator to go read a PR on GitHub
+    that does not exist, and skipping the gates."""
+    from pipeline.dashboard.server import next_action
+    p = _repo(tmp_path, "acme")
+    subprocess.run(["git", "-C", str(p), "update-ref", "refs/remotes/origin/main", "HEAD"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(p), "symbolic-ref", "refs/remotes/origin/HEAD",
+                    "refs/remotes/origin/main"], check=True, capture_output=True)
+    _cycle_artifacts(p, findings_json={"urls_checked": 1, "findings": []},
+                     worklist_json={"items": [{"id": "wi-1"}]},
+                     changelog_json={"items": [{"id": "wi-1", "status": "fixed"}],
+                                     "files": {"src.ts": ["wi-1"]}})
+    subprocess.run(["git", "-C", str(p), "checkout", "-qb", "cycle/acme-2026-08"],
+                   check=True, capture_output=True)
+    (p / "src.ts").write_text("export const x = 2\n")
+    subprocess.run(["git", "-C", str(p), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(p), "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-qm", "cycle"], check=True, capture_output=True)
+    assert next_action(_client(p))["stage"] == "PR"
+
+
+# ── the render-snapshot command, and its URL argument type ───────────────────
+
+def test_the_snapshot_command_is_offered_with_a_url_argument():
+    assert COMMANDS["render-snapshot"]["args"]["base-url"] == "url"
+    # 19 must not read as the rail's "every source unreachable" generic: for this
+    # command it means nothing was written, which is the whole safety property.
+    assert COMMANDS["render-snapshot"]["exits"][19][0] == "refused"
+
+
+def test_a_base_url_must_be_an_absolute_http_url():
+    argv = build_argv("render-snapshot", "/p", {"base-url": "https://pr-34.pages.dev"})
+    assert argv[-2:] == ["--base-url", "https://pr-34.pages.dev"]
+
+
+@pytest.mark.parametrize("bad", [
+    "-flag",
+    "file:///etc/passwd",
+    "javascript:alert(1)",
+    "pr-34.pages.dev",              # no scheme
+    "https://x.dev; rm -rf /",
+    "https://x.dev/$(whoami)",
+    123,
+])
+def test_a_base_url_that_is_not_an_origin_is_refused(bad):
+    with pytest.raises(ValueError, match="absolute http"):
+        build_argv("render-snapshot", "/p", {"base-url": bad})
+
+
+def test_every_declared_argument_type_has_a_builder():
+    """A kind with no branch in build_argv used to fall through to the path-list
+    input and send the wrong shape; an unhandled kind now raises. This asserts the
+    two lists agree, so adding a type to COMMANDS cannot silently break a command."""
+    handled = {"int", "path-list", "cycle", "flag", "url"}
+    for name, spec in COMMANDS.items():
+        for arg, kind in spec["args"].items():
+            assert kind in handled, f"{name}.{arg} declares unhandled type {kind}"

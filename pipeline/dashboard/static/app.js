@@ -44,6 +44,7 @@ const NAV = [
   { href: '/client', icon: 'group', label: 'Client', needsClient: true },
   { href: '/findings', icon: 'troubleshoot', label: 'Findings', needsClient: true },
   { href: '/worklist', icon: 'assignment', label: 'Worklist', needsClient: true },
+  { href: '/review', icon: 'difference', label: 'Review Diff', needsClient: true },
   { href: '/report', icon: 'analytics', label: 'Report', needsClient: true },
   { href: '/changelog', icon: 'history', label: 'Changelog', needsClient: true },
   { href: '/runs', icon: 'terminal', label: 'Runs', needsClient: true },

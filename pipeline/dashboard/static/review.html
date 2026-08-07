@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Review Diff · wf-dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<script src="/static/theme.js"></script>
+<link href="/static/theme.css" rel="stylesheet"/>
+</head>
+<body class="font-body-md text-body-md antialiased">
+<main class="md:ml-60 pt-12 min-h-screen flex flex-col bg-background">
+<div class="h-12 border-b border-outline-variant bg-surface-container flex items-center gap-md px-md shrink-0">
+<span class="font-label-caps text-label-caps text-on-surface-variant">REVIEW DIFF</span>
+<select id="cycle" class="bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary"></select>
+<span id="counts" class="font-mono-sm text-mono-sm text-on-surface-variant"></span>
+<span class="ml-auto font-mono-sm text-mono-sm text-on-surface-variant/70">approving is <code>git add</code> — the index is the record</span>
+</div>
+<div class="p-md flex flex-col gap-md">
+<!-- Approve all / the bulk action, above the units so it is not buried under a
+     long diff the operator has to scroll past. -->
+<div id="bulk"></div>
+<div id="units" class="flex flex-col gap-md"></div>
+<!-- The finish panel: revealed only when nothing is pending, and its steps are
+     ordered commit -> gate -> push -> PR. That order IS the B-015 fix: the gates
+     diff origin/<default>...HEAD, so gating before the commit judges an empty diff
+     and passes over nothing. -->
+<section id="finish"></section>
+<section class="border border-outline-variant rounded bg-surface-container-lowest">
+  <div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">OUTPUT</div>
+  <div id="log" class="p-md font-mono-base text-mono-base max-h-64 overflow-auto"></div>
+</section>
+</div>
+</main>
+<script src="/static/app.js"></script>
+<script src="/static/page-review.js"></script>
+</body></html>

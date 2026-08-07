@@ -10,6 +10,57 @@ A client gives us collaborator access to their repo and their domain. The pipeli
 
 ---
 
+## Three gates, and one button for everything else
+
+The console derives which of eight stages a client is on from the artifacts already
+on disk, and offers **one** next action. Three of those stages are yours; the rest
+are a click.
+
+```
+ADD CLIENT                    repo · domain · TIER (T1 by default)
+  │  clone · config · preflight · profile · scaffold · commit the scaffold to main
+  ▼
+GATE 1 — THE INTERVIEW        ← you. unavoidable.
+  │  Nobody can invent a licence number, opening hours, or a review count.
+  │  wf-preflight exits 12, the console names the file, the same button resumes.
+  ▼
+  │  measure → plan           automatic: site-health chains into site-plan, because
+  │                           a measured cycle with no lanes is a useless state
+  ▼
+ONE CLICK — REMEDIATE         shows the item count first; a re-run RESUMES
+  │  Claude Code edits inside the tier, one item per invocation
+  ▼
+GATE 2 — THE DIFF             ← you. per item, or approve all.
+  │  Approving is `git add`. The git index IS the approval record.
+  │  Items that touched the same file are one unit: those diffs are not separable.
+  ▼
+  │  commit → gates → push    in that order, and only that order
+  ▼
+  "Open a pull request?"      asked, never assumed
+  ▼
+GATE 3 — THE MERGE            ← you, on GitHub. the only path to production.
+```
+
+**Why commit before gating.** `tier_check` and `claim_provenance_check` diff
+`origin/<default>...HEAD` — commits, not the working tree. Run either on a dirty
+checkout with no cycle commit and the diff is empty, both exit 0, and you get a
+green "every check passed" over work they never looked at. The console **refuses**
+to start them with nothing committed, and the review screen only offers them after
+the commit, so the correct order is the only order available.
+
+**What the numbers mean.** The client screen carries an **SEO** and an **AEO** score
+and a count of findings left. The score is a pass rate over *(page, check)* pairs: a
+check either fires on a page or it does not. That is why 1158 alt-text findings on
+one page cost one pair rather than 1158, why a check whose config field is unset
+leaves the denominator instead of counting as a pass (it is listed as `not scored`),
+and why a cycle nobody measured reads `not measured` rather than 100. The chart
+draws a **solid** line for measured cycles, a **dashed** segment to a hollow marker
+for what the pending PR *claims* it will do, and marks verification only when
+`acceptance_check` can actually run — for a client with no static export it says
+*cannot verify*, which is not the same as *not verified*.
+
+---
+
 ## The flow, step by step
 
 ### 1. Onboarding: a repo and a domain

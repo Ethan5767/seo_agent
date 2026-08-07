@@ -13,6 +13,18 @@
 <main class="md:ml-60 pt-12 min-h-screen flex flex-col bg-background">
 <div id="header"></div>
 <div class="p-md flex flex-col gap-md">
+  <!-- The sequence, and the one thing to do next. Every other screen shows an
+       artifact; this shows where the client IS. -->
+  <section id="stage" class="border border-outline-variant rounded bg-surface-container-low"></section>
+  <!-- Score + the graph. Two families, one chart, three states. -->
+  <section class="border border-outline-variant rounded bg-surface-container-low">
+    <div class="px-md py-sm border-b border-outline-variant flex items-center gap-md">
+      <span class="font-label-caps text-label-caps text-on-surface-variant">SEO / AEO SCORE</span>
+      <span id="score-cycle" class="font-mono-sm text-mono-sm text-on-surface-variant/60 ml-auto"></span>
+    </div>
+    <div id="tiles" class="p-md grid grid-cols-1 md:grid-cols-3 gap-md"></div>
+    <div id="chart" class="relative px-md pb-md"></div>
+  </section>
   <section class="border border-outline-variant rounded bg-surface-container-low">
     <div class="px-md py-sm border-b border-outline-variant flex items-center gap-md">
       <span class="font-label-caps text-label-caps text-on-surface-variant">CYCLE</span>
@@ -27,5 +39,6 @@
 </div>
 </main>
 <script src="/static/app.js"></script>
+<script src="/static/chart.js"></script>
 <script src="/static/page-client.js"></script>
 </body></html>

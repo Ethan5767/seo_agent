@@ -63,6 +63,26 @@ on:
         required: false
         type: string
         default: "./out"
+      # v3 sharp edge #4. Nine OUT gates read <BUILD_DIR>/**/*.html. A client with no
+      # static export emits no such tree, build-site exits 1, and all nine are
+      # SKIPPED — including forbidden_sweep, which is NEVER_BASELINEABLE for legal
+      # exposure. Passing a rendered deployment here lets wf-render-snapshot crawl it
+      # into the tree the gates already glob, so nothing downstream learns a new
+      # concept. preview.reusable.yml already resolves this URL and exposes it as
+      # `preview_url`.
+      #
+      # Empty = require a real build, which is correct for every statically exported
+      # client and stays the default.
+      render_url:
+        description: "Rendered deployment to crawl when the repo has no static export (e.g. the CF preview URL). Empty = require a real build."
+        required: false
+        type: string
+        default: ""
+      render_urls:
+        description: "Space-separated paths to crawl instead of the live sitemap. Use when the sitemap is a generated route rather than a static file."
+        required: false
+        type: string
+        default: ""
       node_version:
         description: "Node.js version for the build"
         required: false
@@ -271,7 +291,7 @@ jobs:
       # prod: install command, node version, build command and output dir are one
       # definition. Referenced from the version-locked .pipeline checkout so it
       # stays pinned to the client's tag. `id: build` preserves every downstream
-      # `if: steps.build.outcome == 'success'`. It writes FAMILY/BUILD_DIR to
+      # `if: steps.tree.outputs.ready == 'true'`. It writes FAMILY/BUILD_DIR to
       # GITHUB_ENV (propagates to the OUT gates) and exposes framework_family /
       # build_dir / recipe_hash as step outputs.
       - name: Build (shared build-site action)
@@ -282,6 +302,45 @@ jobs:
           node_version: ${{ inputs.node_version }}
           build_command: ${{ inputs.build_command }}
           build_output_dir: ${{ inputs.build_output_dir }}
+
+      # --- the render source for a client with no static export ---------------
+      # Runs ONLY when the build did not produce a tree AND the caller supplied a
+      # rendered deployment. It writes BUILD_DIR itself, then sets
+      # `steps.build.outcome`-equivalent state via SNAPSHOT_OK so the OUT gates below
+      # can run against a crawl exactly as they would against a build.
+      #
+      # It exits 19 and writes NOTHING when no page answered, which is deliberate: an
+      # empty BUILD_DIR would let all nine gates glob zero files and report green,
+      # which is worse than not running them.
+      - name: Crawl the rendered deployment (no static export)
+        id: snapshot
+        if: steps.build.outcome != 'success' && inputs.render_url != ''
+        continue-on-error: true
+        env:
+          RENDER_URL: ${{ inputs.render_url }}
+          RENDER_PATHS: ${{ inputs.render_urls }}
+          SNAP_DIR: ${{ inputs.build_output_dir }}
+        run: |
+          URL_ARGS=""
+          for p in $RENDER_PATHS; do URL_ARGS="$URL_ARGS --url $p"; done
+          wf-render-snapshot --project . --base-url "$RENDER_URL" \
+            --out "$SNAP_DIR" --clean $URL_ARGS
+          echo "BUILD_DIR=${SNAP_DIR}" >> "$GITHUB_ENV"
+          echo "FAMILY=crawl" >> "$GITHUB_ENV"
+
+      # One name for "there is a tree to judge", however it got there. Every OUT gate
+      # keys on this instead of on steps.build.outcome, so a crawled tree is gated
+      # and an absent tree is still skipped.
+      - name: Resolve whether there is HTML to judge
+        id: tree
+        run: |
+          if [ "${{ steps.build.outcome }}" = "success" ] || [ "${{ steps.snapshot.outcome }}" = "success" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "source=$([ "${{ steps.build.outcome }}" = "success" ] && echo build || echo crawl)" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::error::No HTML to judge — the build produced no ${{ inputs.build_output_dir }} and no render_url was supplied (or the crawl failed). The nine OUT gates cannot run, so they are SKIPPED rather than reported green. See v3 sharp edge #4."
+          fi
 
       # tsc needs node_modules, which the shared build action installed via
       # npm ci, so it runs AFTER the build (a source gate by intent; placement is
@@ -296,34 +355,38 @@ jobs:
       # skipped and the build failure is itself the blocker.
       - name: "OUT: Heading casing (BLOCK)"
         id: headings
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-check-headings --out "$BUILD_DIR" --project . ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: No-orphan gate (BLOCK)"
         id: orphan
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-orphan-check --out "$BUILD_DIR"
 
       - name: "OUT: Sitemap<->routes<->llms.txt parity, strict (BLOCK)"
         id: parity
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-parity-check --out "$BUILD_DIR" --strict-llms
 
+      # Baselineable since B-008: an em dash in the client's pre-existing copy is
+      # legacy content debt, the same class as a heading that is not in Title Case.
+      # Without the baseline arg one legacy em dash blocks every PR forever, with no
+      # recording that can accept it.
       - name: "OUT: No em dashes (BLOCK)"
         id: emdash
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
-        run: wf-em-dash-check --out "$BUILD_DIR"
+        run: wf-em-dash-check --out "$BUILD_DIR" ${{ steps.baseline.outputs.arg }}
 
       # audit-built needs docs/client-config.yml (NAP/domain/schema) + a URL list
       # (it does not self-derive). Until config lands it soft-skips; when present
       # it audits every <loc> in the built sitemap.
       - name: "OUT: audit-built 30-point (BLOCK when config present)"
         id: audit_built
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: |
           if [ ! -f docs/client-config.yml ]; then
@@ -346,7 +409,7 @@ jobs:
       # $BUILD_DIR via --build-dir. Exit 3 = hit, exit 4 = empty ruleset (fail-loud).
       - name: "OUT: Forbidden sweep, built (BLOCK when config present)"
         id: forbidden
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: |
           if [ ! -f docs/client-config.yml ] && [ ! -f docs/banned-phrases.txt ]; then
@@ -360,43 +423,43 @@ jobs:
       # NOT here — this workflow never deploys.
       - name: "OUT: AI-crawler robots.txt (BLOCK)"
         id: robots
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-robots-aicrawler-check --out "$BUILD_DIR" --project .
 
       - name: "OUT: Content capsule §20 (BLOCK)"
         id: capsule
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-capsule-check . --out "$BUILD_DIR" ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: Non-commodity §21 (BLOCK)"
         id: noncommodity
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-noncommodity-check . --out "$BUILD_DIR" ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: Invisible-char fingerprint (BLOCK)"
         id: fingerprint
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-fingerprint-check --out "$BUILD_DIR"
 
       - name: "OUT: llms.txt sales purge (BLOCK)"
         id: llms
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-llms-sales-purge --out "$BUILD_DIR" --project . ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: Image budget (BLOCK)"
         id: image
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-image-budget-check --out "$BUILD_DIR" --project . ${{ steps.baseline.outputs.arg }}
 
       - name: "OUT: LCP hygiene (BLOCK)"
         id: lcp
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-lcp-hygiene-check --out "$BUILD_DIR" --project . ${{ steps.baseline.outputs.arg }}
 
@@ -405,7 +468,7 @@ jobs:
       # fires blocks the merge. A PR that claims nothing skips green.
       - name: "OUT: acceptance, the claimed fixes actually landed (BLOCK)"
         id: acceptance
-        if: steps.build.outcome == 'success'
+        if: steps.tree.outputs.ready == 'true'
         continue-on-error: true
         run: wf-acceptance-check --project . --out "$BUILD_DIR"
 

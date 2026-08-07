@@ -27,6 +27,8 @@ except ImportError:
     print("[ERROR] PyYAML required. Run: pip3 install pyyaml", file=sys.stderr)
     sys.exit(2)
 
+from pipeline.lib.score import progress, score, series
+
 STATIC = Path(__file__).parent / "static"
 RUN_LOGS = Path.home() / ".cache" / "seo_agent" / "runs"
 
@@ -39,11 +41,17 @@ RUN_LOGS = Path.home() / ".cache" / "seo_agent" / "runs"
 # absent because nobody asked, which is how a failed `git pull` and a broken
 # ratchet both came to render as a green success chip.
 COMMANDS = {
+    # `then` chains the follow-on run. A measured cycle with no lanes is the one
+    # genuinely useless state in the rail — the fleet card has to render it as the
+    # words "not planned" — and nobody has ever wanted to stop there. The chain is
+    # declarative rather than a second orchestrator: exit 0 or 1 launches it, 2+
+    # does not, because a refusal must not be followed by work built on it.
     "site-health": {
         "argv": ["wf-site-health", "--project", "{project}"],
         "args": {"limit": "int", "url": "path-list"},
         "label": "Measure live site",
         "exits": {},
+        "then": "site-plan",
     },
     "site-plan": {
         "argv": ["wf-site-plan", "--project", "{project}"],
@@ -93,6 +101,20 @@ COMMANDS = {
         "args": {"cycle": "cycle"},
         "label": "Re-measure the claimed fixes",
         "exits": {},
+    },
+    # v3 sharp edge #4: a client with no static export emits no HTML tree, so the
+    # nine OUT gates (acceptance_check among them) have nothing to read. This crawls
+    # a rendered deployment into the tree they expect. `base-url` is a URL, not a
+    # path, so it gets its own declared type rather than riding on `path-list`.
+    "render-snapshot": {
+        "argv": ["wf-render-snapshot", "--project", "{project}"],
+        "args": {"base-url": "url", "url": "path-list", "limit": "int",
+                 "clean": "flag"},
+        "label": "Crawl a deployment into the tree the gates read",
+        "exits": {
+            19: ("refused", "REFUSED — nothing was fetched, so nothing was written. "
+                            "An empty build dir would make every gate pass over zero files"),
+        },
     },
     "preflight": {
         "argv": ["wf-preflight", "--project", "{project}"],
@@ -243,12 +265,18 @@ def git_state(path):
     dirty = bool(_git(path, "status", "--porcelain"))
     ahead = behind = 0
     counts = _git(path, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+    # A branch with NO upstream has never been pushed, and that is not the same as
+    # "up to date with its upstream" — but both used to come back ahead=0. A fresh
+    # `cycle/` branch is exactly the no-upstream case, so anything deciding "has
+    # this been pushed?" from `ahead` alone reads an unpushed cycle as pushed.
+    upstream = bool(counts)
     if counts:
         parts = counts.split()
         if len(parts) == 2:
             behind, ahead = int(parts[0]), int(parts[1])
     state = "dirty" if dirty else "ahead" if ahead else "behind" if behind else "clean"
     return {"branch": branch, "dirty": dirty, "ahead": ahead, "behind": behind,
+            "upstream": upstream, "pushed": upstream and ahead == 0,
             "state": state, "default_branch": default_branch(path)}
 
 
@@ -293,6 +321,38 @@ def baseline_state(path):
         return {"present": True, "entries": None, "recorded": None}
 
 
+def acceptance_state(path):
+    """Can `acceptance_check` verify this client's claimed fixes at all?
+
+    It reads the BUILT HTML, and a client with no static export emits no route tree
+    — v3 sharp edge #4. lee-series-web is `nextjs-16-app-router` with no
+    `output: 'export'`, so `./out` never exists and the gate cannot run there.
+
+    Returns `{"can_verify": bool|None, "reason": str}`. `can_verify: False` must
+    render as "cannot verify" and never as "not verified by us yet", because the
+    two mean opposite things about whether anyone should trust the claims.
+    """
+    try:
+        from pipeline.lib.common import (client_profile, detect_static_export,
+                                        framework_family, load_config,
+                                        resolve_build_dir)
+        cfg = load_config(str(path))
+        profile = client_profile(cfg, str(path))
+        raw = ((cfg.get("repo") or {}).get("framework")) or ""
+        verdict = detect_static_export(path, framework_family(raw), raw)
+        build = Path(path) / resolve_build_dir(profile, path).lstrip("./")
+    except Exception as exc:
+        return {"can_verify": None, "reason": f"cannot tell: {exc}"}
+    if build.is_dir() and any(build.rglob("*.html")):
+        return {"can_verify": True, "reason": f"route tree at {build.name}/"}
+    if verdict is False:
+        return {"can_verify": False,
+                "reason": "no static export — acceptance_check reads the built HTML "
+                          "and this repo emits no route tree (v3 sharp edge #4)"}
+    return {"can_verify": None,
+            "reason": "not built here — run the gate in CI, or build once locally"}
+
+
 def lane_counts(findings_doc):
     """None until wf-site-plan stamps the lanes back onto the findings, so a
     measured-but-unplanned cycle reads as unplanned rather than as four zeros."""
@@ -308,12 +368,128 @@ def lane_counts(findings_doc):
     return out
 
 
+def has_todos(cfg):
+    """True when the config still carries an unresolved TODO — the interview step.
+
+    Walks the same way preflight does. This is the one gate in the whole flow that
+    cannot be automated: nobody can invent a licence number, opening hours, or a
+    review count.
+    """
+    def walk(obj):
+        if isinstance(obj, dict):
+            return any(walk(v) for v in obj.values())
+        if isinstance(obj, list):
+            return any(walk(v) for v in obj)
+        return obj == "TODO"
+    return walk(cfg or {})
+
+
+# The seven stages a client moves through, in order, and who clears each. Derived
+# entirely from files already on disk — the console still holds no state.
+#
+# `human` marks the three gates. Everything else is one button, and the point of
+# the rail is that the operator never has to work out which button.
+STAGES = ["INTERVIEW", "MEASURE", "PLAN", "REMEDIATE", "REVIEW", "COMMIT", "PR", "MERGE"]
+
+
+def next_action(client, cycle=None):
+    """{stage, human, label, detail, command, blocked_by} for one client.
+
+    Answers "what do I do now", which is the question the nine-item nav could not
+    answer: every screen showed an artifact and no screen showed the sequence.
+    """
+    path, cfg = client["path"], client["cfg"]
+    if client["error"]:
+        return {"stage": "ERROR", "human": True, "label": "Config will not parse",
+                "detail": client["error"], "command": None, "blocked_by": None}
+    if has_todos(cfg):
+        return {"stage": "INTERVIEW", "human": True,
+                "label": "Resolve the config TODOs",
+                "detail": f"{path}/docs/client-config.yml still has TODO values. "
+                          f"Nobody can invent a licence number or a review count — "
+                          f"this is the interview. Then run preflight.",
+                "command": "preflight", "blocked_by": None}
+
+    cyc = cycles(path)
+    ym = cycle if cycle in cyc else (cyc[0] if cyc else None)
+    if ym is None:
+        return {"stage": "MEASURE", "human": False, "label": "Measure the live site",
+                "detail": "No docs/audit/<YYYY-MM>/ yet. site-health crawls the "
+                          "sitemap and chains straight into site-plan.",
+                "command": "site-health", "blocked_by": None}
+
+    findings = read_artifact(path, ym, "findings.json")
+    worklist = read_artifact(path, ym, "worklist.json")
+    changelog = read_artifact(path, ym, "changelog.json")
+    if findings is None:
+        return {"stage": "MEASURE", "human": False, "label": "Measure the live site",
+                "detail": f"Cycle {ym} has no findings.json. This is not a clean "
+                          f"site — it is a cycle that was never measured.",
+                "command": "site-health", "blocked_by": None}
+    if worklist is None:
+        return {"stage": "PLAN", "human": False, "label": "Plan the worklist",
+                "detail": f"Cycle {ym} is measured but not planned, so no finding "
+                          f"has a lane and nothing is actionable yet.",
+                "command": "site-plan", "blocked_by": None}
+
+    prog = progress(worklist, changelog)
+    st = git_state(path)
+    if prog["remaining"] > 0:
+        return {"stage": "REMEDIATE", "human": False,
+                "label": f"Remediate {prog['remaining']} item(s)",
+                "detail": f"{prog['remaining']} of {prog['actionable']} actionable "
+                          f"item(s) left" +
+                          (f", {prog['attempted_not_fixed']} already attempted once"
+                           if prog["attempted_not_fixed"] else "") +
+                          ". The agent writes inside the tier; you review the diff next.",
+                "command": "site-remediate",
+                # Read access is a fact to check, not assume: a run that cannot end
+                # in a PR should say so before it spends money.
+                "blocked_by": None}
+
+    if changelog is None:
+        return {"stage": "REVIEW", "human": True, "label": "Nothing to review yet",
+                "detail": "Every actionable item is done or none was ever queued.",
+                "command": None, "blocked_by": None}
+
+    changed = bool(_git(path, "status", "--porcelain"))
+    staged = bool(_git(path, "diff", "--cached", "--name-only"))
+    if changed and not staged:
+        return {"stage": "REVIEW", "human": True, "label": "Review the diff",
+                "detail": f"{prog['fixed']} claimed fix(es) are sitting in the "
+                          f"working tree. Approve them item by item, or all at once.",
+                "command": None, "blocked_by": None}
+    if changed and staged:
+        return {"stage": "COMMIT", "human": False, "label": "Commit the approved work",
+                "detail": "Approved changes are staged. Commit, then the gates can "
+                          "judge a real diff.",
+                "command": None, "blocked_by": None}
+    # `pushed`, not `ahead`: a fresh cycle branch has no upstream, so `ahead` is 0
+    # from the moment it is created and an unpushed cycle read as already pushed —
+    # which skipped this stage and the gates with it.
+    on_default = st.get("branch") == st.get("default_branch")
+    if not on_default and not st.get("pushed") and commits_to_judge(path):
+        return {"stage": "PR", "human": False, "label": "Gate, push and open a PR",
+                "detail": (f"{st['ahead']} commit(s) exist only in this checkout."
+                           if st.get("upstream")
+                           else "This branch has never been pushed, so nobody else "
+                                "can see it.") +
+                          " The gates run first, over a real commit.",
+                "command": None, "blocked_by": None}
+    return {"stage": "MERGE", "human": True, "label": "Review and merge on GitHub",
+            "detail": "A human merging is the only path to production, and reading "
+                      "the diff is the point.",
+            "command": None, "blocked_by": None}
+
+
 def fleet_entry(client):
     path, cfg = client["path"], client["cfg"]
     cyc = cycles(path)
     latest = cyc[0] if cyc else None
     doc = read_artifact(path, latest, "findings.json") if latest else None
     total = len(doc.get("findings", [])) if isinstance(doc, dict) and "findings" in doc else None
+    worklist = read_artifact(path, latest, "worklist.json") if latest else None
+    changelog = read_artifact(path, latest, "changelog.json") if latest else None
     return {
         "slug": client["slug"],
         "domain": cfg.get("domain"),
@@ -325,6 +501,11 @@ def fleet_entry(client):
         "generated": doc.get("generated") if isinstance(doc, dict) else None,
         "baseline": baseline_state(path),
         "git": git_state(path),
+        # The two numbers the operator asked for and could not get anywhere: what is
+        # our score, and how many findings are left.
+        "score": score(doc, cfg),
+        "progress": progress(worklist, changelog),
+        "next": next_action(client),
         "error": client["error"],
     }
 
@@ -334,9 +515,10 @@ class Run:
     """One subprocess. Lines land in a list (for SSE) and a log file (so a
     browser refresh does not lose the output of a run that already finished)."""
 
-    def __init__(self, run_id, slug, command, argv, cwd, env=None):
+    def __init__(self, run_id, slug, command, argv, cwd, env=None, on_exit=None):
         self.id, self.slug, self.command, self.argv = run_id, slug, command, argv
         self.lines, self.exit_code, self.started = [], None, time.time()
+        self.cwd, self.on_exit, self.chained = cwd, on_exit, None
         RUN_LOGS.mkdir(parents=True, exist_ok=True)
         self.log = RUN_LOGS / f"{run_id}.log"
         # `env` carries a credential and is never echoed. argv is — into the log
@@ -353,12 +535,20 @@ class Run:
                 self.lines.append(line)
                 fh.write(line + "\n")
                 fh.flush()
-        self.exit_code = self.proc.wait()
+        code = self.proc.wait()
+        # The follow-on is launched BEFORE exit_code is published, so busy_run still
+        # sees this client as busy and the chain cannot race the one-writer rule.
+        if self.on_exit is not None:
+            try:
+                self.chained = self.on_exit(self, code)
+            except Exception as exc:                # a broken chain must not
+                self.lines.append(f"[WARN] follow-on not started: {exc}")   # hide the
+        self.exit_code = code                                              # real exit
 
     def status(self):
         return {"run_id": self.id, "slug": self.slug, "command": self.command,
                 "argv": self.argv, "started": self.started, "lines": len(self.lines),
-                "running": self.exit_code is None,
+                "running": self.exit_code is None, "chained": self.chained,
                 "exit": None if self.exit_code is None
                 else interpret_exit(self.exit_code, self.command)}
 
@@ -405,6 +595,33 @@ def commits_to_judge(path):
         return None
 
 
+def chain_after(slug, cwd, command):
+    """The `on_exit` hook that starts a command's declared follow-on, or None.
+
+    Only `COMMANDS[command]["then"]` can be launched — the same allow-list
+    discipline as everything else, so a chain can never become a way to reach a
+    command that is not offered. It fires on exit 0 and 1 only: for the rail those
+    mean "measured / wrote what it found", and anything else is a refusal that the
+    next stage must not be built on top of.
+    """
+    then = COMMANDS.get(command, {}).get("then")
+    if then is None:
+        return None
+
+    def start(run, code):
+        if code not in (0, 1):
+            run.lines.append(f"[chain] {then} not started — {command} exited {code}")
+            return None
+        run_id = f"{int(time.time() * 1000):x}-{secrets.token_hex(3)}"
+        argv = build_argv(then, cwd, {})
+        run.lines.append(f"[chain] {command} exited {code} -> starting {then}")
+        with RUNS_LOCK:
+            RUNS[run_id] = Run(run_id, slug, then, argv, cwd,
+                               on_exit=chain_after(slug, cwd, then))
+        return {"run_id": run_id, "command": then}
+    return start
+
+
 def build_argv(command, project, args):
     """Name → argv. Every supplied argument is validated against a declared type
     before it joins the list; nothing is interpolated into a shell."""
@@ -430,6 +647,14 @@ def build_argv(command, project, args):
         elif kind == "cycle":
             if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}", value):
                 raise ValueError(f"{key} must be YYYY-MM")
+            argv += [f"--{key}", value]
+        elif kind == "url":
+            # An absolute http(s) URL and nothing else. A path-list value would let
+            # `--base-url` carry `-flag` or a shell-ish string; this is the one
+            # argument in the allow-list that must be a real origin.
+            if not isinstance(value, str) or \
+                    not re.fullmatch(r"https?://[\w.\-]+(?::\d{1,5})?(?:/[\w\-./~%]*)?", value):
+                raise ValueError(f"{key} must be an absolute http(s) URL")
             argv += [f"--{key}", value]
         elif kind == "flag":
             # A flag carries no value, so anything other than an explicit true is
@@ -550,6 +775,146 @@ def build_onboard(body, clients_dir):
     return slug, argv, {**os.environ, "GH_TOKEN": token, "GITHUB_TOKEN": token}
 
 
+# ── the diff review: approving is `git add` ──────────────────────────────────
+# The console holds no state, and approval needs none. STAGED means approved,
+# UNSTAGED means still pending. The git index IS the record: `git status` shows it,
+# it survives a browser refresh and a server restart, and there is no approvals
+# file for anyone to get out of sync with the tree.
+
+
+def review_units(path, changelog):
+    """[{items, files, state, diff, staged_diff}] — the approval units for a cycle.
+
+    Items that touched the SAME FILE are one unit. Their diffs are not separable:
+    you cannot approve one and reject the other when both edited
+    `lib/page-meta.ts`, and pretending otherwise is how an operator loses a fix
+    they approved. So the unit is the transitive closure over shared files, and it
+    says so on screen.
+    """
+    if not isinstance(changelog, dict):
+        return []
+    files_map = changelog.get("files")
+    if not isinstance(files_map, dict):
+        return []
+
+    # Union-find over "shares a file with". Small enough that the naive merge is
+    # the right one: a cycle has tens of files, not millions.
+    groups = []                    # [{"files": set, "items": set}]
+    for file, ids in sorted(files_map.items()):
+        ids = {i for i in (ids or []) if isinstance(i, str)}
+        hit = [g for g in groups if file in g["files"] or (g["items"] & ids)]
+        merged = {"files": {file}, "items": set(ids)}
+        for g in hit:
+            merged["files"] |= g["files"]
+            merged["items"] |= g["items"]
+            groups.remove(g)
+        groups.append(merged)
+
+    status = {ln[3:]: ln[:2] for ln in _porcelain(path)}
+    out = []
+    for g in sorted(groups, key=lambda g: sorted(g["files"])):
+        files = sorted(g["files"])
+        codes = [status.get(f) for f in files]
+        # A unit is approved when every file it owns is staged and none of them has
+        # an unstaged change left. Anything in between is `partial` and says so
+        # rather than rounding up to approved.
+        present = [c for c in codes if c]
+        if not present:
+            state = "gone"                       # already committed, or reverted
+        elif all(c and c[1] == " " for c in present) and len(present) == len(files):
+            state = "approved"
+        elif any(c and c[0] != " " and c[0] != "?" for c in present):
+            state = "partial"
+        else:
+            state = "pending"
+        out.append({
+            "items": sorted(g["items"]),
+            "files": files,
+            "state": state,
+            "untracked": [f for f in files if status.get(f) == "??"],
+            "diff": _diff(path, files, cached=False),
+            "staged_diff": _diff(path, files, cached=True),
+        })
+    return out
+
+
+def _porcelain(path):
+    r = subprocess.run(["git", "-C", str(path), "status", "--porcelain", "-uall"],
+                       capture_output=True, text=True, timeout=20)
+    return [ln for ln in r.stdout.splitlines() if ln.strip()] if r.returncode == 0 else []
+
+
+def _diff(path, files, cached):
+    """`git diff` over exactly these paths. Untracked files have no diff at all —
+    `--no-index` against /dev/null is how git shows a create, and doing it any other
+    way shows nothing and reads as "no changes"."""
+    base = ["git", "-C", str(path), "diff", "--no-color"]
+    if cached:
+        base.append("--cached")
+    r = subprocess.run(base + ["--", *files], capture_output=True, text=True, timeout=30)
+    text = r.stdout if r.returncode == 0 else ""
+    if cached:
+        return text
+    for f in files:
+        full = Path(path) / f
+        if not full.is_file():
+            continue
+        tracked = subprocess.run(["git", "-C", str(path), "ls-files", "--error-unmatch", "--", f],
+                                 capture_output=True, text=True)
+        if tracked.returncode == 0:
+            continue
+        n = subprocess.run(["git", "-C", str(path), "diff", "--no-color", "--no-index",
+                            "/dev/null", f], capture_output=True, text=True, timeout=30)
+        text += n.stdout
+    return text
+
+
+REVIEW_ACTIONS = ("approve", "reject")
+
+
+def build_review_argv(action, path, changelog, files):
+    """argv for approving or rejecting a set of paths, or ValueError.
+
+    **Every path must appear in this cycle's `changelog.json` file map.** That is
+    the security boundary and it is not optional: without it this endpoint is
+    `git add` and `git restore` over any path the browser names, bound to a port.
+    The changelog is the record of what the agent actually touched, so it is the
+    only legitimate source of a path here.
+    """
+    if action not in REVIEW_ACTIONS:
+        raise ValueError(f"unknown review action: {action}")
+    known = set((changelog or {}).get("files") or {})
+    if not known:
+        raise ValueError("this cycle's changelog.json records no changed files, so "
+                         "there is nothing to approve")
+    if not isinstance(files, list) or not files:
+        raise ValueError("name the files to " + action)
+    for f in files:
+        if not isinstance(f, str) or f not in known:
+            raise ValueError(f"{f!r} is not a file this cycle's changelog records. "
+                             f"Only the paths the agent actually touched can be "
+                             f"approved or rejected here.")
+    if action == "approve":
+        return ["git", "add", "--", *files]
+
+    # Reject. `git restore` cannot revert a create, and the honest alternative
+    # (`git clean -f`) silently deletes a file — so an untracked path is refused
+    # with the reason rather than quietly destroyed.
+    untracked = []
+    for f in files:
+        r = subprocess.run(["git", "-C", str(path), "ls-files", "--error-unmatch", "--", f],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            untracked.append(f)
+    if untracked:
+        raise ValueError(
+            f"{', '.join(untracked)} did not exist before this run, so there is no "
+            f"previous version to restore. Reverting a create means deleting the "
+            f"file, which this console will not do silently — delete it yourself if "
+            f"that is what you want.")
+    return ["git", "restore", "--staged", "--worktree", "--", *files]
+
+
 # `merge` is deliberately absent and must stay absent: human merge is the only
 # path to production (SITE-AUDIT-PIPELINE.md §1), and a button beside a green
 # checkmark is not the same act as reading a diff.
@@ -594,7 +959,7 @@ def build_git_argv(action, path, extra):
 PAGES = {"/": "fleet.html", "/fleet": "fleet.html", "/client": "client.html",
          "/findings": "findings.html", "/runs": "runs.html", "/git": "git.html",
          "/worklist": "worklist.html", "/report": "report.html", "/config": "config.html",
-         "/changelog": "changelog.html"}
+         "/changelog": "changelog.html", "/review": "review.html"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -710,8 +1075,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(client["cfg"])
             if rest == ["cycles"]:
                 return self._json(cycles(client["path"]))
+            # The score over time. Built server-side from the artifacts because
+            # `lib/score.series` is the one definition of "the score over time" —
+            # a second implementation in JS is a second answer to one question.
+            if rest == ["series"]:
+                return self._json(self._series(client))
+            if rest == ["next"]:
+                return self._json(next_action(client, query.get("cycle", [None])[0]))
             if len(rest) == 2 and rest[0] == "cycles":
                 return self._json(self._cycle(client["path"], rest[1]))
+            if len(rest) == 3 and rest[0] == "cycles" and rest[2] == "review":
+                return self._json(self._review(client, rest[1]))
             # Local git is instant; `gh pr view` is a network round-trip. They are
             # separate routes so the screen paints before the network answers.
             if rest == ["git"]:
@@ -720,6 +1094,38 @@ class Handler(BaseHTTPRequestHandler):
             if rest == ["pr"]:
                 return self._json({"pr": self._pr(client["path"])})
         self._err("not found", 404)
+
+    def _series(self, client):
+        """{series, verified} — the measured/projected points, plus which cycles
+        `acceptance_check` has actually verified.
+
+        `verified` is deliberately separate from the score: a projection is a claim
+        the changelog makes, and a claim rendered as a measurement is the whole
+        thing this pipeline is built to prevent. `None` for a client with no build
+        tree means "cannot verify", never "verified".
+        """
+        path, cfg = client["path"], client["cfg"]
+        rows = [(ym, read_artifact(path, ym, "findings.json"),
+                 read_artifact(path, ym, "changelog.json"), cfg)
+                for ym in cycles(path)]
+        return {"series": series(rows), "verified": acceptance_state(path)}
+
+    def _review(self, client, ym):
+        """The approval units, plus everything the finish panel needs to decide
+        which step to offer. One request: the screen must not paint a COMMIT button
+        while it is still waiting to learn whether anything is staged."""
+        path = client["path"]
+        changelog = read_artifact(path, ym, "changelog.json")
+        st = git_state(path)
+        return {
+            "cycle": ym,
+            "units": review_units(path, changelog),
+            "git": st,
+            "on_default": st.get("branch") == st.get("default_branch"),
+            "commits_to_judge": commits_to_judge(path),
+            "progress": progress(read_artifact(path, ym, "worklist.json"), changelog),
+            "missing_changelog": changelog is None,
+        }
 
     def _cycle(self, path, ym):
         names = ["findings.json", "worklist.json", "changelog.json", "report.md"]
@@ -795,7 +1201,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._start_run(client, body)
             if parts[3] == "git":
                 return self._start_git(client, body)
+            if parts[3] == "review":
+                return self._start_review(client, body)
         self._err("not found", 404)
+
+    def _start_review(self, client, body):
+        cycle = body.get("cycle")
+        if not isinstance(cycle, str) or not re.fullmatch(r"\d{4}-\d{2}", cycle):
+            return self._err("cycle must be YYYY-MM")
+        changelog = read_artifact(client["path"], cycle, "changelog.json")
+        action = body.get("action")
+        try:
+            argv = build_review_argv(action, client["path"], changelog, body.get("files"))
+        except ValueError as exc:
+            return self._err(str(exc))
+        return self._launch(client["slug"], client["path"], f"git:{action}", argv)
 
     def _start_run(self, client, body):
         command = body.get("command")
@@ -829,7 +1249,8 @@ class Handler(BaseHTTPRequestHandler):
                     f"{busy.command} is still running against {slug}. One writer per "
                     f"checkout — wait for it, or open it from the run history.", 409)
             try:
-                RUNS[run_id] = Run(run_id, slug, command, argv, cwd, env)
+                RUNS[run_id] = Run(run_id, slug, command, argv, cwd, env,
+                                   on_exit=chain_after(slug, cwd, command))
             except FileNotFoundError as exc:
                 return self._err(f"command not on PATH: {exc.filename}", 500)
         self._json({"run_id": run_id}, 202)

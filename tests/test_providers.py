@@ -22,6 +22,7 @@ from pipeline.audit import providers as p
     (p.crux_findings, ["CRUX_API_KEY"]),
     (p.gsc_findings, ["GSC_ACCESS_TOKEN"]),
     (p.dataforseo_findings, ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"]),
+    (p.serp_findings, ["BRIGHTDATA_API_KEY", "BRIGHTDATA_SERP_ZONE"]),
 ])
 def test_no_credentials_is_a_named_skip_not_an_empty_measurement(fn, env, monkeypatch):
     for key in env:
@@ -148,3 +149,160 @@ def test_a_provider_code_cannot_be_verified_against_a_build(tmp_path):
             "acceptance": {"check": "code_absent", "code": "crux.lcp_above_good"}}
     ok, msg = acc.verify_item(item, out, {}, "a.com")
     assert not ok and "external provider" in msg
+
+
+# ── Bright Data SERP ─────────────────────────────────────────────────────────
+
+def _serp(*ranked):
+    """A brd_json=1 payload: (rank, link) pairs in the `organic` array."""
+    return {"organic": [{"rank": r, "global_rank": r, "link": u,
+                         "title": "t", "description": "d"} for r, u in ranked]}
+
+
+def test_page_one_is_not_a_finding():
+    payload = _serp((3, "https://acme.com/roofing/"))
+    assert p.parse_serp(payload, "acme.com", "metal roofing") == []
+
+
+def test_page_two_fires_with_the_query_as_context():
+    payload = _serp((1, "https://other.com/"), (14, "https://acme.com/roofing/"))
+    found = p.parse_serp(payload, "acme.com", "metal roofing")
+    assert [f.code for f in found] == ["serp.page_two"]
+    assert found[0].context == "metal roofing"
+    assert found[0].location == "/"
+
+
+def test_rank_and_url_are_volatile_so_they_live_in_detail():
+    """The fingerprint must survive a rank change, or the ratchet reports
+    RESOLVED plus NEW every single cycle and means nothing."""
+    a = p.parse_serp(_serp((12, "https://acme.com/a/")), "acme.com", "q")[0]
+    b = p.parse_serp(_serp((27, "https://acme.com/b/")), "acme.com", "q")[0]
+    assert a.detail != b.detail
+    assert a.fingerprint == b.fingerprint
+
+
+def test_absent_from_the_results_is_a_finding():
+    found = p.parse_serp(_serp((1, "https://other.com/")), "acme.com", "siding")
+    assert [f.code for f in found] == ["serp.absent"]
+    assert found[0].context == "siding"
+
+
+def test_ranking_far_down_reads_as_absent_and_says_the_rank():
+    """The old fall-through reported "not in the top 1 organic results" about a
+    page that WAS the only result — a detail line contradicting its own payload,
+    written straight into findings.json."""
+    found = p.parse_serp(_serp((61, "https://acme.com/deep/")), "acme.com", "q")
+    assert [f.code for f in found] == ["serp.absent"]
+    assert "rank=61" in found[0].detail
+    assert "top 1" not in found[0].detail
+
+
+def test_the_best_rank_wins_regardless_of_array_order():
+    """Banding inside the scan made the verdict depend on the order the results
+    happened to arrive in: a client ranking #4 read as absent because a #61 hit
+    for the same site was listed first."""
+    payload = _serp((61, "https://acme.com/deep/"), (4, "https://acme.com/good/"))
+    assert p.parse_serp(payload, "acme.com", "q") == []
+
+
+def test_two_queries_are_two_findings():
+    """`location` is always "/", so the query in `context` is the ONLY thing
+    separating one SERP finding from another. If it stopped discriminating,
+    twenty seed queries would collapse into a single finding."""
+    a = p.parse_serp(_serp((1, "https://other.com/")), "acme.com", "roof repair")[0]
+    b = p.parse_serp(_serp((1, "https://other.com/")), "acme.com", "gutter repair")[0]
+    assert a.fingerprint != b.fingerprint
+
+
+def test_rank_zero_is_not_swallowed_by_the_fallback():
+    """`global_rank or rank` sent a 0 to the fallback. Nothing ranks 0 today, so
+    this is guarding the shape, not a live case."""
+    payload = {"organic": [{"global_rank": 0, "rank": 99, "link": "https://acme.com/"}]}
+    assert p.parse_serp(payload, "acme.com", "q") == []
+
+
+def test_rank_is_read_when_global_rank_is_absent():
+    payload = {"organic": [{"rank": 14, "link": "https://acme.com/x/"}]}
+    found = p.parse_serp(payload, "acme.com", "q")
+    assert [f.code for f in found] == ["serp.page_two"]
+    assert "rank=14" in found[0].detail
+
+
+def test_a_lookalike_domain_is_not_the_client():
+    """Substring matching would make notacme.com count as acme.com and report a
+    rank the client does not have."""
+    found = p.parse_serp(_serp((2, "https://notacme.com/x/")), "acme.com", "q")
+    assert [f.code for f in found] == ["serp.absent"]
+
+
+def test_www_and_bare_host_are_the_same_site():
+    assert p.parse_serp(_serp((4, "https://www.acme.com/x/")), "acme.com", "q") == []
+
+
+def test_an_empty_result_set_is_not_evidence_of_absence():
+    """No organic array means the fetch or the parse failed. Emitting
+    `serp.absent` there would invent a finding out of a broken response."""
+    assert p.parse_serp({}, "acme.com", "q") == []
+    assert p.parse_serp({"organic": []}, "acme.com", "q") == []
+    assert p.parse_serp(None, "acme.com", "q") == []
+
+
+def test_no_seed_queries_is_a_skip_not_a_clean_sweep(monkeypatch):
+    """Zero queries measured must never look like zero problems found."""
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+    findings, status = p.serp_findings("acme.com", [])
+    assert findings == []
+    assert status.startswith("skipped:") and "seed_queries" in status
+
+
+def test_every_query_failing_is_a_failure_not_a_measurement(monkeypatch):
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+    monkeypatch.setattr(p, "_request", lambda *a, **k: (None, "HTTP 429"))
+    findings, status = p.serp_findings("acme.com", ["a", "b"])
+    assert findings == []
+    assert status.startswith("failed:")
+    assert "HTTP 429" in status          # the reason, not just the fact
+
+
+def test_a_partial_failure_is_named_in_the_status(monkeypatch):
+    """A query silently dropped would make the site look cleaner than it is,
+    which is exactly what the status string exists to prevent."""
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+
+    def fake(url, payload=None, headers=None, timeout=45):
+        if "bad" in payload["url"]:
+            return None, "HTTP 500"
+        return {"organic": [{"rank": 1, "link": "https://other.com/"}]}, None
+
+    monkeypatch.setattr(p, "_request", fake)
+    findings, status = p.serp_findings("acme.com", ["good", "bad"])
+    assert status.startswith("partial: 1/2"), "'ok:' would lead with ok for a half-measured run"
+    assert "1 failed" in status
+    assert [f.code for f in findings] == ["serp.absent"]
+
+
+def test_blank_queries_are_the_same_skip_as_no_queries(monkeypatch):
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+    findings, status = p.serp_findings("acme.com", ["", "   "])
+    assert findings == []
+    assert status.startswith("skipped:") and "seed_queries" in status
+
+
+def test_the_query_is_url_encoded_into_the_google_target(monkeypatch):
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+    seen = {}
+
+    def fake(url, payload=None, headers=None, timeout=45):
+        seen.update(payload)
+        return {"organic": [{"rank": 1, "link": "https://acme.com/"}]}, None
+
+    monkeypatch.setattr(p, "_request", fake)
+    p.serp_findings("acme.com", ["metal roofing & siding"])
+    assert "metal+roofing+%26+siding" in seen["url"]
+    assert "brd_json=1" in seen["url"]
+    assert seen["zone"] == "z"

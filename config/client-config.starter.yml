@@ -296,7 +296,9 @@ target_keywords:
 
 faq_seed_questions: []
 
-seed_queries: []                       # AEO citation-sweep seeds
+seed_queries: []                       # AEO citation-sweep seeds; also the query
+                                       # list for `wf-site-measure --with-serp`
+                                       # (Bright Data). Empty = that run skips.
 
 engines: [aio, chatgpt, perplexity, ai_mode, bing_copilot]
 

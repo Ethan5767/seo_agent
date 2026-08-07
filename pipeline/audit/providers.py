@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""providers.py — the three external measurement sources (v3 §5, phase 6).
+"""providers.py — the four external measurement sources (v3 §5, phase 6).
 
 Phase 1 measured a live site with `curl` and no accounts. This adds what HTTP
 alone cannot see:
@@ -9,11 +9,17 @@ alone cannot see:
 | **CrUX** | *field* Core Web Vitals — what Google actually ranks on, not Lighthouse's lab numbers | free |
 | **Google Search Console** | impressions, clicks, CTR, position, and query cannibalization | free |
 | **DataForSEO On-Page** | crawl-wide truth: broken pages, redirect chains, click depth, duplicate meta | ~$0.25 per 2,000-page crawl |
+| **Bright Data SERP** | rank and absence for the config's `seed_queries` — the queries GSC cannot see | per request |
 
-ONE MODULE, THREE FUNCTIONS
----------------------------
+GSC reports only queries that already have impressions, so it is blind by
+construction to "we rank nowhere for this". That single gap is why the SERP
+source exists; anything GSC can already answer is left to `gsc_findings`.
+
+ONE MODULE, FOUR FUNCTIONS
+--------------------------
 Not a `providers/` package with an ABC and a registry. v3 §5 is explicit: add the
 abstraction when a second vendor in a category lands, not in advance of one.
+Bright Data is the first SERP vendor, so it is still one function.
 
 EVERY PROVIDER IS OPTIONAL AND EVERY SKIP IS LOUD
 -------------------------------------------------
@@ -33,6 +39,8 @@ Environment:
   GSC_SITE_URL            property id (default: `sc-domain:<domain>`)
   DATAFORSEO_LOGIN        DataForSEO account
   DATAFORSEO_PASSWORD
+  BRIGHTDATA_API_KEY      Bright Data SERP zone API key
+  BRIGHTDATA_SERP_ZONE    the SERP zone name
 """
 from __future__ import annotations
 
@@ -62,6 +70,11 @@ GSC_MIN_IMPRESSIONS = 100       # below this, CTR is noise
 GSC_LOW_CTR = 0.02
 GSC_CANNIBAL_MIN_IMPRESSIONS = 50
 DFS_MAX_CLICK_DEPTH = 3
+# Named by intent, not by page count: at ten results a page, "page two" would end
+# at 20, and 30 is page three's boundary. The bands are "already visible" and
+# "close enough that copy can move it" — the page number is not the point.
+SERP_TOP_PAGE = 10              # already on page one: nothing to remediate
+SERP_REACHABLE_MAX = 30         # beyond this the fix is content, not copy
 
 
 # ── HTTP (stdlib only — the repo's one runtime dependency stays PyYAML) ──────
@@ -303,3 +316,100 @@ def dataforseo_findings(domain: str, max_pages: int = 100, poll_seconds: int = 1
     except (KeyError, IndexError, TypeError):
         return [], "failed: no items in the pages response"
     return assign_ordinals(parse_dataforseo_pages(items)), f"ok: {len(items)} page(s) crawled"
+
+
+# ── Bright Data SERP — rank and absence over the config's seed_queries ───────
+
+def _serp_host(url_or_domain: str) -> str:
+    """Comparable host for either a full URL or a bare domain. Substring
+    matching would let notacme.com satisfy a check for acme.com."""
+    s = url_or_domain if "//" in url_or_domain else "//" + url_or_domain
+    return urllib.parse.urlsplit(s).netloc.lower().removeprefix("www.")
+
+
+def parse_serp(payload: dict, domain: str, query: str) -> list:
+    """Findings from one `brd_json=1` Google response for one seed query.
+
+    `context` is the query and nothing else. Rank and the ranking URL are both
+    volatile, so they live in `detail`, which the fingerprint excludes — without
+    that, ordinary rank movement would read as RESOLVED plus NEW every cycle.
+    The query is also the ONLY discriminator between two SERP findings, because
+    `location` is always "/" — for the same reason CrUX measures at origin level:
+    which page ranks is Google's choice and moves without the site changing.
+
+    Collect every hit, then band the best one. Banding inside the scan would make
+    the verdict depend on the order `organic[]` happens to arrive in — an
+    assumption this module has no way to check and the vendor never promises.
+    """
+    organic = (payload or {}).get("organic") or []
+    if not organic:
+        # A missing or empty result set is a broken response, not a site that
+        # ranks for nothing. Inventing serp.absent here would be invention.
+        return []
+
+    want, hits = _serp_host(domain), []
+    for item in organic:
+        link = item.get("link") or ""
+        rank = item.get("global_rank", item.get("rank"))   # .get default: rank 0
+        if _serp_host(link) == want and isinstance(rank, int):
+            hits.append((rank, link))
+
+    if not hits:
+        return [Finding("serp", "serp.absent", "/", context=query,
+                        detail=f"not in the top {len(organic)} organic results")]
+
+    rank, link = min(hits)                       # tuples compare on rank first
+    if rank <= SERP_TOP_PAGE:
+        return []
+    if rank <= SERP_REACHABLE_MAX:
+        return [Finding("serp", "serp.page_two", "/", context=query,
+                        detail=f"rank={rank} url={link}")]
+    return [Finding("serp", "serp.absent", "/", context=query,
+                    detail=f"rank={rank}, past the top {SERP_REACHABLE_MAX}")]
+
+
+def serp_findings(domain: str, queries=None) -> tuple:
+    """(findings, status). One Google SERP request per seed query.
+
+    NOTE: like the other three providers, this network path has never been run
+    against the live API — it is written from Bright Data's documented request
+    shape and only `parse_serp` is covered by tests. Treat the first real run as
+    the verification, and read the status string, not the finding count.
+    """
+    api_key = os.environ.get("BRIGHTDATA_API_KEY")
+    zone = os.environ.get("BRIGHTDATA_SERP_ZONE")
+    if not (api_key and zone):
+        return [], "skipped: BRIGHTDATA_API_KEY / BRIGHTDATA_SERP_ZONE unset"
+
+    queries = [q.strip() for q in (queries or []) if q and q.strip()]
+    if not queries:
+        return [], ("skipped: no seed_queries in docs/client-config.yml — there "
+                    "is nothing to look up")
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    findings, measured, failed, last_err = [], 0, [], ""
+    for query in queries:
+        target = ("https://www.google.com/search?q="
+                  + urllib.parse.quote_plus(query) + "&brd_json=1")
+        payload, err = _request("https://api.brightdata.com/request",
+                                {"zone": zone, "url": target, "format": "raw"},
+                                headers)
+        if err:
+            failed.append(query)
+            last_err = err
+            continue
+        findings.extend(parse_serp(payload, domain, query))
+        measured += 1
+
+    if not measured:
+        # Carry the error itself. "all queries failed" without the reason sends
+        # the operator to the dashboard to find out what a status line was for.
+        return [], f"failed: none of the {len(queries)} queries returned — {last_err}"
+
+    # `partial:` rather than `ok:` when anything failed, matching crux_findings —
+    # "ok: 1/50 queries measured" leads with ok for a run that measured 2%.
+    if failed:
+        return assign_ordinals(findings), (
+            f"partial: {measured}/{len(queries)} queries measured "
+            f"({len(failed)} failed: {', '.join(failed[:3])})")
+    return assign_ordinals(findings), f"ok: {measured}/{len(queries)} queries measured"

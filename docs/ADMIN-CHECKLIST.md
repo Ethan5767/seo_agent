@@ -87,6 +87,17 @@ clean site. Read the status string on the first real run, not the finding count.
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | Crawl-wide on-page: broken pages, click depth, duplicate meta | `--with-dataforseo` |
 | `BRIGHTDATA_API_KEY` / `BRIGHTDATA_SERP_ZONE` | Rank and absence over the config's `seed_queries` | `--with-serp` |
 
+**Filling `seed_queries`.** `--with-serp` measures exactly the queries in the
+client's `docs/client-config.yml` and nothing else, so that list *is* the
+measurement. `wf-seed-queries --project <checkout>` crawls the site's own page
+titles and h1s, expands them, drops navigational terms, and prints a YAML block
+to paste. Review before committing: every entry is one paid request per cycle,
+and because `Finding.context` is fingerprinted, changing the list later re-files
+every SERP finding as NEW and makes RESOLVED unreachable. The queries are
+grounded in the site's vocabulary but **not volume-ranked** — a query nobody
+searches produces a real `serp.absent` finding that reads like a site defect,
+which is why the human paste step exists.
+
 **Live status, 2026-08-07.** Two of the four have now run against their real
 APIs; the flag names above were wrong (`--crux` for `--with-crux`) until this
 was checked against `measure.py`, and DataForSEO was described as SERP data,

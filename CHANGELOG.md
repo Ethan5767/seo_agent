@@ -6,6 +6,71 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **`wf-seed-queries` — the SERP query list, grounded in the client's own pages
+  instead of typed from memory.** `--with-serp` measures exactly the queries in
+  `docs/client-config.yml` and nothing else, so that list *is* the measurement.
+  `lee-series-web` had five, hand-typed, and one of them was `lee serie` — the
+  brand name. They rank #1 for it, so a fifth of the paid budget bought a
+  finding that can never be actionable.
+
+  New module `pipeline/audit/seed_queries.py`. It crawls the sitemap (capped at
+  `--crawl-max`, default 40 pages), pulls `<title>` and `<h1>` off each page
+  that answered, and hands those facts to Claude Code with an expansion recipe:
+  related searches and PAA via WebSearch, long-tail and intent modifiers,
+  question mining, then intent classification that drops navigational terms. The
+  recipe is adapted from `AgriciDaniel/claude-seo` (MIT), skill `seo-cluster`
+  steps 1 and 3. The agent gets `--allowedTools WebSearch` and nothing else — it
+  reads the web and writes no files.
+
+  **Two design constraints drove the shape, and both are load-bearing:**
+
+  1. **It is a separate command, not a flag on `wf-site-health`.**
+     `Finding.context` is fingerprinted and the query is the context. A list
+     regenerated every cycle re-files every SERP finding as NEW forever and
+     makes RESOLVED unreachable — the ratchet would silently stop meaning
+     anything. Generation happens once, into a human-reviewed commit, the same
+     shape as the tier.
+  2. **It prints; it never writes `docs/client-config.yml`.** That path is on
+     `DEFAULT_DENY` at every tier including T3. The paste step is also the
+     review: these queries are derived from the site's vocabulary but are not
+     volume-ranked, so a query nobody searches would produce a real
+     `serp.absent` finding that reads like a site defect.
+
+  The pure seam is `page_facts` (html → title + h1s) and `parse_query_list`
+  (agent reply → validated queries), so the whole suite runs offline. The brand
+  drop is exact-match on the normalized line, never a substring: `lee serie` is
+  navigational, but `lee serie stretch mark cream review` is commercial and
+  worth tracking — a substring check would kill both.
+
+  Exits: 2 no `claude` on PATH (checked *before* crawling 40 pages), 19 no page
+  answered, 20 the agent failed or returned nothing usable.
+
+  17 new tests, including a `main()`-level run with the network and agent
+  stubbed — B-007, a green test on `parse_query_list` proves the parser works,
+  not that anything calls it.
+
+  ```
+  $ .venv/bin/python -m pytest -q
+  605 passed in 5.24s
+
+  $ .venv/bin/wf-seed-queries --help
+  usage: wf-seed-queries [-h] [--project PROJECT] [--limit LIMIT]
+                         [--crawl-max CRAWL_MAX] [--model MODEL]
+                         [--timeout TIMEOUT]
+  ```
+
+  **Not done, and deliberately:** no volume data. Google Ads Keyword Planner is
+  the correct source for ranking candidate queries by real demand, but it needs
+  an Ads Manager account plus a developer token with Basic-access approval, and
+  returns bucketed ranges ("1K-10K") rather than numbers without active ad
+  spend. Heavier than GSC, which is itself still ungranted.
+
+  Also corrected while in the file: `client-config.starter.yml` documented the
+  flag as `wf-site-measure --with-serp`. No such command exists; it is
+  `wf-site-health`.
+
 ### Fixed
 
 - **B-020 — `wf-site-remediate` resumed on a positional id, so any re-measure

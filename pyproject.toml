@@ -65,6 +65,10 @@ wf-poll-live = "pipeline.audit.poll_live:main"
 wf-preflight = "pipeline.audit.preflight:main"
 wf-update-sitemap-dates = "pipeline.audit.update_sitemap_dates:main"
 wf-bootstrap-config = "pipeline.audit.bootstrap_config:main"
+# Generates a grounded seed_queries list. Separate from wf-site-health on purpose:
+# Finding.context is fingerprinted, so a list that changes per cycle makes every
+# SERP finding NEW forever and the ratchet stops meaning anything.
+wf-seed-queries = "pipeline.audit.seed_queries:main"
 # Load-bearing for .github/actions/build-site: the composite action shells out to
 # wf-client-profile to resolve build dir / framework before building.
 wf-client-profile = "pipeline.audit.client_profile:main"

@@ -297,8 +297,12 @@ target_keywords:
 faq_seed_questions: []
 
 seed_queries: []                       # AEO citation-sweep seeds; also the query
-                                       # list for `wf-site-measure --with-serp`
+                                       # list for `wf-site-health --with-serp`
                                        # (Bright Data). Empty = that run skips.
+                                       # Generate with `wf-seed-queries`, review,
+                                       # paste. Changing it later re-files every
+                                       # SERP finding as NEW — the query is part
+                                       # of the fingerprint.
 
 engines: [aio, chatgpt, perplexity, ai_mode, bing_copilot]
 

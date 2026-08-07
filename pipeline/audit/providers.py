@@ -350,7 +350,12 @@ def parse_serp(payload: dict, domain: str, query: str) -> list:
     want, hits = _serp_host(domain), []
     for item in organic:
         link = item.get("link") or ""
-        rank = item.get("global_rank", item.get("rank"))   # .get default: rank 0
+        # `rank` is the position among organic results; `global_rank` counts ads
+        # and SERP features above it — a #1 organic result came back rank=1,
+        # global_rank=4 on the first live run. The bands below are organic
+        # positions, so preferring global_rank would trip page_two on a site
+        # that ranks first. .get default rather than `or`, so rank 0 survives.
+        rank = item.get("rank", item.get("global_rank"))
         if _serp_host(link) == want and isinstance(rank, int):
             hits.append((rank, link))
 

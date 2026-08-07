@@ -187,15 +187,45 @@ see `CLAUDE.md` (the sync contract).
   Full suite for everything above:
   `.venv/bin/python -m pytest -q` → `564 passed in 4.87s`.
 
-### Unverified
+### Verified live
 
-- **The Bright Data network path has never been run against the live API.**
-  Exactly as with CrUX / GSC / DataForSEO (`CLAUDE.md` sharp edge #6), it is
-  written from the vendor's documented request shape and only `parse_serp` is
-  covered by tests. The five HTTP-contract tests monkeypatch `_request`, so they
-  prove the failure/partial/skip contracts hold — they prove nothing about
-  whether Bright Data's real response matches the parser. On the first real run,
-  read the `[serp]` status line, not the finding count.
+- **The Bright Data network path has been run against the live API** — the first
+  provider in this repo for which that is true (`CLAUDE.md` sharp edge #6 still
+  stands for CrUX, GSC and DataForSEO). Two request shapes were probed against a
+  real SERP zone:
+
+  ```
+  {"zone":Z,"url":"…/search?q=…&brd_json=1","format":"raw"}      → organic[] present
+  {"zone":Z,"url":"…/search?q=…","format":"json",
+                                 "data_format":"parsed"}          → {body,headers,status_code}
+  ```
+
+  The second is **Bright Data's own generated sample** for the zone, and it is
+  the wrong shape for this parser: it wraps the SERP in an HTTP envelope, so
+  `parse_serp` would find no `organic`, return `[]`, and the run would report a
+  clean site. The shipped `format:"raw"` + `brd_json=1` returns the parsed SERP
+  directly. Anyone "fixing" our request to match the vendor snippet would
+  silently break the provider — hence this note.
+
+  The live payload also corrected a real defect. A #1 organic result returns:
+
+  ```
+  organic[0]  rank=1  global_rank=4
+  ```
+
+  `global_rank` counts the ads and SERP features stacked above the result;
+  `rank` is the organic position. The bands (`SERP_TOP_PAGE`,
+  `SERP_REACHABLE_MAX`) are organic positions, so the original
+  `global_rank`-first read would have fired `serp.page_two` at a site ranking
+  **first** on any SERP carrying eleven features above it. Now `rank` wins and
+  `global_rank` is the fallback — `test_organic_rank_beats_global_rank`.
+
+  Confirmed field names on the live response: `organic[]` with `rank`,
+  `global_rank`, `link`, `title`, `description`, `display_link`, `source`,
+  `snippet_highlighted_words`, `icon`. Top-level keys also include `general`,
+  `pagination`, `people_also_ask`, `popular_products`, `related` and
+  `navigation` — the observed shape to build SERP-feature findings against, if
+  those are ever added.
 
 ### Changed
 

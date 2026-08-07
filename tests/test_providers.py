@@ -215,14 +215,23 @@ def test_two_queries_are_two_findings():
 
 
 def test_rank_zero_is_not_swallowed_by_the_fallback():
-    """`global_rank or rank` sent a 0 to the fallback. Nothing ranks 0 today, so
-    this is guarding the shape, not a live case."""
-    payload = {"organic": [{"global_rank": 0, "rank": 99, "link": "https://acme.com/"}]}
+    """A truthiness test sent a 0 to the fallback. Nothing ranks 0 today, so this
+    guards the shape, not a live case."""
+    payload = {"organic": [{"rank": 0, "global_rank": 99, "link": "https://acme.com/"}]}
     assert p.parse_serp(payload, "acme.com", "q") == []
 
 
-def test_rank_is_read_when_global_rank_is_absent():
-    payload = {"organic": [{"rank": 14, "link": "https://acme.com/x/"}]}
+def test_organic_rank_beats_global_rank():
+    """Confirmed live: a #1 organic result returns rank=1, global_rank=4, because
+    global_rank counts the ads and SERP features stacked above it. The bands are
+    organic positions, so reading global_rank would fire serp.page_two at a site
+    that ranks first on a SERP with eleven features above the fold."""
+    payload = {"organic": [{"rank": 1, "global_rank": 14, "link": "https://acme.com/"}]}
+    assert p.parse_serp(payload, "acme.com", "q") == []
+
+
+def test_global_rank_is_read_when_rank_is_absent():
+    payload = {"organic": [{"global_rank": 14, "link": "https://acme.com/x/"}]}
     found = p.parse_serp(payload, "acme.com", "q")
     assert [f.code for f in found] == ["serp.page_two"]
     assert "rank=14" in found[0].detail

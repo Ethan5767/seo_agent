@@ -22,6 +22,7 @@ from pipeline.audit import providers as p
     (p.crux_findings, ["CRUX_API_KEY"]),
     (p.gsc_findings, ["GSC_ACCESS_TOKEN"]),
     (p.dataforseo_findings, ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"]),
+    (p.serp_findings, ["BRIGHTDATA_API_KEY", "BRIGHTDATA_SERP_ZONE"]),
 ])
 def test_no_credentials_is_a_named_skip_not_an_empty_measurement(fn, env, monkeypatch):
     for key in env:
@@ -208,3 +209,56 @@ def test_an_empty_result_set_is_not_evidence_of_absence():
     assert p.parse_serp({}, "acme.com", "q") == []
     assert p.parse_serp({"organic": []}, "acme.com", "q") == []
     assert p.parse_serp(None, "acme.com", "q") == []
+
+
+def test_no_seed_queries_is_a_skip_not_a_clean_sweep(monkeypatch):
+    """Zero queries measured must never look like zero problems found."""
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+    findings, status = p.serp_findings("acme.com", [])
+    assert findings == []
+    assert status.startswith("skipped:") and "seed_queries" in status
+
+
+def test_every_query_failing_is_a_failure_not_a_measurement(monkeypatch):
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+    monkeypatch.setattr(p, "_request", lambda *a, **k: (None, "HTTP 429"))
+    findings, status = p.serp_findings("acme.com", ["a", "b"])
+    assert findings == []
+    assert status.startswith("failed:")
+    assert "HTTP 429" in status          # the reason, not just the fact
+
+
+def test_a_partial_failure_is_named_in_the_status(monkeypatch):
+    """Two of three queries silently dropped would make the site look cleaner
+    than it is, which is exactly what the status string exists to prevent."""
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+
+    def fake(url, payload=None, headers=None, timeout=45):
+        if "bad" in payload["url"]:
+            return None, "HTTP 500"
+        return {"organic": [{"rank": 1, "link": "https://other.com/"}]}, None
+
+    monkeypatch.setattr(p, "_request", fake)
+    findings, status = p.serp_findings("acme.com", ["good", "bad"])
+    assert status.startswith("ok: 1/2")
+    assert "1 failed" in status
+    assert [f.code for f in findings] == ["serp.absent"]
+
+
+def test_the_query_is_url_encoded_into_the_google_target(monkeypatch):
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+    seen = {}
+
+    def fake(url, payload=None, headers=None, timeout=45):
+        seen.update(payload)
+        return {"organic": [{"rank": 1, "link": "https://acme.com/"}]}, None
+
+    monkeypatch.setattr(p, "_request", fake)
+    p.serp_findings("acme.com", ["metal roofing & siding"])
+    assert "metal+roofing+%26+siding" in seen["url"]
+    assert "brd_json=1" in seen["url"]
+    assert seen["zone"] == "z"

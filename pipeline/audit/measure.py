@@ -18,7 +18,8 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pipeline.audit.providers import crux_findings, dataforseo_findings, gsc_findings
+from pipeline.audit.providers import (crux_findings, dataforseo_findings,
+                                      gsc_findings, serp_findings)
 from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
 from pipeline.lib.common import curl, curl_status, load_config
 
@@ -227,6 +228,9 @@ def main() -> int:
                          "DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD)")
     ap.add_argument("--max-crawl-pages", type=int, default=100,
                     help="DataForSEO crawl ceiling (billed per page)")
+    ap.add_argument("--with-serp", action="store_true",
+                    help="rank and absence for the config's seed_queries (PAID; "
+                         "needs BRIGHTDATA_API_KEY / BRIGHTDATA_SERP_ZONE)")
     args = ap.parse_args()
 
     cfg = load_config(args.project)
@@ -273,6 +277,10 @@ def main() -> int:
     if args.with_dataforseo:
         found, providers["dataforseo"] = dataforseo_findings(cfg["domain"],
                                                              max_pages=args.max_crawl_pages)
+        findings.extend(found)
+    if args.with_serp:
+        found, providers["serp"] = serp_findings(cfg["domain"],
+                                                 cfg.get("seed_queries"))
         findings.extend(found)
     for name, status in providers.items():
         print(f"[{name}] {status}", file=sys.stderr)

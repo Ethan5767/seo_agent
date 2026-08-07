@@ -7,6 +7,7 @@ most; they are the property phase 3's ratchet depends on.
 from __future__ import annotations
 
 import json
+import sys
 import textwrap
 from datetime import date
 
@@ -444,3 +445,39 @@ def test_unset_config_keys_are_warned_about(monkeypatch, project, capsys):
         {"https://example.com/roofing/": build_page()})
     err = capsys.readouterr().err
     assert "nap.phone_tel" in err and "ga4_id" in err
+
+
+# ── --with-serp is actually wired (B-007: implemented is not wired) ───────────
+
+def test_with_serp_passes_the_configs_seed_queries_to_the_provider(tmp_path, monkeypatch):
+    """A green unit test on serp_findings proves the function works, not that
+    anything calls it. This asserts the call site: the flag reaches the provider
+    AND carries the config's seed_queries, not an empty list."""
+    from pipeline.audit import measure as m
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "client-config.yml").write_text(
+        "client_slug: acme\ndomain: acme.com\ntier: 1\n"
+        "seed_queries: ['metal roofing tampa', 'roof repair cost']\n")
+
+    seen = {}
+
+    def fake_serp(domain, queries=None):
+        seen["domain"], seen["queries"] = domain, queries
+        return [], "ok: 2/2 queries measured"
+
+    monkeypatch.setattr(m, "serp_findings", fake_serp)
+    monkeypatch.setattr(m, "discover_urls", lambda *a, **k: ["https://acme.com/"])
+    monkeypatch.setattr(m, "check_url", lambda *a, **k: ([], True))
+    monkeypatch.setattr(sys, "argv",
+                        ["wf-site-measure", "--project", str(tmp_path), "--with-serp"])
+
+    m.main()
+
+    assert seen["domain"] == "acme.com"
+    assert seen["queries"] == ["metal roofing tampa", "roof repair cost"]
+
+    doc = json.loads((tmp_path / "docs" / "audit" /
+                      date.today().strftime("%Y-%m") / "findings.json").read_text())
+    assert doc["providers"]["serp"] == "ok: 2/2 queries measured", \
+        "the status string must land in the artifact, or a skip reads as a pass"

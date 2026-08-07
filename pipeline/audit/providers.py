@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""providers.py — the three external measurement sources (v3 §5, phase 6).
+"""providers.py — the four external measurement sources (v3 §5, phase 6).
 
 Phase 1 measured a live site with `curl` and no accounts. This adds what HTTP
 alone cannot see:
@@ -9,11 +9,17 @@ alone cannot see:
 | **CrUX** | *field* Core Web Vitals — what Google actually ranks on, not Lighthouse's lab numbers | free |
 | **Google Search Console** | impressions, clicks, CTR, position, and query cannibalization | free |
 | **DataForSEO On-Page** | crawl-wide truth: broken pages, redirect chains, click depth, duplicate meta | ~$0.25 per 2,000-page crawl |
+| **Bright Data SERP** | rank and absence for the config's `seed_queries` — the queries GSC cannot see | per request |
 
-ONE MODULE, THREE FUNCTIONS
----------------------------
+GSC reports only queries that already have impressions, so it is blind by
+construction to "we rank nowhere for this". That single gap is why the SERP
+source exists; anything GSC can already answer is left to `gsc_findings`.
+
+ONE MODULE, FOUR FUNCTIONS
+--------------------------
 Not a `providers/` package with an ABC and a registry. v3 §5 is explicit: add the
 abstraction when a second vendor in a category lands, not in advance of one.
+Bright Data is the first SERP vendor, so it is still one function.
 
 EVERY PROVIDER IS OPTIONAL AND EVERY SKIP IS LOUD
 -------------------------------------------------
@@ -33,6 +39,8 @@ Environment:
   GSC_SITE_URL            property id (default: `sc-domain:<domain>`)
   DATAFORSEO_LOGIN        DataForSEO account
   DATAFORSEO_PASSWORD
+  BRIGHTDATA_API_KEY      Bright Data SERP zone API key
+  BRIGHTDATA_SERP_ZONE    the SERP zone name
 """
 from __future__ import annotations
 
@@ -352,3 +360,47 @@ def dataforseo_findings(domain: str, max_pages: int = 100, poll_seconds: int = 1
     except (KeyError, IndexError, TypeError):
         return [], "failed: no items in the pages response"
     return assign_ordinals(parse_dataforseo_pages(items)), f"ok: {len(items)} page(s) crawled"
+
+
+def serp_findings(domain: str, queries=None) -> tuple:
+    """(findings, status). One Google SERP request per seed query.
+
+    NOTE: like the other three providers, this network path has never been run
+    against the live API — it is written from Bright Data's documented request
+    shape and only `parse_serp` is covered by tests. Treat the first real run as
+    the verification, and read the status string, not the finding count.
+    """
+    api_key = os.environ.get("BRIGHTDATA_API_KEY")
+    zone = os.environ.get("BRIGHTDATA_SERP_ZONE")
+    if not (api_key and zone):
+        return [], "skipped: BRIGHTDATA_API_KEY / BRIGHTDATA_SERP_ZONE unset"
+
+    queries = [q.strip() for q in (queries or []) if q and q.strip()]
+    if not queries:
+        return [], ("skipped: no seed_queries in docs/client-config.yml — there "
+                    "is nothing to look up")
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    findings, measured, failed, last_err = [], 0, [], ""
+    for query in queries:
+        target = ("https://www.google.com/search?q="
+                  + urllib.parse.quote_plus(query) + "&brd_json=1")
+        payload, err = _request("https://api.brightdata.com/request",
+                                {"zone": zone, "url": target, "format": "raw"},
+                                headers)
+        if err:
+            failed.append(query)
+            last_err = err
+            continue
+        findings.extend(parse_serp(payload, domain, query))
+        measured += 1
+
+    if not measured:
+        # Carry the error itself. "all queries failed" without the reason sends
+        # the operator to the dashboard to find out what a status line was for.
+        return [], f"failed: none of the {len(queries)} queries returned — {last_err}"
+
+    status = f"ok: {measured}/{len(queries)} queries measured"
+    if failed:
+        status += f" ({len(failed)} failed: {', '.join(failed[:3])})"
+    return assign_ordinals(findings), status

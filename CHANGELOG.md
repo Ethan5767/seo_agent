@@ -8,6 +8,63 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Bright Data SERP as a fourth optional provider** (`wf-site-measure
+  --with-serp`, `pipeline/audit/providers.py`). One Google request per entry in
+  the client config's `seed_queries`, firing `serp.page_two` (rank 11–30) and
+  `serp.absent` (rank > 30, or not in the result set at all).
+
+  It exists for one gap and no other: **Search Console only reports queries that
+  already have impressions**, so it is blind by construction to "we rank nowhere
+  for this". Everything GSC can already answer is left to `gsc_findings`.
+
+  Rank and the ranking URL are carried in `Finding.detail`, which the fingerprint
+  excludes, so ordinary rank movement stays PERSISTING instead of churning
+  RESOLVED + NEW every cycle. `location` is `/` for the same reason CrUX measures
+  at origin level — which page ranks is Google's choice and moves without the
+  site changing.
+
+  An empty `organic` array emits **nothing**. A broken response is not evidence
+  that the client ranks for nothing, and inventing `serp.absent` there would be
+  the invention `claim_provenance_check` exists to refuse.
+
+  Proof (`.venv/bin/python -m pytest -q`):
+
+  ```
+  578 passed in 4.79s
+  ```
+
+  Reuses the existing `seed_queries` config key, which had been declared in
+  `client-config.starter.yml` and only ever counted. No new config key, no new
+  module, no new dependency — `_request` and stdlib `urllib` throughout.
+
+  The call site is asserted, not assumed
+  (`test_with_serp_passes_the_configs_seed_queries_to_the_provider`): it drives
+  `measure.main()` and checks both that the provider receives the config's real
+  query list and that its status string lands in `findings.json`. B-007 was a
+  fully-tested module that nothing called; a green test on `serp_findings` alone
+  would have proved the same nothing here.
+
+  `acceptance_check` needed no change — its guard is an allowlist
+  (`code.startswith("health.")`), so `serp.*` codes are already refused as
+  unverifiable against a build directory.
+
+  **Not implemented, deliberately:** SERP-feature findings (AI overview,
+  featured snippet, local pack). Only `organic[]` with
+  `rank`/`global_rank`/`link`/`title`/`description` is confirmed in Bright Data's
+  public docs; the feature field names are not. Capture a real payload on the
+  first live run and add them against the observed shape rather than a guessed
+  one.
+
+### Unverified
+
+- **The Bright Data network path has never been run against the live API.**
+  Exactly as with CrUX / GSC / DataForSEO (`CLAUDE.md` sharp edge #6), it is
+  written from the vendor's documented request shape and only `parse_serp` is
+  covered by tests. The four HTTP-contract tests monkeypatch `_request`, so they
+  prove the failure/partial/skip contracts hold — they prove nothing about
+  whether Bright Data's real response matches the parser. On the first real run,
+  read the `[serp]` status line, not the finding count.
+
 - **An SEO score and an AEO score, and a graph of them per cycle**
   (`pipeline/lib/score.py`). Nothing in the codebase scored anything before; the
   operator could see a finding count and nothing else.

@@ -187,9 +187,45 @@ def test_absent_from_the_results_is_a_finding():
     assert found[0].context == "siding"
 
 
-def test_ranking_past_page_three_reads_as_absent_not_as_nothing():
+def test_ranking_far_down_reads_as_absent_and_says_the_rank():
+    """The old fall-through reported "not in the top 1 organic results" about a
+    page that WAS the only result — a detail line contradicting its own payload,
+    written straight into findings.json."""
     found = p.parse_serp(_serp((61, "https://acme.com/deep/")), "acme.com", "q")
     assert [f.code for f in found] == ["serp.absent"]
+    assert "rank=61" in found[0].detail
+    assert "top 1" not in found[0].detail
+
+
+def test_the_best_rank_wins_regardless_of_array_order():
+    """Banding inside the scan made the verdict depend on the order the results
+    happened to arrive in: a client ranking #4 read as absent because a #61 hit
+    for the same site was listed first."""
+    payload = _serp((61, "https://acme.com/deep/"), (4, "https://acme.com/good/"))
+    assert p.parse_serp(payload, "acme.com", "q") == []
+
+
+def test_two_queries_are_two_findings():
+    """`location` is always "/", so the query in `context` is the ONLY thing
+    separating one SERP finding from another. If it stopped discriminating,
+    twenty seed queries would collapse into a single finding."""
+    a = p.parse_serp(_serp((1, "https://other.com/")), "acme.com", "roof repair")[0]
+    b = p.parse_serp(_serp((1, "https://other.com/")), "acme.com", "gutter repair")[0]
+    assert a.fingerprint != b.fingerprint
+
+
+def test_rank_zero_is_not_swallowed_by_the_fallback():
+    """`global_rank or rank` sent a 0 to the fallback. Nothing ranks 0 today, so
+    this is guarding the shape, not a live case."""
+    payload = {"organic": [{"global_rank": 0, "rank": 99, "link": "https://acme.com/"}]}
+    assert p.parse_serp(payload, "acme.com", "q") == []
+
+
+def test_rank_is_read_when_global_rank_is_absent():
+    payload = {"organic": [{"rank": 14, "link": "https://acme.com/x/"}]}
+    found = p.parse_serp(payload, "acme.com", "q")
+    assert [f.code for f in found] == ["serp.page_two"]
+    assert "rank=14" in found[0].detail
 
 
 def test_a_lookalike_domain_is_not_the_client():
@@ -231,8 +267,8 @@ def test_every_query_failing_is_a_failure_not_a_measurement(monkeypatch):
 
 
 def test_a_partial_failure_is_named_in_the_status(monkeypatch):
-    """Two of three queries silently dropped would make the site look cleaner
-    than it is, which is exactly what the status string exists to prevent."""
+    """A query silently dropped would make the site look cleaner than it is,
+    which is exactly what the status string exists to prevent."""
     monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
     monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
 
@@ -243,9 +279,17 @@ def test_a_partial_failure_is_named_in_the_status(monkeypatch):
 
     monkeypatch.setattr(p, "_request", fake)
     findings, status = p.serp_findings("acme.com", ["good", "bad"])
-    assert status.startswith("ok: 1/2")
+    assert status.startswith("partial: 1/2"), "'ok:' would lead with ok for a half-measured run"
     assert "1 failed" in status
     assert [f.code for f in findings] == ["serp.absent"]
+
+
+def test_blank_queries_are_the_same_skip_as_no_queries(monkeypatch):
+    monkeypatch.setenv("BRIGHTDATA_API_KEY", "k")
+    monkeypatch.setenv("BRIGHTDATA_SERP_ZONE", "z")
+    findings, status = p.serp_findings("acme.com", ["", "   "])
+    assert findings == []
+    assert status.startswith("skipped:") and "seed_queries" in status
 
 
 def test_the_query_is_url_encoded_into_the_google_target(monkeypatch):

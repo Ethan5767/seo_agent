@@ -70,6 +70,11 @@ GSC_MIN_IMPRESSIONS = 100       # below this, CTR is noise
 GSC_LOW_CTR = 0.02
 GSC_CANNIBAL_MIN_IMPRESSIONS = 50
 DFS_MAX_CLICK_DEPTH = 3
+# Named by intent, not by page count: at ten results a page, "page two" would end
+# at 20, and 30 is page three's boundary. The bands are "already visible" and
+# "close enough that copy can move it" — the page number is not the point.
+SERP_TOP_PAGE = 10              # already on page one: nothing to remediate
+SERP_REACHABLE_MAX = 30         # beyond this the fix is content, not copy
 
 
 # ── HTTP (stdlib only — the repo's one runtime dependency stays PyYAML) ──────
@@ -259,55 +264,6 @@ def parse_dataforseo_pages(items: list) -> list:
     return out
 
 
-# ── Bright Data SERP — the queries GSC cannot see ────────────────────────────
-# GSC only reports queries that already have impressions, so it is structurally
-# blind to "we rank nowhere for this". That gap is the entire reason this
-# provider exists; everything it can already tell you is left to gsc_findings.
-
-SERP_PAGE_ONE_MAX = 10          # on page one there is nothing to remediate
-SERP_PAGE_TWO_MAX = 30          # past ~page three the fix is content, not copy
-
-
-def _serp_host(url_or_domain: str) -> str:
-    """Comparable host for either a full URL or a bare domain. Substring
-    matching would let notacme.com satisfy a check for acme.com."""
-    s = url_or_domain if "//" in url_or_domain else "//" + url_or_domain
-    return urllib.parse.urlsplit(s).netloc.lower().removeprefix("www.")
-
-
-def parse_serp(payload: dict, domain: str, query: str) -> list:
-    """Findings from one `brd_json=1` Google response for one seed query.
-
-    `context` is the query and nothing else. Rank and the ranking URL are both
-    volatile, so they live in `detail`, which the fingerprint excludes — without
-    that, ordinary rank movement would read as RESOLVED plus NEW every cycle.
-
-    `location` is "/" for the same reason CrUX measures at origin level: which
-    page ranks is Google's choice and changes without the site changing.
-    """
-    organic = (payload or {}).get("organic") or []
-    if not organic:
-        # A missing or empty result set is a broken response, not a site that
-        # ranks for nothing. Inventing serp.absent here would be invention.
-        return []
-
-    want = _serp_host(domain)
-    for item in organic:
-        link = item.get("link") or ""
-        rank = item.get("global_rank") or item.get("rank")
-        if _serp_host(link) != want or not isinstance(rank, int):
-            continue
-        if rank <= SERP_PAGE_ONE_MAX:
-            return []
-        if rank <= SERP_PAGE_TWO_MAX:
-            return [Finding("serp", "serp.page_two", "/", context=query,
-                            detail=f"rank={rank} url={link}")]
-        break                                    # ranked, but far past useful
-
-    return [Finding("serp", "serp.absent", "/", context=query,
-                    detail=f"not in the top {len(organic)} organic results")]
-
-
 def dataforseo_findings(domain: str, max_pages: int = 100, poll_seconds: int = 15,
                         max_polls: int = 20) -> tuple:
     """(findings, status). Posts a crawl, polls the summary, reads the pages.
@@ -362,6 +318,56 @@ def dataforseo_findings(domain: str, max_pages: int = 100, poll_seconds: int = 1
     return assign_ordinals(parse_dataforseo_pages(items)), f"ok: {len(items)} page(s) crawled"
 
 
+# ── Bright Data SERP — rank and absence over the config's seed_queries ───────
+
+def _serp_host(url_or_domain: str) -> str:
+    """Comparable host for either a full URL or a bare domain. Substring
+    matching would let notacme.com satisfy a check for acme.com."""
+    s = url_or_domain if "//" in url_or_domain else "//" + url_or_domain
+    return urllib.parse.urlsplit(s).netloc.lower().removeprefix("www.")
+
+
+def parse_serp(payload: dict, domain: str, query: str) -> list:
+    """Findings from one `brd_json=1` Google response for one seed query.
+
+    `context` is the query and nothing else. Rank and the ranking URL are both
+    volatile, so they live in `detail`, which the fingerprint excludes — without
+    that, ordinary rank movement would read as RESOLVED plus NEW every cycle.
+    The query is also the ONLY discriminator between two SERP findings, because
+    `location` is always "/" — for the same reason CrUX measures at origin level:
+    which page ranks is Google's choice and moves without the site changing.
+
+    Collect every hit, then band the best one. Banding inside the scan would make
+    the verdict depend on the order `organic[]` happens to arrive in — an
+    assumption this module has no way to check and the vendor never promises.
+    """
+    organic = (payload or {}).get("organic") or []
+    if not organic:
+        # A missing or empty result set is a broken response, not a site that
+        # ranks for nothing. Inventing serp.absent here would be invention.
+        return []
+
+    want, hits = _serp_host(domain), []
+    for item in organic:
+        link = item.get("link") or ""
+        rank = item.get("global_rank", item.get("rank"))   # .get default: rank 0
+        if _serp_host(link) == want and isinstance(rank, int):
+            hits.append((rank, link))
+
+    if not hits:
+        return [Finding("serp", "serp.absent", "/", context=query,
+                        detail=f"not in the top {len(organic)} organic results")]
+
+    rank, link = min(hits)                       # tuples compare on rank first
+    if rank <= SERP_TOP_PAGE:
+        return []
+    if rank <= SERP_REACHABLE_MAX:
+        return [Finding("serp", "serp.page_two", "/", context=query,
+                        detail=f"rank={rank} url={link}")]
+    return [Finding("serp", "serp.absent", "/", context=query,
+                    detail=f"rank={rank}, past the top {SERP_REACHABLE_MAX}")]
+
+
 def serp_findings(domain: str, queries=None) -> tuple:
     """(findings, status). One Google SERP request per seed query.
 
@@ -400,7 +406,10 @@ def serp_findings(domain: str, queries=None) -> tuple:
         # the operator to the dashboard to find out what a status line was for.
         return [], f"failed: none of the {len(queries)} queries returned — {last_err}"
 
-    status = f"ok: {measured}/{len(queries)} queries measured"
+    # `partial:` rather than `ok:` when anything failed, matching crux_findings —
+    # "ok: 1/50 queries measured" leads with ok for a run that measured 2%.
     if failed:
-        status += f" ({len(failed)} failed: {', '.join(failed[:3])})"
-    return assign_ordinals(findings), status
+        return assign_ordinals(findings), (
+            f"partial: {measured}/{len(queries)} queries measured "
+            f"({len(failed)} failed: {', '.join(failed[:3])})")
+    return assign_ordinals(findings), f"ok: {measured}/{len(queries)} queries measured"

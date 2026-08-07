@@ -27,10 +27,18 @@ see `CLAUDE.md` (the sync contract).
   that the client ranks for nothing, and inventing `serp.absent` there would be
   the invention `claim_provenance_check` exists to refuse.
 
+  `parse_serp` collects every hit for the client's host and bands the **best**
+  one. Banding inside the scan made the verdict depend on the order `organic[]`
+  happened to arrive in — a site ranking #4 read as `serp.absent` when a #61 hit
+  for the same host was listed first — and made the absent-case detail contradict
+  its own payload ("not in the top 1 organic results" about the only result).
+  Both are covered: `test_the_best_rank_wins_regardless_of_array_order`,
+  `test_ranking_far_down_reads_as_absent_and_says_the_rank`.
+
   Proof (`.venv/bin/python -m pytest -q`):
 
   ```
-  578 passed in 4.79s
+  583 passed in 4.90s
   ```
 
   Reuses the existing `seed_queries` config key, which had been declared in
@@ -54,16 +62,6 @@ see `CLAUDE.md` (the sync contract).
   public docs; the feature field names are not. Capture a real payload on the
   first live run and add them against the observed shape rather than a guessed
   one.
-
-### Unverified
-
-- **The Bright Data network path has never been run against the live API.**
-  Exactly as with CrUX / GSC / DataForSEO (`CLAUDE.md` sharp edge #6), it is
-  written from the vendor's documented request shape and only `parse_serp` is
-  covered by tests. The four HTTP-contract tests monkeypatch `_request`, so they
-  prove the failure/partial/skip contracts hold — they prove nothing about
-  whether Bright Data's real response matches the parser. On the first real run,
-  read the `[serp]` status line, not the finding count.
 
 - **An SEO score and an AEO score, and a graph of them per cycle**
   (`pipeline/lib/score.py`). Nothing in the codebase scored anything before; the
@@ -188,6 +186,16 @@ see `CLAUDE.md` (the sync contract).
 
   Full suite for everything above:
   `.venv/bin/python -m pytest -q` → `564 passed in 4.87s`.
+
+### Unverified
+
+- **The Bright Data network path has never been run against the live API.**
+  Exactly as with CrUX / GSC / DataForSEO (`CLAUDE.md` sharp edge #6), it is
+  written from the vendor's documented request shape and only `parse_serp` is
+  covered by tests. The five HTTP-contract tests monkeypatch `_request`, so they
+  prove the failure/partial/skip contracts hold — they prove nothing about
+  whether Bright Data's real response matches the parser. On the first real run,
+  read the `[serp]` status line, not the finding count.
 
 ### Changed
 

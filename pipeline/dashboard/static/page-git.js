@@ -66,7 +66,8 @@ function renderActions() {
     button('a-pull', 'PULL --FF-ONLY', 'download', false, false),
     button('a-branch', 'CREATE CYCLE BRANCH', 'call_split', false, !onDefault,
       onDefault ? `Creates ${cycleBranch()}` : 'Already on a non-default branch'),
-    button('a-stage', 'STAGE docs/audit', 'add', false, st.changed.length === 0),
+    button('a-stage', 'STAGE ALL CHANGES', 'add', false, st.changed.length === 0,
+      'git add -A — the audit artifacts AND the files the remediator edited'),
     button('a-commit', 'COMMIT', 'check', false, st.changed.length === 0),
     button('a-push', 'PUSH', 'upload', false, onDefault, onDefault ? 'Refused from the default branch' : ''),
     button('a-pr', 'OPEN PR', 'merge_type', true, onDefault, onDefault ? 'Refused from the default branch' : ''),
@@ -77,7 +78,7 @@ function renderActions() {
   ].join('');
 
   wire('a-pull', 'pull');
-  wire('a-stage', 'stage-audit');
+  wire('a-stage', 'stage-all');
   wire('a-push', 'push');
   wire('a-pr', 'pr');
   document.getElementById('a-branch').addEventListener('click', () =>

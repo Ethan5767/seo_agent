@@ -456,7 +456,13 @@ GIT_ACTIONS = {
     "pull": lambda st, extra: ["git", "pull", "--ff-only"],
     "branch": lambda st, extra: ["git", "checkout", "-b", extra["branch"]],
     "commit": lambda st, extra: ["git", "commit", "-m", extra["message"]],
-    "stage-audit": lambda st, extra: ["git", "add", "docs/audit"],
+    # `-A`, not `docs/audit`. Staging only the audit JSON produced a PR that
+    # reported eight fixes and carried none of them: `wf-site-remediate` writes
+    # the reports AND edits the site, and `git commit -m` commits only what is
+    # staged. Staging everything is safe because it is not the last word —
+    # `tier_check` judges the whole PR diff, so an out-of-tier file that gets
+    # staged here fails the gate rather than reaching production.
+    "stage-all": lambda st, extra: ["git", "add", "-A"],
     "push": lambda st, extra: ["git", "push", "-u", "origin", st["branch"]],
     "pr": lambda st, extra: ["gh", "pr", "create", "--fill"],
 }

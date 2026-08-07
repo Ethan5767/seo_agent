@@ -8,6 +8,34 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **The dashboard's Git page stages the remediator's code edits, not just the
+  audit JSON (B-011).** `stage-audit` ran `git add docs/audit` and `commit` runs
+  `git commit -m <msg>` — no `-a`, no pathspec — so an operator who did the whole
+  branch → stage → commit → push → PR sequence in the dashboard opened a PR
+  carrying `changelog.json` claiming N fixes and none of the fixed files. The
+  action is now `stage-all` → `git add -A`, and the button reads
+  `STAGE ALL CHANGES`. It is not a second button beside the old one: two
+  near-identical staging buttons is the same footgun with a longer name.
+  Staging everything is safe because it is not the last word — `tier_check`
+  judges the whole PR diff, so an out-of-tier file fails the gate rather than
+  reaching production.
+
+  Reproduced first, in a scratch repo holding one edited `src/page.tsx` and one
+  `docs/audit/2026-08/changelog.json`. Old sequence:
+
+  ```
+  $ git add docs/audit && git commit -qm "audit: acme cycle artifacts"
+  $ git show --stat --name-only --format="" HEAD
+  docs/audit/2026-08/changelog.json
+  $ git status --porcelain
+   M src/page.tsx                     # the fix, left behind
+  ```
+
+  With `git add -A` the same commit carries `src/page.tsx` and `git status
+  --porcelain` comes back empty.
+  `tests/test_dashboard.py::test_staging_covers_the_remediators_code_edits_not_just_the_audit_json`.
+  Full suite: `.venv/bin/python -m pytest -q` → `415 passed in 2.69s`.
+
 - **`wf-site-remediate` streams Claude's live output instead of a blank pane.**
   `run_agent` used `subprocess.run(..., capture_output=True)` with
   `--output-format json`, so the dashboard (and any piped terminal) showed

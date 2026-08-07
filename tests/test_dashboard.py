@@ -153,6 +153,15 @@ def test_valid_cycle_branch_name_is_accepted(tmp_path):
         ["git", "checkout", "-b", "cycle/acme-2026-08"]
 
 
+def test_staging_covers_the_remediators_code_edits_not_just_the_audit_json(tmp_path):
+    """B-011. `git add docs/audit` + `git commit -m` committed the reports and
+    none of the fixes they described. Staging must reach the site files too."""
+    p = _repo(tmp_path, "acme")
+    assert build_git_argv("stage-all", p, {}) == ["git", "add", "-A"]
+    with pytest.raises(ValueError, match="unknown git action"):
+        build_git_argv("stage-audit", p, {})
+
+
 def test_commit_requires_a_message(tmp_path):
     p = _repo(tmp_path, "acme")
     with pytest.raises(ValueError, match="commit message required"):

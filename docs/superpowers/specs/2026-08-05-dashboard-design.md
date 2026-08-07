@@ -192,7 +192,7 @@ All responses are JSON. All mutating routes require the token from §4.2.
 | `GET` | `/api/runs` | Run history for this session |
 | `GET` | `/api/runs/{run_id}` | Status, exit code, interpretation |
 | `GET` | `/api/runs/{run_id}/stream` | **SSE.** `line` events, then one `exit` event |
-| `POST` | `/api/clients/{slug}/git` | `{action}` — `pull` · `branch` · `stage-audit` · `commit` · `push` · `pr` |
+| `POST` | `/api/clients/{slug}/git` | `{action}` — `pull` · `branch` · `stage-all` · `commit` · `push` · `pr` |
 
 **Git state and the PR lookup are separate routes** (revised during the build).
 Local git is instant; `gh pr view` is a network round-trip that held the whole

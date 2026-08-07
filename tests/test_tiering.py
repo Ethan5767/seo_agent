@@ -208,3 +208,85 @@ def test_add_tier_is_a_no_op_when_a_tier_already_exists(tmp_path):
     target.write_text("client: acme\ntier: 3\n")
     assert add_tier(target) == 0
     assert target.read_text() == "client: acme\ntier: 3\n"
+
+
+# ── the tier is declared at onboarding (T1 default, T2 needs its fields) ─────
+# The picker is not a relaxation of the tier model: docs/client-config.yml stays on
+# the deny floor at every tier, so the AGENT still cannot raise its own authority,
+# and wf-onboard writes this into a commit on the default branch. What changed is
+# WHEN the human declares it.
+
+from pipeline.audit.bootstrap_config import TierError, parse_args, tier_block
+
+
+def test_the_default_tier_is_one(tmp_path):
+    assert "tier: 1" in tier_block(tmp_path)
+
+
+def test_t3_needs_no_content_block(tmp_path):
+    block = tier_block(tmp_path, 3)
+    assert "tier: 3" in block
+    # T3 may create anything not denied, so a content location does not constrain
+    # it. Writing one would imply it does.
+    assert "# content:" in block
+
+
+def test_t2_is_refused_without_a_content_location(tmp_path):
+    with pytest.raises(TierError, match="content-location"):
+        tier_block(tmp_path, 2, content_registry=["src/data/posts.ts"])
+
+
+def test_t2_is_refused_without_a_registry(tmp_path):
+    # A location with no registry is the worse half: the agent creates a page,
+    # nothing links to it, and orphan_check refuses the PR after the spend.
+    with pytest.raises(TierError, match="content-registry"):
+        tier_block(tmp_path, 2, content_location="src/content/blog/")
+
+
+def test_a_refused_t2_is_never_silently_downgraded(tmp_path):
+    # The failure mode this replaces: a config that says T2 and behaves as T1.
+    try:
+        tier_block(tmp_path, 2)
+    except TierError as exc:
+        assert "authority over nowhere" in str(exc)
+    else:
+        raise AssertionError("T2 with neither field was written")
+
+
+def test_a_complete_t2_writes_a_real_content_block(tmp_path):
+    block = tier_block(tmp_path, 2, "src/content/blog/", ["src/data/posts.ts"])
+    assert "tier: 2" in block
+    assert "location: src/content/blog/" in block
+    assert "registry: [src/data/posts.ts]" in block
+    assert "# content:" not in block
+
+
+def test_the_deny_floor_is_written_at_every_tier(tmp_path):
+    for tier in (1, 2, 3):
+        block = tier_block(tmp_path, tier, "src/content/", ["src/data/p.ts"])
+        # The one line that makes the picker safe: whatever tier the operator
+        # chose, the agent can never edit the file that declares it.
+        assert "docs/client-config.yml" in block
+        assert ".github/**" in block
+
+
+@pytest.mark.parametrize("bad", ["../escape", "-flag", "/abs/path"])
+def test_a_content_path_that_is_not_repo_relative_is_refused(tmp_path, bad):
+    with pytest.raises(TierError):
+        tier_block(tmp_path, 3, content_location=bad)
+
+
+def test_an_out_of_range_tier_is_refused(tmp_path):
+    with pytest.raises(TierError, match="1, 2 or 3"):
+        tier_block(tmp_path, 4)
+
+
+def test_the_tier_flag_takes_a_value_and_does_not_eat_the_domain():
+    # The old argv handling filtered out `--add-tier` by equality, which would have
+    # left `2` from `--tier 2` sitting where DOMAIN goes.
+    project, domain, add_only, tier, loc, reg = parse_args(
+        ["/tmp/acme", "acme.com", "--tier", "2", "--content-location", "src/c/",
+         "--content-registry", "a.ts,b.ts"])
+    assert domain == "acme.com"
+    assert (tier, loc, reg) == (2, "src/c/", ["a.ts", "b.ts"])
+    assert add_only is False

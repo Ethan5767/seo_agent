@@ -34,12 +34,22 @@ and `docs/client-config.yml` is on the deny floor, so the agent can never raise
 its own authority: T2 and T3 exist in this module but are unreachable for a
 client until a human raises the tier in a human PR.
 
-CAPS
-----
+CAPS, AND WHAT A RE-RUN DOES
+---------------------------
 `--max-items` and `--max-files` are hard. Hitting one stops the run **cleanly**:
-what landed stays, `changelog.json` records `stopped`, and the remaining items
-keep their place in the worklist for the next run. A half-failed run must be
-legible, which is the opposite of a run that silently did two thirds of a job.
+what landed stays, `changelog.json` records `stopped`, and the remaining items are
+picked up by the next run. A half-failed run must be legible, which is the
+opposite of a run that silently did two thirds of a job.
+
+**A re-run RESUMES.** It skips every item this cycle's `changelog.json` already
+records as `fixed`, and it MERGES into that changelog rather than overwriting it.
+Before B-013 was fixed, neither was true: run two re-attempted the same first N
+items and its write destroyed run one's record of what had actually been fixed.
+
+The changelog therefore decides what gets **attempted**. It decides nothing about
+what is **verified** — `acceptance_check` re-measures every claimed fix against
+the build output and refuses if the finding is still there. A changelog entry that
+lies about a fix costs one item's budget and is then caught by the gate.
 
 This module does not commit, push, or open a PR. That path already exists with
 its "never push a default branch" guard in `pipeline/dashboard/server.py`
@@ -305,16 +315,72 @@ def load_worklist(project, cycle: str | None) -> tuple:
         raise RemediateError(f"{audit / target}/worklist.json is not valid JSON: {exc}")
 
 
-def selectable(worklist: dict, profile: dict) -> list:
-    """Items this repo's tier can actually act on, worst lane first.
+def read_changelog(project, cycle: str) -> dict:
+    """The cycle's existing changelog, or {}. Unreadable is treated as absent and
+    said out loud: a re-run must not silently redo a whole cycle because one file
+    got truncated, but it must not silently refuse either."""
+    path = Path(project) / "docs" / "audit" / cycle / "changelog.json"
+    if not path.is_file():
+        return {}
+    try:
+        doc = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[WARN] {path} will not parse ({exc}) — treating this as the first run "
+              f"for this cycle. The previous record is NOT merged.", file=sys.stderr)
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def already_fixed(changelog: dict) -> set:
+    """Work item ids this cycle's changelog records as fixed.
+
+    B-013: `selectable` rebuilt the queue from worklist.json alone, so a run that
+    stopped on --max-items started again at item 1 and re-attempted the same first
+    N — while `main` overwrote the changelog, destroying the record of the items
+    that HAD been fixed. The documented "run 10, then run 10 more" did the same 10
+    twice and cleared the audit trail.
+
+    This makes the changelog decide what gets ATTEMPTED. It decides nothing about
+    what is VERIFIED: `acceptance_check` re-measures every claimed fix against the
+    build output and refuses if the finding is still there. A changelog entry that
+    lies about a fix costs one item's budget and is then caught by the gate.
+    """
+    return {i.get("id") for i in changelog.get("items", [])
+            if i.get("status") == "fixed" and i.get("id")}
+
+
+def selectable(worklist: dict, profile: dict, done: set = frozenset()) -> list:
+    """Items this repo's tier can actually act on and has not already fixed,
+    worst lane first.
 
     REGRESSION before NEW before PERSISTING: a fix that did not hold is the most
     informative thing in the list, and with a cap on items it should not be the
     part that gets cut.
     """
     order = {"REGRESSION": 0, "NEW": 1, "PERSISTING": 2}
-    items = [i for i in worklist.get("items", []) if not i.get("tier_blocked")]
+    items = [i for i in worklist.get("items", [])
+             if not i.get("tier_blocked") and i.get("id") not in done]
     return sorted(items, key=lambda i: (order.get(i.get("lane"), 3), i.get("id", "")))
+
+
+def merge_items(prior: list, fresh: list) -> list:
+    """Prior entries, with a fresh attempt of the same id replacing its own earlier
+    one. Order: prior first (stable), then genuinely new ids.
+
+    The point is that run two's record ADDS to run one's rather than replacing the
+    file. Without this, the reviewed evidence for every item run one fixed is gone
+    the moment run two writes.
+    """
+    by_id = {i.get("id"): i for i in prior if i.get("id")}
+    order = [i.get("id") for i in prior if i.get("id")]
+    for item in fresh:
+        key = item.get("id")
+        if key is None:
+            continue
+        if key not in by_id:
+            order.append(key)
+        by_id[key] = item
+    return [by_id[k] for k in order]
 
 
 def remediate(project, cycle: str | None, max_items: int, max_files: int,
@@ -322,7 +388,13 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
     """(changelog, exit_code)."""
     profile = client_profile(load_config(str(project)), str(project))
     target, worklist = load_worklist(project, cycle)
-    queue = selectable(worklist, profile)
+    # A dry run must show what a real run WOULD do, so it reads the same queue.
+    prior = read_changelog(project, target)
+    done = already_fixed(prior)
+    queue = selectable(worklist, profile, done)
+    if done:
+        print(f"[resume] {len(done)} item(s) already fixed in this cycle's changelog "
+              f"— skipping them. {len(queue)} left.", flush=True)
 
     doctrine = read_doctrine()
     results, files_map = [], {}
@@ -376,6 +448,15 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
                       "keep writing"
             break
 
+    # Merged, not overwritten (B-013). A dry run merges nothing: it wrote no code,
+    # so it must not touch the record of the runs that did.
+    merged_items = results if dry_run else merge_items(prior.get("items", []), results)
+    prior_files = prior.get("files") if isinstance(prior.get("files"), dict) else {}
+    if not dry_run:
+        for path, ids in prior_files.items():
+            files_map.setdefault(path, [])
+            files_map[path] += [i for i in ids if isinstance(i, str)]
+
     changelog = {
         "schema": SCHEMA,
         "generated": date.today().isoformat(),
@@ -383,11 +464,15 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
         "domain": worklist.get("domain"),
         "tier": profile.get("tier"),
         "model": model,
-        "cost_usd": round(cost, 4),
+        # Cumulative across the cycle's runs, like `attempted`. A per-run figure in
+        # a file that spans runs is a number nobody can reconcile with the bill.
+        "cost_usd": round(cost + (0.0 if dry_run else float(prior.get("cost_usd") or 0.0)), 4),
+        # What this run had left to do, so `queued` + already-fixed = the worklist.
         "queued": len(queue),
-        "attempted": len(results),
+        "attempted": len(merged_items),
+        "runs": (0 if dry_run else int(prior.get("runs") or 0) + 1),
         "stopped": stopped,
-        "items": results,
+        "items": merged_items,
         "files": {k: sorted(set(v)) for k, v in sorted(files_map.items())},
     }
     if refused:
@@ -396,8 +481,12 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
 
 
 def _base(item: dict) -> dict:
-    return {k: item.get(k) for k in ("id", "url", "code", "kind", "lane",
-                                     "evidence", "acceptance")}
+    # `finding_fp` is load-bearing beyond the audit trail: it is the only exact
+    # link from a fixed item back to the finding it fixed. Matching on (url, code)
+    # instead is ambiguous the moment one page carries two findings of one code —
+    # which is the common case, not the exotic one (img_alt_missing).
+    return {k: item.get(k) for k in ("id", "finding_fp", "url", "code", "kind",
+                                     "lane", "evidence", "acceptance")}
 
 
 def main() -> int:

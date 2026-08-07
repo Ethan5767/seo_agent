@@ -127,3 +127,147 @@ def test_an_unmeasurable_site_stops_before_planning(repo, calls):
 def test_dry_run_touches_nothing_past_the_access_check(repo, calls):
     assert o.onboard(str(repo), "acmeroofing.com", repo.parent, True, True) == 0
     assert calls.seen == ["gh"]
+
+
+# ── the tier the operator declared reaches bootstrap-config ──────────────────
+# The tier is the single most consequential field on the ADD CLIENT form. A tier
+# that is collected and then dropped on the floor produces a client whose config
+# says T1 while the operator believes it says T3.
+
+def test_the_declared_tier_is_passed_to_bootstrap(repo, monkeypatch):
+    seen = {}
+
+    def fake_run(argv, cwd=None, capture=False):
+        if argv[0] == "gh":
+            return result(0, "WRITE")
+        if argv[0] == "wf-bootstrap-config":
+            seen["argv"] = argv
+        return result(0)
+
+    monkeypatch.setattr(o, "run", fake_run)
+    monkeypatch.setattr(o.shutil, "which", lambda name: f"/usr/bin/{name}")
+    o.onboard(str(repo), "acmeroofing.com", repo.parent, True, False, tier=2,
+              content_location="src/content/blog/",
+              content_registry=["src/data/posts.ts"])
+    assert seen["argv"][-6:] == ["--tier", "2",
+                                 "--content-location", "src/content/blog/",
+                                 "--content-registry", "src/data/posts.ts"]
+
+
+def test_tier_defaults_to_one_and_says_so(repo, calls):
+    o.onboard(str(repo), "acmeroofing.com", repo.parent, True, False)
+    # No content flags at all: T1 has nowhere to create, so passing an empty
+    # location would be writing a `content:` block that grants nothing.
+    assert "--content-location" not in calls.seen
+
+
+def test_a_refused_tier_stops_the_run_resumably(repo, calls, capsys):
+    # bootstrap_config exits 4 on a tier it will not write (T2 with no content
+    # location). Exit 1, not 3: the operator re-runs with the field filled in.
+    calls.codes["wf-bootstrap-config"] = 4
+    assert o.onboard(str(repo), "acmeroofing.com", repo.parent, True, False) == 1
+    assert "tier could not be written" in capsys.readouterr().out
+    assert "wf-preflight" not in calls.seen
+
+
+# ── B-014: the scaffold has to be committed, and only onboard can do it ──────
+
+def git_repo(tmp_path):
+    """A real git repo with one commit on `main` and an origin/HEAD ref, because
+    commit_scaffold asks git real questions and a fake .git directory answers none
+    of them."""
+    import subprocess as sp
+    p = tmp_path / "client"
+    (p / "docs").mkdir(parents=True)
+    for cmd in (["init", "-b", "main"], ["config", "user.email", "t@t.t"],
+                ["config", "user.name", "t"]):
+        sp.run(["git", "-C", str(p), *cmd], check=True, capture_output=True)
+    (p / "README.md").write_text("x\n")
+    sp.run(["git", "-C", str(p), "add", "-A"], check=True, capture_output=True)
+    sp.run(["git", "-C", str(p), "commit", "-m", "init"], check=True, capture_output=True)
+    return p
+
+
+def scaffold(p):
+    (p / "docs" / "client-config.yml").write_text("client: acme\ntier: 1\n")
+    (p / "docs" / "INDEX.md").write_text("# Index\n")
+    (p / "docs" / "seo-progress.md").write_text("# Progress\n")
+    (p / "docs" / "seo-work-log.md").write_text("# Log\n")
+    for d in ("cycle-logs", "intake-archive"):
+        (p / "docs" / d).mkdir()
+        (p / "docs" / d / ".gitkeep").write_text("")
+
+
+def tracked(p):
+    import subprocess as sp
+    r = sp.run(["git", "-C", str(p), "show", "--name-only", "--format=", "HEAD"],
+               capture_output=True, text=True)
+    return set(r.stdout.split())
+
+
+def test_the_scaffold_is_committed_to_the_default_branch(tmp_path, monkeypatch):
+    p = git_repo(tmp_path)
+    scaffold(p)
+    monkeypatch.setattr(o, "run", lambda argv, cwd=None, capture=False:
+                        __import__("subprocess").run(argv, cwd=cwd, capture_output=True, text=True))
+    o.commit_scaffold(p)
+    got = tracked(p)
+    assert "docs/client-config.yml" in got
+    assert "docs/INDEX.md" in got
+    assert "docs/cycle-logs/.gitkeep" in got
+    # Nothing left over: the operator reaching the Git screen must see ONLY the
+    # cycle artifacts measure/plan then write.
+    import subprocess as sp
+    assert sp.run(["git", "-C", str(p), "status", "--porcelain"],
+                  capture_output=True, text=True).stdout.strip() == ""
+
+
+def test_the_scaffold_commit_takes_nothing_it_did_not_write(tmp_path, monkeypatch):
+    p = git_repo(tmp_path)
+    scaffold(p)
+    # An unrelated dirty file. `git add -A` would sweep it into a commit the
+    # operator never asked for; the named pathspec must not.
+    (p / "src.ts").write_text("export const x = 1\n")
+    monkeypatch.setattr(o, "run", lambda argv, cwd=None, capture=False:
+                        __import__("subprocess").run(argv, cwd=cwd, capture_output=True, text=True))
+    o.commit_scaffold(p)
+    assert "src.ts" not in tracked(p)
+    import subprocess as sp
+    assert "src.ts" in sp.run(["git", "-C", str(p), "status", "--porcelain"],
+                              capture_output=True, text=True).stdout
+
+
+def test_the_scaffold_is_never_committed_on_a_cycle_branch(tmp_path, capsys):
+    # This is the whole point of B-014: on a cycle branch these six paths are
+    # creates that tier_check refuses with exit 17. Committing them there is the
+    # bug, not the fix.
+    import subprocess as sp
+    p = git_repo(tmp_path)
+    sp.run(["git", "-C", str(p), "checkout", "-b", "cycle/acme-2026-08"],
+           check=True, capture_output=True)
+    scaffold(p)
+    o.commit_scaffold(p)
+    assert tracked(p) == {"README.md"}
+    assert "NOT committing" in capsys.readouterr().out
+
+
+def test_a_second_onboarding_does_not_fail_on_the_first_ones_commit(tmp_path, monkeypatch, capsys):
+    p = git_repo(tmp_path)
+    scaffold(p)
+    monkeypatch.setattr(o, "run", lambda argv, cwd=None, capture=False:
+                        __import__("subprocess").run(argv, cwd=cwd, capture_output=True, text=True))
+    o.commit_scaffold(p)
+    o.commit_scaffold(p)                      # onboarding is re-runnable
+    assert "already committed" in capsys.readouterr().out
+
+
+def test_a_humans_edit_to_a_scaffold_path_is_not_committed_for_them(tmp_path, monkeypatch, capsys):
+    p = git_repo(tmp_path)
+    scaffold(p)
+    monkeypatch.setattr(o, "run", lambda argv, cwd=None, capture=False:
+                        __import__("subprocess").run(argv, cwd=cwd, capture_output=True, text=True))
+    o.commit_scaffold(p)
+    # The operator resolves the interview TODOs. That edit is theirs to commit.
+    (p / "docs" / "client-config.yml").write_text("client: acme\ntier: 1\nindustry: real\n")
+    o.commit_scaffold(p)
+    assert "not this run's to commit" in capsys.readouterr().out

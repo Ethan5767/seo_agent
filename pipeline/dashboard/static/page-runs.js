@@ -17,6 +17,9 @@ async function init() {
     ]);
     cmdEl.innerHTML = Object.entries(commands)
       .map(([k, v]) => `<option value="${esc(k)}">${esc(k)} — ${esc(v.label)}</option>`).join('');
+    // The step you come to this screen for. It is also the only one that writes,
+    // so it lands preselected with nothing filled in — RUN is still a click.
+    if ('site-remediate' in commands) cmdEl.value = 'site-remediate';
     renderArgs();
     history();
   } catch (err) { fail(logEl, err); }

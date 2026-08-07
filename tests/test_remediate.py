@@ -299,3 +299,102 @@ def test_the_skill_frontmatter_is_not_sent_to_the_writer():
     assert not text.startswith("---")
     assert "description: Use when fixing" not in text
     assert text.lstrip().startswith("# Site Remediation")
+
+
+# ── B-013: a re-run resumes, and never destroys the first run's record ───────
+# The docstring promised "the remaining items keep their place in the worklist for
+# the next run" and the code did the opposite: selectable() rebuilt the queue from
+# worklist.json alone so run two re-attempted the same first N, while main() wrote
+# changelog.json wholesale so run two's record replaced run one's.
+
+def write_changelog(proj, doc):
+    (Path(proj) / "docs" / "audit" / "2026-08" / "changelog.json").write_text(
+        json.dumps(doc))
+
+
+def test_a_rerun_skips_what_the_changelog_records_as_fixed(repo, monkeypatch, capsys):
+    proj = repo(items=[item(1), item(2), item(3)])
+    write_changelog(proj, {"cycle": "2026-08", "items": [
+        {"id": "wi-2026-08-0001", "status": "fixed"}]})
+    monkeypatch.setattr(rem, "run_agent", agent_that(
+        {"src/data/services.ts": "export const title = 'better'\n"}))
+    log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
+    worked = [i["id"] for i in log["items"] if i["status"] != "fixed" or True]
+    assert "wi-2026-08-0001" in worked            # carried over from the prior run
+    assert "resume" in capsys.readouterr().out
+    # It was NOT re-attempted: exactly the two unfixed items ran this time.
+    assert log["queued"] == 2
+
+
+def test_a_status_other_than_fixed_is_retried(repo, monkeypatch):
+    # error / no_change / refused all mean "not done". Skipping them would strand
+    # an item that failed for a transient reason.
+    proj = repo(items=[item(1), item(2)])
+    write_changelog(proj, {"cycle": "2026-08", "items": [
+        {"id": "wi-2026-08-0001", "status": "error"},
+        {"id": "wi-2026-08-0002", "status": "no_change"}]})
+    monkeypatch.setattr(rem, "run_agent", agent_that(
+        {"src/data/services.ts": "export const title = 'better'\n"}))
+    log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
+    assert log["queued"] == 2
+
+
+def test_the_second_run_merges_rather_than_destroying_the_first(repo, monkeypatch):
+    proj = repo(items=[item(1), item(2)])
+    write_changelog(proj, {"cycle": "2026-08", "cost_usd": 2.5, "runs": 1, "items": [
+        {"id": "wi-2026-08-0001", "status": "fixed", "note": "run one"}],
+        "files": {"src/data/old.ts": ["wi-2026-08-0001"]}})
+    monkeypatch.setattr(rem, "run_agent", agent_that(
+        {"src/data/services.ts": "export const title = 'better'\n"}))
+    log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
+    ids = [i["id"] for i in log["items"]]
+    # Run one's reviewed evidence survives, and run two's is added to it.
+    assert ids == ["wi-2026-08-0001", "wi-2026-08-0002"]
+    assert log["items"][0]["note"] == "run one"
+    assert log["runs"] == 2
+    assert log["cost_usd"] > 2.5                 # cumulative, reconcilable with the bill
+    assert "src/data/old.ts" in log["files"]     # run one's file map is not dropped
+    assert "src/data/services.ts" in log["files"]
+
+
+def test_a_fresh_attempt_replaces_its_own_earlier_entry(repo, monkeypatch):
+    proj = repo(items=[item(1)])
+    write_changelog(proj, {"cycle": "2026-08", "items": [
+        {"id": "wi-2026-08-0001", "status": "error", "note": "old"}]})
+    monkeypatch.setattr(rem, "run_agent", agent_that(
+        {"src/data/services.ts": "export const title = 'better'\n"}))
+    log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
+    entries = [i for i in log["items"] if i["id"] == "wi-2026-08-0001"]
+    assert len(entries) == 1                     # one id, one entry
+    assert entries[0]["status"] == "fixed"
+
+
+def test_a_dry_run_never_touches_the_record_of_runs_that_wrote(repo, monkeypatch):
+    proj = repo(items=[item(1), item(2)])
+    write_changelog(proj, {"cycle": "2026-08", "cost_usd": 2.5, "runs": 1, "items": [
+        {"id": "wi-2026-08-0001", "status": "fixed"}]})
+    log, code = rem.remediate(proj, None, 10, 20, "sonnet", 60, True)
+    assert code == 0
+    assert log["runs"] == 0
+    assert log["cost_usd"] == 0.0
+    assert all(i["status"] == "dry-run" for i in log["items"])
+
+
+def test_an_unreadable_changelog_is_said_out_loud_not_silently_obeyed(repo, monkeypatch, capsys):
+    proj = repo(items=[item(1)])
+    (Path(proj) / "docs" / "audit" / "2026-08" / "changelog.json").write_text("{ truncated")
+    monkeypatch.setattr(rem, "run_agent", agent_that(
+        {"src/data/services.ts": "export const title = 'better'\n"}))
+    rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
+    assert "will not parse" in capsys.readouterr().err
+
+
+def test_the_changelog_carries_the_fingerprint_of_the_finding_it_fixed(repo, monkeypatch):
+    # Without finding_fp, mapping a fixed item back to its finding means matching
+    # on (url, code) — ambiguous the moment one page has two findings of one code,
+    # which is the common case (img_alt_missing), not the exotic one.
+    proj = repo(items=[item(1)])
+    monkeypatch.setattr(rem, "run_agent", agent_that(
+        {"src/data/services.ts": "export const title = 'better'\n"}))
+    log, _ = rem.remediate(proj, None, 10, 20, "sonnet", 60, False)
+    assert log["items"][0]["finding_fp"] == "fp1"

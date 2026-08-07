@@ -19,7 +19,9 @@ import yaml
 from pipeline.dashboard.server import (
     COMMANDS,
     ONBOARD_EXITS,
+    RUNS,
     build_argv,
+    busy_run,
     build_git_argv,
     build_onboard,
     cycles,
@@ -403,8 +405,11 @@ def test_onboard_normalises_every_way_an_operator_states_the_repo(repo):
     """An operator pastes the browser URL. wf-onboard documents owner/name."""
     slug, argv, env = build_onboard({"repo": repo, "domain": "acmeroofing.com"}, "/c")
     assert slug == "acme/roofing-site"
+    # `--tier 1` is stated rather than left implicit: the console previews this exact
+    # argv, and the tier is the most consequential field on the form. An operator
+    # reading the preview should see which authority they are granting.
     assert argv == ["wf-onboard", "acme/roofing-site", "acmeroofing.com",
-                    "--clients-dir", "/c"]
+                    "--clients-dir", "/c", "--tier", "1"]
     assert env is None
 
 
@@ -530,3 +535,153 @@ def test_an_unreadable_baseline_is_not_reported_as_absent(tmp_path):
     (p / "docs" / "gate-baseline.json").write_text("{not json")
     bl = fleet_entry(discover_clients(tmp_path)[0])["baseline"]
     assert bl["present"] is True and bl["entries"] is None
+
+
+# ── one writer per checkout ──────────────────────────────────────────────────
+class _FakeRun:
+    """Only what busy_run reads. A real Run spawns a subprocess."""
+
+    def __init__(self, slug, command, exit_code):
+        self.slug, self.command, self.exit_code = slug, command, exit_code
+
+
+@pytest.fixture
+def runs():
+    RUNS.clear()
+    yield RUNS
+    RUNS.clear()
+
+
+def test_no_run_for_this_client_is_not_busy(runs):
+    assert busy_run("acme") is None
+
+
+def test_a_live_run_makes_that_client_busy(runs):
+    """Two remediate runs on one checkout is two agents editing the same files,
+    and the loser's edits vanish without a word. Happened on lee-series-web."""
+    runs["r1"] = _FakeRun("acme", "site-remediate", None)
+    assert busy_run("acme").command == "site-remediate"
+
+
+def test_a_finished_run_does_not_block_the_next_one(runs):
+    runs["r1"] = _FakeRun("acme", "site-remediate", 0)
+    assert busy_run("acme") is None
+
+
+def test_another_clients_run_does_not_block(runs):
+    """Serialising the whole fleet behind one slow measure would be a bug, not
+    a guard. The lock is per checkout because the conflict is per checkout."""
+    runs["r1"] = _FakeRun("acme", "site-remediate", None)
+    assert busy_run("beta") is None
+
+
+# ── the tier the operator picked reaches wf-onboard ──────────────────────────
+
+def test_the_tier_is_carried_into_the_onboard_argv():
+    _, argv, _ = build_onboard(
+        {"repo": "acme/site", "domain": "acme.com", "tier": 3}, "/c")
+    assert argv[-2:] == ["--tier", "3"]
+
+
+def test_a_complete_t2_carries_its_content_paths():
+    _, argv, _ = build_onboard({
+        "repo": "acme/site", "domain": "acme.com", "tier": 2,
+        "content_location": "src/content/blog/",
+        "content_registry": ["src/data/posts.ts", "src/data/nav.ts"]}, "/c")
+    assert argv[-8:] == ["--tier", "2",
+                         "--content-location", "src/content/blog/",
+                         "--content-registry", "src/data/posts.ts",
+                         "--content-registry", "src/data/nav.ts"]
+
+
+def test_t2_without_its_fields_is_refused_at_the_form_not_after_a_clone():
+    # bootstrap_config refuses this too, but by then wf-onboard has cloned the repo
+    # and run a network access check. The operator should learn it from the form.
+    with pytest.raises(ValueError, match="authority over nowhere"):
+        build_onboard({"repo": "acme/site", "domain": "acme.com", "tier": 2}, "/c")
+    with pytest.raises(ValueError, match="registry"):
+        build_onboard({"repo": "acme/site", "domain": "acme.com", "tier": 2,
+                       "content_location": "src/content/"}, "/c")
+
+
+@pytest.mark.parametrize("tier", [0, 4, "two", None, 1.5])
+def test_a_tier_that_is_not_one_two_or_three_is_refused(tier):
+    with pytest.raises(ValueError, match="tier must be"):
+        build_onboard({"repo": "acme/site", "domain": "acme.com", "tier": tier}, "/c")
+
+
+@pytest.mark.parametrize("bad", ["../../etc", "-flag", "/abs", "src/x\ny"])
+def test_a_content_path_that_escapes_the_repo_is_refused(bad):
+    # These land in a config the gates read. Same two rules as a branch name: must
+    # start alphanumeric, no `..`.
+    with pytest.raises(ValueError, match="bad content"):
+        build_onboard({"repo": "acme/site", "domain": "acme.com", "tier": 3,
+                       "content_location": bad}, "/c")
+
+
+def test_t3_needs_no_content_paths():
+    _, argv, _ = build_onboard(
+        {"repo": "acme/site", "domain": "acme.com", "tier": 3}, "/c")
+    assert "--content-location" not in argv
+
+
+# ── B-015: a gate with nothing committed refuses instead of passing ──────────
+# tier-check and claim-provenance diff origin/<default>...HEAD — the THREE-dot
+# form, blind to the working tree. On a dirty checkout with no cycle commit the
+# diff is empty, both exit 0, and the console printed "Clean — every check passed"
+# over work they never looked at.
+
+def _committed_repo(tmp_path, name="acme"):
+    """A checkout with an origin/<default> ref, so commits_to_judge can count."""
+    p = tmp_path / name
+    (p / "docs").mkdir(parents=True)
+    (p / "docs" / "client-config.yml").write_text(yaml.safe_dump({"client": name}))
+    for cmd in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t.t"],
+                ["config", "user.name", "t"], ["add", "-A"], ["commit", "-qm", "base"]):
+        subprocess.run(["git", "-C", str(p), *cmd], check=True, capture_output=True)
+    # A local stand-in for the remote-tracking ref the gates diff against.
+    subprocess.run(["git", "-C", str(p), "update-ref", "refs/remotes/origin/main", "HEAD"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(p), "symbolic-ref", "refs/remotes/origin/HEAD",
+                    "refs/remotes/origin/main"], check=True, capture_output=True)
+    return p
+
+
+def test_an_uncommitted_tree_has_nothing_for_those_gates_to_judge(tmp_path):
+    from pipeline.dashboard.server import commits_to_judge
+    p = _committed_repo(tmp_path)
+    (p / "src.ts").write_text("export const x = 1\n")     # dirty, uncommitted
+    assert commits_to_judge(p) == 0
+
+
+def test_a_cycle_commit_gives_those_gates_something_to_judge(tmp_path):
+    from pipeline.dashboard.server import commits_to_judge
+    p = _committed_repo(tmp_path)
+    (p / "src.ts").write_text("export const x = 1\n")
+    for cmd in (["add", "-A"], ["commit", "-qm", "cycle"]):
+        subprocess.run(["git", "-C", str(p), *cmd], check=True, capture_output=True)
+    assert commits_to_judge(p) == 1
+
+
+def test_no_remote_ref_is_cannot_tell_not_nothing_to_judge(tmp_path):
+    # A repo with no origin/<default> must let the gate run and speak for itself.
+    # Reading "cannot tell" as "empty diff" would refuse every local-only checkout.
+    from pipeline.dashboard.server import commits_to_judge
+    p = tmp_path / "bare"
+    (p / "docs").mkdir(parents=True)
+    for cmd in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t.t"],
+                ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", str(p), *cmd], check=True, capture_output=True)
+    (p / "a.txt").write_text("x")
+    for cmd in (["add", "-A"], ["commit", "-qm", "base"]):
+        subprocess.run(["git", "-C", str(p), *cmd], check=True, capture_output=True)
+    assert commits_to_judge(p) is None
+
+
+def test_only_the_three_dot_gates_carry_needs_commit():
+    from pipeline.dashboard.server import COMMANDS
+    marked = {k for k, v in COMMANDS.items() if v.get("needs_commit")}
+    # site-health measures the live site and site-remediate reads the worklist —
+    # neither looks at a diff, and refusing them on a clean tree would break the
+    # normal flow.
+    assert marked == {"tier-check", "claim-provenance"}

@@ -110,7 +110,9 @@ A tier is a **path + operation allow-list**, declared per client in their own `d
 
 **The deny floor applies at every tier, T3 included**, and is unioned in from `lib/common.DEFAULT_DENY` so a client config can never shrink it: `.github/**` (the agent must never edit the gates that judge it), `docs/client-config.yml` (it must never raise its own tier), `package*.json`, `wrangler.toml`, `.env*`.
 
-`wf-bootstrap-config` writes `tier: 1`. **T2 and T3 exist in the code but are unreachable for a client until a human raises that tier in a human PR.** That is enforcement, not a release schedule — and it is stronger than staging the features.
+**The operator declares the tier at onboarding**, in the ADD CLIENT panel or via `wf-onboard --tier`. It defaults to **T1**, and **T2 is refused without `content.location` and `content.registry`** — T2 means "may create pages there and wire them in", so without both it grants authority over nowhere while claiming more.
+
+**The agent can never raise its own tier**, and that is what the model rests on: `docs/client-config.yml` is on the deny floor at every tier including T3, and `wf-onboard` writes the tier into a commit on the **default branch** — a human commit, which is what the model always required. What a human chooses is *when* to declare it, never whether they must.
 
 What keeps agent authorship safe is not the prompt. It is `tier_check` on the diff, `claim_provenance_check` on the claims, `acceptance_check` on the result, and the operator's merge.
 
@@ -217,4 +219,4 @@ ls <client-repo>/docs/audit/            # which cycles have been measured
 
 `docs/audit/<YYYY-MM>/` in the **client** repo is the shared state: `findings.json` means it was measured, `worklist.json` means it was planned, `changelog.json` means an agent ran. All three ship inside the PR, so a `git pull` in the client repo tells you what the other side already did. Nothing is coordinated through this repo, and nothing needs a server.
 
-**Re-running is safe by design** — `wf-onboard` resumes, `wf-site-plan` is byte-identical over an unchanged cycle, `wf-site-remediate` leaves un-worked items in the worklist. Prefer a re-run to a guess.
+**Re-running is safe by design** — `wf-onboard` resumes, `wf-site-plan` is byte-identical over an unchanged cycle, and `wf-site-remediate` **resumes**: it skips what the cycle's `changelog.json` records as `fixed` and merges into that changelog rather than overwriting it. Prefer a re-run to a guess.

@@ -102,6 +102,37 @@ const panel = document.getElementById('add-panel');
 const obLog = document.getElementById('ob-log');
 const obExit = document.getElementById('ob-exit');
 
+// ── the tier picker ──────────────────────────────────────────────────────────
+// T1 is preselected and the note under each option says what that tier may do,
+// because "tier" is the single most consequential field on this form and the
+// number alone says nothing. T2 reveals the two fields it cannot work without —
+// the server refuses T2 with either missing, and so does bootstrap_config, so the
+// form is the third place that says it rather than the only one.
+const TIERS = [
+  { n: 1, label: 'T1 · COPY', note: 'Reword existing files only. No creates, no deletes. The safe default.' },
+  { n: 2, label: 'T2 · CONTENT', note: 'T1, plus create pages under a content location and wire them into a registry. Both are required.' },
+  { n: 3, label: 'T3 · FULL', note: 'Anything not on the deny floor. The floor still holds: never .github/**, never this config, never package.json.' },
+];
+let tier = 1;
+
+function renderTiers() {
+  document.getElementById('ob-tiers').innerHTML = TIERS.map((t) => {
+    const on = t.n === tier;
+    const cls = on
+      ? 'bg-primary-container text-on-primary-container border-primary'
+      : 'bg-surface-container-highest text-on-surface-variant border-outline-variant hover:text-on-surface';
+    return `<button data-tier="${t.n}" class="tier-opt ${cls} border font-label-caps text-label-caps px-md py-sm rounded">${t.label}</button>`;
+  }).join('');
+  document.getElementById('ob-tier-note').textContent = TIERS.find((t) => t.n === tier).note;
+  // T3 needs no content location (it may create anywhere not denied), so the
+  // fields appear for T2 only — showing them for T3 would imply they constrain it.
+  document.getElementById('ob-content').classList.toggle('hidden', tier !== 2);
+  document.querySelectorAll('.tier-opt').forEach((b) => b.addEventListener('click', () => {
+    tier = Number(b.dataset.tier);
+    renderTiers();
+  }));
+}
+
 function obLine(text) {
   const cls = /^\[(ERROR|STOPPED|BLOCKER|REFUSE)/.test(text) ? 'text-error'
     : /^\[warn/i.test(text) ? 'text-tertiary'
@@ -130,6 +161,10 @@ async function onboard() {
     const { run_id } = await post('/api/onboard', {
       repo: document.getElementById('ob-repo').value,
       domain: document.getElementById('ob-domain').value,
+      tier,
+      content_location: document.getElementById('ob-location').value.trim(),
+      content_registry: document.getElementById('ob-registry').value
+        .split(/[\s,]+/).filter(Boolean),
       token,
     });
     const stream = new EventSource(`/api/runs/${run_id}/stream`);
@@ -154,4 +189,5 @@ document.getElementById('add').addEventListener('click', () => {
 document.getElementById('ob-run').addEventListener('click', onboard);
 document.getElementById('filter').addEventListener('input', render);
 document.getElementById('refresh').addEventListener('click', load);
+renderTiers();
 load();

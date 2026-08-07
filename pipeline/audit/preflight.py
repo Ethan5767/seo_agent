@@ -21,7 +21,14 @@ def main():
     cfg = load_config(str(project))
 
     # required fields
-    required = ["client", "domain", "industry", "topology", "nap", "trust_signals", "schema_type", "repo"]
+    #
+    # `industry` is NOT here, and must not come back (B-010). Nothing in pipeline/
+    # ever wrote it — bootstrap_config emits the same fact as `business.trade` —
+    # so requiring it stopped the very first wf-onboard on every new client at
+    # exit 11 ("missing required fields"), before a single TODO was read. The
+    # interview is exit 12, and `business.trade` bootstraps as "TODO", so the TODO
+    # walk below is what routes the operator there. One fact, one place.
+    required = ["client", "domain", "topology", "nap", "trust_signals", "schema_type", "repo"]
     missing = [k for k in required if not cfg.get(k)]
     if missing:
         print(f"[STOP] Config missing fields: {missing}"); sys.exit(11)
@@ -51,7 +58,8 @@ def main():
     if schema not in html:
         print(f"[WARN] {schema} schema not detected on homepage. Verify.")
 
-    print(f"[OK] Preflight passed — {cfg['client']} ({cfg['industry']}, {cfg['topology']})")
+    trade = (cfg.get("business") or {}).get("trade") or "trade unset"
+    print(f"[OK] Preflight passed — {cfg['client']} ({trade}, {cfg['topology']})")
 
 
 if __name__ == "__main__":

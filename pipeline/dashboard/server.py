@@ -66,17 +66,27 @@ COMMANDS = {
     },
     # Gates, runnable locally so the operator sees the verdict before the PR
     # does. None of them mutate anything.
+    #
+    # `needs_commit` marks the two that diff `origin/<default>...HEAD` — the
+    # THREE-dot form, which compares commits and is blind to the working tree.
+    # Run either on a dirty checkout with no cycle commit and the diff is empty,
+    # both exit 0, and the console printed "Clean — every check passed" over work
+    # they never looked at (B-015). That is exactly the failure the exit vocabulary
+    # exists to prevent, so `_start_run` refuses to launch them with nothing
+    # committed instead of rendering a vacuous pass.
     "tier-check": {
         "argv": ["wf-tier-check", "--project", "{project}"],
         "args": {},
         "label": "Check the diff against the tier",
         "exits": {},
+        "needs_commit": True,
     },
     "claim-provenance": {
         "argv": ["wf-claim-provenance-check", "--project", "{project}"],
         "args": {"cycle": "cycle"},
         "label": "Check claims are sourced",
         "exits": {},
+        "needs_commit": True,
     },
     "acceptance-check": {
         "argv": ["wf-acceptance-check", "--project", "{project}"],
@@ -354,6 +364,45 @@ class Run:
 
 
 RUNS = {}
+# Checked and written under one lock: ThreadingHTTPServer answers two POSTs at
+# once, so a bare check-then-insert lets both pass and start.
+RUNS_LOCK = threading.Lock()
+
+
+def busy_run(slug):
+    """The run still going against this client, or None.
+
+    Two wf-site-remediate runs on one checkout means two Claude Code agents
+    editing the same files, and whichever writes last wins — silently. It
+    happened on 2026-08-07 against lee-series-web. Keyed on slug rather than
+    cwd because onboard's cwd is the clients dir, shared by every client.
+
+    ponytail: RUNS is per-process, so this covers the console and not a
+    `./run.sh wf-site-remediate` in a terminal. A lockfile in remediate.py is
+    the upgrade if that path ever bites.
+    """
+    return next((r for r in RUNS.values()
+                 if r.slug == slug and r.exit_code is None), None)
+
+
+def commits_to_judge(path):
+    """How many commits HEAD carries that origin/<default> does not.
+
+    This is the exact quantity the two three-dot gates diff over, asked of git the
+    same way they ask it. 0 means those gates would judge an empty diff and exit 0
+    — a pass over nothing. None means we could not tell (no remote-tracking ref,
+    a fresh repo), which must not be read as "nothing to judge": the gate is
+    allowed to run and speak for itself.
+    """
+    st = git_state(path)
+    default = st.get("default_branch") or "main"
+    if _git(path, "rev-parse", "--verify", f"origin/{default}") is None:
+        return None
+    out = _git(path, "rev-list", "--count", f"origin/{default}..HEAD")
+    try:
+        return int(out)
+    except (TypeError, ValueError):
+        return None
 
 
 def build_argv(command, project, args):
@@ -417,6 +466,27 @@ TOKEN_RE = re.compile(r"[A-Za-z0-9_]{20,255}")
 # `.encode("idna")` here and in every provider that fetches the site, so it is
 # a refusal with a message rather than a half-supported path.
 HOST_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+")
+# A content path is written into the config the gates read. Same two rules as a
+# branch name and a repo slug: must start alphanumeric (a leading `-` is read as a
+# flag by argparse), and no `..`.
+CONTENT_PATH_RE = re.compile(r"[A-Za-z0-9][\w\-./]{0,199}")
+
+
+def _content_paths(value, label):
+    """A list of validated repo-relative paths from a string or a list."""
+    items = value if isinstance(value, list) else [value] if value else []
+    out = []
+    for raw in items:
+        if not isinstance(raw, str):
+            raise ValueError(f"{label} must be text")
+        raw = raw.strip()
+        if not raw:
+            continue
+        if not CONTENT_PATH_RE.fullmatch(raw) or ".." in raw:
+            raise ValueError(f"bad {label}: {raw!r} — a repo-relative path starting "
+                             f"with a letter or digit, no '..'")
+        out.append(raw)
+    return out
 
 
 def build_onboard(body, clients_dir):
@@ -434,6 +504,37 @@ def build_onboard(body, clients_dir):
         raise ValueError("domain must be an ASCII hostname, e.g. acmeroofing.com")
     slug = repo.group(1)
     argv = ["wf-onboard", slug, host, "--clients-dir", str(clients_dir)]
+
+    # The tier the operator is declaring for this client. Defaults to 1 — the tier
+    # that can only reword what already exists — because raising a tier is a
+    # deliberate act, never something you get by leaving a field alone.
+    #
+    # This is not a relaxation of the tier model. `docs/client-config.yml` stays on
+    # the deny floor at every tier including T3, so the AGENT still can never raise
+    # its own authority; and wf-onboard writes this into a commit on the DEFAULT
+    # branch, which is the human PR the model always required. What changed is when
+    # the human declares it, not whether one has to.
+    tier = body.get("tier", 1)
+    if isinstance(tier, str) and tier.strip().isdigit():
+        tier = int(tier.strip())
+    if tier not in (1, 2, 3):
+        raise ValueError("tier must be 1, 2 or 3")
+    location = _content_paths(body.get("content_location"), "content location")
+    registry = _content_paths(body.get("content_registry"), "content registry path")
+    if len(location) > 1:
+        raise ValueError("one content location, not several")
+    # Refused here as well as in bootstrap_config, so the operator learns it from
+    # the form rather than from a run that clones a repo and then stops.
+    if tier == 2 and not (location and registry):
+        raise ValueError("T2 needs a content location AND at least one registry path "
+                         "— T2 means \"may create pages there and wire them in\", so "
+                         "without both it grants authority over nowhere. Use T1, or "
+                         "fill both in.")
+    argv += ["--tier", str(tier)]
+    if location:
+        argv += ["--content-location", location[0]]
+    for reg in registry:
+        argv += ["--content-registry", reg]
 
     token = (body.get("token") or "").strip()
     if not token:
@@ -697,11 +798,20 @@ class Handler(BaseHTTPRequestHandler):
         self._err("not found", 404)
 
     def _start_run(self, client, body):
+        command = body.get("command")
         try:
-            argv = build_argv(body.get("command"), client["path"], body.get("args"))
+            argv = build_argv(command, client["path"], body.get("args"))
         except ValueError as exc:
             return self._err(str(exc))
-        return self._launch(client["slug"], client["path"], body.get("command"), argv)
+        # B-015. A gate that would diff nothing must refuse, not pass.
+        if COMMANDS[command].get("needs_commit") and \
+                commits_to_judge(client["path"]) == 0:
+            return self._err(
+                f"nothing committed for {command} to judge. It diffs "
+                f"origin/<default>...HEAD, so on an uncommitted tree it would "
+                f"examine an empty diff and exit 0 — a pass over nothing. Commit "
+                f"the cycle first, then check.", 409)
+        return self._launch(client["slug"], client["path"], command, argv)
 
     def _start_git(self, client, body):
         try:
@@ -712,10 +822,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _launch(self, slug, cwd, command, argv, env=None):
         run_id = f"{int(time.time() * 1000):x}-{secrets.token_hex(3)}"
-        try:
-            RUNS[run_id] = Run(run_id, slug, command, argv, cwd, env)
-        except FileNotFoundError as exc:
-            return self._err(f"command not on PATH: {exc.filename}", 500)
+        with RUNS_LOCK:
+            busy = busy_run(slug)
+            if busy is not None:
+                return self._err(
+                    f"{busy.command} is still running against {slug}. One writer per "
+                    f"checkout — wait for it, or open it from the run history.", 409)
+            try:
+                RUNS[run_id] = Run(run_id, slug, command, argv, cwd, env)
+            except FileNotFoundError as exc:
+                return self._err(f"command not on PATH: {exc.filename}", 500)
         self._json({"run_id": run_id}, 202)
 
 

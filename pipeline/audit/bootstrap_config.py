@@ -147,27 +147,94 @@ def detect_text_paths(project_dir: Path) -> list:
     return [glob for d, glob in candidates if (project_dir / d).is_dir()]
 
 
-def tier_block(project_dir: Path) -> str:
-    """The v3 §2 tiering block. Starts at T1 — the tier that can only reword what
-    already exists — because onboarding raises a tier deliberately, never by default."""
+class TierError(RuntimeError):
+    """A tier that cannot be written as asked. Refused, never downgraded."""
+
+
+# A content path is written into a config the gates read, so it is validated on
+# the way in rather than trusted: must start alphanumeric (a leading `-` reads as
+# a flag downstream), no `..`, no absolute paths, bounded length. Same two rules
+# build_git_argv applies to a branch name, for the same reasons.
+_CONTENT_PATH_RE = re.compile(r"[A-Za-z0-9][\w\-./]{0,199}")
+
+
+def _clean_paths(values, label: str) -> list:
+    out = []
+    for v in values or []:
+        v = str(v).strip()
+        if not v:
+            continue
+        if not _CONTENT_PATH_RE.fullmatch(v) or ".." in v:
+            raise TierError(f"bad {label} path: {v!r} — must be a repo-relative path "
+                            f"starting with a letter or digit, with no '..'")
+        out.append(v)
+    return out
+
+
+def tier_block(project_dir: Path, tier: int = 1, content_location: str = "",
+               content_registry=None) -> str:
+    """The v3 §2 tiering block.
+
+    Defaults to T1 — the tier that can only reword what already exists — because
+    raising a tier is a deliberate act, never something you get by omission.
+
+    T2 REFUSES without both `content.location` and `content.registry`. The rule is
+    not new (see the commented template this replaces: "No content.location -> T2
+    is unavailable"); what is new is that it fails here instead of producing a
+    config that claims T2 and behaves as T1. A location with no registry is worse
+    still: the agent creates a page, nothing links to it, and `orphan_check`
+    refuses the PR after the money is spent.
+
+    T3 needs neither — it may change anything not denied.
+    """
+    if tier not in (1, 2, 3):
+        raise TierError(f"tier must be 1, 2 or 3 — got {tier!r}")
+    location = (content_location or "").strip()
+    registry = _clean_paths(content_registry, "content.registry")
+    if location:
+        location = _clean_paths([location], "content.location")[0]
+
+    if tier == 2 and not (location and registry):
+        missing = [n for n, v in (("--content-location", location),
+                                  ("--content-registry", registry)) if not v]
+        raise TierError(
+            f"T2 requires {' and '.join(missing)}. T2 means \"may CREATE under "
+            f"content.location and wire it into content.registry\" — without both, "
+            f"T2 grants authority over nowhere and behaves as T1 while claiming "
+            f"more. Declare them, or onboard at tier 1.")
+
     found = detect_text_paths(project_dir)
     paths = "\n".join(f"  - {p}" for p in found) if found else \
         "  # - src/data/**/*.ts        TODO: the files the agent may reword"
+
+    if location:
+        reg = ", ".join(registry)
+        content = f"""content:                          # T2+ — where the agent may CREATE
+  location: {location}
+  registry: [{reg}]
+"""
+    else:
+        content = """# content:                        # T2+ ONLY. No content.location -> T2 is unavailable.
+#   location: src/content/blog/
+#   registry: [src/data/posts.ts] # the nav/data file a new page must be wired into,
+#                                 # or orphan_check refuses the PR anyway
+#   format: mdx
+"""
+
     return f"""
 # ── Tiering (v3 §2) — the agent's authority over THIS repo ────────────────────
 # T1 copy   : modify text_paths only. No creates, no deletes.
 # T2 content: T1 + create under content.location, wire into content.registry.
 # T3 full   : anything not denied.
 # Enforced by tier_check against the PR diff — not by the prompt, not by trust.
-tier: 1
+#
+# Declared by the operator at onboarding, in a commit on the DEFAULT branch. The
+# agent can never change this file at any tier — see the deny floor below — so it
+# can never raise its own authority.
+tier: {tier}
 text_paths:                       # EXISTING files the agent may rewrite
 {paths}
-# content:                        # T2+ ONLY. No content.location -> T2 is unavailable.
-#   location: src/content/blog/
-#   registry: [src/data/posts.ts] # the nav/data file a new page must be wired into,
-#                                 # or orphan_check refuses the PR anyway
-#   format: mdx
-deny:                             # applies at EVERY tier, T3 included
+{content}deny:                             # applies at EVERY tier, T3 included
   - .github/**                    # the agent must never edit the gates that judge it
   - docs/client-config.yml        # must never raise its own tier
   - package*.json                 # no dependency changes
@@ -176,31 +243,106 @@ deny:                             # applies at EVERY tier, T3 included
 """
 
 
-def add_tier(target: Path) -> int:
+def add_tier(target: Path, tier: int = 1, content_location: str = "",
+             content_registry=None) -> int:
     """Append the tier block to an EXISTING config. Appending rather than
     round-tripping through PyYAML is the whole point: a 16KB starter file is mostly
-    comments, and yaml.safe_load/dump would eat every one of them."""
+    comments, and yaml.safe_load/dump would eat every one of them.
+
+    Takes the same tier arguments as the fresh-config path so raising a tier later
+    runs one code path, not a second one that drifts from it."""
     text = target.read_text()
     if re.search(r"^tier:", text, re.M):
         print(f"[OK] {target} already declares a tier."); return 0
-    target.write_text(text.rstrip("\n") + "\n" + tier_block(target.parent.parent))
-    print(f"[OK] Appended the tier block to {target} (tier: 1)")
+    block = tier_block(target.parent.parent, tier, content_location, content_registry)
+    target.write_text(text.rstrip("\n") + "\n" + block)
+    print(f"[OK] Appended the tier block to {target} (tier: {tier})")
     print("[NEXT] Confirm text_paths matches this repo, then `wf-client-profile <dir>`.")
     return 0
 
 
+def warn_unresolved_registry(project_dir: Path, content_registry) -> None:
+    """A registry file that is not on disk is the wiring target for a page that
+    does not exist yet, so it is a WARN here and an ERROR from validate_profile —
+    the seam where config coherence already stops the run (wf-client-profile
+    exit 5). Saying it at onboarding costs nothing and saves a cycle."""
+    for rel in content_registry or []:
+        if not (project_dir / rel).exists():
+            print(f"[WARN] content.registry '{rel}' is not on disk. A new page has "
+                  f"nothing to be wired into, and orphan_check refuses an unlinked "
+                  f"page. Confirm the path before remediating at T2.")
+
+
+def parse_args(args: list) -> tuple:
+    """(project_dir, domain, add_tier_only, tier, location, registry).
+
+    Hand-parsed, matching this module's existing style, but the tier flags DO take
+    values — `--tier 2` as two tokens — so the old `[a for a in argv if a !=
+    "--add-tier"]` filter would have left `2` sitting where DOMAIN goes.
+    """
+    positional, add_tier_only = [], False
+    tier, location, registry = 1, "", []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--add-tier":
+            add_tier_only = True
+        elif a in ("--tier", "--content-location", "--content-registry"):
+            if i + 1 >= len(args):
+                raise TierError(f"{a} needs a value")
+            value = args[i + 1]
+            i += 1
+            if a == "--tier":
+                if not re.fullmatch(r"[123]", value):
+                    raise TierError(f"--tier must be 1, 2 or 3 — got {value!r}")
+                tier = int(value)
+            elif a == "--content-location":
+                location = value
+            else:
+                # Repeatable AND comma-separated: a registry is usually one file
+                # and occasionally two, and both spellings are what a caller
+                # reaches for.
+                registry += [p for p in value.split(",") if p.strip()]
+        elif a.startswith("--"):
+            raise TierError(f"unknown option: {a}")
+        else:
+            positional.append(a)
+        i += 1
+    if len(positional) < 2:
+        raise TierError("need PROJECT_DIR and DOMAIN")
+    return (Path(positional[0]).resolve(), positional[1], add_tier_only,
+            tier, location, registry)
+
+
+USAGE = ("Usage: bootstrap-config.py PROJECT_DIR DOMAIN [--add-tier] "
+         "[--tier 1|2|3] [--content-location PATH] [--content-registry PATH[,PATH]]")
+
+
 def main():
-    argv = [a for a in sys.argv[1:] if a != "--add-tier"]
-    add_tier_only = "--add-tier" in sys.argv
-    if len(argv) < 2:
-        print("Usage: bootstrap-config.py [PROJECT_DIR] [DOMAIN] [--add-tier]", file=sys.stderr); sys.exit(1)
-    project_dir, domain = Path(argv[0]).resolve(), argv[1]
+    try:
+        project_dir, domain, add_tier_only, tier, location, registry = \
+            parse_args(sys.argv[1:])
+    except TierError as e:
+        print(f"[ERROR] {e}\n{USAGE}", file=sys.stderr); sys.exit(1)
+
     target = project_dir / "docs" / "client-config.yml"
     if target.exists():
         if add_tier_only:
-            sys.exit(add_tier(target))
+            try:
+                code = add_tier(target, tier, location, registry)
+            except TierError as e:
+                print(f"[STOP] {e}", file=sys.stderr); sys.exit(4)
+            warn_unresolved_registry(project_dir, registry)
+            sys.exit(code)
         print(f"[OK] Config already exists: {target}"); sys.exit(0)
     target.parent.mkdir(exist_ok=True)
+
+    # Built BEFORE anything is written or fetched: a refused tier must cost a
+    # message, not a half-scaffolded checkout and a network round-trip.
+    try:
+        tier_yaml = tier_block(project_dir, tier, location, registry)
+    except TierError as e:
+        print(f"[STOP] {e}", file=sys.stderr); sys.exit(4)
 
     claude = extract_from_claudemd(project_dir / "CLAUDE.md")
     docs_intel = extract_from_docs(project_dir)
@@ -223,7 +365,7 @@ client: {client_slug}
 domain: {domain}
 deploy_platform: {platform}
 topology: {topology}
-{tier_block(project_dir)}
+{tier_yaml}
 business:
   legal_name: "{live.get('business_name', 'TODO')}"
   trade: "TODO"                 # free-form, e.g. "demolition & excavation"
@@ -350,7 +492,8 @@ form_endpoint: "TODO"
     target.write_text(config)
     hints_summary = f"{len(docs_intel['forbidden_rules'])} rule hints, {len(docs_intel['services_hints'])} service hints, {len(docs_intel['keyword_hints'])} keyword hints"
     print(f"[DOCS] Parsed client docs/memory — {hints_summary}")
-    print(f"[OK] Wrote {target}")
+    print(f"[OK] Wrote {target} (tier: {tier})")
+    warn_unresolved_registry(project_dir, registry)
     print("[NEXT] Agent must interview Alex to resolve every TODO before pipeline proceeds.")
 
 

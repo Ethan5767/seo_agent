@@ -37,6 +37,22 @@
 <label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">GITHUB TOKEN — OPTIONAL</span>
 <input id="ob-token" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="leave blank if gh is already logged in" type="password" autocomplete="new-password"/></label>
 </div>
+<!-- Tier — the agent's authority over this repo. T1 by default: raising a tier is
+     a deliberate act. The deny floor holds at every tier, so the agent still can
+     never edit this file and raise itself. -->
+<div class="border-t border-outline-variant pt-md mb-md">
+<span class="font-label-caps text-label-caps text-on-surface-variant">AGENT TIER</span>
+<div id="ob-tiers" class="flex gap-sm mt-xs flex-wrap"></div>
+<div id="ob-tier-note" class="font-body-sm text-body-sm text-on-surface-variant/70 mt-xs"></div>
+<div id="ob-content" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-md mt-md">
+<label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">CONTENT LOCATION</span>
+<input id="ob-location" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="src/content/blog/" type="text"/>
+<span class="font-body-sm text-body-sm text-on-surface-variant/70">Where the agent may CREATE pages.</span></label>
+<label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">CONTENT REGISTRY</span>
+<input id="ob-registry" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="src/data/posts.ts  (space or comma separated)" type="text"/>
+<span class="font-body-sm text-body-sm text-on-surface-variant/70">The nav/data file a new page is wired into, or <code class="font-mono-sm">orphan_check</code> refuses the PR.</span></label>
+</div>
+</div>
 <div class="flex gap-md items-center flex-wrap">
 <button id="ob-run" class="bg-primary text-on-primary font-label-caps text-label-caps px-md py-sm rounded hover:opacity-90 transition-opacity">ONBOARD</button>
 <span id="ob-exit"></span>

@@ -53,7 +53,7 @@ import sys
 from pathlib import Path
 
 from pipeline.gates.tier_check import DiffError, resolve_base
-from pipeline.lib.common import load_config
+from pipeline.lib.common import ARTIFACT_PATHS, load_config, path_matches
 
 UNSOURCED_EXIT = 18
 EMPTY_CORPUS_EXIT = 4
@@ -169,7 +169,18 @@ def prose_from(path: str, line: str) -> list:
     Markdown and HTML are prose end to end. In code and data, only the contents
     of string literals can reach a page, so only those are scanned — a bare
     numeric field is not a claim about the business.
+
+    `docs/audit/**` is not prose at all. It is the cycle's own generated artifacts,
+    and it is skipped using the SAME list `tier_verdict` classifies as
+    `cycle artifact` — one definition, so the two gates cannot drift apart about
+    the same paths. Before this (B-016) `.md` was in TEXT_SUFFIXES with no
+    exception, so this gate scanned `docs/audit/<cycle>/report.md` — which
+    `wf-site-plan` writes — and refused the sentence "this is the first cycle" as
+    an unsourced superlative. That is every client's first PR, forever: the report
+    never renders on the site, and `tier_check` was passing the identical file.
     """
+    if path_matches(path, ARTIFACT_PATHS):
+        return []
     suffix = Path(path).suffix.lower()
     if suffix in TEXT_SUFFIXES:
         return [line]

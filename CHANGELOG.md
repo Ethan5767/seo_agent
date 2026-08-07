@@ -6,7 +6,188 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **The operator declares the client's tier at onboarding.** The ADD CLIENT panel
+  offers T1 / T2 / T3 defaulting to **T1**, and `wf-onboard` / `wf-bootstrap-config`
+  take `--tier`, `--content-location` and `--content-registry`. Raising a tier used
+  to be a second manual act against the client repo after onboarding finished.
+
+  **T2 is REFUSED without both content fields**, in all three places that could
+  say so (the form, `build_onboard`, `tier_block`). T2 means "may CREATE under
+  `content.location` and wire it into `content.registry`" — the rule is not new
+  (`bootstrap_config.py` already carried `No content.location -> T2 is
+  unavailable`), but it now fails loudly instead of writing a config that claims
+  T2 and behaves as T1. A location with no registry is the worse half: the agent
+  creates a page, nothing links to it, and `orphan_check` refuses the PR after the
+  money is spent. T3 needs neither — it may change anything not denied.
+
+  **This is not a relaxation of the tier model.** `docs/client-config.yml` stays on
+  the deny floor at every tier including T3, so the *agent* still can never raise
+  its own authority; and the tier is written into a commit on the **default
+  branch**, which is the human commit the model always required. What changed is
+  *when* the human declares it, not whether one has to.
+  `tests/test_tiering.py::test_t2_is_refused_without_a_content_location`,
+  `::test_the_deny_floor_is_written_at_every_tier`,
+  `tests/test_dashboard.py::test_t2_without_its_fields_is_refused_at_the_form_not_after_a_clone`,
+  `tests/test_onboard.py::test_the_declared_tier_is_passed_to_bootstrap`.
+  Full suite: `.venv/bin/python -m pytest -q` → `467 passed in 3.50s`.
+
+  `CLAUDE.md`'s tiering section is updated in this commit: it asserted
+  "`wf-bootstrap-config` writes `tier: 1`. T2 and T3 exist in the code but are
+  unreachable for a client until a human raises that tier in a human PR." The
+  enforcement is unchanged; the sentence describing it was no longer true.
+
 ### Fixed
+
+- **`wf-preflight` no longer stops every new client before the interview (B-010).**
+  It required a top-level `industry` that nothing in `pipeline/` ever wrote —
+  `bootstrap_config` emits the same fact as `business.trade` — so the very first
+  `wf-onboard` on any client exited **11** ("missing required fields") instead of
+  the documented **12** ("has TODOs, this is the interview"). `industry` is out of
+  `required` and the summary line reads `business.trade`. One fact, one place; the
+  rejected alternative (emit `industry: TODO`) reaches the same exit while keeping
+  two names for one thing.
+
+  ```
+  $ cat docs/client-config.yml     # a fresh bootstrap, business.trade: "TODO"
+  $ wf-preflight ./scratch/b010
+  [STOP] Config has unresolved TODOs: ['.business.trade']
+  exit=12
+  ```
+
+- **`wf-onboard` commits the scaffold it writes (B-014).** Six paths
+  (`docs/client-config.yml` + five scaffolded docs) are creates that `tier_check`
+  refuses at every tier — `client-config.yml` deliberately so — and nothing in the
+  pipeline ever committed them, so the operator met the deny floor as **exit 17**
+  on their first PR instead of as an instruction. `commit_scaffold` now lands them
+  on the default branch under four constraints, which are what make a tool
+  committing on your behalf something other than a surprise: **named pathspec
+  only** (never `git add -A`), **refuses off the default branch** (committing these
+  on a cycle branch IS the bug), **refuses when a scaffold path is tracked and
+  modified** (that is the operator resolving the interview TODOs, not our
+  scaffold), and **never pushes**.
+
+  Found while testing: `_git_out` called `.strip()`, which eats the leading space
+  of ` M path` in `git status --porcelain` and turned a human's unstaged edit into
+  a staged one — so their uncommitted work read as ours to commit. `_git_status`
+  reads those lines unstripped, because column 1 is the index and column 2 is the
+  worktree and they are not interchangeable.
+  `tests/test_onboard.py::test_the_scaffold_commit_takes_nothing_it_did_not_write`,
+  `::test_the_scaffold_is_never_committed_on_a_cycle_branch`,
+  `::test_a_humans_edit_to_a_scaffold_path_is_not_committed_for_them`,
+  `::test_a_second_onboarding_does_not_fail_on_the_first_ones_commit`.
+
+- **A capped `wf-site-remediate` run now resumes, and no longer destroys the first
+  run's record (B-013).** The module docstring promised "the remaining items keep
+  their place in the worklist for the next run" and `CLAUDE.md` repeated it;
+  neither was true. `selectable()` rebuilt the queue from `worklist.json` alone, so
+  run two re-attempted the same first N items, while `main` wrote
+  `changelog.json` wholesale, so run two's record replaced run one's — the
+  reviewed evidence for the items that were actually fixed was gone.
+
+  `selectable()` now skips items the cycle's changelog records as `fixed`, and the
+  changelog is **merged**: prior entries survive, a fresh attempt of the same id
+  replaces its own earlier entry, `cost_usd` and `runs` accumulate. A `--dry-run`
+  merges nothing — it wrote no code, so it must not touch the record of runs that
+  did. An unparseable changelog is a named WARN, not a silent full redo.
+
+  **On the authority question that kept this open:** the changelog now decides what
+  gets *attempted*. It decides nothing about what is *verified* —
+  `acceptance_check` re-measures every claimed fix against the build output and
+  refuses if the finding is still there. A changelog entry that lies about a fix
+  costs one item's budget and is then caught by the gate.
+
+  `_base` also carries `finding_fp` now. It is the only exact link from a fixed
+  item back to the finding it fixed; matching on `(url, code)` instead is ambiguous
+  the moment one page carries two findings of one code, which is the common case
+  (`img_alt_missing`), not the exotic one.
+  `tests/test_remediate.py::test_a_rerun_skips_what_the_changelog_records_as_fixed`,
+  `::test_the_second_run_merges_rather_than_destroying_the_first`,
+  `::test_a_dry_run_never_touches_the_record_of_runs_that_wrote`,
+  `::test_a_status_other_than_fixed_is_retried`.
+
+- **`claim_provenance_check` no longer refuses every client's first PR (B-016).**
+  `.md` is in `TEXT_SUFFIXES`, so the gate read `docs/audit/<cycle>/report.md` —
+  which `wf-site-plan` generates — as client copy, and `SUPERLATIVE_RE` caught its
+  own sentence `- Compared Against: nothing — this is the first cycle`. That is
+  exit 18 on every client whose cycle has no prior to ratchet against, i.e. every
+  first PR, forever. It blocked `lee-series-web` PR #34.
+
+  `prose_from` skips `ARTIFACT_PATHS`, **imported from `lib/common`** — the same
+  list `tier_verdict` already classifies as `cycle artifact`. The defect was not
+  the word "first"; it was two gates disagreeing about what `docs/audit/**` is, so
+  the fix is one shared definition rather than a second glob that drifts.
+  Rewording `plan.py` would have fixed one sentence and left the class of bug.
+
+  Proven against the real gate on a scratch repo carrying that exact line:
+
+  ```
+  $ wf-claim-provenance-check --project ./scratch/b016
+  [CORPUS] 4 words from: docs/client-config.yml
+  [OK] claim-provenance: every claim in 1 changed file(s) resolves to a source.
+  exit=0
+  ```
+
+  Negative control, same repo, one page of real client copy added — the gate is
+  narrowed, not disarmed:
+
+  ```
+  [UNSOURCED] src/content/about.mdx: '4.2 star' (rating) — '4.2' appears in no config field…
+  [UNSOURCED] src/content/about.mdx: 'first' (superlative) — 'first' appears in no config field…
+  [BLOCKED] 2 unsourced claim(s).
+  exit=18
+  ```
+
+- **The console refuses to run a gate that would judge an empty diff (B-015).**
+  `tier-check` and `claim-provenance` diff `origin/<default>...HEAD` — the
+  **three-dot** form, which compares commits and is blind to the working tree. Run
+  either on a dirty checkout with no cycle commit and the diff is empty, both exit
+  0, and the console printed `Clean — every check passed` over work they never
+  looked at. That is precisely the failure the exit vocabulary exists to prevent.
+
+  Both now carry `needs_commit`, and `_start_run` refuses with **409** and the
+  reason when `commits_to_judge` is 0. The gates themselves are untouched:
+  `--base HEAD` would make them judge the working tree and diverge from what CI
+  runs, and a gate that means something different locally is worse than one that
+  occasionally refuses. "Cannot tell" (no remote-tracking ref) lets the gate run
+  and speak for itself — reading it as "nothing to judge" would refuse every
+  local-only checkout.
+  `tests/test_dashboard.py::test_an_uncommitted_tree_has_nothing_for_those_gates_to_judge`,
+  `::test_no_remote_ref_is_cannot_tell_not_nothing_to_judge`,
+  `::test_only_the_three_dot_gates_carry_needs_commit`.
+
+- **The dashboard refuses a second run against a client that already has one
+  going (B-012).** `_launch` created a `Run` unconditionally, so clicking RUN
+  twice started two `wf-site-remediate` processes in the same checkout — two
+  Claude Code agents editing the same files, with the loser's edits overwritten
+  and nothing said about it. Observed live on 2026-08-07 against
+  `lee-series-web`: two remediate runs 18 minutes apart, the first producing
+  706KB of agent output and dying without writing `changelog.json`.
+
+  `busy_run(slug)` now returns the live run for that client and `_launch`
+  refuses with **409** while holding `RUNS_LOCK` — check-and-insert under one
+  lock, because `ThreadingHTTPServer` answers two POSTs at once and a bare
+  check lets both through. Keyed on **slug**, not cwd: onboard's cwd is the
+  shared clients dir, and one client's slow measure must not serialise the
+  fleet.
+
+  Scope, stated plainly: `RUNS` is per-process, so this covers the console and
+  **not** a `./run.sh wf-site-remediate` in a terminal. A lockfile in
+  `remediate.py` is the upgrade if that path bites.
+  `tests/test_dashboard.py::test_a_live_run_makes_that_client_busy`,
+  `::test_a_finished_run_does_not_block_the_next_one`,
+  `::test_another_clients_run_does_not_block`.
+  Full suite: `.venv/bin/python -m pytest -q` → `419 passed in 2.65s`.
+
+### Changed
+
+- **The run console opens on `site-remediate`.** The dropdown selected whatever
+  `COMMANDS` happened to list first (`site-health`), and an operator arriving
+  from the Client screen's RUN button is nearly always there to remediate. The
+  arguments pane still renders empty and RUN is still a click, so the
+  destructive default costs a keystroke, not a safety property — `--dry-run`
+  and `--max-items` are one click away in the same pane.
 
 - **The dashboard's Git page stages the remediator's code edits, not just the
   audit JSON (B-011).** `stage-audit` ran `git add docs/audit` and `commit` runs

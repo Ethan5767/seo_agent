@@ -150,6 +150,105 @@ def check_access(project: Path) -> bool:
     return False
 
 
+# ── the scaffold has to be committed, and only this step can do it (B-014) ───
+
+# The six paths onboarding creates. On a T1 client every one is a CREATE that
+# `tier_check` refuses: the five docs match no `text_paths` glob, and
+# `client-config.yml` is on the deny floor, refused at every tier including T3.
+# That floor is correct and must not be relaxed — it is what stops an agent
+# raising its own tier. The gap it left is that nothing ever COMMITTED them, so
+# the operator met the deny floor as exit 17 on their first PR instead of as an
+# instruction here.
+SCAFFOLD_PATHS = [
+    "docs/client-config.yml",
+    "docs/INDEX.md",
+    "docs/seo-progress.md",
+    "docs/seo-work-log.md",
+    "docs/cycle-logs",
+    "docs/intake-archive",
+]
+
+
+def _git_out(project: Path, *args) -> str:
+    r = subprocess.run(["git", "-C", str(project), *args],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def _git_status(project: Path, paths: list) -> list:
+    """`git status --porcelain` lines over `paths`, WITHOUT stripping.
+
+    Separate from _git_out on purpose: porcelain encodes the index in column 1 and
+    the worktree in column 2, so ` M file` (modified, unstaged) and `M  file`
+    (staged) are different states — and `.strip()` turns the first into the second
+    on the first line of the output. That silently made a human's uncommitted edit
+    to a scaffold path read as ours to commit.
+    """
+    r = subprocess.run(["git", "-C", str(project), "status", "--porcelain",
+                        "-uall", "--", *paths], capture_output=True, text=True)
+    if r.returncode != 0:
+        return []
+    return [ln for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def commit_scaffold(project: Path) -> None:
+    """Commit the onboarding scaffold to the DEFAULT branch, by named pathspec.
+
+    Four constraints, and they are what make a tool committing on your behalf
+    something other than a surprise:
+
+      * named pathspec only — never `git add -A`. Whatever else is dirty in this
+        checkout is not ours to commit.
+      * refuses unless HEAD is the default branch, so this can never land on a
+        cycle branch and become part of an agent's PR.
+      * refuses if any scaffold path is already TRACKED and modified — that is a
+        human's edit to a file we merely happen to name, not a scaffold.
+      * commits locally and never pushes. Push stays a human action.
+
+    A no-op when there is nothing to commit, because onboarding is re-runnable and
+    the second run must not fail on the first run's success.
+    """
+    default = _git_out(project, "symbolic-ref", "refs/remotes/origin/HEAD").rsplit("/", 1)[-1]
+    if not default:
+        default = "main" if _git_out(project, "rev-parse", "--verify", "main") else "master"
+    branch = _git_out(project, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch != default:
+        print(f"[warn] scaffold: on branch '{branch}', not the default branch "
+              f"('{default}') — NOT committing. The scaffold belongs on the default "
+              f"branch in its own commit; `tier_check` refuses these six paths on a "
+              f"cycle branch (B-014). Check out {default} and re-run.")
+        return
+
+    present = [p for p in SCAFFOLD_PATHS if (project / p).exists()]
+    if not present:
+        return
+
+    # Over just our paths. An UNTRACKED path (`??`) is one we just wrote and is
+    # ours to commit. A TRACKED path with any worktree change is somebody's edit to
+    # a file we merely happen to name — most often the operator resolving the
+    # interview TODOs in client-config.yml — and committing that for them would put
+    # their unreviewed work in a commit with our message on it.
+    status = _git_status(project, present)
+    theirs = [ln[3:] for ln in status if not ln.startswith("??")]
+    if theirs:
+        print(f"[warn] scaffold: NOT committing — these carry changes that are not "
+              f"this run's to commit: {', '.join(theirs)}. Commit or revert them "
+              f"yourself, then re-run.")
+        return
+    if not status:
+        print("[ok] scaffold: already committed")
+        return
+
+    if run(["git", "add", "--", *present], cwd=str(project)).returncode != 0:
+        raise OnboardError("could not stage the onboarding scaffold")
+    slug = _git_out(project, "rev-parse", "--show-toplevel").rsplit("/", 1)[-1]
+    msg = f"docs: onboard {slug} — client config and pipeline docs"
+    if run(["git", "commit", "-m", msg, "--", *present], cwd=str(project)).returncode != 0:
+        raise OnboardError("could not commit the onboarding scaffold")
+    print(f"[ok] scaffold: committed {len(present)} path(s) to {default} — NOT pushed. "
+          f"`git push origin {default}` when you are ready.")
+
+
 # ── step 6: the precondition the gate suite quietly depends on ───────────────
 
 def check_static_export(project: Path) -> None:
@@ -177,17 +276,32 @@ def check_static_export(project: Path) -> None:
 # ── the run ──────────────────────────────────────────────────────────────────
 
 def onboard(repo: str, domain: str, clients_dir: Path, skip_clone: bool,
-            dry_run: bool) -> int:
+            dry_run: bool, tier: int = 1, content_location: str = "",
+            content_registry=None) -> int:
     project = checkout(repo, clients_dir, skip_clone)
     print(f"[ok] checkout: {project}")
 
     check_access(project)
 
     if dry_run:
-        print(f"[DRY RUN] would bootstrap, preflight, scaffold, measure and plan {project}")
+        print(f"[DRY RUN] would bootstrap (tier {tier}), preflight, scaffold, commit, "
+              f"measure and plan {project}")
         return 0
 
-    if run(["wf-bootstrap-config", str(project), domain]).returncode != 0:
+    # The tier is declared HERE, before the scaffold commit below, so one commit
+    # carries the finished config. Writing tier 1 and amending it later would put
+    # a raise in a second commit that nobody reviews as a raise.
+    bootstrap = ["wf-bootstrap-config", str(project), domain, "--tier", str(tier)]
+    if content_location:
+        bootstrap += ["--content-location", content_location]
+    for reg in content_registry or []:
+        bootstrap += ["--content-registry", reg]
+    code = run(bootstrap).returncode
+    if code == 4:
+        print("\n[STOPPED] the tier could not be written as asked — read the refusal "
+              "above. Nothing was written; re-run with the fields it names.")
+        return 1
+    if code != 0:
         raise OnboardError("wf-bootstrap-config failed — it refuses rather than write a "
                            "config nothing can load")
 
@@ -213,6 +327,10 @@ def onboard(repo: str, domain: str, clients_dir: Path, skip_clone: bool,
     slug = load_config(str(project)).get("client") or project.name
     if run(["wf-scaffold-client-docs", str(project), "--slug", str(slug)]).returncode != 0:
         raise OnboardError("wf-scaffold-client-docs failed")
+
+    # Before measure, so the cycle artifacts measure/plan write are the ONLY dirty
+    # paths left when the operator reaches the Git screen. B-014.
+    commit_scaffold(project)
 
     if run(["wf-site-health", "--project", str(project)]).returncode >= 2:
         print("\n[STOPPED] the site could not be measured — wf-site-health refused above. "
@@ -244,10 +362,19 @@ def main() -> int:
                     help="refuse to clone; the checkout must already exist")
     ap.add_argument("--dry-run", action="store_true",
                     help="resolve the checkout and report access, write nothing")
+    ap.add_argument("--tier", type=int, choices=(1, 2, 3), default=1,
+                    help="the agent's authority over this repo (default: 1, copy only). "
+                         "T2 requires --content-location and --content-registry.")
+    ap.add_argument("--content-location", default="",
+                    help="T2+: the directory the agent may CREATE pages under")
+    ap.add_argument("--content-registry", action="append", default=[], metavar="PATH",
+                    help="T2+: the nav/data file a new page must be wired into "
+                         "(repeatable), or orphan_check refuses the PR")
     args = ap.parse_args()
     try:
         return onboard(args.repo, args.domain, args.clients_dir, args.skip_clone,
-                       args.dry_run)
+                       args.dry_run, args.tier, args.content_location,
+                       args.content_registry)
     except OnboardError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 3

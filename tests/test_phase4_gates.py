@@ -332,3 +332,42 @@ def test_tier_check_reads_a_real_git_diff(make_project):
     run("commit", "-qm", "out of tier")
     changes = tc.changed_paths(proj, "HEAD~1", None)
     assert tc.judge(client_profile(_cfg(proj), proj), changes)[1], "must refuse src/app.tsx"
+
+
+# ── B-016: the gate must not scan the artifacts the pipeline generated ────────
+# `.md` is in TEXT_SUFFIXES, so this gate read docs/audit/<cycle>/report.md — which
+# wf-site-plan writes — as client copy, and SUPERLATIVE_RE caught its own sentence
+# "Compared Against: nothing — this is the first cycle". That refused every client's
+# first PR, forever, while tier_check passed the identical file as a cycle artifact.
+
+def test_the_cycle_report_is_not_scanned_as_client_prose():
+    line = "- Compared Against: nothing — this is the first cycle"
+    # The exact line and file that refused lee-series-web PR #34 with exit 18.
+    assert prov.prose_from("docs/audit/2026-08/report.md", line) == []
+
+
+def test_every_generated_cycle_artifact_is_skipped():
+    for name in ("report.md", "findings.json", "worklist.json", "changelog.json"):
+        assert prov.prose_from(f"docs/audit/2026-08/{name}", "the first ever") == []
+
+
+def test_the_two_gates_now_agree_about_the_same_path():
+    # The defect was not the word "first" — it was two gates disagreeing about what
+    # docs/audit/** IS. tier_check calls it a cycle artifact; this asserts the
+    # provenance gate reads it off the same list rather than a second glob that
+    # drifts.
+    from pipeline.lib.common import tier_verdict
+    profile = {"tier": 1, "text_paths": ["src/data/**/*.ts"], "deny": [".github/**"]}
+    path = "docs/audit/2026-08/report.md"
+    ok, reason = tier_verdict(profile, path, "A")
+    assert ok and "cycle artifact" in reason
+    assert prov.prose_from(path, "the first cycle") == []
+
+
+def test_client_markdown_outside_the_audit_dir_is_still_scanned():
+    # The fix must not be "stop scanning markdown". Real client copy in a .md/.mdx
+    # file is exactly what this gate exists for.
+    line = "We are the first licensed quarry in the state."
+    assert prov.prose_from("src/content/about.mdx", line) == [line]
+    assert prov.prose_from("docs/services.md", line) == [line]
+    assert any(kind == "superlative" for kind, _, _ in prov.claims_in(line))

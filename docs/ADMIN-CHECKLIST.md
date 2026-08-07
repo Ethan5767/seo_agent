@@ -82,12 +82,41 @@ clean site. Read the status string on the first real run, not the finding count.
 
 | Env var | Enables | Flag |
 |---|---|---|
-| `CRUX_API_KEY` | Field Core Web Vitals from CrUX | `--crux` |
-| `GSC_ACCESS_TOKEN` (+ optional `GSC_SITE_URL`) | Impressions, CTR, cannibalization | `--gsc` |
-| `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | Rank and SERP data | `--dataforseo` |
+| `CRUX_API_KEY` | Field Core Web Vitals from CrUX | `--with-crux` |
+| `GSC_ACCESS_TOKEN` (+ optional `GSC_SITE_URL`) | Impressions, CTR, cannibalization | `--with-gsc` |
+| `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | Crawl-wide on-page: broken pages, click depth, duplicate meta | `--with-dataforseo` |
+| `BRIGHTDATA_API_KEY` / `BRIGHTDATA_SERP_ZONE` | Rank and absence over the config's `seed_queries` | `--with-serp` |
 
-⚠️ **None of these network paths has ever run live.** Only the parsers are
-tested. See `CLAUDE.md` sharp edge #6.
+**Live status, 2026-08-07.** Two of the four have now run against their real
+APIs; the flag names above were wrong (`--crux` for `--with-crux`) until this
+was checked against `measure.py`, and DataForSEO was described as SERP data,
+which is the one thing it does not do.
+
+| Provider | Status |
+|---|---|
+| CrUX | **Ran live.** On `www.leeserie.com`: `no field data: CrUX has no record (too little traffic)` — a fact about Google's dataset, not the site. |
+| Bright Data SERP | **Ran live.** `partial: 4/5 queries measured`. Two defects only the real payload exposed: `global_rank` counts SERP features so a #1 result read as rank 4, and **B-019**, page-two findings can never fire because Google returns one page of organic results. |
+| DataForSEO | **Blocked, not broken.** Credentials authenticate (`20000 Ok`, $51 balance) but every billable endpoint returns `40104 Please verify your account before using the API`. One-time verification at app.dataforseo.com. |
+| Search Console | **Never run.** No client has granted access — see below. |
+
+### Getting Search Console access (human, per client)
+
+GSC returns data only for a property someone has verified and shared. You
+cannot add a client's domain to your own account and read it.
+
+1. The client opens Search Console → **Settings → Users and permissions** on
+   their existing verified property.
+2. They add your Google account (or a **service account** email) as a user.
+   **Restricted** is sufficient; the API scope needed is `webmasters.readonly`.
+3. `GSC_SITE_URL` defaults to `sc-domain:<domain>`. If their property is a URL
+   prefix rather than a domain property, set it explicitly.
+
+⚠️ **`GSC_ACCESS_TOKEN` is an OAuth *access* token, so it expires in about an
+hour.** It is fine for an attended run and useless for an unattended one —
+there is no refresh flow in `providers.py`, which reads the variable and
+nothing else. A service account with a locally-minted token is the real answer
+if GSC is ever wanted on a schedule. Recorded here rather than in the code
+because it is a setup decision, not a bug.
 
 ---
 

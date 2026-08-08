@@ -33,11 +33,35 @@ see `CLAUDE.md` (the sync contract).
   opens with a table naming them and one rule: **a section you have no sourced
   material for gets left out, not filled.** The case-study shape carries an
   explicit "there is almost never enough in `client-config.yml` to write one
-  honestly — `NO CHANGE` is the right answer" note. The location shape is
-  written against `noncommodity_check`: if a paragraph about Charleston would
-  also be true of Columbia, it is a template and the gate refuses it. The hub
-  shape is written against `orphan_check` on both sides — the hub must link
-  every real sibling, and must itself be wired into `content.registry`.
+  honestly — `NO CHANGE` is the right answer" note.
+
+  **Every gate assertion in the file is stated once, at the top, and was
+  verified against `pipeline/gates/` rather than written from memory** — the
+  first draft did the opposite (a claim per page-type section, from recall) and
+  four of them were false, which a review caught before this shipped. What the
+  file now says, with citations: `capsule_check` selects every route fitting the
+  client's `topology` plus `/blog/*`, not just blog posts, so a service or
+  location or case-study page needs an interrogative H2 and a **40–80 word**
+  opening block after it — and that band measures the first `<p>` *or `<li>`*,
+  which is why a section that opens with a bulleted list fails. `orphan_check`
+  models no hub→child relationship whatever (it walks the sitemap and counts
+  self-links from global nav as inbound), so enumerating a hub's children is
+  entirely on the agent, and the gate that catches an unwired page is
+  `parity_check`. `noncommodity_check` measures whole-page 5-gram overlap at
+  **0.90** on hub-spoke, and its token allow-list is built from the client's own
+  city names — so naming the city passes it. The house "true of this city, false
+  of its siblings" standard is kept, now labelled as stricter than the gate
+  instead of attributed to it. Schema is one block rather than six lines:
+  `measure.py:82-91` demands the configured `schema_type` **and**
+  `BreadcrumbList` on *every* URL unconditionally, and measures none of
+  `Service` / `Article` / `WebPage`.
+
+  Also stated: T2 grants `content.location` plus the registry paths, so a hub
+  page living in a component outside those paths is a T3 edit and `tier_check`
+  refuses the run — `NO CHANGE` is the answer, not a workaround. And
+  `claim_provenance_check`'s patterns are numeric, so bare "licensed and
+  insured" carries no digit and the gate will not stop it; §1 of the skill still
+  does. Naming where the gate stops being a floor is the point.
 
   Pointed to from §5 (alongside the title/meta and anti-slop references) and §7
   of `SKILL.md`. **No code change was needed to ship it:** `remediate.py` already

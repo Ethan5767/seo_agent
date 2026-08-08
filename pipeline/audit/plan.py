@@ -62,8 +62,16 @@ ACTIONS = {
     "health.img_alt_missing":   ("image_alt_missing",             1, None),
     "health.forbidden_phrase":  ("forbidden_phrase_live",         1, None),
     "health.phone_missing":     ("nap_phone_missing",             1, None),
+    # `thin_content` is T1, not T2: measure.py only measures URLs that are LIVE,
+    # so a page cannot be measured as thin unless it already exists. The fix is
+    # always "expand the copy that is there", never "create a page" — and on a
+    # data-driven repo (lee: `LEARN_GUIDES` in one .ts file, dynamic [slug]
+    # routes) there is no file to create at all. It sat at 2 until 2026-08-08 and
+    # blocked 15 items on lee whose target files were all already in text_paths.
+    # tier_check still judges the real diff, so a client whose copy is NOT in
+    # text_paths still gets refused — at the diff, which is where it belongs.
+    "health.thin_content":      ("thin_content",                  1, {"min_words": 500}),
     # T2 — needs new content written
-    "health.thin_content":      ("thin_content",                  2, {"min_words": 500}),
     "health.schema_faq_missing": ("schema_faq_missing",           2, None),
     # T3 — template, layout, routing, analytics
     "health.status_not_200":    ("url_not_200",                   3, {"status": 200}),

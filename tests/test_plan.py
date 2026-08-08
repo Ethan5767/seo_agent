@@ -85,16 +85,27 @@ def test_lane_ignores_detail_churn(project):
 
 # ── the tier filter ──────────────────────────────────────────────────────────
 
-def test_tier1_blocks_content_work_but_keeps_it_visible(project):
+def test_tier1_blocks_structural_work_but_keeps_it_visible(project):
     write_cycle(project, "2026-07", [finding(code="health.desc_length"),
-                                     finding(code="health.thin_content", detail="words=120")])
+                                     finding(code="health.h1_count", detail="count=2")])
     wl, report, _d, _l = p.plan(project)
     by_kind = {i["kind"]: i for i in wl["items"]}
     assert by_kind["meta_description_out_of_band"]["tier_blocked"] is False
-    assert by_kind["thin_content"]["tier_blocked"] is True     # needs T2
+    assert by_kind["h1_count_wrong"]["tier_blocked"] is True     # template work, needs T3
     assert wl["counts"]["actionable"] == 1 and wl["counts"]["tier_blocked"] == 1
     # visible and counted, never silently dropped
-    assert "Not Actionable" in report and "health.thin_content" in report
+    assert "Not Actionable" in report and "health.h1_count" in report
+
+
+def test_thin_content_is_actionable_at_t1(project):
+    """A page cannot be measured as thin unless it is LIVE, so the fix is always
+    an edit to copy that already exists — never a page creation. Blocking it at
+    T1 cost lee 15 items whose target files were all already in text_paths."""
+    write_cycle(project, "2026-07", [finding(code="health.thin_content", detail="words=120")])
+    wl, _report, _d, _l = p.plan(project)
+    assert wl["items"][0]["kind"] == "thin_content"
+    assert wl["items"][0]["tier_blocked"] is False
+    assert wl["counts"]["actionable"] == 1 and wl["counts"]["tier_blocked"] == 0
 
 
 def test_no_declared_tier_blocks_everything(make_project):

@@ -65,6 +65,43 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`thin_content` is T1, not T2 — B-024.** `plan.py`'s tier map keyed off the
+  finding kind and assumed thin content means "write a new page". It does not:
+  `measure.py` only measures **live URLs**, so a page cannot be measured as thin
+  unless it already exists, and the fix is always "expand the copy that is
+  there". `min_tier` 2 → 1, with the reasoning in a comment at the call site so
+  it does not get corrected back.
+
+  Found by trying to act on it. On `lee-series-web`'s 2026-08 cycle this blocked
+  **15 of 114** items — three `/learn/*` guides, nine `/product/*` PDPs,
+  `/app/`, `/contact-us/` and the `/product/` listing, all measured at 336–496
+  words against `min_words: 500` — and **every one of their target files was
+  already in lee's `text_paths`**. A T1 agent was permitted to edit all of them
+  and was told not to try.
+
+  Raising the client to T2 would not have fixed it, which is the part worth
+  remembering: T2 grants *creates* under `content.location`, and lee has nowhere
+  to create. Its guides are a typed array in a single 180-line file with a
+  union-typed slug (`lib/learn-guides.ts:6`) behind a dynamic
+  `app/(site)/learn/[slug]/page.tsx` route. Declaring a `content.location` to
+  unblock the work would have been precisely the "grants authority over nowhere
+  while claiming more" failure `CLAUDE.md` warns about. **The tier model's
+  file-per-page assumption does not hold on a data-driven repo, and the tier map
+  is where that leaked.**
+
+  The safety did not move: `tier_check` still judges the real diff, so a client
+  whose thin page's copy is *not* in `text_paths` is still refused — at the
+  diff, which is where the tier model puts that judgement, rather than by a
+  guess made at plan time about what the fix will touch.
+
+  `tests/test_plan.py::test_thin_content_is_actionable_at_t1` is the regression.
+  The pre-existing `test_tier1_blocks_content_work_but_keeps_it_visible` used
+  `thin_content` as its T2 example, so it was rewritten around `health.h1_count`
+  (T3 template work, which genuinely stays blocked) and renamed
+  `..._blocks_structural_work_...`. `.venv/bin/pytest -q` → `621 passed in
+  5.31s`. `schema_faq_missing`, the other `min_tier: 2` entry, is untouched —
+  that is B-022 and a separate call.
+
 - **The same gate claims, corrected everywhere else they were stated.** Having
   written the contract down once from the source, the other copies were checked
   against it rather than left to drift:

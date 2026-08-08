@@ -65,6 +65,14 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`wf-site-remediate --only <ITEM_ID>`, repeatable.** `--max-items` cuts from
+  the *front* of the queue, so reaching one item means paying for everything
+  sorted ahead of it. On lee the single actionable `title_out_of_band` sorted
+  fifth, behind four Firestore PDPs that had already refused once — so getting
+  to it would have re-run and re-paid for four refusals already on record.
+  Filtering by id costs three lines and does not touch the ordering, the tier
+  check, or the resume. Built because the run needed it, not in advance.
+
 - **First live `thin_content` run — B-024 verified against a real client, and it
   found what the tier model cannot see.** `lee-series-web`, 2026-08 cycle, T1,
   `--model sonnet`, 10 items attempted (the default `--max-items`), **$7.38**:

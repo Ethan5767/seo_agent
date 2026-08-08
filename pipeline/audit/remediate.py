@@ -387,7 +387,7 @@ def merge_items(prior: list, fresh: list) -> list:
 
 
 def remediate(project, cycle: str | None, max_items: int, max_files: int,
-              model: str, timeout: int, dry_run: bool) -> tuple:
+              model: str, timeout: int, dry_run: bool, only: list | None = None) -> tuple:
     """(changelog, exit_code)."""
     profile = client_profile(load_config(str(project)), str(project))
     target, worklist = load_worklist(project, cycle)
@@ -395,6 +395,16 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
     prior = read_changelog(project, target)
     done = already_fixed(prior)
     queue = selectable(worklist, profile, done)
+    if only:
+        # `--max-items` cuts from the FRONT of the queue, so reaching one item
+        # means paying for everything sorted ahead of it. On lee that was four
+        # Firestore PDPs that had already refused once (B-025) standing in front
+        # of one actionable title fix. Filtering by id costs nothing and does not
+        # touch the ordering, the tier check, or the resume.
+        queue = [i for i in queue if i.get("id") in set(only)]
+        if not queue:
+            raise RemediateError(f"--only matched no selectable item in {target}: "
+                                 f"{', '.join(only)}")
     if done:
         print(f"[resume] {len(done)} item(s) already fixed in this cycle's changelog "
               f"— skipping them. {len(queue)} left.", flush=True)
@@ -511,6 +521,10 @@ def main() -> int:
     ap.add_argument("--model", default=DEFAULT_MODEL,
                     help="sonnet for bulk copy fixes, opus for ambiguous scope (v3 §8)")
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="seconds per item")
+    ap.add_argument("--only", action="append", metavar="ITEM_ID",
+                    help="only this work item id; repeatable. --max-items cuts from "
+                         "the front of the queue, so this is the way to reach one item "
+                         "without paying for everything ahead of it")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the prompt for each item and write nothing")
     args = ap.parse_args()
@@ -522,7 +536,8 @@ def main() -> int:
 
     try:
         changelog, code = remediate(args.project, args.cycle, args.max_items,
-                                    args.max_files, args.model, args.timeout, args.dry_run)
+                                    args.max_files, args.model, args.timeout, args.dry_run,
+                                    args.only)
     except RemediateError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return USAGE_EXIT

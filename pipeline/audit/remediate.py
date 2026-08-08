@@ -235,8 +235,9 @@ def run_agent(project, prompt: str, model: str, timeout: int) -> tuple:
             "--allowedTools", ALLOWED_TOOLS,
             "--output-format", "stream-json",
             "--verbose"]
-    # The two prose references live in the ENGINE repo, not the client checkout,
-    # so the agent cannot read them without being told they exist.
+    # The prose references live in the ENGINE repo, not the client checkout, so
+    # the agent cannot read them without being told they exist. Adding the whole
+    # skill directory means a new reference file needs no change here.
     if SKILL.is_file():
         argv += ["--add-dir", str(SKILL.parent)]
     try:

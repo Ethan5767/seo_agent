@@ -8,6 +8,61 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **`skills/site-remediation/references/page-type-shapes.md` — the section shape
+  of a page, for the T2 agent that has to write one.** Until now the entire
+  instruction for writing a new page was §7's six bullets plus the `thin_content`
+  row's *"write real content that answers the query"*. That says what not to do
+  (don't pad, don't invent, don't orphan it) and nothing about what a service
+  page or a location page actually owes its reader, so the shape of the page was
+  left to whatever the model reached for.
+
+  The new reference gives six shapes — service, location, blog, category/hub,
+  FAQ, case study — each a section table of *purpose + format + length*, plus a
+  short note on homepage/about, which the agent expands rather than creates.
+  Adapted from `skills/seo-content-brief/references/page-type-templates.md` in
+  [AgricIDaniel/claude-seo](https://github.com/AgricIDaniel/claude-seo) (MIT,
+  © 2026 agricidaniel), with the competitive-brief framing removed: at
+  remediation time there is no SERP scrape and no competitor set, so the
+  upstream's competitor-derived word counts and gap scoring had nothing to
+  stand on.
+
+  What was **added** rather than adapted is the provenance layer, because the
+  upstream has no equivalent of `claim_provenance_check`. Three of its rows —
+  "Why choose [brand]", "Outcomes and results", "Awards and recognition" — are
+  precisely where an invented licence number or star rating appears, so the file
+  opens with a table naming them and one rule: **a section you have no sourced
+  material for gets left out, not filled.** The case-study shape carries an
+  explicit "there is almost never enough in `client-config.yml` to write one
+  honestly — `NO CHANGE` is the right answer" note. The location shape is
+  written against `noncommodity_check`: if a paragraph about Charleston would
+  also be true of Columbia, it is a template and the gate refuses it. The hub
+  shape is written against `orphan_check` on both sides — the hub must link
+  every real sibling, and must itself be wired into `content.registry`.
+
+  Pointed to from §5 (alongside the title/meta and anti-slop references) and §7
+  of `SKILL.md`. **No code change was needed to ship it:** `remediate.py` already
+  passes `--add-dir` on the skill's parent directory, so the whole `references/`
+  tree is readable by the agent. Its comment said "the two prose references" and
+  now says the directory, so the next one needs no edit either.
+
+  Not taken from the same upstream, and why: its `keyword-density.md` meta rules
+  (50–60 char titles, 130–150 char metas) contradict our gate bands (30–60,
+  120–160) and are weaker than `serp-title-meta-craft.md`; its `seo-drift`
+  SQLite snapshots duplicate `plan.py`'s ratchet statelessly-in-the-PR; its
+  E-E-A-T scorer is a subjective 1–10 audit, which is the opposite of a measured
+  finding and nothing downstream could gate on it; and its 18 agents / 32 slash
+  commands are an interactive consultant with no tier to obey and nothing
+  re-measuring the output.
+
+  While adapting it, the upstream's dated note on Google retiring FAQ rich
+  results led to **B-022**: `measure.py:89` emits `health.schema_faq_missing` on
+  every page lacking `FAQPage`, for a feature Google deprecated on 2026-05-07
+  (confirmed against Google's own notice, not the upstream's claim). It is
+  unfixable-by-value — it PERSISTS through the ratchet forever and points a T2
+  agent at markup for a dead feature. Logged, not fixed; the fix is a decision
+  (delete / gate behind config / demote to informational), not a patch, and it
+  moves `docs/gate-reference.md` and any client baseline with it.
+
 - **`wf-seed-queries` — the SERP query list, grounded in the client's own pages
   instead of typed from memory.** `--with-serp` measures exactly the queries in
   `docs/client-config.yml` and nothing else, so that list *is* the measurement.

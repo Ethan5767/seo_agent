@@ -101,9 +101,10 @@ Bands come from the client's config where declared; these are the defaults.
 | `forbidden_phrase_live` | Remove the phrase. Do not paraphrase around a legal restriction — the restriction is on the claim, not the wording |
 | `thin_content` (T2) | Write real content that answers the query. Padding to a word count is the failure mode this finding exists to surface |
 
-See `references/serp-title-meta-craft.md` for titles and metas, and
-`references/anti-slop-prose.md` for the prose rules. Read them before writing any
-sentence a visitor will see.
+See `references/serp-title-meta-craft.md` for titles and metas,
+`references/anti-slop-prose.md` for the prose rules, and
+`references/page-type-shapes.md` for what sections a page of a given kind owes
+its reader. Read them before writing any sentence a visitor will see.
 
 ## 6. House writing standards (each is a gate)
 
@@ -128,6 +129,10 @@ Only when your prompt says T2 and `content.location` is declared.
 - Match the URL shape of its siblings exactly. Read three existing pages first.
 - Answer the query in the first paragraph. Question-shaped H2, answer first,
   then detail. → `capsule_check`
+- **Read `references/page-type-shapes.md` before you write the outline.** It
+  gives the section shape for a service, location, blog, hub, FAQ or case-study
+  page, and names the three sections where an invented claim usually appears.
+  A section you have no sourced material for gets left out, not filled.
 - Every factual claim still comes from config. A new page is not a licence to
   invent a history for the business.
 

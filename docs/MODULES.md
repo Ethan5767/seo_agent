@@ -89,7 +89,7 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 
 ## `skills/site-remediation` — the doctrine the writer is given
 
-`SKILL.md` is inlined into every remediation prompt: derivation only (never invent a rating, a licence, a year-count or a superlative), fix exactly one finding, stay inside the tier, where content actually lives, the per-finding definition of "fixed", the house writing standards, and the T2/T3 rules. `references/anti-slop-prose.md` and `references/serp-title-meta-craft.md` are the ported distiller doctrine, reachable by the agent through `--add-dir`.
+`SKILL.md` is inlined into every remediation prompt: derivation only (never invent a rating, a licence, a year-count or a superlative), fix exactly one finding, stay inside the tier, where content actually lives, the per-finding definition of "fixed", the house writing standards, and the T2/T3 rules. `references/anti-slop-prose.md` and `references/serp-title-meta-craft.md` are the ported distiller doctrine; `references/page-type-shapes.md` gives the section shape of a service, location, blog, hub, FAQ or case-study page for the T2 agent that has to write one, with the provenance-risk sections named. All three are reachable by the agent through `--add-dir` on the skill directory.
 
 ## `pipeline/dashboard` — the local operator console (3 + static)
 

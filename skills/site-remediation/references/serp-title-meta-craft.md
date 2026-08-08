@@ -46,7 +46,7 @@ The meta does not rank. Its ONLY job is the click. Write it like the friction-re
 
 ## The Anti-Pogo Gate (Title and Page Are ONE Asset)
 
-Every promise in the title must be answered above the fold on the page. An overpromising title that bounces users back to the SERP deranks the win. When you rewrite a title, check the page's hero/intro cashes the check in the same pass. The ideal above-the-fold answer is a content capsule: the question as an H2, a direct 2-3 sentence answer under it — the same block that earns AI citations cashes the title's promise. If the page cannot cash it, fix the hero or soften the title.
+Every promise in the title must be answered above the fold on the page. An overpromising title that bounces users back to the SERP deranks the win. When you rewrite a title, check the page's hero/intro cashes the check in the same pass. The ideal above-the-fold answer is a content capsule: the question as an H2, a direct answer in the paragraph under it — the same block that earns AI citations cashes the title's promise. `capsule_check` measures that paragraph at 40-80 words and at most 3 sentences; see `page-type-shapes.md` §1 for the full contract, which is the one place those numbers are maintained. Note the floor as well as the ceiling — a crisp two-sentence answer can land under 40 words and fail. If the page cannot cash it, fix the hero or soften the title.
 
 ## Reference Exemplars (From the Spend-Proven Winner Set)
 

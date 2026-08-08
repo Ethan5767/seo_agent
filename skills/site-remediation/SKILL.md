@@ -124,12 +124,16 @@ fixing a title would blow the one-finding rule above.
 Only when your prompt says T2 and `content.location` is declared.
 
 - The page goes under `content.location`, in the declared `format`.
-- **Wire it into `content.registry` in the same run.** A page linked from nowhere
-  is an orphan, and `orphan_check` refuses the PR — the page you just wrote would
-  block the fixes that came with it.
+- **Wire it into `content.registry` in the same run**, and do not count on a gate
+  to remind you. T2 *permits* you to modify the registry; nothing asserts that
+  you did. `orphan_check` counts a self-link from the global nav as inbound, so a
+  page nothing else links to still passes it, and `parity_check` only catches the
+  page if it built without reaching the sitemap. An unwired page can clear both.
 - Match the URL shape of its siblings exactly. Read three existing pages first.
-- Answer the query in the first paragraph. Question-shaped H2, answer first,
-  then detail. → `capsule_check`
+- Question-shaped H2, then the answer as its own opening paragraph, then the
+  detail. The band is 40–80 words and at most 3 sentences, measured on that one
+  paragraph, not the section — `references/page-type-shapes.md` §1 states the
+  whole contract and is the only place to keep it current. → `capsule_check`
 - **Read `references/page-type-shapes.md` before you write the outline.** It
   gives the section shape for a service, location, blog, hub, FAQ or case-study
   page, states what the gates actually measure on a new page (verified against

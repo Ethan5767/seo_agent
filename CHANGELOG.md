@@ -63,6 +63,42 @@ see `CLAUDE.md` (the sync contract).
   insured" carries no digit and the gate will not stop it; §1 of the skill still
   does. Naming where the gate stops being a floor is the point.
 
+### Fixed
+
+- **The same gate claims, corrected everywhere else they were stated.** Having
+  written the contract down once from the source, the other copies were checked
+  against it rather than left to drift:
+
+  - `SKILL.md` §7 carried the same false `orphan_check` claim ("a page linked
+    from nowhere is an orphan, and `orphan_check` refuses the PR"). It now says
+    what is true: T2 *permits* a registry edit and nothing asserts you made one,
+    `orphan_check` counts a global-nav self-link as inbound, `parity_check` only
+    fires if the page built without reaching the sitemap — so an unwired page
+    can clear both, and wiring it in is on the agent.
+  - §7's capsule line and `serp-title-meta-craft.md` both described the capsule
+    without its word band ("2-3 sentence answer"), which is a *latent* conflict,
+    not a live one: a crisp two-sentence answer can land under 40 words and fail
+    a gate neither file mentions. Both now name 40–80 words / ≤3 sentences and
+    point at `page-type-shapes.md` §1 as the single place those numbers live.
+  - `docs/gate-reference.md`'s `capsule-check` row had the same gap, plus no
+    mention of which routes the gate selects; and its `orphan-check` row, while
+    accurate, omitted the two scope facts that make the gate weaker than it
+    reads (self-links count, sitemap-driven). Both now state them.
+
+- **`docs/gate-reference.md`: three gates deleted in `79b0b5b` were still
+  documented as BLOCKING, with green results — B-023.**
+  `pages-are-data-check.py`, `brief-fanout-check.py` and
+  `validate_multistate_config.py` went with the DOCX rail a release ago;
+  `brief-fanout-check` reads `docs/briefs/*.json`, which does not exist. The doc
+  contradicted itself — line 103 already called `pages-are-data-check`'s entry
+  dead while line 144 listed it as live. An operator would have counted 22 gates
+  against the 19 that exist. Found by listing every gate filename in the doc and
+  testing each against `pipeline/gates/`, which is worth doing periodically:
+  `MODULES.md` was already correct at 19, so nothing else flagged the drift.
+  The rows are struck through and marked **REMOVED** naming `79b0b5b`, not
+  deleted — the table carries an "observed Run #1" column and is partly a
+  verification record.
+
   Pointed to from §5 (alongside the title/meta and anti-slop references) and §7
   of `SKILL.md`. **No code change was needed to ship it:** `remediate.py` already
   passes `--add-dir` on the skill's parent directory, so the whole `references/`

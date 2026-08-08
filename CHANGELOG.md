@@ -65,6 +65,44 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **First live `thin_content` run — B-024 verified against a real client, and it
+  found what the tier model cannot see.** `lee-series-web`, 2026-08 cycle, T1,
+  `--model sonnet`, 10 items attempted (the default `--max-items`), **$7.38**:
+
+  ```
+  runs 4  attempted 30  queued 15  stopped max-items (10) reached with 5 item(s) left
+  thin_content: 6 fixed, 4 no_change
+  ```
+
+  The six fixes are the repo-backed pages, and the tier held on every one —
+  `lib/learn-guides.ts` for the three `/learn/*` guides, `lib/i18n.ts` and
+  `app/(site)/**/page.tsx` for `/app/`, `/contact-us/` and the `/product/`
+  listing. All inside `text_paths`, no `[REFUSED]`, exit 0. `/learn/stretch-marks/`
+  went 404 → 553 words. Before B-024 every one of these was filed unactionable.
+
+  **The four refusals are the finding.** All four are `/product/[slug]` PDPs and
+  all four gave the same correct reason: the body copy — `description`,
+  `benefits`, `instruction`, `faqs`, which is the bulk of the word count — is
+  fetched at request time from **Firestore** via `lib/catalog.ts`'s
+  `getProductSetBySlug`. It is not in the repository at any path, so **no tier
+  can fix it.** Not T1, not T2, not T3. Nine of lee's fifteen `thin_content`
+  items are these Firestore-backed PDPs.
+
+  The agent did exactly what §3 tells it to — changed nothing, said `NO CHANGE`,
+  named the file and the allow-list it was measured against, and did not invent
+  copy to hit a word count. That is the doctrine working. **The engine is what
+  has no memory of it:** `already_fixed` records only `status == "fixed"`, so all
+  nine will be re-queued, re-investigated and re-refused on every future run, and
+  re-filed as PERSISTING by every future plan. Logged as **B-025**, unfixed —
+  it needs a way to say "real, but not fixable from here", which the finding
+  model does not currently have. Same end state as B-022 by a different route,
+  and worth solving once for both.
+
+  The remaining five queued items are all Firestore PDPs, so they were **not**
+  run — five guaranteed refusals is not worth the spend. One genuinely
+  actionable item is left in the queue (`wi-2026-08-0105`, `title_out_of_band`,
+  whose copy is in `lib/page-meta.ts`).
+
 - **`thin_content` is T1, not T2 — B-024.** `plan.py`'s tier map keyed off the
   finding kind and assumed thin content means "write a new page". It does not:
   `measure.py` only measures **live URLs**, so a page cannot be measured as thin

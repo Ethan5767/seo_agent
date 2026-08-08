@@ -102,6 +102,22 @@ see `CLAUDE.md` (the sync contract).
   5.31s`. `schema_faq_missing`, the other `min_tier: 2` entry, is untouched —
   that is B-022 and a separate call.
 
+- **The doctrine caught up with B-024 before the run, not after.** Moving
+  `thin_content` to T1 left `SKILL.md` §5 still labelling the row **(T2)**. A
+  `--dry-run` of the rebuilt prompt showed the contradiction in place: the
+  authority block said `TIER 1`, the work item said `min_tier: 1`, and the
+  fix table said the finding needed T2. An agent reading its own prompt would
+  have been entitled to answer `NO CHANGE — needs T2` on all 15 items. The row
+  now says what the job actually is: the page exists, expand the copy that is
+  there, create nothing. And `page-type-shapes.md` is re-scoped from "T2 only"
+  to whole-page work at any tier, with a paragraph on the difference — expanding
+  a thin page means finding the section it is *missing*, not rebuilding it to
+  match a table row for row, because §2's one-finding rule still binds.
+
+  Worth noting how it surfaced: `--dry-run` prints the exact assembled prompt
+  and writes nothing. Reading it before a paid run is cheap and it is the only
+  place a doctrine/tier-map disagreement is visible at all.
+
 - **The same gate claims, corrected everywhere else they were stated.** Having
   written the contract down once from the source, the other copies were checked
   against it rather than left to drift:

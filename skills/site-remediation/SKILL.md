@@ -99,13 +99,14 @@ Bands come from the client's config where declared; these are the defaults.
 | `image_alt_missing` | Describe the image's content and function. Not "image", not the filename, not a keyword dump |
 | `nap_phone_missing` | Use the exact phone string from config `nap`. Never a different format, never a guess |
 | `forbidden_phrase_live` | Remove the phrase. Do not paraphrase around a legal restriction — the restriction is on the claim, not the wording |
-| `thin_content` (T2) | Write real content that answers the query. Padding to a word count is the failure mode this finding exists to surface |
+| `thin_content` | **The page already exists — expand the copy that is there, do not create anything.** A page can only be measured as thin if it is live, so this is a modify, and at T1 the entry is normally in a data file you already have. Answer the query the page is for; padding to the word count is the failure mode this finding exists to surface |
 
 See `references/serp-title-meta-craft.md` for titles and metas and
 `references/anti-slop-prose.md` for the prose rules. Read them before writing any
-sentence a visitor will see. `references/page-type-shapes.md` is for **writing a
-whole page at T2 only** — it is an outline of sections, and following it while
-fixing a title would blow the one-finding rule above.
+sentence a visitor will see. `references/page-type-shapes.md` is for **whole-page
+work only** — writing a new page at T2, or expanding a `thin_content` page at any
+tier. It is an outline of sections; following it while fixing a title or an alt
+text would blow the one-finding rule above.
 
 ## 6. House writing standards (each is a gate)
 

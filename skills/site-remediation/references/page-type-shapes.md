@@ -6,10 +6,16 @@ Adapted from `skills/seo-content-brief/references/page-type-templates.md` in
 framing is gone, because at remediation time there is no SERP scrape and no
 competitor set — there is one measured finding and a tier.
 
-**Read this when your prompt says T2 and you are writing a new page from scratch,
-or substantially expanding a thin one.** If you are fixing a title, a meta
+**Read this for whole-page work: writing a new page at T2, or clearing a
+`thin_content` finding at any tier.** If you are fixing a title, a meta
 description or an alt text, this file is not for you — §2 of the skill still
 holds, the smallest diff that clears the finding is the correct diff.
+
+**Expanding a thin page is not the same job as writing a new one.** The page
+exists, it has a shape already, and §2 of the skill still binds: expand what is
+thin, do not restructure what is not. Use the matching table below to find the
+section this page is *missing* — that is where the words are owed — rather than
+rebuilding it to match the table row for row.
 
 The tables below give **section shape only**. Everything a gate actually
 enforces is in the two blocks that come first, stated once, so there is one

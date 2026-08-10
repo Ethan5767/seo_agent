@@ -26,6 +26,29 @@ from datetime import date
 from pathlib import Path
 from pipeline.lib.common import load_config, audit_log_dir
 
+CANNOT_JUDGE_EXIT = 4      # same meaning the forbidden sweep gives it: no input to judge
+
+SOURCE_EXTS = ("tsx", "ts", "jsx", "js", "mjs", "cjs")
+
+# A DENYLIST, not an allowlist, and that is the whole design decision.
+#
+# This gate used to look for a folder called `src/` and exit 0 when it found
+# none. `create-next-app` asks whether you want `src/` and the DEFAULT ANSWER IS
+# NO, so every client who took the default had a never-baselineable correctness
+# gate silently passing over their entire codebase (B-027).
+#
+# The tempting fix is to derive the roots from the framework — app/ for Next
+# app-router, pages/ for pages-router, src/ for Vite. Don't. `framework_family`
+# returns None for anything that is not next/vite/wordpress, so an allowlist
+# scans NOTHING for the next client on a framework this repo has not met, which
+# is the same bug wearing a different hat. A denylist degrades safely: an
+# unknown framework gets over-scanned, never under-scanned.
+NON_SOURCE_DIRS = {
+    "node_modules", ".git", ".next", ".nuxt", ".svelte-kit", ".turbo", ".vercel",
+    "out", "dist", "build", "coverage", "public", "static", "vendor",
+    "docs", ".venv", "venv", "__pycache__",
+}
+
 GLOBAL = re.compile(r"\b(window|document)\.[A-Za-z_$]")
 TYPEOF = re.compile(r"typeof\s+(window|document|globalThis|navigator|self|localStorage|sessionStorage)\b")
 CONTROL = re.compile(r"\b(if|for|while|switch|catch|else)\b\s*\([^)]*\)\s*$")
@@ -128,6 +151,39 @@ def scan_file(path: Path) -> list:
     return issues
 
 
+def source_files(project: Path, cfg: dict | None = None):
+    """Every JS/TS source file in the repo, in sorted order, skipping the
+    directories that are never source.
+
+    The client's CONFIGURED build dir is excluded too, on top of the static list:
+    a repo that emits to `.output/` or `_site/` would otherwise have its own
+    generated bundles scanned and reported as SSR violations in files nobody
+    wrote. Minified bundles are skipped for the same reason.
+    """
+    skip = set(NON_SOURCE_DIRS)
+    repo_cfg = (cfg or {}).get("repo", {}) or {}
+    # `build_dir` is the older spelling; common.py:127 normalizes both, so read both.
+    build_dir = repo_cfg.get("build_output_dir") or repo_cfg.get("build_dir") or ""
+    if isinstance(build_dir, str) and build_dir.strip():
+        # NOT `.strip("./")` — that eats the leading dot of `.output` and would
+        # exclude a directory named `output` while scanning the real one.
+        bd = build_dir.strip()
+        bd = bd[2:] if bd.startswith("./") else bd
+        first = bd.strip("/").split("/")[0]
+        if first:
+            skip.add(first)
+
+    out = []
+    for f in sorted(project.rglob("*")):
+        if f.suffix.lstrip(".") not in SOURCE_EXTS or not f.is_file():
+            continue
+        rel = f.relative_to(project)
+        if skip & set(rel.parts[:-1]) or f.name.endswith((".min.js", ".min.mjs")):
+            continue
+        out.append(f)
+    return out
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: audit-ssr.py [PROJECT_DIR]", file=sys.stderr); sys.exit(1)
@@ -145,23 +201,25 @@ def main():
     if cfg.get("repo", {}).get("framework") == "wordpress":
         print("[SKIP] WordPress client — SSR check not applicable."); sys.exit(0)
 
-    candidates = [project / "src"]
-    if cfg.get("repo", {}).get("pages_dir", ""):
-        for p in project.glob("**/src"):
-            if p.is_dir() and p not in candidates and "node_modules" not in str(p) and ".next" not in str(p):
-                candidates.append(p)
-    src = next((c for c in candidates if c.exists()), None)
-    if not src:
-        print(f"[SKIP] No src/ directory in {project}"); sys.exit(0)
-
     all_issues = {}
-    for ext in ("tsx", "ts", "jsx", "js"):
-        for f in src.rglob(f"*.{ext}"):
-            if "node_modules" in str(f) or ".next" in str(f):
-                continue
-            issues = scan_file(f)
-            if issues:
-                all_issues[str(f.relative_to(project))] = issues
+    scanned = 0
+    for f in source_files(project, cfg):
+        scanned += 1
+        issues = scan_file(f)
+        if issues:
+            all_issues[str(f.relative_to(project))] = issues
+
+    if scanned == 0:
+        # NOT a pass. Until 2026-08-10 this exited 0 with "[SKIP] No src/ directory",
+        # so a never-baselineable correctness gate reported success over zero files
+        # on every repo that took `create-next-app`'s default layout (B-027).
+        print(f"[REFUSED] no source files found under {project} — this gate cannot "
+              f"judge a tree it cannot see, and reporting that as a pass is how an "
+              f"SSR crash ships. Looked for *.{{{','.join(SOURCE_EXTS)}}} outside "
+              f"{', '.join(sorted(NON_SOURCE_DIRS))}. If this repo genuinely holds no "
+              f"JS/TS, say so in docs/client-config.yml `repo.framework`.",
+              file=sys.stderr)
+        sys.exit(CANNOT_JUDGE_EXIT)
 
     log = audit_log_dir(str(project), date.today().isoformat())
     out = [f"# SSR Safety Audit — {date.today().isoformat()}", ""]

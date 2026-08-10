@@ -6,6 +6,58 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`audit_ssr` scanned nothing and reported a pass on every repo that took
+  `create-next-app`'s default layout — closes B-027.** It looked for a folder
+  named `src/` and exited **0** when it found none. That prompt defaults to *no*,
+  so "no `src/`" is not an edge case, it is the common Next.js shape. A
+  never-baselineable correctness gate — the one standing between a client and a
+  blank-shell deploy — was reporting success over entire codebases.
+
+  The scanner itself was never wrong. It masks strings and comments, tracks
+  brace-scoped function depth, and honours `typeof` guards. Only the directory
+  lookup was, so this replaces the lookup and touches no detection logic.
+
+  **A denylist, not an allowlist, and that is the design decision.** The tempting
+  fix derives roots from the framework: `app/` for Next app-router, `pages/` for
+  pages-router, `src/` for Vite. Don't. `framework_family()` returns `None` for
+  anything that is not next/vite/wordpress, so an allowlist scans **nothing** for
+  the next client on a framework this repo has not met — B-027 again wearing a
+  different hat. A denylist degrades safely: an unknown framework is over-scanned,
+  never under-scanned. `tests/test_audit_ssr_roots.py` asserts that directly with
+  an `islands/` layout and `framework_family("qwik") is None`.
+
+  Excluded: `node_modules`, `.git`, framework caches, build output, `public`,
+  `static`, `vendor`, `docs`, plus **the client's own configured
+  `build_output_dir`**, so a repo emitting to `.output/` does not get its
+  generated bundles reported as violations in files nobody wrote. Minified
+  bundles committed into source are skipped too.
+
+- **Scanning zero files is now a refusal (exit 4), not a pass.** This is the half
+  that generalises. It does not care about layouts: any repo, any framework, if
+  the gate found no source it says so instead of implying a clean bill of health.
+  Same code and same meaning the forbidden sweep gives an empty ruleset. The
+  WordPress skip stays exit 0 — *not applicable* is a different claim from
+  *cannot judge*, and collapsing the two is what caused this bug.
+
+  Measured after the fix: lee (`app/` layout, no `src/`) goes from
+  `[SKIP] No src/ directory · rc=0` to `[FAIL] 4 files have SSR-dangerous
+  patterns · rc=9` over 165 scanned files. A repo with no JS at all goes from a
+  silent pass to `[REFUSED] ... rc=4`.
+
+  > ⚠️ **Rolling this out needs a per-client look before the tag.** This gate can
+  > never be baselined, so any client carrying pre-existing SSR issues outside
+  > `src/` goes red on their next PR with no recording that accepts the debt.
+  > lee's four says nothing about anyone else's count. Run `wf-audit-ssr <repo>`
+  > against each client checkout and read the numbers **before** cutting the tag
+  > clients adopt — same discipline as recording a gate baseline before a first PR.
+
+  Also corrected: the caller comment in `quality-gate.reusable.yml` documented the
+  bug as intended behaviour (*"Skips WordPress + repos with no src/"*), listing a
+  real not-applicable case and a silent green as if they were the same thing.
+
+
 ### Security
 
 - **Two fail-open holes closed before this ever shipped, both found by review of

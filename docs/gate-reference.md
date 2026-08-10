@@ -27,7 +27,7 @@ Each gate claims a distinct code so the workflow can name the failing gate from 
 | `0` | Pass (all gates) |
 | `1` | Generic gate failure — headings, llms sales-purge, LCP hygiene, image budget, orphan, parity (observed), robots-aicrawler, pages-are-data, proof-assert |
 | `3` | Orphan (registry) / forbidden-sweep (observed) / rules-selftest (ruleset defects) |
-| `4` | **Empty-ruleset refusal** — forbidden-sweep, rules-selftest and non-commodity refuse to silently pass with zero rules loaded |
+| `4` | **Cannot judge** — forbidden-sweep, rules-selftest and non-commodity refuse to pass with zero rules loaded; **audit-ssr** refuses when it finds zero source files (2026-08-10, B-027). One meaning: the gate had no input, which is never a pass. |
 | `5` | Parity (registry) / audit-built (observed) |
 | `6` | Content capsule (§20) |
 | `7` | Non-commodity (§21) |

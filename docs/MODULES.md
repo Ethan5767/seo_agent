@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-10** · 5 packages, 40 modules, 5 workflows, 34 `wf-*` commands, 655 tests.
+**As of 2026-08-10** · 5 packages, 40 modules, 5 workflows, 34 `wf-*` commands, 669 tests.
 (Counted, not remembered: modules = `.py` under `pipeline/` excluding `__init__.py`;
 commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. Only the test
 count moved on 2026-08-10 — `--recommend` is a flag on an existing command, and
@@ -67,7 +67,7 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 | ⛔ `orphan_check.py` | Every sitemap URL has ≥1 inbound internal link (the original Acme bug). |
 | ⛔ `parity_check.py` | sitemap == built routes == llms.txt. |
 | ⛔ `fingerprint_check.py` | Invisible/zero-width/bidi characters in raw bytes (AI-clipboard fingerprints). |
-| ⛔ `audit_ssr.py` | No unguarded `window`/`document` in server-rendered paths (the blank-shell disasters). |
+| ⛔ `audit_ssr.py` | No unguarded `window`/`document` in server-rendered paths (the blank-shell disasters). Scans every JS/TS file in the repo minus a **denylist** (node_modules, framework caches, build output incl. the client's configured one, public/static/vendor/docs, `*.min.js`) — never an allowlist keyed on framework, which would scan nothing for a framework the code has not met. It looked only in `src/` and exited 0 when absent until 2026-08-10, which is `create-next-app`'s default layout (B-027). Zero source files found is exit **4**, never a pass; WordPress keeps its exit-0 skip because *not applicable* ≠ *cannot judge*. |
 | `capsule_check.py` | §20: interrogative H2 → answer-first → TL;DR (only >1500w, per standard §01). |
 | `noncommodity_check.py` | §21: proprietary variable per page + sibling 5-gram overlap thresholds. |
 | `check_headings.py` | Title Case, no possessive contractions. |

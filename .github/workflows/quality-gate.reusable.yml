@@ -262,7 +262,14 @@ jobs:
       # --- PRE gates (source, pre-build; python-only, no node_modules) --------
       # wf-audit-ssr is config-free: masks strings/comments, tracks brace-scoped
       # function depth + typeof guards, so it flags only SSR-dangerous access.
-      # Skips WordPress + repos with no src/. BLOCKING.
+      # Scans every JS/TS file in the repo minus node_modules, build output and
+      # assets — a DENYLIST, so a framework this pipeline has never met is
+      # over-scanned rather than skipped. Skips WordPress (not applicable, exit 0);
+      # REFUSES at exit 4 when it finds no source at all, because a gate that
+      # scanned nothing must never report a pass. This comment used to say
+      # "Skips ... repos with no src/" as though that were fine — it meant every
+      # client on create-next-app's default layout got a silent green (B-027).
+      # BLOCKING.
       - name: "PRE: SSR safety, source (BLOCK)"
         id: ssr
         continue-on-error: true

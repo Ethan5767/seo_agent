@@ -6,7 +6,7 @@ Plain-language walkthrough of the whole pipeline, start to finish. Read this fir
 
 ## The one-line version
 
-A client gives us collaborator access to their repo and their domain. The pipeline measures the live site, compares this month against every previous month, decides what is worth fixing and what the agent is even allowed to touch, hands each item to Claude Code one at a time, and opens a pull request — **then stops and waits for a human.** The operator's merge is the deploy. After deploy it tells the search engines, checks the live site, and files the proof.
+A client gives us collaborator access to their repo and their domain. The pipeline measures the live site, compares this month against every previous month, decides what is worth fixing and what the agent is even allowed to touch, hands each item to Claude Code one at a time, and opens a pull request — **then stops and waits for a human.** The operator's merge is the end of the pipeline. Deployment is theirs, on whatever platform the client is actually on; a daily monitor is what watches the live site afterwards.
 
 ---
 
@@ -156,7 +156,7 @@ Every gate exits with its own numbered code, so a red run names the gate without
 
 **The ratchet is what makes this usable on a site that already exists.** A client's inherited debt would fail these gates en masse — on the Acme pilot, 60 of 61 pages on capsule alone. So `wf-gate-baseline` records today's findings once, into the client's own repo, and each baselineable gate then reports a recorded finding as PRE-EXISTING and blocks only what is new. The recorded debt stays visible, countable, and can only shrink.
 
-Seven gates accept a baseline. **Nine never can** — a legal exposure, a runtime crash, a broken invariant, a fabricated credential, an out-of-tier edit or a fix that never landed is a live liability, not aging debt, and baselining it would mean the pipeline formally signs off on shipping it.
+Eight gates accept a baseline. **Nine never can** — a legal exposure, a runtime crash, a broken invariant, a fabricated credential, an out-of-tier edit or a fix that never landed is a live liability, not aging debt, and baselining it would mean the pipeline formally signs off on shipping it.
 
 > ⚠️ **A client with no recorded baseline runs the gates bare.** The workflow warns rather than failing, but every piece of their pre-existing debt then reads as blocking. Record one before the first PR.
 
@@ -166,19 +166,33 @@ Seven gates accept a baseline. **Nine never can** — a legal exposure, a runtim
 
 The same gate governs everything: content changes, gate-logic changes, dependency bumps, pipeline version bumps. They all arrive as a PR and they all wait for the same merge.
 
-### 9. Deploy → verify → rollback → proof
+### 9. After the merge: the pipeline is done
 
-Merging `main` fires the deploy workflow: build, **capture the current production deployment id as a rollback target**, deploy to that client's Cloudflare Pages account, then:
+**The pipeline is PR-terminal.** It measures, plans, writes, gates, and stops at a
+pull request a human merges. It does not deploy. Deployment is the operator's job on
+whatever platform the client is on, and nothing in this repo observes it.
 
-- **Live verify** — hit the real domain, confirm key routes return 200 with the expected content.
-- **AI-crawler check** — confirm the citation bots reach the live edge unchallenged. A silent Cloudflare "Block AI Crawlers" toggle would zero the entire AEO pillar while every build metric stayed green, so this check has to run at the edge — it is invisible in build output.
-- **Auto-rollback** — a failed verification promotes the captured deployment back and independently re-verifies. It only ever promotes an **existing** deployment; there is no second path to prod.
-- **IndexNow** — push the changed URLs to Bing and the Copilot surfaces. (Google does not support IndexNow; an accurate sitemap `lastmod` is the Google path.)
-- **Proof** — write a deploy-proof record to a tracked path and commit it.
+That is a deliberate narrowing, made on 2026-08-10. The deploy rail exists and works,
+but it hard-depends on `wrangler pages deploy` and three `CLOUDFLARE_*` secrets, so it
+only ever fit clients on Cloudflare Pages. `deploy.reusable.yml` and
+`preview.reusable.yml` are now marked **optional, Cloudflare Pages only**, and the
+standard pair a client repo copies is `quality-gate.yml` + `seo-health.yml`.
 
-**"No proof, it didn't happen."** The proof file is a blocking meta-gate: missing or empty goes red. This exists because a repo that gitignored the proof directory would silently ship to prod with no record at all.
+**What still watches production.** `seo-health.yml` runs daily and on
+`workflow_dispatch`, and it carries two things that used to fire inside the deploy job:
 
----
+- **Live route verification** — the critical pages return 200 with a title, an h1, a
+  canonical and JSON-LD, and the sitemap still carries the URLs it should.
+- **The AI citation-crawler check** — the citation bots reach the live edge
+  unchallenged. A Cloudflare "Block AI Crawlers" toggle, a Vercel bot rule or any WAF
+  managed ruleset zeroes the entire AEO pillar while every build metric stays green,
+  and it is invisible in build output. This has to run against the live host, forever.
+
+The cost of the narrowing, stated plainly: detection moves from *within a minute of
+deploying* to *the next scheduled run*. Press Run workflow right after you deploy and
+that window closes by hand. And auto-rollback, the deploy proof record and IndexNow
+submission only exist on the optional Cloudflare rail — a PR-terminal client does not
+get them, and rollback becomes a thing the operator does on their own platform.
 
 ## The monthly loop
 

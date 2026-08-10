@@ -223,6 +223,21 @@ DEFAULT_DENY = [
     "package*.json",          # no dependency changes
     "wrangler.toml",          # deploy config is the rollback path
     ".env*",
+    # The other half of the forbidden-phrase ledger. `forbidden_sweep` enforces
+    # the UNION of client-config's `forbidden_phrases` and this file, and only
+    # the config half was on the floor — so at T3 the agent could DELETE this
+    # file and, with `forbidden_phrases: []` declared, turn a real exit-3 hit
+    # into an exit-0 skip. Verified 2026-08-10: same repo, same page, exit 3
+    # before the delete and exit 0 after. A rule ledger you can disarm by
+    # deleting is not a floor.
+    "docs/banned-phrases.txt",
+    # The standing human worklist. It is the SKIP LIST for the fix queue — a
+    # fingerprint carrying a brief never returns to it — so an agent that could
+    # write this file could permanently dequeue its own work by inventing a
+    # brief. It lived under docs/audit/** until 2026-08-10, which `tier_verdict`
+    # waves through as a cycle artifact at every tier, making the B-025 claim
+    # ("the agent cannot suppress its own work") false in code while true in prose.
+    "docs/human-worklist.md",
 ]
 
 NEXT_CONFIG_NAMES = ("next.config.mjs", "next.config.js", "next.config.ts")
@@ -436,6 +451,47 @@ def _as_str_list(value):
     if isinstance(value, list):
         return [v for v in value if isinstance(v, str) and v.strip()]
     return []
+
+
+def ruleset_declared_empty(cfg: dict, project=None) -> bool:
+    """True when a human has explicitly declared this client has no banned phrases.
+
+    Three states, not two, and the middle one is the point:
+
+      forbidden_phrases: []   a DECISION. Both legal gates skip, and say so.
+      forbidden_phrases:      absent. Nobody has decided. The gates still refuse
+                              (exit 4), because a silent green over zero rules is
+                              the exact failure this suite exists to prevent.
+      forbidden_phrases: [..] rules. The gates run them.
+
+    Only a literal empty LIST counts as the declaration. A bare `forbidden_phrases:`
+    key parses to None, which reads as a config someone started and abandoned
+    rather than a decision anyone made, so it stays in the refusing state.
+
+    BOTH LEDGER SOURCES MUST AGREE. `forbidden_sweep` enforces the union of this
+    config block and `docs/banned-phrases.txt`, so reading only the config made
+    the declaration satisfiable by DELETING the other half — measured 2026-08-10:
+    exit 3 on a real hit with the txt ledger present, exit 0 after `rm`. Passing
+    `project` closes that; both halves are now on `DEFAULT_DENY` as well, so the
+    agent cannot produce either state. Called with `project=None` (no repo in
+    hand) this checks the config only, which is why the gates always pass it.
+
+    The declaration lives in `docs/client-config.yml`, on the deny floor at every
+    tier including T3, so the agent can never disarm the gate that judges its own
+    copy. The skip requires a human commit, exactly like the tier does.
+    """
+    value = cfg.get("forbidden_phrases")
+    if not (isinstance(value, list) and not value):
+        return False
+    if project is None:
+        return True
+    # Deliberately NOT comment-aware. A ledger holding only `#` lines carries no
+    # rules, so refusing the skip there is strictly annoying — but the lenient
+    # reading means the gate silently switches off the moment somebody comments a
+    # ledger out, which is a plausible accident and an invisible one. For a legal
+    # gate, take the annoying direction. Only a genuinely blank file reads as absent.
+    ledger = Path(project) / "docs" / "banned-phrases.txt"
+    return not (ledger.is_file() and ledger.read_text(encoding="utf-8").strip())
 
 
 def resolve_repo_path(configured, project):

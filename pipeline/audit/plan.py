@@ -36,6 +36,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from pipeline.audit.remediate import read_briefs
 from pipeline.lib.common import client_profile, load_config
 
 SCHEMA = "site-plan-worklist/1"
@@ -215,7 +216,12 @@ def render_report(doc: dict, cycle: str, prior_cycle, lanes: dict, resolved: lis
             by_lane[lane].append(f)
     by_lane["RESOLVED"] = resolved
 
-    actionable = [i for i in items if not i["tier_blocked"]]
+    # A briefed item is real, in-tier, and still not going to be worked by the
+    # agent — its copy lives outside the repository, so a human owns it (B-025).
+    # It leaves the AGENT's count and gets its own heading; it never leaves the
+    # report, because the page is still thin whether or not we can reach the copy.
+    human_edit = [i for i in items if i.get("human_edit")]
+    actionable = [i for i in items if not i["tier_blocked"] and not i.get("human_edit")]
     blocked = [i for i in items if i["tier_blocked"]]
     tier_label = f"T{tier}" if tier else "none declared"
 
@@ -236,7 +242,9 @@ def render_report(doc: dict, cycle: str, prior_cycle, lanes: dict, resolved: lis
     out.append("")
     out.append(f"{len(doc.get('findings', []))} current findings. "
                f"{len(actionable)} in the worklist, {len(blocked)} not actionable at "
-               f"{tier_label}, {len(unclassified)} needing a human.")
+               f"{tier_label}, {len(unclassified)} needing a human"
+               + (f", {len(human_edit)} briefed for a human editor." if human_edit
+                  else "."))
     out.append("")
 
     for lane in LANES:
@@ -264,6 +272,18 @@ def render_report(doc: dict, cycle: str, prior_cycle, lanes: dict, resolved: lis
         for code, group in _group(blocked).items():
             out.append(f"- `{code}` ({len(group)}) needs T{group[0]['min_tier']}")
         out.append("")
+
+    if human_edit:
+        out.append(f"## Briefed for a Human Editor ({len(human_edit)})")
+        out.append("")
+        out.append("These are real findings the agent cannot fix at ANY tier, because the "
+                   "page's copy does not live in this repository — it is fetched from a CMS "
+                   "at request time. Each one carries a brief in "
+                   "`docs/audit/human-worklist.md`, written by the agent and NOT checked by "
+                   "any gate. They are excluded from the agent's queue so they stop costing "
+                   "a paid refusal every cycle, and they stay here so nobody mistakes that "
+                   "for fixed.")
+        out.append(_lines(human_edit))
 
     if unclassified:
         out.append(f"## Needs a Human ({len(unclassified)})")
@@ -305,10 +325,26 @@ def plan(project, cycle: str | None = None) -> tuple:
     tier = profile.get("tier")
 
     items, unclassified = build_worklist(doc, lanes, tier)
+
+    # Stamp the standing human worklist onto this cycle's items. Read here rather
+    # than filtered out, so worklist.json still CARRIES the item and records why
+    # nobody is going to work it — a finding that silently disappears from the
+    # artifact is the failure mode this whole file exists to prevent.
+    briefed = read_briefs(project)
+    for i in items:
+        if i.get("finding_fp") in briefed:
+            i["human_edit"] = True
+
     counts = {lane: sum(1 for l in lanes.values() if l == lane) for lane in LANES[:3]}
     counts["RESOLVED"] = len(resolved)
-    counts["actionable"] = sum(1 for i in items if not i["tier_blocked"])
+    # `actionable` means "the agent will work this", so a briefed item is not one
+    # — same predicate the report uses, deliberately written once. These two
+    # disagreed for exactly as long as they were two expressions: report.md said
+    # 0 while worklist.json said 1, and the dashboard reads worklist.json.
+    counts["actionable"] = sum(1 for i in items
+                               if not i["tier_blocked"] and not i.get("human_edit"))
     counts["tier_blocked"] = sum(1 for i in items if i["tier_blocked"])
+    counts["human_edit"] = sum(1 for i in items if i.get("human_edit"))
     counts["unclassified"] = len(unclassified)
 
     worklist = {
@@ -373,7 +409,8 @@ def main() -> int:
     print(f"[OK] {c['NEW']} new, {c['PERSISTING']} persisting, {c['REGRESSION']} regression, "
           f"{c['RESOLVED']} resolved -> {out_dir}")
     print(f"     worklist: {c['actionable']} actionable, {c['tier_blocked']} above tier, "
-          f"{c['unclassified']} needing a human")
+          f"{c['unclassified']} needing a human"
+          + (f", {c['human_edit']} briefed for a human editor" if c.get("human_edit") else ""))
     return 1 if doc.get("findings") else 0
 
 

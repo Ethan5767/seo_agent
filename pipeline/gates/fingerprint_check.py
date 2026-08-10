@@ -17,6 +17,32 @@ the file's raw bytes, decode UTF-8, and inspect every codepoint.
 A single leading BOM (U+FEFF at byte offset 0) is tolerated — legitimate editors
 emit it. Any OTHER U+FEFF (a second one, or one mid-file) is a violation.
 
+U+200B ADJACENT TO A NO-SPACE SCRIPT IS ORTHOGRAPHY, NOT A FINGERPRINT. Khmer
+writes without spaces between words, and U+200B is the standard way to tell a
+browser where a line may break. Stripping those does not clean the file, it
+breaks wrapping on every Khmer page. So a zero-width space is exempt when the
+character on either side is Khmer, and flagged everywhere else — which is where
+the AI-clipboard signal actually lives. Nothing else is exempt: U+200C, U+200D,
+the bidi controls and the tag block still fire in every context, including
+inside Khmer text.
+
+That last sentence is a real risk and was worth measuring rather than asserting,
+because Khmer also uses ZWNJ/ZWJ to control coeng and vowel-form rendering, and
+one legitimate U+200C would reproduce this exact bug one codepoint over. Counted
+across every `.ts`/`.tsx` in `lee-series-web` on 2026-08-10:
+
+    28  ZERO WIDTH SPACE     <- Khmer word breaks, in lib/i18n.ts
+     1  ZERO WIDTH JOINER    <- an empty Webflow <p> in the privacy policy, junk
+     0  ZERO WIDTH NON-JOINER
+
+So on this client the joiners carry no orthographic load and the narrow
+exemption is right. If a Khmer client ever does need U+200C, treat it as the
+same class of problem and widen deliberately — do not baseline it, because this
+gate never can be.
+
+Without the exemption the first Khmer page rendered would have blocked that
+client's every PR forever, with no recording that could accept it.
+
 What is flagged (file:line:col + U+XXXX NAME):
     - zero-width & word-joiner:   U+200B U+200C U+200D U+2060 U+FEFF(non-leading)
       U+2061..U+2064 (invisible math operators), U+180E, U+00AD (soft hyphen)
@@ -56,6 +82,36 @@ INVISIBLE |= set(range(0x202A, 0x202F))      # LRE RLE PDF LRO RLO (+2F reserved
 INVISIBLE |= set(range(0x2066, 0x206A))      # LRI RLI FSI PDI
 TAG_RANGE = range(0xE0000, 0xE0080)          # Unicode tag characters
 
+ZWSP = 0x200B
+
+# Scripts written without spaces between words, where U+200B carries the line-
+# break opportunity the renderer would otherwise have no way to find. Only the
+# scripts we have actually seen on a client go in here: an over-broad list would
+# quietly re-open the hole this gate exists to close. Thai (0E00..0E7F), Lao
+# (0E80..0EFF) and Myanmar (1000..109F) belong here the day one is onboarded.
+NO_SPACE_SCRIPTS: tuple[tuple[int, int], ...] = (
+    (0x1780, 0x17FF),                        # Khmer
+)
+
+
+def _in_no_space_script(ch: str) -> bool:
+    cp = ord(ch)
+    return any(lo <= cp <= hi for lo, hi in NO_SPACE_SCRIPTS)
+
+
+def is_word_break_hint(data: str, idx: int) -> bool:
+    """True when data[idx] is a U+200B doing a no-space script's word breaking.
+
+    Judged on the immediate neighbours rather than the paragraph, because that
+    is the whole claim being made: this particular character sits inside Khmer
+    text. A U+200B in a Latin sentence three lines down is still a hit.
+    """
+    if ord(data[idx]) != ZWSP:
+        return False
+    before = data[idx - 1] if idx > 0 else ""
+    after = data[idx + 1] if idx + 1 < len(data) else ""
+    return any(_in_no_space_script(c) for c in (before, after) if c)
+
 # Generator/tool fingerprint markers. Kept deliberately tight so the gate stays
 # green on legitimate content; extend per-run with --extra-markers.
 DEFAULT_MARKERS = [
@@ -87,6 +143,8 @@ def scan_text(data: str) -> list[tuple[int, int, str]]:
                 continue  # tolerate a single leading BOM
             hits.append((line, col, codepoint_label(cp) + " (unexpected non-leading BOM)"))
             continue
+        if cp == ZWSP and is_word_break_hint(data, idx):
+            continue  # Khmer word break, not a fingerprint — see the module docstring
         if cp in INVISIBLE or cp in TAG_RANGE:
             hits.append((line, col, codepoint_label(cp)))
     return hits

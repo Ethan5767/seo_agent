@@ -53,6 +53,7 @@ except ImportError:
 from pipeline.gates.forbidden_sweep import (
     load_phrases, lint_phrase_placement, read_txt_entries, _strip_lookarounds,
 )
+from pipeline.lib.common import ruleset_declared_empty
 
 _LETTERS_RE = re.compile(r"[A-Za-z]")
 
@@ -172,9 +173,19 @@ def main():
     project = Path(args.project).resolve()
     fails, warns, n_rules = selftest(project, args.config)
     if fails is None:
+        # Same three-state contract as the sweep this gate guards. A ruleset that
+        # a human has declared empty has nothing to self-test, and saying so is
+        # not the same as passing — see common.ruleset_declared_empty.
+        _, cfg = load_phrases(project, args.config)
+        if ruleset_declared_empty(cfg, project):
+            print("[SKIP] no ruleset to self-test: docs/client-config.yml declares "
+                  "`forbidden_phrases: []`. This is a recorded human decision, not "
+                  "a ruleset that passed.")
+            return
         print("[FAIL] no forbidden_phrases loaded (checked config forbidden_phrases + "
-              "docs/banned-phrases.txt). Refusing to self-test an empty legal ruleset.",
-              file=sys.stderr)
+              "docs/banned-phrases.txt). Refusing to self-test an empty legal ruleset. "
+              "Declare `forbidden_phrases: []` in docs/client-config.yml to skip it "
+              "deliberately.", file=sys.stderr)
         sys.exit(4)
 
     for w in warns:

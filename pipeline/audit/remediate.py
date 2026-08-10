@@ -63,6 +63,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -76,6 +77,26 @@ SCHEMA = "site-remediate-changelog/1"
 REFUSED_EXIT = 9
 USAGE_EXIT = 2
 
+# The standing human worklist.
+#
+# NOT under docs/audit/<cycle>/ for two separate reasons, and the second one is
+# the load-bearing one:
+#
+#   1. A page whose copy lives in a CMS is a fact about the site's architecture,
+#      not about the month somebody measured it. Filed per-cycle, next cycle's
+#      empty folder re-queues all nine Firestore PDPs and pays for the same nine
+#      refusals again — the B-025 leak this exists to close.
+#   2. THIS FILE IS THE FIX QUEUE'S SKIP LIST. A fingerprint carrying a brief
+#      never returns to `selectable()`. Under `docs/audit/**` it was waved
+#      through by `tier_verdict` as a cycle artifact at every tier, so an
+#      ordinary fix-mode run — which holds `Write` — could have invented a brief
+#      and permanently dequeued its own work, while `tier_check` on the PR read
+#      it as a routine artifact. It now sits on `DEFAULT_DENY` instead, so the
+#      claim "the agent cannot suppress its own work" is true in code and not
+#      only in prose.
+HUMAN_WORKLIST = Path("docs") / "human-worklist.md"
+BRIEF_FP_RE = re.compile(r"^<!-- fp:(\S+) -->$", re.M)
+
 DEFAULT_MAX_ITEMS = 10
 DEFAULT_MAX_FILES = 20
 DEFAULT_TIMEOUT = 900
@@ -85,6 +106,20 @@ DEFAULT_MODEL = "sonnet"        # v3 §8: Sonnet for bulk, Opus for hard judgmen
 # commands, and the narrower the tool list the smaller the blast radius of a
 # prompt injection carried in the client's own page copy.
 ALLOWED_TOOLS = "Read Edit Write Grep Glob"
+
+# Recommend mode writes a document, never code, so it is handed no writing tool
+# at all. The clean-tree assertion in `remediate()` is the thing that actually
+# holds — a live run on 2026-08-10 showed the writer reaching for Bash despite it
+# being absent from ALLOWED_TOOLS, so this list is a narrowing, not a boundary
+# (B-026). Keep the measurement as the guarantee and this as the hint.
+#
+# And be precise about what the measurement covers: `snapshot()` is `git status`
+# inside the client checkout, so it sees no tracked or untracked change INSIDE
+# THE REPOSITORY. It is blind to gitignored paths (`**/secrets/**`), to `$HOME`
+# and to `/tmp`. With Bash reachable that is a real gap, not a theoretical one.
+# The scoping is right for judging a remediation; calling it a guarantee against
+# a writer that can run commands would not be.
+RECOMMEND_TOOLS = "Read Grep Glob"
 
 SKILL = Path(__file__).resolve().parents[2] / "skills" / "site-remediation" / "SKILL.md"
 
@@ -199,6 +234,61 @@ changed, or `NO CHANGE <reason>` if the fix was not possible inside your authori
 """
 
 
+def build_recommend_prompt(item: dict, profile: dict, doctrine: str) -> str:
+    """The brief-writing prompt. Same doctrine, opposite deliverable.
+
+    The provenance rule matters MORE here than in a file edit, not less. An edit
+    lands in the diff and `claim_provenance_check` refuses an invented rating or
+    licence number before it can ship. A brief lands in a markdown file nobody's
+    CI reads, gets pasted into a CMS by hand, and reaches production having
+    passed no gate at all. So the instruction is explicit: write only what you
+    can trace, and mark the rest as a question for the client.
+    """
+    return f"""{doctrine}
+
+## What this invocation is
+
+You are NOT fixing anything. A previous run established that this page's copy
+does not live in this repository at any path, so no tier can reach it. A human
+will paste your answer into the client's CMS by hand.
+
+**Change no files.** Do not use Edit or Write. The run measures the working tree
+before and after and treats any modification as an error. Read and search all
+you like.
+
+## The page a human has to fix
+
+```json
+{json.dumps(item, indent=2, sort_keys=True)}
+```
+
+The page is `{item.get('url')}`. The finding is `{item.get('code')}`
+({item.get('kind')}), measured on the live site as: {json.dumps(item.get('evidence'))}.
+
+## What to write
+
+Read whatever the repository DOES hold about this page — the route file, the
+data layer, sibling pages, the product spec, the FAQ, `docs/client-config.yml` —
+and produce a brief a non-writer can act on:
+
+1. **What is wrong**, in one sentence, with the measured number.
+2. **Where the copy actually lives**, as precisely as you can establish it (name
+   the fetch, the collection, the field). A human has to go find it.
+3. **The copy itself**, ready to paste — but ONLY sentences you can derive from
+   a source you actually read. Name the source inline.
+4. **`[NEEDS FROM CLIENT: ...]`** for every gap you cannot fill from a source.
+   These are the most valuable lines in the brief; they are the question list.
+
+Never invent a rating, a review count, a licence number, a year count, a
+warranty term, a certification, a price, or a clinical or medical claim. If the
+page needs one to be complete, that is a `[NEEDS FROM CLIENT: ...]` line, not a
+sentence you write. This is the same rule you follow when editing a file, and it
+binds harder here because nothing downstream will check your work.
+
+Reply with the brief itself as markdown, starting at a `###` heading. No preamble.
+"""
+
+
 def read_doctrine() -> str:
     """SKILL.md without its YAML frontmatter — that block is skill metadata for a
     loader, not instructions for the writer."""
@@ -215,7 +305,8 @@ def read_doctrine() -> str:
 
 # ── the agent ────────────────────────────────────────────────────────────────
 
-def run_agent(project, prompt: str, model: str, timeout: int) -> tuple:
+def run_agent(project, prompt: str, model: str, timeout: int,
+              tools: str = ALLOWED_TOOLS) -> tuple:
     """(ok, text, cost_usd). A non-zero exit or a timeout is an ERROR for this
     item, never a silent skip: the changelog records it and the item stays in the
     worklist for the next run.
@@ -232,7 +323,7 @@ def run_agent(project, prompt: str, model: str, timeout: int) -> tuple:
     # by the first live run, not by any test that stubbed this function out.
     argv = ["claude", "-p", "--model", model,
             "--permission-mode", "acceptEdits",
-            "--allowedTools", ALLOWED_TOOLS,
+            "--allowedTools", tools,
             "--output-format", "stream-json",
             "--verbose"]
     # The prose references live in the ENGINE repo, not the client checkout, so
@@ -352,18 +443,90 @@ def already_fixed(changelog: dict) -> set:
             if i.get("status") == "fixed" and i.get("finding_fp")}
 
 
-def selectable(worklist: dict, profile: dict, done: set = frozenset()) -> list:
-    """Items this repo's tier can actually act on and has not already fixed,
-    worst lane first.
+def selectable(worklist: dict, profile: dict, done: set = frozenset(),
+               briefed: set = frozenset()) -> list:
+    """Items this repo's tier can act on, minus the ones already fixed and the
+    ones a human owns, worst lane first.
 
     REGRESSION before NEW before PERSISTING: a fix that did not hold is the most
     informative thing in the list, and with a cap on items it should not be the
     part that gets cut.
+
+    `briefed` is B-025's fix. An item whose copy does not live in the repository
+    at any path cannot be fixed by ANY tier, so handing it to the writer buys a
+    correct refusal at full price, every cycle, forever. Once it carries a brief
+    in the standing human worklist it is a human's job and leaves this queue. It
+    does NOT leave the report — `plan.py` lists it under Needs a Human, because
+    the page is still thin whether or not we can reach the copy.
     """
     order = {"REGRESSION": 0, "NEW": 1, "PERSISTING": 2}
+    skip = set(done) | set(briefed)
     items = [i for i in worklist.get("items", [])
-             if not i.get("tier_blocked") and i.get("finding_fp") not in done]
+             if not i.get("tier_blocked") and i.get("finding_fp") not in skip]
     return sorted(items, key=lambda i: (order.get(i.get("lane"), 3), i.get("id", "")))
+
+
+# ── the standing human worklist ──────────────────────────────────────────────
+
+def read_briefs(project) -> dict:
+    """{finding_fp: brief markdown} from the standing human worklist.
+
+    Parsed rather than kept in a sidecar JSON so there is exactly one file and
+    the thing the human reads IS the thing the code keys off. A brief nobody can
+    read is not a deliverable, and two files that can disagree is a bug waiting.
+    """
+    path = Path(project) / HUMAN_WORKLIST
+    if not path.is_file():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    marks = list(BRIEF_FP_RE.finditer(text))
+    out = {}
+    for n, m in enumerate(marks):
+        end = marks[n + 1].start() if n + 1 < len(marks) else len(text)
+        out[m.group(1)] = text[m.start():end].rstrip() + "\n"
+    return out
+
+
+def render_briefs(briefs: dict, domain: str) -> str:
+    """The whole file, rebuilt from the merged brief map. Deterministic order so
+    a re-run that changes nothing produces no diff."""
+    head = [
+        "# Human Worklist",
+        "",
+        f"Pages on **{domain}** carrying a real finding that **no tier can fix**, because",
+        "the copy does not live in this repository at any path. Each entry is a brief",
+        "written by the remediation agent under the same derivation-only rule it follows",
+        "when it edits a file: anything it could trace to a source is written out ready to",
+        "paste, and anything it could not is left as an explicit `[NEEDS FROM CLIENT: ...]`.",
+        "",
+        "**Nothing here is verified.** These pages sit outside the repository, so no gate",
+        "on the pull request has judged a word of it. `claim_provenance_check` never sees",
+        "this file. Whoever pastes this into the CMS is the accountable step.",
+        "",
+        "Generated by `wf-site-remediate --recommend`. An entry is keyed by the finding's",
+        "fingerprint, so re-running regenerates it in place rather than duplicating it, and",
+        "a briefed finding is skipped by the fix queue from then on.",
+        "",
+        "---",
+        "",
+    ]
+    body = [briefs[fp] for fp in sorted(briefs)]
+    return "\n".join(head) + "\n".join(body).rstrip() + "\n"
+
+
+def brief_entry(item: dict, text: str, cycle: str) -> str:
+    # Strip any line-anchored marker out of the MODEL's text before it becomes
+    # part of the file the markers key off. A brief containing its own
+    # `<!-- fp:... -->` line would mint a phantom entry, and a phantom entry
+    # permanently suppresses whatever finding it names from the fix queue and
+    # flips it to `human_edit` in the report. Model output is data here, not
+    # structure.
+    text = BRIEF_FP_RE.sub("", text)
+    return (f"<!-- fp:{item.get('finding_fp')} -->\n"
+            f"## `{item.get('url')}` — {item.get('code')}\n\n"
+            f"- **Finding:** {item.get('kind')} — {json.dumps(item.get('evidence'))}\n"
+            f"- **First briefed:** {cycle}\n\n"
+            f"{text.strip()}\n")
 
 
 def merge_items(prior: list, fresh: list) -> list:
@@ -386,15 +549,45 @@ def merge_items(prior: list, fresh: list) -> list:
     return [by_id[k] for k in order]
 
 
+def refused_in_cycle(changelog: dict) -> set:
+    """Fingerprints this cycle's changelog records as `no_change`.
+
+    The candidate pool for recommend mode. A `no_change` means the writer looked
+    and declined — sometimes transiently (the tree already carried the fix), and
+    sometimes structurally (the copy is in a CMS). Which one it was is free prose
+    in `note` today, so the operator picks from this pool rather than the code
+    guessing. Getting that wrong costs a brief nobody needed, which is visible in
+    a file a human reads — not a finding that silently vanishes.
+    """
+    return {i.get("finding_fp") for i in changelog.get("items", [])
+            if i.get("status") == "no_change" and i.get("finding_fp")}
+
+
 def remediate(project, cycle: str | None, max_items: int, max_files: int,
-              model: str, timeout: int, dry_run: bool, only: list | None = None) -> tuple:
+              model: str, timeout: int, dry_run: bool, only: list | None = None,
+              recommend: bool = False) -> tuple:
     """(changelog, exit_code)."""
     profile = client_profile(load_config(str(project)), str(project))
     target, worklist = load_worklist(project, cycle)
     # A dry run must show what a real run WOULD do, so it reads the same queue.
     prior = read_changelog(project, target)
     done = already_fixed(prior)
-    queue = selectable(worklist, profile, done)
+    briefs = read_briefs(project)
+    queue = selectable(worklist, profile, done, set(briefs))
+    if recommend:
+        # Recommend mode works the OPPOSITE end of the list: not what the writer
+        # can fix, but what it already said it cannot. Those items were filtered
+        # out of `queue` above by `done`/`briefed`, so rebuild from the pool.
+        pool = refused_in_cycle(prior) - set(briefs)
+        queue = [i for i in worklist.get("items", [])
+                 if i.get("finding_fp") in pool]
+        queue.sort(key=lambda i: i.get("id", ""))
+        if not queue:
+            raise RemediateError(
+                f"nothing to brief in {target}: no item is recorded `no_change` in this "
+                f"cycle's changelog without a brief already. Run a normal remediate "
+                f"first — recommend mode writes briefs for what the writer refused, it "
+                f"does not pick items itself.")
     if only:
         # `--max-items` cuts from the FRONT of the queue, so reaching one item
         # means paying for everything sorted ahead of it. On lee that was four
@@ -422,7 +615,8 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
             stopped = f"max-files ({max_files}) reached with {len(queue) - n} item(s) left"
             break
 
-        prompt = build_prompt(item, profile, doctrine)
+        prompt = (build_recommend_prompt(item, profile, doctrine) if recommend
+                  else build_prompt(item, profile, doctrine))
         print(f"\n===== {item['id']} — {item.get('code')} on {item.get('url')} =====",
               flush=True)
         if dry_run:
@@ -431,10 +625,39 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
             continue
 
         before = snapshot(project)
-        ok, note, item_cost = run_agent(project, prompt, model, timeout)
+        ok, note, item_cost = run_agent(project, prompt, model, timeout,
+                                        RECOMMEND_TOOLS if recommend else ALLOWED_TOOLS)
         cost += item_cost
         after = snapshot(project)
         changed = touched(before, after)
+
+        if recommend:
+            # The inverted assertion. A brief that edited a file is not a brief,
+            # and the operator now has a dirty tree they did not ask for — so it
+            # stops the run exactly like an out-of-tier edit does, rather than
+            # being recorded and carried on from.
+            if changed:
+                refused = True
+                status = "refused"
+                note = ("recommend mode changed " + ", ".join(changed)
+                        + " — it must write nothing. Revert these before continuing.")
+            elif not ok:
+                status = "error"
+            else:
+                status = "briefed"
+                briefs[item["finding_fp"]] = brief_entry(item, note, target)
+                # A POINTER, not a copy. `read_briefs` says there is exactly one
+                # file so two copies can never disagree; putting the whole brief
+                # in `note` would ship the second copy inside changelog.json,
+                # which is the artifact `acceptance_check` reads.
+                note = f"briefed -> {HUMAN_WORKLIST}"
+            results.append(dict(_base(item), status=status, files=changed, note=note))
+            print(f"[{status.upper()}] {item['id']} {item.get('code')} on {item.get('url')}"
+                  + (f"  ({note})" if status != "briefed" else ""), flush=True)
+            if refused:
+                stopped = "recommend mode wrote to the working tree — the run stopped"
+                break
+            continue
 
         bad = [(p, tier_verdict(profile, p, op_for(before, after, p))[1])
                for p in changed if not tier_verdict(profile, p, op_for(before, after, p))[0]]
@@ -488,8 +711,20 @@ def remediate(project, cycle: str | None, max_items: int, max_files: int,
         "items": merged_items,
         "files": {k: sorted(set(v)) for k, v in sorted(files_map.items())},
     }
+    # Recommend mode's deliverable IS the worklist file, the way fix mode's is
+    # the edited source. main() still owns changelog.json in both modes. Written
+    # even on a refused run, because the briefs that landed before the writer
+    # touched the tree are real work already paid for.
+    if recommend and not dry_run and briefs:
+        path = Path(project) / HUMAN_WORKLIST
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_briefs(briefs, worklist.get("domain") or ""),
+                        encoding="utf-8")
+
     if refused:
         return changelog, REFUSED_EXIT
+    if recommend:
+        return changelog, (1 if any(r["status"] == "briefed" for r in results) else 0)
     return changelog, (1 if any(r["status"] == "fixed" for r in results) else 0)
 
 
@@ -527,6 +762,11 @@ def main() -> int:
                          "without paying for everything ahead of it")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the prompt for each item and write nothing")
+    ap.add_argument("--recommend", action="store_true",
+                    help="write briefs for the items this cycle's changelog records as "
+                         "`no_change`, into docs/audit/human-worklist.md, instead of "
+                         "fixing anything. For pages whose copy lives in a CMS and no "
+                         "tier can reach. A briefed item leaves the fix queue for good")
     args = ap.parse_args()
 
     if not args.dry_run and shutil.which("claude") is None:
@@ -537,7 +777,7 @@ def main() -> int:
     try:
         changelog, code = remediate(args.project, args.cycle, args.max_items,
                                     args.max_files, args.model, args.timeout, args.dry_run,
-                                    args.only)
+                                    args.only, args.recommend)
     except RemediateError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return USAGE_EXIT
@@ -548,6 +788,17 @@ def main() -> int:
 
     out = Path(args.project) / "docs" / "audit" / changelog["cycle"] / "changelog.json"
     out.write_text(json.dumps(changelog, indent=2, sort_keys=True) + "\n")
+
+    if args.recommend:
+        briefed = sum(1 for r in changelog["items"] if r["status"] == "briefed")
+        wl = Path(args.project) / HUMAN_WORKLIST
+        print(f"\n[{'REFUSED' if code == REFUSED_EXIT else 'OK'}] {briefed} brief(s) "
+              f"written, ${changelog['cost_usd']} -> {wl}")
+        print("[NOTE] nothing in that file has passed a gate. It leaves this repo by "
+              "hand, so whoever pastes it into the CMS is the accountable step.")
+        if changelog["stopped"]:
+            print(f"[STOPPED] {changelog['stopped']}", file=sys.stderr)
+        return code
 
     fixed = sum(1 for r in changelog["items"] if r["status"] == "fixed")
     print(f"\n[{'REFUSED' if code == REFUSED_EXIT else 'OK'}] {fixed} fixed, "

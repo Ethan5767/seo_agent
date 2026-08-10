@@ -259,7 +259,7 @@ schema_area_served:
   - { "@type": "City",  name: "<City>", containedInPlace: "<State Name>" }
 
 
-# --- AI-crawler access gates (robots-aicrawler-check.py, cf-crawler-check.sh, exit 1) ---
+# --- AI-crawler access gates (robots-aicrawler-check.py, crawler-check.sh, exit 1) ---
 # Citation bots MUST be reachable — a silent Cloudflare "Block AI Crawlers"
 # toggle zeroes the AEO pillar while every build metric stays green.
 # Env-overridable via CITATION_UAS / TRAINING_UAS when a vendor renames a bot.

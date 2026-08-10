@@ -87,7 +87,11 @@ repo + domain
    ───────────── everything above runs locally, or in the container ─────────────
    ↓  GATES      19 gates on the client's PR, in Actions on the client repo
    ↓  HUMAN MERGE  always. the only path to production.
-   ↓  DEPLOY     build → capture → deploy → verify-live → crawler check → auto-rollback → proof
+   ───────────── THE PIPELINE ENDS HERE. deployment is the operator's, on the
+                 client's own platform. `deploy.reusable.yml` still exists and is
+                 CLOUDFLARE PAGES ONLY — opt in per client, never assumed.
+   ↓  MONITOR    seo-health, daily + on demand: live routes, sitemap, AI citation
+                 crawlers at the edge. never blocks. the only thing watching prod.
 ```
 
 **Every arrow is a JSON file with a schema.** No stage talks to the next through memory or a prompt. That is what makes each stage re-runnable and testable offline.
@@ -186,12 +190,14 @@ That is why bumping one tag upgrades every client at once. Edit **only** the `wi
 
 **Pin an exact tag. Never `@main`, never a moving `@v3`.** These workflows gate production; a mutable ref means the thing guarding a client's live site can change without a PR. `tests/test_pipeline_pin.py` enforces this, plus the agreement between the stamped `PIPELINE_REF`/`PIPELINE_REPO`, the examples, and the tag. **The stamp is self-referential** — v3.0.0's copy of a file stamps v3.0.0 — so advance it *in the tagged commit*, never after.
 
-| Client workflow | Trigger | Does |
-|---|---|---|
-| `quality-gate.yml` | every PR | build once, run 19 gates, sticky comment. Set it as a **required status check** — red gate = un-clickable Merge = prod blocked by construction. |
-| `preview.yml` | every PR | Cloudflare preview URL + Lighthouse. Monitoring only, never blocks. |
-| `deploy-prod.yml` | push to main (= the merge) | build, capture, deploy, verify live, crawler check, auto-rollback, proof, IndexNow |
-| `seo-health.yml` | daily | live-site monitor, never blocks. **No example caller exists** — `seo-health.reusable.yml` is here, the thin caller has to be written. |
+**The standard pair is `quality-gate.yml` + `seo-health.yml`. Copy those two and stop.** The other two are Cloudflare Pages only and are opt-in per client, not part of the default rail — the pipeline is PR-terminal and the operator deploys.
+
+| Client workflow | Standard? | Trigger | Does |
+|---|---|---|---|
+| `quality-gate.yml` | **yes** | every PR | build once, run 19 gates, sticky comment. Set it as a **required status check** — red gate = un-clickable Merge = prod blocked by construction. |
+| `seo-health.yml` | **yes** | daily + `workflow_dispatch` | live routes, sitemap count, and AI citation-crawler access at the edge. Never blocks. **The only thing watching production**, so a client without it is gated but unwatched. Press Run workflow right after deploying. |
+| `preview.yml` | opt-in, **CF only** | every PR | Cloudflare preview URL + Lighthouse. Monitoring only. Its real job was feeding `render_url` to the quality gate for a repo with no static export — that input is host-agnostic, so on another platform feed it that platform's PR preview URL instead. |
+| `deploy-prod.yml` | opt-in, **CF only** | push to main (= the merge) | build, capture, `wrangler pages deploy`, verify live, auto-rollback, proof, IndexNow. Hard-depends on three `CLOUDFLARE_*` secrets; there is no Vercel or Netlify path here. |
 
 ---
 
@@ -202,7 +208,11 @@ Read `docs/BUG-LEDGER.md` for the live list. The ones that bite hardest:
 1. **A client with no `docs/gate-baseline.json` runs the gates BARE.** Record one before their first PR (`wf-gate-baseline --project <repo> --out docs/gate-baseline.json`, committed to *their* repo) or every piece of inherited debt reads as blocking. The workflow warns loudly rather than failing, which is deliberate — but "warns" is not "handled" (B-007).
 2. **`em_dash_check` accepts no baseline at all.** One em dash in a client's legacy copy blocks every PR forever, with no recording that can accept it. Open as **B-008**; needs a human decision, not a workaround.
 3. **A human collaborator grant is not Actions access.** Being a collaborator on this private repo does not let a client repo's workflow check it out. That needs a `PIPELINE_REPO_TOKEN` secret in the client repo.
-4. **Static export is an onboarding precondition, not a footnote.** `orphan_check` and `parity_check` derive routes from the built HTML tree. A site that emits no tree makes both gates scan nothing and report **green** — worse than not running them. `wf-onboard` reports the verdict; `None` means "cannot tell", not "fine".
+4. **Static export is an onboarding precondition, not a footnote.** **Nine** gates derive what they judge from the built HTML tree — including `forbidden_sweep`, which is never-baselineable for legal exposure. Two failure modes, and they are not the same (B-018):
+   - **No tree at all** → `build-site` exits 1 and every build-tree step is **SKIPPED**, not green. Loud, and recoverable.
+   - **A tree that exists and holds no HTML** → every gate globs zero files and reports **green over nothing**. This is the dangerous one, and pointing `build_output_dir` at `.next` produces exactly it.
+
+   The supported answer is `wf-render-snapshot`, which crawls a rendered deployment into the tree the gates already glob, and refuses at exit 19 rather than writing an empty directory. Verified on lee (no static export, SSR on Vercel): 26 routes captured plus sitemap/robots/llms.txt, after which all nine gates gave real verdicts. `wf-onboard` reports the static-export verdict; `None` means "cannot tell", not "fine".
 5. **Branch protection cannot be enabled.** GitHub Free does not support it on private repos. The gate reports but cannot block. See `ADMIN-CHECKLIST.md` §2.
 6. **The DataForSEO / GSC / CrUX network paths have never run live.** Only the parsers are tested. Read the status string on the first real run, not the finding count — a provider with no credentials returns a *named skip* precisely so a silent zero can never look like a clean site.
 

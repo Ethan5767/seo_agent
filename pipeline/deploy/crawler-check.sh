@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# cf-crawler-check.sh — LIVE, post-deploy AI-crawler access gate (edge side).
+# crawler-check.sh — LIVE AI-crawler access gate (edge side).
 #
-# Why this gate exists (T05): a single Cloudflare "Block AI Crawlers" toggle,
-# or a Bot-Fight / WAF managed rule, silently returns a challenge/403 to the
-# citation bots that feed AI Overviews, ChatGPT, Perplexity and Claude. Every
-# build metric stays green while the entire AEO pillar is zeroed at the edge.
-# CF rules live at the edge — INVISIBLE in ./out — so this MUST run on the live
-# URL, never on the static build. The static companion (robots-aicrawler-check.py)
-# catches a robots.txt Disallow pre-deploy; this catches the edge block.
+# NOT CLOUDFLARE-SPECIFIC, despite where it was born. This is curl plus a list
+# of user agents against a live URL; it works against Vercel, Netlify, Fastly or
+# a bare origin exactly as well. It was called `cf-crawler-check.sh` until
+# 2026-08-10, which read as a Cloudflare dependency it never had and was one
+# reason the whole rail looked Cloudflare-bound. Renamed when the pipeline
+# became PR-terminal and this check moved to the daily monitor.
+#
+# Why this gate exists (T05): a single Cloudflare "Block AI Crawlers" toggle, a
+# Vercel bot-protection rule, or any Bot-Fight / WAF managed rule silently
+# returns a challenge/403 to the citation bots that feed AI Overviews, ChatGPT,
+# Perplexity and Claude. Every build metric stays green while the entire AEO
+# pillar is zeroed at the edge. Edge rules are INVISIBLE in ./out — so this MUST
+# run on the live URL, never on the static build. The static companion
+# (robots-aicrawler-check.py) catches a robots.txt Disallow pre-deploy; this
+# catches the edge block.
 #
 # What it does: for every CITATION user-agent, curls each route on the live URL
 # and asserts a real 200 with page content and NO Cloudflare challenge
@@ -21,7 +29,7 @@
 # Arg order mirrors verify-live.sh so it wires in next to it in the deploy job.
 #
 # Usage:
-#   cf-crawler-check.sh <BASE_URL> <CONTENT_STRING> <ROUTE> [ROUTE ...]
+#   crawler-check.sh <BASE_URL> <CONTENT_STRING> <ROUTE> [ROUTE ...]
 #     BASE_URL        e.g. https://acmeroofing.example.com   (trailing slash optional)
 #     CONTENT_STRING  string expected in every route's HTML for each citation
 #                     UA; "" to skip the content assertion and check 200+no-challenge
@@ -138,7 +146,7 @@ CHALLENGE_RE='Just a moment|_cf_chl_opt|cf-challenge-running|challenge-error-tex
 RETRIES=2
 RETRY_DELAY=4
 
-echo "== cf-crawler-check (LIVE edge) =="
+echo "== crawler-check (LIVE edge) =="
 echo "base: ${BASE_URL}"
 echo "routes: $*"
 echo "content assertion: ${CONTENT_STRING:-<none (200 + no-challenge only)>}"
@@ -207,7 +215,7 @@ for TOKEN in $TRAINING_UAS; do
 done
 
 echo
-echo "cf-crawler-check: tested ${CIT_TESTED} citation UA×route pair(s), ${RED} RED"
+echo "crawler-check: tested ${CIT_TESTED} citation UA×route pair(s), ${RED} RED"
 if [ "$RED" -ne 0 ]; then
   echo "FAIL: ${RED} citation-crawler access failure(s) at the EDGE."
   echo "      Fix at Cloudflare: dashboard -> Security -> Bots -> disable 'Block AI Crawlers';"

@@ -36,7 +36,7 @@ except ImportError:
     print("[ERROR] PyYAML required. Run: pip3 install pyyaml", file=sys.stderr)
     sys.exit(2)
 
-from pipeline.lib.common import load_config
+from pipeline.lib.common import load_config, ruleset_declared_empty
 
 # Blank <script>/<style> bodies so RSC flight payloads and inline JS/CSS are not
 # scanned. Kept line-preserving so reported line numbers match the real file.
@@ -396,8 +396,19 @@ def main():
     project = Path(args.project).resolve()
     forbidden, cfg = load_phrases(project, args.config)
     if not forbidden:
+        if ruleset_declared_empty(cfg, project):
+            # A named skip, on stdout, in the gate's own voice — the same
+            # contract the providers use, so "skipped" can never be read as
+            # "clean". See common.ruleset_declared_empty for the three states.
+            print(f"[SKIP] {args.mode} mode not run: docs/client-config.yml declares "
+                  f"`forbidden_phrases: []`, so this client has no banned-phrase "
+                  f"ledger to enforce. This is a recorded human decision, not a "
+                  f"clean sweep.")
+            return
         print("[FAIL] no forbidden_phrases loaded (checked config forbidden_phrases + "
-              "docs/banned-phrases.txt). Refusing to run an empty legal gate.", file=sys.stderr)
+              "docs/banned-phrases.txt). Refusing to run an empty legal gate. Declare "
+              "`forbidden_phrases: []` in docs/client-config.yml to skip it deliberately.",
+              file=sys.stderr)
         sys.exit(4)
 
     if args.mode == "source":

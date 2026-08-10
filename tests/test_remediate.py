@@ -57,7 +57,7 @@ def repo(tmp_path):
 
 def agent_that(edits):
     """A stub writer: {relative path: new text} applied on invocation."""
-    def _run(project, prompt, model, timeout):
+    def _run(project, prompt, model, timeout, tools=None):
         for rel, text in edits.items():
             p = Path(project) / rel
             p.parent.mkdir(parents=True, exist_ok=True)

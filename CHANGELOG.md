@@ -6,7 +6,193 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Security
+
+- **Two fail-open holes closed before this ever shipped, both found by review of
+  the diff below rather than by the diff's own tests.** They are the same shape:
+  a feature whose safety argument was written down correctly and implemented
+  against a different boundary than the one the argument named.
+
+  - **B-029 — the agent could write its own skip list.** `docs/audit/human-worklist.md`
+    sits inside `ARTIFACT_PATHS = ["docs/audit/**"]`, which `tier_verdict` waves
+    through *before* it looks at the tier. Fix mode holds `Write`. So a T1 run
+    could have invented a brief, had it recorded `fixed`, sailed past `tier_check`
+    as a routine cycle artifact, and permanently dequeued that finding. Moved to
+    `docs/human-worklist.md` and onto `DEFAULT_DENY`.
+  - **B-030 — `forbidden_phrases: []` could be manufactured by deletion.** The
+    ledger is the union of the config block and `docs/banned-phrases.txt`, but the
+    declaration read only the config and only the config was on the deny floor.
+    Measured: `exit=3 [BLOCKED]` on a real hit, then `rm docs/banned-phrases.txt`
+    → `exit=0 [SKIP]`. The predicate now reads both halves, and the ledger joined
+    `DEFAULT_DENY` so no tier can delete it.
+
+  `DEFAULT_DENY` grew two entries, and `bootstrap_config.tier_block` emits both —
+  caught by the pre-existing `test_emitted_block_parses_and_carries_the_deny_floor`,
+  which is precisely the drift that test exists for. Neither hole was reachable on
+  any live client: no client repo carries `forbidden_phrases: []` (the starter and
+  the bootstrap both ship populated blocks) and no brief file existed anywhere yet.
+
+  Both are now asserted across T1/T2/T3 rather than argued in a docstring, because
+  the docstring was right and the code was wrong for the length of one review.
+
+### Changed
+
+- **The pipeline is PR-terminal by default. It is no longer a Cloudflare rail.**
+  Measure → plan → remediate → 19 gates → human merge, and it stops. Deployment
+  is the operator's job on whatever platform the client is actually on. The
+  Cloudflare coupling was only ever in two files, and both are now marked
+  **OPTIONAL — CLOUDFLARE PAGES ONLY** in their own headers and in their example
+  callers: `deploy.reusable.yml` (hard-depends on `wrangler pages deploy` plus
+  three `CLOUDFLARE_*` secrets) and `preview.reusable.yml` (reads Cloudflare's
+  Pages deployments API).
+
+  Nothing else needed changing, which is the point. `quality-gate.reusable.yml`
+  already took a host-agnostic `render_url` — *"Rendered deployment to crawl when
+  the repo has no static export (e.g. the CF preview URL)"* — where Cloudflare
+  was an example, never a requirement. On another platform, feed it that
+  platform's own PR preview URL; Vercel and Netlify both post one as a GitHub
+  deployment status.
+
+  Standard pair for a new client is now `quality-gate.yml` + `seo-health.yml`.
+  A client on Vercel copies neither of the other two. **Verified against
+  `lee-wave/lee-series-web`:** `gh api .../contents/.github` → 404 and
+  `.../actions/runs` → `total_count: 0`, so that client has never had the thin
+  callers at all and its 19 gates have never run in Actions. Its config says
+  `deploy_platform: vercel`, so the deploy rail would never have worked there.
+
+  **What a PR-terminal client gives up**, recorded rather than quietly dropped:
+  auto-rollback (the captured Cloudflare deployment id), the deploy proof record
+  (the merge commit is the record instead), IndexNow submission, and immediate
+  post-deploy verification. The last of those moved rather than died — see below.
+
+- **`pipeline/deploy/cf-crawler-check.sh` → `crawler-check.sh`, and it moved into
+  the daily monitor.** The `cf-` prefix claimed a Cloudflare dependency it never
+  had: the script is curl plus a list of citation user agents against a live URL,
+  and works identically against Vercel, Netlify, Fastly or a bare origin. The
+  name was one of the reasons the whole rail read as Cloudflare-bound.
+
+  With no deploy job to hang it off, the check now runs in
+  `seo-health.reusable.yml` on the daily schedule and on `workflow_dispatch`.
+  An edge block — a Cloudflare "Block AI Crawlers" toggle, a Vercel bot rule, any
+  WAF managed ruleset — zeroes the entire AEO pillar while every build metric
+  stays green, and it is invisible in `./out`, so it has to be checked against the
+  live host forever. Detection degrades from "within a minute of deploying" to
+  "next scheduled run"; press Run workflow after deploying to close that window.
+
+- **`em_dash_check` count corrected in `gate-reference.md`.** It said *"**Seven**
+  gates accept `--baseline`"* while `pipeline/lib/baseline.py:147` has listed
+  eight since `em_dash_check` moved in on 2026-08-07 (B-008). Counted, not
+  remembered: 8 baselineable + 9 never-baselineable + 2 in neither list = 19.
+
 ### Added
+
+- **`wf-site-remediate --recommend` and the standing human worklist — closes
+  B-025.** A `no_change` for a *structural* reason was retried on every future
+  run, at full cost, forever. On `lee-series-web` nine of fifteen `thin_content`
+  items are product pages whose body copy is fetched from Firestore at request
+  time by `lib/catalog.ts`; it is in the repository at no path, so **no tier can
+  fix them** — not T1, not T2, not T3. Each cycle paid for nine investigations
+  and got nine correct refusals.
+
+  Recommend mode turns that spend into a deliverable instead of suppressing it.
+  It is the same loop with the same before/after `git status` measurement and the
+  **opposite assertion**: the tree must come back clean, and a run that modified a
+  file is refused and stopped exactly like an out-of-tier edit. The agent's reply
+  is written to `docs/audit/human-worklist.md` for a person to paste into the CMS.
+
+  Two design decisions worth the ink:
+
+  - **The worklist is NOT under `docs/audit/<cycle>/`.** A page whose copy lives
+    in a CMS is a fact about the site's architecture, not about the month someone
+    measured it. Filed per-cycle, next cycle's empty folder re-queues all nine and
+    the leak reopens.
+  - **The brief file IS the list.** `selectable()` skips any fingerprint that
+    carries a brief, so no `unfixable:` config block is needed and no operator
+    hand-maintains fingerprints. The agent cannot suppress its own work with it
+    either: writing a brief only happens in recommend mode, which an operator
+    invokes, and that mode has to finish with a clean tree.
+
+  The brief carries the derivation rule *harder* than a file edit does, because a
+  file edit lands in the diff where `claim_provenance_check` refuses an invented
+  rating or licence number, and a brief lands in markdown no CI reads and reaches
+  production by hand. So the prompt draws the line explicitly: write out only what
+  traces to a source you actually read, and emit `[NEEDS FROM CLIENT: ...]` for
+  every gap. The file says so in its own header too.
+
+  A briefed item leaves the agent's queue and **does not leave the report** —
+  `plan.py` stamps `human_edit` on it and gives it its own *Briefed for a Human
+  Editor* heading, because the page is still thin whether or not we can reach the
+  copy. Trading a money leak for a blind spot would not have been a fix.
+
+  **Ran live**, not only against a stub, on `www.leeserie.com`
+  `/product/rice-cake-cleanser/` (`thin_content`, `words=442`):
+
+  ```
+  [BRIEFED] wi-2026-08-0101 health.thin_content on /product/rice-cake-cleanser/
+  [OK] 1 brief(s) written, $0.6464 -> .../docs/audit/human-worklist.md
+  [NOTE] nothing in that file has passed a gate.
+  ```
+
+  `git status` after the run showed no source file touched, so the clean-tree
+  assertion held against the real writer. The brief restructured the existing
+  paragraph into a benefits list (free — same sentences) and emitted two
+  `[NEEDS FROM CLIENT: ...]` blocks for the usage instructions and FAQs, naming
+  that those are what actually move 442 words past 500 and cannot be filled from
+  anything in the repo. That is the intended shape.
+
+- **`.github/examples/seo-health.yml` — the thin caller that never existed.**
+  `CLAUDE.md` flagged its absence while the monitor was a nice-to-have. Now that
+  the pipeline is PR-terminal it is the **only** thing that ever looks at the live
+  site, and it carries the crawler check, so a client running the quality gate
+  without it is gated but unwatched.
+
+### Fixed
+
+- **`fingerprint_check` no longer fails a Khmer client for writing Khmer
+  correctly.** Khmer has no spaces between words and uses `U+200B` to mark where a
+  line may break. `lib/i18n.ts` on `lee-series-web` carries **28** of them inside
+  Khmer sentences — correct, deliberate i18n work — and this gate is
+  **never-baselineable**, so the first Khmer page rendered would have blocked that
+  client's every PR forever with no recording that could accept it.
+
+  The exemption is deliberately narrow: `U+200B` only, and only when a
+  neighbouring character is Khmer (`U+1780..U+17FF`). Judged on the immediate
+  neighbours rather than the paragraph, because that is exactly the claim being
+  made. `U+200C`, `U+200D`, the bidi controls and the tag block still fire in
+  every context including inside Khmer, and a `U+200B` in a Latin sentence three
+  lines down is still a hit — which is where the AI-clipboard signal actually is.
+
+  Only Khmer is listed. Thai, Lao and Myanmar belong there the day one is
+  onboarded; an over-broad list would quietly re-open the hole the gate exists to
+  close. Measured on lee's real files: `lib/i18n.ts` 28 hits → **0**, and the
+  genuine `U+200D` in an empty Webflow paragraph in
+  `app/(site)/privacy-policy-and-terms-of-service/page.tsx` still → **1**.
+  `tests/test_fingerprint_check.py`, 7 tests.
+
+- **A client with no banned-phrase ledger can now declare that, instead of being
+  blocked forever.** `forbidden_sweep` and `rules_selftest` both exited 4 on an
+  empty ruleset, which is right as a default — a silent green over zero rules is
+  the failure this suite exists to prevent — but left no way to say "this client
+  genuinely has none". There are now three states, and the middle one is the point:
+
+  | config | behaviour |
+  |---|---|
+  | `forbidden_phrases: []` | a DECISION. Both gates SKIP, and say so by name. |
+  | key absent | nobody decided. Both gates still exit **4**. |
+  | `forbidden_phrases: [..]` | rules. The gates run them. |
+
+  Only a literal empty **list** counts. A bare `forbidden_phrases:` key parses to
+  `None`, which reads as a config someone started and abandoned rather than a
+  decision anyone made, so it stays in the refusing state.
+
+  What makes this safe to offer at all is *where* the declaration lives:
+  `docs/client-config.yml` is on the deny floor at every tier including T3, so the
+  agent can never disarm the gate that judges its own copy. The skip requires a
+  human commit, exactly like the tier does — `tests/test_declared_empty_ruleset.py`
+  asserts that property directly rather than trusting it.
+
+  Verified on lee: both gates went from `rc=4` to `[SKIP] ... rc=0` after adding
+  the declaration. `tests/test_declared_empty_ruleset.py`, 12 tests.
 
 - **`skills/site-remediation/references/page-type-shapes.md` — the section shape
   of a page, for the T2 agent that has to write one.** Until now the entire

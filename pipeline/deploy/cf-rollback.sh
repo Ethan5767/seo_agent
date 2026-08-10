@@ -4,7 +4,7 @@
 #
 # WHY THIS EXISTS
 # Before this script, deploy.reusable.yml could DETECT a bad production deploy
-# (verify-live / cf-crawler-check turn the run red) but could not RECOVER from
+# (verify-live / crawler-check turn the run red) but could not RECOVER from
 # one: the only documented remedy was a comment telling a human to run
 # `wrangler pages deployment rollback` by hand. Between the failing gate and the
 # human noticing, the bad build keeps serving. This script closes that window.

@@ -1,9 +1,10 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-07** · 5 packages, 40 modules, 5 workflows, 34 `wf-*` commands, 620 tests.
+**As of 2026-08-10** · 5 packages, 40 modules, 5 workflows, 34 `wf-*` commands, 655 tests.
 (Counted, not remembered: modules = `.py` under `pipeline/` excluding `__init__.py`;
-commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. The previous
-header said 39 modules, 33 commands and 588 tests, all stale as of `wf-seed-queries`.)
+commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. Only the test
+count moved on 2026-08-10 — `--recommend` is a flag on an existing command, and
+`crawler-check.sh` is a rename, not a new module.)
 One line per module: what it does and why it exists. Deeper detail: `gate-reference.md`
 (per-gate contracts + exit codes), `HOW-IT-WORKS.md` (the flow in plain language),
 `CLAUDE.md` (the sync contract + where workflows live).
@@ -28,11 +29,16 @@ GitHub repo (collaborator access) + domain
         │  GATES        19 quality gates on the client PR (green-on-legacy via the baseline)
         ▼
         │  HUMAN MERGE  Alex merges = the ONLY path to production
-        ▼
-        │  DEPLOY       build → capture → wrangler deploy → verify-live + cf-crawler → auto-rollback
-        ▼
-        │  AUDIT / OPS  wf-dashboard, live monitors, monthly cycles
+        ▼               ─── THE PIPELINE ENDS HERE (PR-terminal, 2026-08-10) ───
+        │               deployment is the operator's, on the client's own platform
+        │  MONITOR      seo-health, daily + on demand: live routes, sitemap,
+        ▼               AI citation crawlers at the edge. never blocks.
+        │  AUDIT / OPS  wf-dashboard, monthly cycles
 ```
+
+`deploy.reusable.yml` and `preview.reusable.yml` still exist and still work, but they
+are **Cloudflare Pages only and opt-in per client** — not part of the default rail.
+The standard pair to copy into a client repo is `quality-gate.yml` + `seo-health.yml`.
 
 ---
 
@@ -78,14 +84,14 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 | Module | What it does |
 |---|---|
 | `verify-live.sh` | Post-deploy: routes return 200 + expected content (retry-tolerant, WAF-aware UA). |
-| `cf-crawler-check.sh` | Post-deploy: all AI **citation** bots (OAI-SearchBot, Claude-SearchBot, PerplexityBot, Bingbot, Googlebot, ChatGPT-User) reach the live edge — the silent-AEO-kill check. |
+| `crawler-check.sh` | All AI **citation** bots (OAI-SearchBot, Claude-SearchBot, PerplexityBot, Bingbot, Googlebot, ChatGPT-User) reach the live edge — the silent-AEO-kill check. **Not Cloudflare-specific** despite being born there and being called `cf-crawler-check.sh` until 2026-08-10: it is curl plus a UA list against a live URL. Now runs in `seo-health.reusable.yml` on the daily schedule, since a PR-terminal pipeline has no deploy job to hang it off. |
 | `cf-rollback.sh` | Capture the live deployment id pre-deploy → on failed verification, promote it back and independently re-verify. Only ever promotes an EXISTING deployment — no second path to prod. |
 | `proof-assert.sh` | Blocking meta-gate: the deploy proof exists and is non-empty ("no proof = it didn't happen"). |
 | `indexnow_submit.py` | The one IndexNow submitter (gated on a healthy deploy, never at build time). |
 
 ## `pipeline/audit` — measure, plan, write, onboard (12)
 
-`onboard.py` (**the front door** — a repo and a domain in, a worklist out; sequences the six onboarding commands and translates their exit codes. Checks with `gh` what permission we actually hold rather than assuming it, because the flow is "the client adds us as a collaborator". Stops at the interview step — the TODOs no generator can invent — reports it as RESUMABLE rather than failed, and continues from there on a re-run — `wf-onboard`) · `client_profile.py` (who/shape/states/build) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `plan.py` (the ratchet over the monthly cycle folders: RESOLVED / PERSISTING / NEW / REGRESSION, `worklist.json` + `report.md` — `wf-site-plan`) · `remediate.py` (**the writer** — hands each work item to Claude Code one at a time so the file→item map in `changelog.json` is a measurement rather than a claim; judges every touched file with the same `tier_verdict` the PR gate uses; hard `--max-items` / `--max-files` caps that stop cleanly — `wf-site-remediate`) · `providers.py` (CrUX field CWV, Search Console CTR + cannibalization, DataForSEO on-page crawl, Bright Data SERP rank/absence over the config's `seed_queries` — the one thing GSC cannot see, since it reports only queries that already have impressions; credentials from the environment only, and a provider with no credentials returns a **named skip** that is written into the artifact so a skip is never mistaken for a clean measurement) · `seed_queries.py` (**the query list** — crawls the client's own titles and h1s, hands those facts to Claude Code with an expansion-and-intent recipe adapted from `AgriciDaniel/claude-seo` (MIT), prints a YAML block a human pastes. Deliberately NOT a flag on `wf-site-health` and it never writes `docs/client-config.yml`: `Finding.context` is fingerprinted, so a list regenerated each cycle re-files every SERP finding as NEW and makes RESOLVED unreachable. Drops the bare brand name — you always rank first for your own name, so that entry buys a permanently green finding at full price — `wf-seed-queries`) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `snapshot.py` (**the render source** — crawls a rendered deployment into the `<dir>/index.html` tree the nine build-tree gates already glob, so a client with no static export can be gated at all. v3 sharp edge #4: `lee-series-web` emits no route tree, `build-site` exits 1, and all nine were SKIPPED — including `forbidden_sweep`, never-baselineable for legal exposure. Refuses at exit 19 and writes nothing when no page answered, because an empty build dir makes every gate glob zero files and report green — `wf-render-snapshot`) · `update_sitemap_dates.py` (lastmod hygiene).
+`onboard.py` (**the front door** — a repo and a domain in, a worklist out; sequences the six onboarding commands and translates their exit codes. Checks with `gh` what permission we actually hold rather than assuming it, because the flow is "the client adds us as a collaborator". Stops at the interview step — the TODOs no generator can invent — reports it as RESUMABLE rather than failed, and continues from there on a re-run — `wf-onboard`) · `client_profile.py` (who/shape/states/build) · `preflight.py` (config completeness, exits 11–14) · `measure.py` (live-site measurement, returns typed Findings — `wf-site-health`) · `plan.py` (the ratchet over the monthly cycle folders: RESOLVED / PERSISTING / NEW / REGRESSION, `worklist.json` + `report.md` — `wf-site-plan`) · `remediate.py` (**the writer** — hands each work item to Claude Code one at a time so the file→item map in `changelog.json` is a measurement rather than a claim; judges every touched file with the same `tier_verdict` the PR gate uses; hard `--max-items` / `--max-files` caps that stop cleanly. **`--recommend`** is the same loop with the opposite assertion — the tree must come back CLEAN — writing a brief for a human to paste into a CMS instead of a fix, into the standing `docs/audit/human-worklist.md`; a briefed fingerprint leaves the fix queue for good, which is what closes B-025's pay-for-the-same-refusal-every-cycle leak — `wf-site-remediate`) · `providers.py` (CrUX field CWV, Search Console CTR + cannibalization, DataForSEO on-page crawl, Bright Data SERP rank/absence over the config's `seed_queries` — the one thing GSC cannot see, since it reports only queries that already have impressions; credentials from the environment only, and a provider with no credentials returns a **named skip** that is written into the artifact so a skip is never mistaken for a clean measurement) · `seed_queries.py` (**the query list** — crawls the client's own titles and h1s, hands those facts to Claude Code with an expansion-and-intent recipe adapted from `AgriciDaniel/claude-seo` (MIT), prints a YAML block a human pastes. Deliberately NOT a flag on `wf-site-health` and it never writes `docs/client-config.yml`: `Finding.context` is fingerprinted, so a list regenerated each cycle re-files every SERP finding as NEW and makes RESOLVED unreachable. Drops the bare brand name — you always rank first for your own name, so that entry buys a permanently green finding at full price — `wf-seed-queries`) · `poll_live.py` (post-deploy polling) · `bootstrap_config.py` / `scaffold_client_docs.py` (client onboarding) · `snapshot.py` (**the render source** — crawls a rendered deployment into the `<dir>/index.html` tree the nine build-tree gates already glob, so a client with no static export can be gated at all. v3 sharp edge #4: `lee-series-web` emits no route tree, `build-site` exits 1, and all nine were SKIPPED — including `forbidden_sweep`, never-baselineable for legal exposure. Refuses at exit 19 and writes nothing when no page answered, because an empty build dir makes every gate glob zero files and report green — `wf-render-snapshot`) · `update_sitemap_dates.py` (lastmod hygiene).
 
 ## `skills/site-remediation` — the doctrine the writer is given
 
@@ -127,5 +133,5 @@ writes from. The Discord and Drive rosters went with the intake rail.
 
 ## The two layers that are not code
 
-- **Client repos** — each is its own source of truth (Model A): `docs/client-config.yml` (including the tier block), `docs/gate-baseline.json`, `docs/audit/<YYYY-MM>/` (findings, worklist, report, changelog — the artifacts ship *inside* the PR), rule ledgers, thin workflow callers pinned `@tag`.
+- **Client repos** — each is its own source of truth (Model A): `docs/client-config.yml` (including the tier block), `docs/gate-baseline.json`, `docs/audit/<YYYY-MM>/` (findings, worklist, report, changelog — the artifacts ship *inside* the PR), `docs/audit/human-worklist.md` (**standing, deliberately not per-cycle**: pages whose copy lives in a CMS are a fact about the site, not about the month it was measured), rule ledgers, thin workflow callers pinned `@tag`.
 - **The judgment layer** — a human raises a client's tier, and does it in a human PR, because `docs/client-config.yml` is on the deny floor and the agent can never raise its own authority. Operators handle everything NOVEL (findings with no acceptance mapping, ambiguous scope, rule conflicts); **the operator's PR merge is the only path to production, by design**. The modules handle the known; humans handle the new.

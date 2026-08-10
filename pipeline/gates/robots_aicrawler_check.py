@@ -2,7 +2,7 @@
 """
 robots-aicrawler-check.py — STATIC, build-time AI-crawler robots.txt gate (T05).
 
-The static companion to cf-crawler-check.sh. That script catches an EDGE block
+The static companion to crawler-check.sh. That script catches an EDGE block
 (Cloudflare) on the live URL post-deploy; this one runs pre-deploy on the built
 `out/robots.txt` and catches the other half: a robots.txt that Disallows a
 citation crawler, or a missing robots.txt altogether.
@@ -234,7 +234,7 @@ def main() -> int:
     if red:
         print(f"FAIL: {red} citation crawler(s) Disallowed in robots.txt.")
         print("  Fix: change their `Disallow: /` to `Allow: /` in the source that")
-        print("  generates robots.txt. (This is the robots side; cf-crawler-check.sh")
+        print("  generates robots.txt. (This is the robots side; crawler-check.sh")
         print("  covers the Cloudflare EDGE side post-deploy.)")
         return 1
     print("PASS: robots.txt allows every citation crawler at root.")

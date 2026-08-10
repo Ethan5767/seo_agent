@@ -1,4 +1,9 @@
 # ---------------------------------------------------------------------------
+# ⚠️ OPTIONAL — CLOUDFLARE PAGES ONLY. Do NOT copy this into a client repo
+#    unless that client is on Cloudflare Pages. The pipeline is PR-terminal by
+#    default (2026-08-10): quality-gate.yml + seo-health.yml are the standard
+#    pair, and deployment is the operator's job on their own platform.
+#
 # THIN CALLER — drop this into a CLIENT repo at .github/workflows/deploy-prod.yml
 #
 # Copy verbatim, then edit ONLY the `with:` values. All deploy logic lives in the

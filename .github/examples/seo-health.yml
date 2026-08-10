@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# THIN CALLER — drop this into a CLIENT repo at .github/workflows/seo-health.yml
+#
+# Copy verbatim, then edit ONLY the `with:` values. All monitor logic lives in
+# the shared pipeline repo; nothing is vendored here. Bumping the pipeline for
+# this client = bumping the @tag on the `uses:` line below.
+#
+# PIN AN EXACT TAG. Never `@main`, never a moving `@v3`.
+#
+# WHY THIS ONE IS NOT OPTIONAL ANY MORE.
+#   The pipeline is PR-terminal by default: the quality gate runs on the PR, a
+#   human merges, and the operator deploys on their own platform. Nothing in the
+#   pipeline observes that deploy. This monitor is therefore the ONLY thing that
+#   ever looks at the live site — it carries the live route verification and the
+#   AI citation-crawler check that used to fire inside the Cloudflare deploy job.
+#   A client running the quality gate without this one is gated but unwatched.
+#
+# TRIGGERS: a daily `schedule:` plus `workflow_dispatch`. Deliberately NO
+# `push: main` — a push-triggered run races whatever deploy the operator runs
+# and false-fails against the old build. After you deploy, press Run workflow to
+# check immediately instead of waiting for the next scheduled run.
+#
+# NEVER BLOCKS A MERGE. Do not set this as a required status check. It is a
+# monitoring alert: it tells you a live site regressed, it does not gate one.
+#
+# SECRETS: `inherit` passes the repo's secrets through. This workflow declares
+# only CHAT_WEBHOOK_URL (optional chat alert) and PIPELINE_REPO_TOKEN (read-only
+# PAT for the pipeline checkout, needed while the pipeline repo is private). A
+# reusable workflow can only use what it declares, so `inherit` cannot leak
+# anything else into it.
+# ---------------------------------------------------------------------------
+name: SEO Health
+
+on:
+  schedule:
+    # Daily. Pick an off-peak hour in UTC; stagger it across clients so a fleet
+    # of these does not all hit at once.
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seo-health:
+    uses: Ethan5767/seo_agent/.github/workflows/seo-health.reusable.yml@v3.0.0
+    with:
+      # ---- EDIT THESE ------------------------------------------------------
+      # Bare domain, no scheme. Empty = the whole run no-ops.
+      domain: "example.com"
+
+      # The pages whose ranking signals you cannot afford to lose. These are the
+      # routes checked for 200 + title + h1 + canonical + JSON-LD, AND the routes
+      # every AI citation bot is checked against. Keep the list short and real.
+      critical_pages: "/ /services/ /contact/"
+
+      # Minimum <loc> entries the live sitemap must carry. 0 skips the check.
+      # Set it a little below the real count so normal churn does not false-fail;
+      # it exists to catch a sitemap that collapsed, not to count pages.
+      sitemap_min_count: 0
+      # ----------------------------------------------------------------------
+    secrets: inherit

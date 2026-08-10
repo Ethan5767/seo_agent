@@ -100,7 +100,9 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 | `llms-sales-purge` | yes | CTA copy in llms.txt — content debt (fingerprinted on phrase + line text). |
 | `audit-built` | yes | The 30-point per-page audit (titles, metas, alt text, FAQ, schema) — content debt (fingerprinted per page URL + check key). |
 
-**Seven** gates accept `--baseline`. Nine are never-baselineable: the six inherited plus the three phase-4 authorship gates. (`pages-are-data-check` was an eighth until 2026-08-06 — it went with the emitter in v3 §3 and its entry was dead.)
+**Eight** gates accept `--baseline`. Nine are never-baselineable: the six inherited plus the three phase-4 authorship gates. Two are in neither list. 8 + 9 + 2 = 19. (`pages-are-data-check` was a tenth never-baselineable entry until 2026-08-06 — it went with the emitter in v3 §3 and its entry was dead.)
+
+> Counted from the code on 2026-08-10, not remembered: `BASELINEABLE` and `NEVER_BASELINEABLE` in `pipeline/lib/baseline.py:132-171`. This line said **Seven** from B-008 (2026-08-07, which moved `em-dash` in and made it eight) until 2026-08-10, so a reader trusting the prose would have been one out for three days. If you change either set, re-count here in the same commit.
 
 `em-dash` **moved into the baselineable set on 2026-08-07** (B-008). A legacy em dash in a client's pre-existing copy is content debt of the same class as a heading that is not in Title Case, and `check-headings` was always baselineable; the never-baselineable list is for live falsehoods and structural invariants, and this is neither. It sat outside both lists only because it predated the ratchet and printed tuples rather than `Finding`s.
 
@@ -171,7 +173,7 @@ refuses (exit 2) rather than reporting an unexamined PR clean.
 | Gate | What it checks | Blocking? | Exit | Status |
 |---|---|---|---:|---|
 | `verify-live.sh` | Key routes return 200 with expected content on the real domain, with retries | Fails the deploy job (post-merge) | 1 | **WORKS** — verified against live prod |
-| `cf-crawler-check.sh` | Citation UAs get 200 + content at the Cloudflare edge (no `Just a moment` / `cf-challenge` / `cdn-cgi/challenge`). Training bots (GPTBot, ClaudeBot, Google-Extended, CCBot) are **INFO only, never red**. Catches a silent CF "Block AI Crawlers" toggle — the highest catastrophic-miss risk, invisible in `out/`. | Fails the deploy job | 1 | **WORKS** — 12 UA×route pairs clean against live prod |
+| `crawler-check.sh` | Citation UAs get **200 + no challenge page** (no `Just a moment` / `cf-challenge` / `cdn-cgi/challenge`) at the live edge. Training bots (GPTBot, ClaudeBot, Google-Extended, CCBot) are **INFO only, never red**. Catches a silent "Block AI Crawlers" toggle, a Vercel bot rule or any WAF managed ruleset — the highest catastrophic-miss risk, invisible in `out/`. **Not Cloudflare-specific**; renamed from `cf-crawler-check.sh` 2026-08-10. | Turns the **daily monitor** red. Blocks nothing — a PR-terminal client has no deploy job for it to fail. | 1 | **WORKS** — 12 UA×route pairs clean against live prod. ⚠️ `seo-health.reusable.yml` passes `""` as `CONTENT_STRING`, which the script documents as "skip the content assertion", so the scheduled run is the **200+no-challenge variant only**. The content assert needs a `verify_string` input the monitor does not yet take. |
 
 ### Not gates
 

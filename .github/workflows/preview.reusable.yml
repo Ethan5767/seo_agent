@@ -1,6 +1,18 @@
 # ---------------------------------------------------------------------------
 # Preview notify (REUSABLE, workflow_call) — HARDENED
 #
+# ⚠️ OPTIONAL, AND CLOUDFLARE PAGES ONLY. NOT PART OF THE DEFAULT RAIL.
+#   It reads Cloudflare's Pages deployments API to find the per-branch preview,
+#   so it is meaningless on any other host. Since 2026-08-10 the pipeline is
+#   PR-terminal by default and a client on Vercel/Netlify copies neither this
+#   nor deploy-prod.yml.
+#
+#   One thing to carry across if you drop it: this workflow was where the
+#   quality gate's `render_url` came from, for a client whose repo has no static
+#   export. That input is host-agnostic — any rendered URL satisfies it — so on
+#   another platform, feed it that platform's own PR preview URL instead (Vercel
+#   and Netlify both post one as a GitHub deployment status).
+#
 # ONE definition shared by every client repo. A client repo holds only a THIN
 # CALLER (see ../examples/preview.yml) that fires this on pull_request.
 #

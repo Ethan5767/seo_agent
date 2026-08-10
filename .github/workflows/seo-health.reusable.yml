@@ -7,13 +7,21 @@
 # schema. It also guards the sitemap URL count. Catches silent bad deploys /
 # regressions in minutes instead of weeks.
 #
+# THIS IS THE ONLY THING WATCHING THE LIVE SITE. The pipeline is PR-terminal by
+# default (2026-08-10): the quality gate runs on the PR, a human merges, and the
+# operator deploys on their own platform. Nothing in this repo observes that
+# deploy. So the checks that used to fire immediately after a Cloudflare deploy —
+# live route verification and citation-crawler access — live here now, and the
+# detection window is "next scheduled run" rather than "next minute". Press
+# `workflow_dispatch` right after deploying to close that window by hand.
+#
 # DELIBERATELY NO `push: main` TRIGGER IN THE CALLER.
-#   A push-triggered run races the Cloudflare deploy (it curls the live site
-#   before the new build is live and false-fails) AND couples this monitor to
-#   the deploy path. This monitor is INDEPENDENT of deploys on purpose — the
-#   per-client caller runs it on a daily `schedule:` and on `workflow_dispatch`
-#   only, so it can never gate a merge or a deploy. The PR quality-gate + deploy
-#   rail own the merge gate; this is a standalone MONITORING alert.
+#   A push-triggered run races whatever deploy the operator runs — it curls the
+#   live site before the new build is up and false-fails — AND couples this
+#   monitor to a deploy path it cannot see. The per-client caller runs it on a
+#   daily `schedule:` and on `workflow_dispatch` only, so it can never gate a
+#   merge. The PR quality-gate owns the merge gate; this is a standalone
+#   MONITORING alert.
 #
 # NO SELF-SCHEDULE HERE. The pre-extraction version of this file carried its own
 # `schedule:` that no-opped when no domain was configured. Now that it lives in
@@ -266,6 +274,26 @@ jobs:
             exit 1
           fi
           echo "MONITORING — all SEO-health checks passed for ${DOMAIN}."
+
+      # ── AI citation-crawler access, at the live edge ──────────────────────
+      # Moved here from the deploy rail on 2026-08-10, when the pipeline became
+      # PR-terminal by default: the operator deploys, so there is no deploy job
+      # left to hang this off. An edge block (Cloudflare "Block AI Crawlers", a
+      # Vercel bot rule, any WAF managed ruleset) zeroes the whole AEO pillar
+      # while every build metric stays green, and it is invisible in ./out — so
+      # it has to be checked against the live host, on a schedule, forever.
+      #
+      # It runs even when the health asserts above fail, because "the page is
+      # broken" and "the citation bots are blocked" are different problems and a
+      # reader needs both lines. Its own failure still turns the run red.
+      - name: Assert AI citation crawlers reach the live edge
+        if: inputs.domain != '' && !cancelled()
+        env:
+          CRAWLER_ROUTES: ${{ inputs.critical_pages }}
+        run: |
+          set -uo pipefail
+          chmod +x .pipeline/pipeline/deploy/crawler-check.sh
+          .pipeline/pipeline/deploy/crawler-check.sh "https://${DOMAIN}" "" $CRAWLER_ROUTES
 
       - name: Chat alert on failure (optional)
         if: failure()

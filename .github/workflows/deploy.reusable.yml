@@ -1,6 +1,23 @@
 # ---------------------------------------------------------------------------
 # Reusable production deploy workflow (workflow_call) — HARDENED
 #
+# ⚠️ OPTIONAL, AND CLOUDFLARE PAGES ONLY. NOT PART OF THE DEFAULT RAIL.
+#   Since 2026-08-10 the pipeline is PR-TERMINAL by default: measure, plan,
+#   remediate, gate, human merge — and it stops. The operator deploys on their
+#   own platform. Copy this caller into a client repo ONLY when that client is
+#   on Cloudflare Pages and wants the deploy automated too.
+#
+#   It hard-depends on `wrangler pages deploy` and on CLOUDFLARE_API_TOKEN /
+#   CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_PAGES_PROJECT. There is no Vercel or
+#   Netlify path here and adding one is not a config change. A client on any
+#   other host copies quality-gate.yml + seo-health.yml and nothing else.
+#
+#   What a PR-terminal client gives up: auto-rollback (this file's captured
+#   deployment id), the deploy proof record (the merge commit is the record
+#   instead), IndexNow submission, and immediate post-deploy verification —
+#   the last of which moved to seo-health.reusable.yml on a daily schedule
+#   with a manual trigger.
+#
 # ONE definition shared by every client repo. Per-client repos hold only a THIN
 # CALLER (see ../examples/deploy-prod.yml) that passes inputs + `secrets:
 # inherit`. Changing the rail for the whole fleet = editing THIS file and
@@ -53,7 +70,7 @@
 #
 # AUTO-ROLLBACK (built in, not a manual note): BEFORE deploying, the deploy job
 # captures the deployment id currently serving production (cf-rollback.sh
-# capture). AFTER deploying it runs verify-live.sh AND cf-crawler-check.sh as
+# capture). AFTER deploying it runs verify-live.sh AND crawler-check.sh as
 # BLOCKING post-deploy gates. If either fails, it automatically rolls production
 # back to the captured id (cf-rollback.sh rollback), RE-VERIFIES the restored
 # build, and records the whole thing in the deploy proof + chat. A rollback that
@@ -301,7 +318,7 @@ jobs:
 
       # Installs the pipeline package, exposing the wf-* console entry points on
       # PATH (wf-client-profile, wf-indexnow-submit). The shell gates
-      # (verify-live.sh, cf-crawler-check.sh, cf-rollback.sh, proof-assert.sh)
+      # (verify-live.sh, crawler-check.sh, cf-rollback.sh, proof-assert.sh)
       # are invoked from the .pipeline checkout path instead. Version-locked by
       # CHECKOUT 2. Runs BEFORE the build so wf-client-profile is on PATH for the
       # shared build action's profile step.
@@ -386,7 +403,7 @@ jobs:
       # =====================================================================
       # POST-DEPLOY VERIFICATION — the gates that trigger auto-rollback.
       #
-      # verify-live and cf-crawler-check run with continue-on-error so that a
+      # verify-live and crawler-check run with continue-on-error so that a
       # FAILURE does not abort the job before the rollback can fire. They are NOT
       # advisory: their outcomes are the sole input to the rollback decision
       # below, and a failure that is NOT recovered turns the whole run RED. This
@@ -424,8 +441,8 @@ jobs:
           VERIFY_STRING: ${{ inputs.verify_string }}
           VERIFY_ROUTES: ${{ inputs.verify_routes }}
         run: |
-          chmod +x .pipeline/pipeline/deploy/cf-crawler-check.sh
-          .pipeline/pipeline/deploy/cf-crawler-check.sh "$PROD_URL" "$VERIFY_STRING" $VERIFY_ROUTES
+          chmod +x .pipeline/pipeline/deploy/crawler-check.sh
+          .pipeline/pipeline/deploy/crawler-check.sh "$PROD_URL" "$VERIFY_STRING" $VERIFY_ROUTES
 
       # ---------------------------------------------------------------------
       # AUTO-ROLLBACK DECISION. If EITHER post-deploy gate failed, roll
@@ -770,7 +787,7 @@ jobs:
             echo "|---|---|"
             echo "| wrangler pages deploy | ${DEPLOY_OUTCOME:-unknown} |"
             echo "| verify-live (200 + content assert) | ${VERIFY_OUTCOME:-unknown} |"
-            echo "| cf-crawler-check (edge citation-bot access) | ${CRAWLER_OUTCOME:-unknown} |"
+            echo "| crawler-check (edge citation-bot access) | ${CRAWLER_OUTCOME:-unknown} |"
             echo "| IndexNow submit (Bing/Yandex) | ${INDEXNOW_OUTCOME:-unknown} |"
             echo ""
             echo "## Rollback"

@@ -199,6 +199,10 @@ text_paths:                       # EXISTING files the agent may rewrite
   - package*.json                 # no dependency changes
   - wrangler.toml                 # deploy config is the rollback path
   - .env*
+  - docs/banned-phrases.txt       # the other half of the legal ruleset — deleting it
+                                  # must never be a way to disarm forbidden_sweep
+  - docs/human-worklist.md        # the fix queue's skip list; writing it would let the
+                                  # agent permanently dequeue its own work
 """
 
 

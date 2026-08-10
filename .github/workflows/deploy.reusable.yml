@@ -245,7 +245,7 @@ jobs:
         #     package install (pip resolves its pinned deps from PyPI).
         #   - the prod domain is derived from indexnow_host (bare domain); if
         #     prod_url uses a www/apex variant that differs, add that host too.
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
           disable-sudo: true
@@ -265,7 +265,7 @@ jobs:
       # CHECKOUT 1 — the CLIENT SITE (a reusable workflow's steps run in the
       # caller's context, so the default checkout fetches the client repo).
       - name: Checkout client site
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -303,7 +303,7 @@ jobs:
 
       # CHECKOUT 2 — the PIPELINE, version-locked to THIS workflow file.
       - name: Checkout pipeline (version-locked)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.PIPELINE_REPO }}
           ref: ${{ steps.pipe.outputs.ref }}
@@ -681,7 +681,7 @@ jobs:
         # common webhook hosts are allowed below — narrow this to the ONE host Alex
         # actually uses once the baseline confirms it. If chat-notify starts getting
         # dropped, the Insights report names the real webhook host to add.
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
           disable-sudo: true
@@ -700,7 +700,7 @@ jobs:
       # CHECKOUT 1 — the CLIENT SITE (this job pushes the proof commit to it, so
       # it keeps its credentials).
       - name: Checkout client site
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve pipeline ref
         id: pipe
@@ -721,7 +721,7 @@ jobs:
 
       # CHECKOUT 2 — the PIPELINE, version-locked (supplies proof-assert.sh).
       - name: Checkout pipeline (version-locked)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.PIPELINE_REPO }}
           ref: ${{ steps.pipe.outputs.ref }}

@@ -119,7 +119,7 @@ env:
   # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha.
   # Advanced by the release step at every tag-cut. Because the stamp lives IN the
   # versioned file, it is self-consistent: v0.1.0's copy always stamps v0.1.0.
-  PIPELINE_REF: "v3.1.2"
+  PIPELINE_REF: "v3.1.3"
   PIPELINE_REPO: "Ethan5767/seo_agent"
 
 jobs:
@@ -689,7 +689,23 @@ jobs:
             esac
           }
           red=0
-          for g in TSC SSR RULES_SELFTEST BUILD HEADINGS ORPHAN PARITY EMDASH \
+          # THIS LOOP is what fails the run. The add_fail list above only writes
+          # the sticky comment, so changing one without the other changes the
+          # words and not the verdict — which is how B-038's first fix shipped a
+          # PR whose comment said "No HTML to judge" while the annotation still
+          # said "Blocking gate failed: BUILD". Implemented is not wired, and the
+          # wiring here is the loop.
+          #
+          # BUILD is deliberately NOT in the list. For a client with no static
+          # export the build is configured to fail — that is why render_url
+          # exists — so `steps.build.outcome` is the wrong question. The right
+          # one is whether there is HTML to judge at all, however it got there,
+          # and it is checked once, here, for both halves of the report.
+          if [ "$TREE" != "true" ]; then
+            echo "::error::No HTML to judge — the build produced no output dir and no render_url crawl supplied one. Every page check was SKIPPED, not passed."
+            red=1
+          fi
+          for g in TSC SSR RULES_SELFTEST HEADINGS ORPHAN PARITY EMDASH \
                    AUDIT_BUILT FORBIDDEN ROBOTS CAPSULE NONCOMMODITY FINGERPRINT \
                    LLMS IMAGE LCP TIER PROVENANCE ACCEPTANCE; do
             v="${!g}"

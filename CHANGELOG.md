@@ -6,7 +6,35 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **B-038's fix changed the words and not the verdict. B-039 makes it real.**
+  v3.1.2 shipped an incomplete fix, and the real client caught it one release
+  later: run **31471589695** on `lee-wave/lee-series-web`, pinned to the freshly
+  cut `@v3.1.2`, still annotated
+
+  ```
+  ##[error]Blocking gate failed: BUILD  (exit 1 : framework build produced no output dir)
+  ```
+
+  The evaluate step has **two** lists over the same gate names. `add_fail` builds
+  the sticky PR comment; a separate `for g in TSC SSR … BUILD … ACCEPTANCE` loop
+  reads `"${!g}"`, emits the annotation, sets `red=1` and exits 1. **Only the loop
+  decides.** B-038 rewired the comment and left the loop, so the PR comment said
+  "No HTML to judge" while the run failed for the old reason.
+
+  `BUILD` is now out of that loop, and the tree question is checked once, ahead of
+  it, for both halves of the report.
+
+  > **This is "implemented is not wired" (B-007) one layer further in.** The call
+  > site is a bash word inside a loop list — no unit test of any Python module can
+  > reach it, and the obvious text assertion (`'[ "$BUILD" = "failure" ]' not in
+  > workflow`) matched the half that decides nothing, so it passed over a broken
+  > workflow. The new test **parses the loop's gate list** instead of grepping,
+  > and asserts six gates that must remain in it so it cannot be satisfied by
+  > emptying the loop. Confirmed to bite by re-inserting `BUILD`.
+
+  691 passed.
 
 ---
 

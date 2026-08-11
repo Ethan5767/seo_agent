@@ -43,7 +43,7 @@ permissions:
 
 jobs:
   seo-health:
-    uses: Ethan5767/seo_agent/.github/workflows/seo-health.reusable.yml@v3.1.2
+    uses: Ethan5767/seo_agent/.github/workflows/seo-health.reusable.yml@v3.1.3
     with:
       # ---- EDIT THESE ------------------------------------------------------
       # Bare domain, no scheme. Empty = the whole run no-ops.

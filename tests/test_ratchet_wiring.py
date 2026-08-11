@@ -254,13 +254,38 @@ def test_a_crawled_tree_does_not_block_the_pr_on_the_failed_build(workflow):
     table two blocks above printed `**crawled** … -> ./out` in the same comment.
     """
     assert '[ "$BUILD" = "failure" ]' not in workflow, (
-        "the blocking list still fails the PR on the build outcome, so a client "
+        "the sticky comment still fails the PR on the build outcome, so a client "
         "with no static export can never be green no matter how the crawl went")
     assert '[ "$TREE" != "true" ]' in workflow, (
         "nothing blocks on there being no HTML to judge — a suite that judged "
         "nothing must never read as a pass")
     assert "TREE: ${{ steps.tree.outputs.ready }}" in workflow, (
         "$TREE is used by the blocking list but never exported to it")
+
+
+def test_the_loop_that_actually_fails_the_run_agrees_with_the_comment(workflow):
+    """B-038's FIRST fix was incomplete, and this is the test that would have
+    caught it.
+
+    There are two lists: `add_fail` builds the sticky comment, and a `for g in …`
+    loop sets `red=1` and exits 1. Only the loop decides the verdict. Rewiring the
+    comment alone shipped a run whose PR comment said "No HTML to judge" while the
+    annotation still said `Blocking gate failed: BUILD` and the run still failed
+    for the old reason — the words changed and the verdict did not.
+
+    Implemented is not wired (B-007), one layer further in than usual: the call
+    site here is a bash word in a loop list, which no unit test of any Python
+    module can reach.
+    """
+    loop = workflow.split("for g in ", 1)[1].split("; do", 1)[0]
+    names = loop.replace("\\", " ").split()
+    assert "BUILD" not in names, (
+        f"BUILD is still in the blocking loop {names} — that loop is what exits 1, "
+        f"so a crawled tree still fails the run however green the comment reads")
+    # And the gates that DO belong to it are still there, so this cannot be
+    # satisfied by emptying the loop.
+    for essential in ("TSC", "SSR", "TIER", "PROVENANCE", "FORBIDDEN", "ACCEPTANCE"):
+        assert essential in names, f"{essential} fell out of the blocking loop"
 
 
 def test_the_no_html_message_does_not_claim_the_page_checks_ran(workflow):

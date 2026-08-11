@@ -6,6 +6,50 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [v3.1.0] — 2026-08-11
+
+**The first engine release since v3.0.0, and the one that makes a client's pin
+worth bumping.** v3.0.0 shipped 2026-08-06; `git log --oneline v3.0.0..HEAD | wc -l`
+reports **37** commits accumulated on `main` since, which meant lee — the only
+onboarded client — was being gated by code more than a month of work old. Three
+of those fix gates that were **wrong about a real client**, and one adds the
+input that turns nine skipped gates on.
+
+Verified against the tag rather than assumed: `git show v3.0.0:pipeline/gates/claim_provenance_check.py | grep -c ARTIFACT_PATHS`
+→ `0` (no B-016 fix), and `git show v3.0.0:pipeline/gates/audit_ssr.py | grep '"src"'`
+→ `candidates = [project / "src"]` (the B-027 allowlist, intact).
+
+**To upgrade a client:** change the `@v3.0.0` on each `uses:` line to `@v3.1.0`
+and nothing else. Then read the two notes below, because two of these changes
+require action in the client repo, not just a bumped tag.
+
+| Ships | What it unblocks |
+|---|---|
+| **B-016** — provenance no longer scans `docs/audit/**` | Every client's **first** PR. The gate was refusing `wf-site-plan`'s own sentence *"this is the first cycle"* as an unsourced superlative |
+| **B-027** — `audit_ssr` looks outside `src/` | `create-next-app`'s default layout is *no* `src/`, so the common Next repo got a silent `[SKIP]` from a never-baselineable gate |
+| **B-034** — provenance stopped reading page diagnostics as business facts | The gate against invented ratings, review counts and year-counts actually refusing them |
+| **B-022** — `health.schema_faq_missing` deleted | A permanently-unactionable finding per page, per cycle, forever |
+| **B-032 / B-033** — `--tier` is applied, and T3 can be onboarded | Any client above T1 |
+| **`render_url`** (new input) | The nine OUT gates on a client with no static export |
+
+> ⚠️ **`PIPELINE_REPO_TOKEN` is renamed `SEO_AGENT`.** A client carrying the old
+> name must add the new one **before** bumping, or every gate fails at the
+> pipeline checkout. In practice this bites nobody today: no client carries the
+> old name. And since `seo_agent` went public the secret is optional either way —
+> see the entry under Changed.
+
+> ⚠️ **`render_url` is opt-in and does nothing until a client passes it.** Adding
+> the input to the engine does not turn the nine gates on; a caller has to supply
+> a URL, and something has to resolve that URL. On Cloudflare that is
+> `preview.reusable.yml`'s `preview_url` output. On any other host the caller
+> feeds that platform's PR preview URL — the input is host-agnostic by design.
+> **Untested against a live preview in CI (B-017)**; `wf-render-snapshot` itself
+> is verified end to end, the *workflow wiring* around it is not.
+
 ### Removed
 
 - **`health.schema_faq_missing` is deleted — closes B-022.** Google retired FAQ

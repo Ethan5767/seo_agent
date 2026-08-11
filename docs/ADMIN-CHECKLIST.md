@@ -101,14 +101,14 @@ minutes/month are gone, so the repo costs nothing to expose.
 
 | # | Item | Why it bites | Status |
 |---|---|---|---|
-| 1 | Thin callers copied from `.github/examples/`, pinned to an exact tag (`@v3.0.0`, never `@main`, never `@v3`) | A mutable ref means the thing guarding production can change without a PR. `tests/test_pipeline_pin.py` enforces this here | ☐ |
+| 1 | Thin callers copied from `.github/examples/`, pinned to an exact tag (`@v3.1.0`, never `@main`, never `@v3`) | A mutable ref means the thing guarding production can change without a PR. `tests/test_pipeline_pin.py` enforces this here | ☐ |
 | 2 | `docs/gate-baseline.json` recorded and committed to the **client's** repo before their first PR: `wf-gate-baseline --project <repo> --out docs/gate-baseline.json` | Missing = the gates run BARE and every piece of inherited debt reads as blocking. The workflow warns rather than failing, which is deliberate but is not "handled" (B-007) | ☐ |
 | 3 | Static export verified — `wf-onboard` reports the verdict | `orphan_check` and `parity_check` derive routes from the built HTML tree. No tree = both gates scan nothing and report **green**, which is worse than not running. `None` means "cannot tell", not "fine" | ☐ |
 | 4 | `docs/client-config.yml` written by `wf-bootstrap-config` (writes `tier: 1`) | T2/T3 exist in code but are unreachable until a human raises the tier in a human PR. That is the enforcement | ☐ |
 | 5 | `quality-gate` set as a **required status check** on the default branch | Red gate = un-clickable Merge = production blocked by construction. Without it a red gate is only advisory | ☐ |
 | 6 | Branch protection on the default branch | **Cannot be enabled on GitHub Free for a private repo.** The gate reports but cannot block. Needs a paid plan, or a public client repo | ☐ |
 | 7 | Cloudflare Pages project created in the **client's own** Cloudflare account | Model A: the client repo is the single source of truth, host swappable | ☐ |
-| 8 | `seo-health.yml` thin caller written by hand | `seo-health.reusable.yml` exists here; **no example caller does.** Copy the shape from `preview.yml` | ☐ |
+| 8 | `seo-health.yml` thin caller copied from `.github/examples/seo-health.yml` | ~~No example caller exists~~ — one does, and has since before v3.1.0. Verified: `ls .github/examples/` → `deploy-prod.yml  preview.yml  quality-gate.yml  seo-health.yml`. This is the **only thing watching production**, so a client without it is gated but unwatched | ☐ |
 
 ---
 

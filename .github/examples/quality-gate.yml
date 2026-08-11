@@ -35,7 +35,7 @@ permissions:
 
 jobs:
   quality-gate:
-    uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.0.0
+    uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.1.0
     with:
       # ---- Next.js static export (the default for 4 of the 5 clients) -------
       # Leave build_command empty to let the client profile derive it, or set it

@@ -182,7 +182,7 @@ Then **tell the other side what changed** — do not assume they will read the l
 A client repo holds ~30-line **thin callers** copied from `.github/examples/`. All real logic lives in the `*.reusable.yml` files here, pulled in by tag:
 
 ```yaml
-uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.0.0
+uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.1.0
 secrets: inherit
 ```
 

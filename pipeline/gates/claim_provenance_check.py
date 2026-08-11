@@ -86,6 +86,11 @@ SUPERLATIVE_RE = re.compile(
     r"award[-\s]?winning|most\s+trusted|#\s?1|number\s+one|leading|premier|unmatched|guaranteed)\b",
     re.I)
 
+# Evidence numerals are redacted before they enter the corpus — see build_corpus
+# and B-034. `#` rather than deletion so "len=106" cannot become "len=" and read
+# as a word boundary that happens to sit beside the next token's digits.
+_DIGITS_RE = re.compile(r"\d")
+
 CITATION_RE = re.compile(r"https?://|\bsources?\s*:", re.I)
 STRING_LITERAL_RE = re.compile(r"""(["'`])((?:\\.|(?!\1)[^\\])*)\1""")
 
@@ -132,9 +137,26 @@ def build_corpus(project, cycle: str | None) -> tuple:
             doc = json.loads((audit / target / "worklist.json").read_text())
         except json.JSONDecodeError as exc:
             raise ProvenanceError(f"{audit / target}/worklist.json is not valid JSON: {exc}")
+        # Evidence contributes its WORDS but never its NUMERALS (B-034).
+        #
+        # A work item's evidence is a measurement OF THE PAGE — `len=106`,
+        # `words=478`, `count=12`, `found=none`. It is a real measurement, which is
+        # why doctrine admits it as a source, but it is never a fact ABOUT THE
+        # BUSINESS. Left intact it made the numeric half of this gate nearly
+        # inert. Measured on lee's 2026-08 cycle: 190 evidence strings carrying 38
+        # distinct integers, 25 of them below 200 — enough coverage of the small-
+        # number range that most invented figures land on one. The real refusal it
+        # cost, on that client: "106% more hydration, 478 customers served, from
+        # $12" scanned **exit 0, "every claim resolves to a source"**, because
+        # `len=106`, `words=478` and a stray 12 were sitting in the corpus as bare
+        # numbers. Not one of the three is a fact about the business.
+        #
+        # Redacting digits keeps evidence useful for the superlative check, which
+        # is textual, and removes it as a numeric alibi. Config remains the only
+        # numeric source, which is where a year-count or a rating belongs anyway.
         for item in doc.get("items", []):
-            parts += _walk_strings(item.get("evidence"))
-        used.append(f"docs/audit/{target}/worklist.json")
+            parts += [_DIGITS_RE.sub("#", s) for s in _walk_strings(item.get("evidence"))]
+        used.append(f"docs/audit/{target}/worklist.json (words only, digits redacted)")
 
     return normalize(" \n ".join(parts)), used
 
@@ -200,10 +222,61 @@ def claims_in(text: str) -> list:
     return found
 
 
-def is_sourced(kind: str, token: str, corpus: str) -> bool:
+# Claim kinds that have a DEDICATED home in the config, and must resolve against
+# that field alone (B-034). CLAUDE.md names five kinds as legal exposure — "a
+# rating, review count, licence number, year-count or warranty term" — and four
+# of them have a config field that means exactly that thing. **`warranty` has no
+# field anywhere in the schema**, so it stays on the general corpus rather than
+# being scoped to a key that does not exist: scoping it would refuse every
+# warranty term unconditionally, which is a different decision (do we support
+# warranty claims at all?) and belongs to a human, not to this commit.
+#
+# Matching a bare number against the whole config is what made this gate porous:
+# "over 10 years" resolved against `option_full_threshold_pages: 10`, an
+# architectural escalation threshold, for a client whose `years_in_business` is
+# blank. A number is not a source just because it exists somewhere; it has to be
+# the number that MEANS the thing being claimed.
+#
+# A kind listed here with an empty field is UNSOURCED, which is the point: a
+# client who has not told us their rating cannot have one written for them.
+SCOPED_KINDS = {
+    "rating":  ("trust_signals", "rating"),
+    "reviews": ("trust_signals", "reviews"),
+    "years":   ("trust_signals", "years_in_business"),
+    "license": ("trust_signals", "licenses"),
+}
+
+
+def scoped_sources(project) -> dict:
+    """{kind: text} for the claim kinds that must resolve against one config field.
+
+    A field that is absent, blank, zero or a placeholder yields "", so the kind
+    resolves to nothing and every claim of it is refused.
+    """
+    cfg = load_config(str(project))
+    out = {}
+    for kind, (block, key) in SCOPED_KINDS.items():
+        val = (cfg.get(block) or {}).get(key) if isinstance(cfg.get(block), dict) else None
+        if val in (None, "", 0, [], {}):
+            out[kind] = ""
+            continue
+        text = normalize(" ".join(_walk_strings(val)) if isinstance(val, (list, dict))
+                         else str(val))
+        # The starter config ships "<x.x>"-style placeholders. A placeholder is an
+        # unanswered question, not a source.
+        out[kind] = "" if text.startswith("<") and text.endswith(">") else text
+    return out
+
+
+def is_sourced(kind: str, token: str, corpus: str, scoped: dict | None = None) -> bool:
     tok = normalize(token).strip()
     if not tok:
         return False
+    # A scoped kind ignores the general corpus entirely — see SCOPED_KINDS.
+    if scoped is not None and kind in scoped:
+        corpus = scoped[kind]
+        if not corpus:
+            return False
     if kind == "superlative":
         # Collapse "top rated"/"top-rated"/"#1"/"# 1" so a config spelling variant
         # still counts as the source it plainly is.
@@ -215,7 +288,7 @@ def is_sourced(kind: str, token: str, corpus: str) -> bool:
     return re.search(rf"(?<!\d)(?<!\d\.){re.escape(tok)}(?!\d)(?!\.\d)", corpus) is not None
 
 
-def scan(added: dict, corpus: str, baselines: dict) -> list:
+def scan(added: dict, corpus: str, baselines: dict, scoped: dict | None = None) -> list:
     """[(path, snippet, kind, token)] for every claim with no source."""
     unsourced = []
     for path, lines in sorted(added.items()):
@@ -225,8 +298,14 @@ def scan(added: dict, corpus: str, baselines: dict) -> list:
                 continue
             for text in prose_from(path, line):
                 for kind, token, snippet in claims_in(text):
-                    if is_sourced(kind, token, corpus):
+                    if is_sourced(kind, token, corpus, scoped):
                         continue
+                    # The PRIOR page text is checked WITHOUT the scope: a claim
+                    # already published is not being invented by this diff, and
+                    # this gate judges what the change introduces. Removing an
+                    # unsourced legacy claim is a separate job from refusing a new
+                    # one, and conflating them would fail every PR that merely
+                    # reflows a paragraph containing inherited debt.
                     if prior and is_sourced(kind, token, prior):
                         continue        # it was already on the page; not invented here
                     unsourced.append((path, snippet, kind, token))
@@ -258,6 +337,7 @@ def main() -> int:
     project = Path(args.project)
     try:
         corpus, used = build_corpus(project, args.cycle)
+        scoped = scoped_sources(project)
     except ProvenanceError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return USAGE_EXIT
@@ -278,7 +358,7 @@ def main() -> int:
         return USAGE_EXIT
 
     baselines = base_versions(project, ref, added) if ref else {}
-    unsourced = scan(added, corpus, baselines)
+    unsourced = scan(added, corpus, baselines, scoped)
 
     print(f"[CORPUS] {len(corpus.split())} words from: {', '.join(used)}")
     if not unsourced:

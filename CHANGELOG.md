@@ -77,6 +77,72 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`claim_provenance_check` accepted invented numbers, because page diagnostics
+  were being read as facts about the business — B-034.** The gate's numeric half
+  was close to inert. Two independent holes, both fixed:
+
+  **(a) A work item's `evidence` contributed its numerals to the corpus.**
+  Evidence is a measurement *of the page* — `len=106`, `words=478`, `count=12`.
+  Doctrine admits it as a source, and rightly: it is real. But it is never a fact
+  *about the business*, and as bare integers in a flat corpus it sourced anything
+  that happened to share a digit string. Evidence now contributes its **words but
+  not its numerals** (digits → `#`), so it still feeds the superlative check and
+  can no longer act as a numeric alibi. The `[CORPUS]` line says so:
+  `worklist.json (words only, digits redacted)`.
+
+  **(b) A scoped claim matched anywhere in the config.** `rating`, `reviews`,
+  `years` and `license` now resolve against `trust_signals.rating`,
+  `.reviews`, `.years_in_business` and `.licenses` **alone** — not the config at
+  large. A number is not a source because it exists somewhere; it has to be the
+  number that *means* the thing claimed. A blank or placeholder field yields no
+  source, which is the point: a client who has not told us their rating cannot
+  have one written for them. `<x.x>`-style starter placeholders are treated as
+  the unanswered questions they are.
+
+  `warranty` is the fifth kind CLAUDE.md names but has **no config field
+  anywhere**, so it stays on the general corpus. Scoping it to a key that does
+  not exist would refuse every warranty term unconditionally — a different
+  decision, and a human's.
+
+  Measured on the real client (`lee-series-web`, 2026-08 cycle, 95 items / 190
+  evidence strings / 38 distinct integers, 25 of them below 200):
+
+  ```
+  # BEFORE — the same diff, gate as shipped at v3.0.0
+  $ wf-claim-provenance-check --project ~/clients/lee-series-web \
+      --diff-file b034b.diff --cycle 2026-08
+  [CORPUS] 148 words from: docs/client-config.yml, docs/audit/2026-08/worklist.json
+  [OK] claim-provenance: every claim in 1 changed file(s) resolves to a source.
+  exit=0
+  ```
+
+  The line it passed was `"106% more hydration, 478 customers served, from $12."`
+  — `len=106` and `words=478` from page diagnostics, and a stray 12.
+
+  ```
+  # AFTER
+  [CORPUS] 148 words from: docs/client-config.yml, docs/audit/2026-08/worklist.json (words only, digits redacted)
+  [BLOCKED] 3 unsourced claim(s).
+  exit=18
+  ```
+
+  And on the year-count case, which needed **(b)** rather than (a) — lee's
+  `option_full_threshold_pages: 10` (an architectural escalation threshold) was
+  sourcing `"Trusted for over 10 years"` for a client whose `years_in_business`
+  is blank. Before: 2 unsourced, the year-count passed. After: 3 unsourced,
+  `[UNSOURCED] 'over 10 years' (years)`.
+
+  **Narrowed, not disarmed.** The prior version of the file is still checked
+  *without* the scope — a claim already published is not being invented by this
+  diff, and refusing inherited copy on every reflow is how a gate gets switched
+  off. Removing legacy unsourced claims is a separate job.
+
+  `tests/test_phase4_gates.py::test_evidence_numerals_cannot_source_a_business_claim`,
+  `::test_a_year_count_needs_years_in_business_not_any_stray_number` (asserts both
+  that the stray 10 *is* in the general corpus and that it no longer sources the
+  claim, plus that a client who **has** declared 28 years keeps it and 30 is still
+  refused), `::test_a_placeholder_is_not_a_source`. 677 passed.
+
 - **Tier 3 could not be onboarded at all, and asking for a tier raise silently
   did nothing — B-033 and B-032, both found raising a real client to T3.**
 

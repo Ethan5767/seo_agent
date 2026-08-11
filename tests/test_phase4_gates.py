@@ -169,6 +169,82 @@ def test_claims_are_checked_against_the_corpus(text, sourced):
     assert all(prov.is_sourced(k, t, CORPUS) for k, t, _ in claims) is sourced
 
 
+def test_evidence_numerals_cannot_source_a_business_claim(make_project):
+    """B-034: a work item's evidence is a measurement OF THE PAGE, never a fact
+    ABOUT THE BUSINESS, so its numerals must not be able to source a claim.
+
+    The real case, on lee's 2026-08 cycle: "106% more hydration, 478 customers
+    served, from $12" scanned exit 0, "every claim resolves to a source", because
+    `len=106` and `words=478` were sitting in the corpus as bare numbers.
+    """
+    project = make_project(config=dict(client="acme", domain="acme.com"))
+    cycle = project / "docs" / "audit" / "2026-08"
+    cycle.mkdir(parents=True, exist_ok=True)
+    (cycle / "worklist.json").write_text(json.dumps({"items": [
+        {"evidence": {"detail": "len=106", "context": ""}},
+        {"evidence": {"detail": "words=478", "context": ""}},
+        {"evidence": {"detail": "count=10", "context": ""}},
+    ]}))
+
+    corpus, used = prov.build_corpus(project, "2026-08")
+
+    # The words survive — the superlative check still reads evidence.
+    assert "words" in corpus and "len" in corpus
+    # The numerals do not.
+    for numeral in ("106", "478", "10"):
+        assert not prov.is_sourced("years", numeral, corpus), (
+            f"{numeral} from page diagnostics sourced a year-count claim")
+    assert not prov.is_sourced("reviews", "478", corpus)
+    assert not prov.is_sourced("rating", "106", corpus)
+    # And the operator can see the narrowing in the [CORPUS] line.
+    assert any("digits redacted" in u for u in used)
+
+
+def test_a_year_count_needs_years_in_business_not_any_stray_number(make_project):
+    """B-034, the half that matters: a number is not a source just because it
+    exists somewhere in the config.
+
+    Real case — `option_full_threshold_pages: 10` (an architectural escalation
+    threshold) sourced "trusted for over 10 years" for a client whose
+    `years_in_business` is blank.
+    """
+    blank = make_project(config=dict(
+        client="acme", domain="acme.com",
+        option_full_threshold_pages=10,
+        trust_signals={"years_in_business": None, "rating": None, "reviews": 0},
+    ))
+    scoped = prov.scoped_sources(blank)
+    corpus, _ = prov.build_corpus(blank, None)
+
+    # The unrelated 10 is in the general corpus...
+    assert prov.is_sourced("years", "10", corpus) is True
+    # ...and must not source a year-count once the kind is scoped.
+    assert prov.is_sourced("years", "10", corpus, scoped) is False
+    assert prov.is_sourced("rating", "4.9", corpus, scoped) is False
+    assert prov.is_sourced("reviews", "1200", corpus, scoped) is False
+
+    # A client who HAS declared the fact keeps it.
+    declared = make_project(config=dict(
+        client="acme", domain="acme.com",
+        trust_signals={"years_in_business": 28, "rating": 4.9, "reviews": 1200},
+    ))
+    s2 = prov.scoped_sources(declared)
+    c2, _ = prov.build_corpus(declared, None)
+    assert prov.is_sourced("years", "28", c2, s2) is True
+    assert prov.is_sourced("rating", "4.9", c2, s2) is True
+    assert prov.is_sourced("reviews", "1200", c2, s2) is True
+    # But still only the declared value, not a neighbouring one.
+    assert prov.is_sourced("years", "30", c2, s2) is False
+
+
+def test_a_placeholder_is_not_a_source(make_project):
+    """The starter config ships `rating: "<x.x>"`. An unanswered question must not
+    read as an answer."""
+    p = make_project(config=dict(client="acme", domain="acme.com",
+                                 trust_signals={"rating": "<x.x>"}))
+    assert prov.scoped_sources(p)["rating"] == ""
+
+
 def test_ordinary_prose_carries_no_claims():
     """A gate that flags '5 Signs You Need a New Roof' gets switched off."""
     assert prov.claims_in("5 Signs You Need a New Roof This Spring") == []

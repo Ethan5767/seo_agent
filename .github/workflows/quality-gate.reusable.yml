@@ -100,9 +100,11 @@ on:
       SEO_AGENT:
         description: >-
           Optional PAT with read access to Ethan5767/seo_agent,
-          used ONLY for the second (pipeline) checkout. Required while this repo
-          is private, because a client repo's GITHUB_TOKEN cannot read a
-          different private repo. Omit once the pipeline repo is public.
+          used ONLY for the second (pipeline) checkout. NO LONGER NEEDED — that
+          repo is public as of 2026-08-11, so a client repo's GITHUB_TOKEN can
+          read it and the `|| github.token` fallback carries the checkout. Kept
+          declared so a client already carrying the secret keeps working, and so
+          the pipeline survives the repo ever going private again.
         required: false
 
 # Workflow-level default: read-only. The job escalates only the PR-comment write.
@@ -117,7 +119,7 @@ env:
   # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha.
   # Advanced by the release step at every tag-cut. Because the stamp lives IN the
   # versioned file, it is self-consistent: v0.1.0's copy always stamps v0.1.0.
-  PIPELINE_REF: "v3.1.1"
+  PIPELINE_REF: "v3.1.2"
   PIPELINE_REPO: "Ethan5767/seo_agent"
 
 jobs:

@@ -101,7 +101,7 @@ minutes/month are gone, so the repo costs nothing to expose.
 
 | # | Item | Why it bites | Status |
 |---|---|---|---|
-| 1 | Thin callers copied from `.github/examples/`, pinned to an exact tag (`@v3.1.1`, never `@main`, never `@v3`) | A mutable ref means the thing guarding production can change without a PR. `tests/test_pipeline_pin.py` enforces this here | ☐ |
+| 1 | Thin callers copied from `.github/examples/`, pinned to an exact tag (`@v3.1.2`, never `@main`, never `@v3`) | A mutable ref means the thing guarding production can change without a PR. `tests/test_pipeline_pin.py` enforces this here | ☐ |
 | 2 | `docs/gate-baseline.json` recorded and committed to the **client's** repo before their first PR: `wf-gate-baseline --project <repo> --out docs/gate-baseline.json` | Missing = the gates run BARE and every piece of inherited debt reads as blocking. The workflow warns rather than failing, which is deliberate but is not "handled" (B-007) | ☐ |
 | 3 | Static export verified — `wf-onboard` reports the verdict | `orphan_check` and `parity_check` derive routes from the built HTML tree. No tree = both gates scan nothing and report **green**, which is worse than not running. `None` means "cannot tell", not "fine" | ☐ |
 | 4 | `docs/client-config.yml` written by `wf-bootstrap-config` (writes `tier: 1`) | T2/T3 exist in code but are unreachable until a human raises the tier in a human PR. That is the enforcement | ☐ |

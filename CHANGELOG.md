@@ -6,6 +6,23 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [v3.1.2] — 2026-08-11
+
+**Both fixes are on the `render_url` path, and both were found by trying to use
+it on a real client.** Neither changes behaviour for a statically exported
+client. Bump `@v3.1.1` → `@v3.1.2`; no client action is needed beyond the one
+new checklist item (deployment protection, ADMIN-CHECKLIST §2 item 9).
+
+The render-source path now has three things standing between a walled or
+unbuilt deployment and a false verdict: the caller's resolver requires the
+host's deployment to be `success`, `wf-render-snapshot` refuses an off-host
+redirect (B-037), and the blocking list keys on whether there is HTML at all
+rather than on the build (B-038).
+
 ### Fixed
 
 - **`render_url` could never produce a green PR for the client it exists for —

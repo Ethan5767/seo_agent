@@ -8,6 +8,39 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`render_url` could never produce a green PR for the client it exists for —
+  B-038.** The OUT gates were rewired to key on `steps.tree.outputs.ready`, so a
+  crawled tree is judged like a built one. The **blocking list** was not:
+
+  ```bash
+  [ "$BUILD" = "failure" ] && add_fail "Build failed — … All page checks below were skipped."
+  ```
+
+  A client with no static export fails its build **on purpose** — `./out` is
+  never produced, which is the documented safe state of sharp edge #4 — and
+  supplies `render_url` so the crawl provides the tree. That client would run all
+  nine OUT gates against the crawled tree, pass every one, and still be reported
+  RED on BUILD, while the summary table twenty lines above printed
+  `| BUILD | **crawled** <url> -> ./out | 19 | ✅ |` **in the same sticky
+  comment**. Two halves of one comment disagreeing about the same run. The
+  message was false there too: the page checks did not skip, they all ran.
+
+  Now blocks on `steps.tree.outputs.ready` — *is there HTML to judge, however it
+  got there* — exported to the summary step as `$TREE`. Strictly better in all
+  four states, and the suite still cannot pass over a tree it never got:
+
+  | build | crawl | before | after |
+  |---|---|---|---|
+  | ok | — | green | green |
+  | fails | none | red | red, truer message |
+  | fails | ok | **red** | **green** |
+  | fails | fails | red | red |
+
+  > **Not yet observed on a real green run.** lee cannot reach the crawl path
+  > until B-037's deployment protection is turned off, which is an operator
+  > action in Vercel. Asserted as workflow text, in the file the defect lived in —
+  > B-017 stays open for exactly this reason. 690 passed.
+
 - **`wf-render-snapshot` would have crawled an auth wall's login page into the
   build tree and called it a success — B-037.** `curl -L` follows redirects,
   which a site with a no-trailing-slash policy needs. An auth wall exploits

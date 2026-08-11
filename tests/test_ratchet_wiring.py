@@ -243,6 +243,33 @@ def test_the_crawl_only_runs_when_the_build_produced_nothing(workflow):
     assert "if: steps.build.outcome != 'success' && inputs.render_url != ''" in workflow
 
 
+def test_a_crawled_tree_does_not_block_the_pr_on_the_failed_build(workflow):
+    """B-038 — the last thing standing between an SSR client and a green PR.
+
+    The OUT gates were rewired to key on `steps.tree.outputs.ready`, but the
+    BLOCKING list still read `steps.build.outcome`. For a client with no static
+    export the build is configured to fail on purpose — that is the entire reason
+    `render_url` exists — so the suite would run every gate against the crawled
+    tree, pass them all, and still report RED on the build, while the summary
+    table two blocks above printed `**crawled** … -> ./out` in the same comment.
+    """
+    assert '[ "$BUILD" = "failure" ]' not in workflow, (
+        "the blocking list still fails the PR on the build outcome, so a client "
+        "with no static export can never be green no matter how the crawl went")
+    assert '[ "$TREE" != "true" ]' in workflow, (
+        "nothing blocks on there being no HTML to judge — a suite that judged "
+        "nothing must never read as a pass")
+    assert "TREE: ${{ steps.tree.outputs.ready }}" in workflow, (
+        "$TREE is used by the blocking list but never exported to it")
+
+
+def test_the_no_html_message_does_not_claim_the_page_checks_ran(workflow):
+    """The message the old BUILD line printed — 'All page checks below were
+    skipped' — was false in exactly the case it fired on after a successful crawl.
+    Whatever replaces it has to be true whenever it prints."""
+    assert "Every page check below was SKIPPED, not passed." in workflow
+
+
 def test_the_render_snapshot_command_is_installed():
     import tomllib
     scripts = tomllib.loads(Path("pyproject.toml").read_text())["project"]["scripts"]

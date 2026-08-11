@@ -492,6 +492,11 @@ jobs:
           # of a deployment and a local build are not the same evidence.
           FAMILY: ${{ steps.build.outputs.framework_family || steps.tree.outputs.source }}
           TREE_SOURCE: ${{ steps.tree.outputs.source }}
+          # Whether there is HTML to judge AT ALL, however it got there. This is
+          # what blocks the PR, not `steps.build.outcome` — see the add_fail list
+          # and B-038. For a client with no static export the build is EXPECTED to
+          # fail; that is the whole reason render_url exists.
+          TREE: ${{ steps.tree.outputs.ready }}
           SNAPSHOT: ${{ steps.snapshot.outcome }}
           RENDER_URL_SHOWN: ${{ inputs.render_url }}
           BUILD_DIR: ${{ steps.build.outputs.build_dir }}
@@ -566,7 +571,16 @@ jobs:
           [ "$TSC" = "failure" ]          && add_fail "TypeScript errors — the site has type errors (\`tsc --noEmit\`)."
           [ "$SSR" = "failure" ]          && add_fail "SSR safety — a page uses browser-only code that breaks the static build."
           [ "$RULES_SELFTEST" = "failure" ] && add_fail "Rules self-test — the forbidden-phrase ruleset itself is broken (dead rule, non-compiling pattern, defeated exception, or a proof fixture failed)."
-          [ "$BUILD" = "failure" ]        && add_fail "Build failed — the build did not produce the output dir. All page checks below were skipped."
+          # NOT `$BUILD` (B-038). A client with no static export configures the
+          # build to fail on purpose — `./out` is never produced — and supplies
+          # `render_url` so the crawl provides the tree instead. Blocking on the
+          # build outcome made that client permanently red no matter how well the
+          # crawl went, while the table two blocks up simultaneously printed
+          # "**crawled** … -> ./out". `steps.tree.outputs.ready` is the question
+          # that actually matters, and it is already computed: is there HTML to
+          # judge, however it got there. The old message was wrong in that case
+          # too — the page checks below did not skip, they all ran.
+          [ "$TREE" != "true" ]           && add_fail "No HTML to judge — the build produced no output dir and no render_url crawl supplied one. Every page check below was SKIPPED, not passed."
           [ "$HEADINGS" = "failure" ]     && add_fail "Headings — a public heading has broken casing."
           [ "$ORPHAN" = "failure" ]       && add_fail "Orphan pages — a published page has no internal link pointing to it."
           [ "$PARITY" = "failure" ]       && add_fail "Parity — sitemap, built routes, and llms.txt do not list the same set of URLs."

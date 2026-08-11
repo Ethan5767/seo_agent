@@ -92,7 +92,7 @@ on:
       CHAT_WEBHOOK_URL:
         description: "Optional chat webhook for failure alerts. Absent = GitHub email only."
         required: false
-      PIPELINE_REPO_TOKEN:
+      SEO_AGENT:
         description: >-
           Optional PAT with read access to Ethan5767/seo_agent,
           used ONLY for the pipeline checkout. Required while this repo is
@@ -203,7 +203,7 @@ jobs:
           ref: ${{ steps.pipe.outputs.ref }}
           path: .pipeline
           persist-credentials: false
-          token: ${{ secrets.PIPELINE_REPO_TOKEN || github.token }}
+          token: ${{ secrets.SEO_AGENT || github.token }}
 
       - name: Setup Python
         if: inputs.domain != ''

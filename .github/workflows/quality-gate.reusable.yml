@@ -97,7 +97,7 @@ on:
       # DELIBERATELY NO CLOUDFLARE SECRETS. See the header — this workflow never
       # deploys, and declaring nothing is what makes `secrets: inherit` in the
       # caller safe.
-      PIPELINE_REPO_TOKEN:
+      SEO_AGENT:
         description: >-
           Optional PAT with read access to Ethan5767/seo_agent,
           used ONLY for the second (pipeline) checkout. Required while this repo
@@ -193,7 +193,7 @@ jobs:
           persist-credentials: false
           # Falls back to the caller's GITHUB_TOKEN when no PAT is supplied,
           # which only works while the pipeline repo is public.
-          token: ${{ secrets.PIPELINE_REPO_TOKEN || github.token }}
+          token: ${{ secrets.SEO_AGENT || github.token }}
 
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

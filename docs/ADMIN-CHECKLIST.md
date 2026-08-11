@@ -15,17 +15,35 @@ The thin callers pass them through with `secrets: inherit`.
 
 | Secret | Required by | Without it |
 |---|---|---|
-| `PIPELINE_REPO_TOKEN` | quality-gate, preview, deploy, seo-health | **Every gate fails to start.** See §1a. |
+| `SEO_AGENT` | quality-gate, preview, deploy, seo-health | **Every gate fails to start.** See §1a. |
 | `CLOUDFLARE_API_TOKEN` | preview, deploy | Deploy and preview cannot run |
 | `CLOUDFLARE_ACCOUNT_ID` | preview, deploy | Same |
 | `CLOUDFLARE_PAGES_PROJECT` | preview, deploy | Same |
 | `INDEXNOW_KEY` | deploy (optional) | IndexNow submit no-ops; rail stays green |
 | `CHAT_WEBHOOK_URL` | deploy, preview, seo-health (optional) | Notifications skipped; run logs the link |
 
-### 1a. `PIPELINE_REPO_TOKEN` — the one that blocks everything
+### 1a. `SEO_AGENT` — the one that blocks everything
 
 A GitHub PAT with read access to `Ethan5767/seo_agent`, stored as a secret on
-each client repo.
+each client repo. **Named after the repo it opens**, so what it is for is legible
+in the client's secret list without consulting this file.
+
+> Type **fine-grained**, not classic. Classic tokens only offer the `repo` scope,
+> which is read **and write** to every repository you own — handed to a third
+> party's CI runner. Fine-grained can be narrowed to exactly one repo, read-only:
+>
+> - **Resource owner** `Ethan5767` · **Repository access** → Only select
+>   repositories → `seo_agent`
+> - **Repository permissions** → `Contents: Read-only`. (`Metadata: Read-only`
+>   is added automatically and is the only other one needed.)
+>
+> **Fine-grained tokens must expire** — one year is the maximum. Diary the date.
+> An expired token does not read as "expired": every gate fails at the checkout
+> step, which looks like a broken pipeline.
+>
+> GitHub secret names are **case-insensitive and stored uppercase**. Typing
+> `seo_agent` into the UI produces `SEO_AGENT`, which is what the workflows
+> reference. Both spellings resolve; the YAML uses the uppercase form.
 
 Every thin caller does two checkouts: the client's own code, then this engine
 repo at a pinned tag so the `wf-*` gates are on `PATH`. A client repo's
@@ -34,7 +52,7 @@ repo. All four reusable workflows declare it `required: false` and fall back:
 
 ```yaml
 # quality-gate.reusable.yml:176
-token: ${{ secrets.PIPELINE_REPO_TOKEN || github.token }}
+token: ${{ secrets.SEO_AGENT || github.token }}
 ```
 
 That fallback only works once `seo_agent` is **public**. While it is private,

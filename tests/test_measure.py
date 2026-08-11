@@ -137,8 +137,14 @@ def test_og_image_missing():
 def test_schema_findings():
     c = codes(check(build_page(schema_types=())))
     assert "health.schema_business_missing" in c
-    assert "health.schema_faq_missing" in c
     assert "health.schema_breadcrumb_missing" in c
+
+
+def test_faq_markup_is_never_a_finding():
+    """Google retired FAQ rich results on 2026-05-07, so a page with no FAQPage
+    is not deficient. A page with NOTHING is the strongest case: if the code can
+    fire at all, it fires here."""
+    assert "health.schema_faq_missing" not in codes(check(build_page(schema_types=())))
 
 
 def test_schema_business_context_is_the_required_type():

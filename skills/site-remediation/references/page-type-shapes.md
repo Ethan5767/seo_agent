@@ -86,7 +86,6 @@ URL unconditionally**:
 - the type named in the client's `schema_type` (default `LocalBusiness`) —
   `health.schema_business_missing`
 - `BreadcrumbList` — `health.schema_breadcrumb_missing`
-- `FAQPage` — `health.schema_faq_missing`, **which is B-022**
 
 So a new page of any kind carries the configured business type **and**
 `BreadcrumbList`. This is not conditional on the page being location-specific.
@@ -94,13 +93,16 @@ Any other type — `Service`, `Article`, `WebPage` — is a reasonable addition 
 **nothing measures**, so add it if it is accurate and never at the cost of the
 two that are measured.
 
-**B-022:** Google retired FAQ rich results on 2026-05-07. `FAQPage` is still
-valid Schema.org and harmless to carry, but it can no longer earn a search
-feature, so do not add it to a new page for that reason. `measure.py:88-89`
-still emits `health.schema_faq_missing`, so it can reach you **as a work item on
-any URL**. If it does, reply `NO CHANGE — health.schema_faq_missing is B-022,
-the feature it targets was retired 2026-05-07`. Do not add the markup to clear
-it, and do not report `FIXED`.
+**`FAQPage` is not measured and is not a goal (B-022).** Google retired FAQ rich
+results on 2026-05-07. The markup is still valid Schema.org and harmless to
+carry, so leave any that already exists alone — but do not add it to a new page
+expecting a search feature, because there is no longer one to earn. The
+`health.schema_faq_missing` finding was **deleted from `measure.py` on
+2026-08-11**, so it can no longer reach you as a work item at all. If you are
+working an old cycle whose `worklist.json` predates that deletion and still
+carries one, reply `NO CHANGE — health.schema_faq_missing is B-022, the feature
+it targets was retired 2026-05-07`. Never add the markup to clear it, and never
+report `FIXED`.
 
 ### Wiring — `tier_check` and `parity_check`
 

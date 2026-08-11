@@ -85,8 +85,16 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
     if required not in types:
         add("health.schema_business_missing", context=required,
             detail=f"found={','.join(sorted(types)) or 'none'}")
-    if "FAQPage" not in types:
-        add("health.schema_faq_missing")
+    # No FAQPage check here on purpose (B-022). Google retired FAQ rich results on
+    # 2026-05-07: they stopped appearing in Search that day, Rich Results Test and
+    # the Search Console report went in June 2026, the API data in August. The
+    # markup is still valid Schema.org and harmless to carry, but it can no longer
+    # earn anything — so the finding was unfixable-by-value. A perfect site
+    # collected one per page, every cycle, and the ratchet re-filed them as
+    # PERSISTING forever. On lee it was 19 of 114 work items and, once that client
+    # went to T3, real money spent writing markup for a dead feature.
+    # `schema_business_missing` and `schema_breadcrumb_missing` both still back
+    # live features and stay.
     if "BreadcrumbList" not in types:
         add("health.schema_breadcrumb_missing")
 

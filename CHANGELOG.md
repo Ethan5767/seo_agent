@@ -6,7 +6,130 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Removed
+
+- **`health.schema_faq_missing` is deleted — closes B-022.** Google retired FAQ
+  rich results on **2026-05-07**: they stopped appearing in Search that day, the
+  Rich Results Test and Search Console report followed in June 2026, the API data
+  in August. `FAQPage` is still valid Schema.org and harmless to carry, so any
+  that exists is left alone — but the markup can no longer earn a search feature,
+  which made the finding **unfixable by value**. A client with a perfect site
+  collected one per page, every cycle, forever, and the ratchet re-filed them all
+  as PERSISTING.
+
+  Option (a) of the three the ledger listed, and the one it called the honest
+  default. Four call sites: the emit in `measure.py` (lines 88-89 — the `if` AND
+  its body, since removing 89-90 would have left an empty `if` and made
+  `schema_breadcrumb_missing` unconditional), the `min_tier: 2` row in `plan.py`
+  (the last T2 entry there), the code in `score.py`'s `AEO_CODES`, and the
+  remediation doctrine.
+
+  **Dropping it RAISES existing AEO scores, which is the correct direction.**
+  Those pages were never actually worse for answer engines; the metric was
+  scoring compliance with a dead feature. On lee: `114 -> 95` findings, exactly
+  the 19 predicted, and AEO `61 -> 72` (failing 41 -> 22, denominator 104 -> 78).
+
+  > **The real cost was not the wasted spend.** This was estimated at ~$9/cycle
+  > while the finding sat above T1 and unreachable. Once lee went to T3 it became
+  > actionable, and the agent's "fix" was not markup at all — it rendered the
+  > entire `<Faq>` accordion onto `/about-us/`, **a visible design change to a
+  > client's site**, to satisfy a check for a feature that no longer exists. A
+  > finding that cannot be fixed by value does not stay harmless when the tier
+  > rises; it converts into unrequested edits. Reverted, and the changelog entry
+  > corrected from `fixed` to `no_change`.
+
+### Changed
+
+- **The `PIPELINE_REPO_TOKEN` secret is renamed `SEO_AGENT`**, after the repo it
+  opens, so a client's secret list says what the key is for without a trip to
+  `ADMIN-CHECKLIST.md`. Renamed in all four `*.reusable.yml` (declaration and
+  `token:` fallback), all four `.github/examples/` callers, `CLAUDE.md` and
+  `ADMIN-CHECKLIST.md`. **CHANGELOG history is deliberately left alone** — those
+  entries are dated records of what was true when written.
+
+  GitHub secret names are case-insensitive and stored uppercase, so an operator
+  typing `seo_agent` into the UI produces the `SEO_AGENT` the workflows reference.
+
+  > **This is a breaking change for any client already carrying the old secret.**
+  > Nothing is broken today: the reusable workflows are consumed by pinned tag, so
+  > a client on `@v3.0.0` keeps the old file and the old name until it bumps. No
+  > client currently has the workflows installed at all — lee, the only onboarded
+  > client, has zero secrets. Anyone adopting a tag that carries this rename must
+  > re-add the secret under the new name **before** bumping, or every gate fails
+  > at the pipeline checkout.
+
+- **Onboarding now states the one step it cannot perform for itself.** The
+  `SEO_AGENT` requirement is printed in the `[READY]` block of every `wf-onboard`
+  run and shown in the dashboard's ADD CLIENT panel, with the token type spelled
+  out: fine-grained, scoped to `Ethan5767/seo_agent`, `Contents: Read-only`, not
+  a classic token whose only option is read/write over every repo the operator
+  owns.
+
+  It is said at creation time because of how the failure presents. Without the
+  secret, a client repo's `GITHUB_TOKEN` cannot read this private repo, so **every
+  gate fails at the checkout step** — which looks like a broken pipeline rather
+  than a missing key, and is the most expensive possible moment to learn it.
+
+  The dashboard's existing `GITHUB TOKEN — OPTIONAL` field is relabelled `— FOR
+  THIS CLONE ONLY`, because two different credentials were one ambiguous word
+  apart: that field is ephemeral and passed to a single run's environment, while
+  `SEO_AGENT` is a durable secret on the client's repo.
+
 ### Fixed
+
+- **Tier 3 could not be onboarded at all, and asking for a tier raise silently
+  did nothing — B-033 and B-032, both found raising a real client to T3.**
+
+  Neither is exotic. They are what you hit the first time you try to move an
+  existing client off T1, which is the ordinary second act of every onboarding.
+
+  **B-033 — the T2 precondition was applied to T3.** `validate_profile` read
+  `if tier >= 2 and not content_location:` and raised an **ERROR**, so a T3
+  client with no declared content home failed config validation and
+  `wf-onboard` stopped at *"the config parses but does not cohere"* (exit 5).
+  But T3 never uses that key: `tier_verdict` returns `True` on its `tier >= 3`
+  branch at `common.py:400`, twelve lines **before** `content_location` is read
+  at `:409`. The rule in CLAUDE.md is about T2 specifically — *"T2 is refused
+  without `content.location` and `content.registry`"* — and `>= 2` quietly
+  extended it to the one tier that is governed by the deny floor alone. The
+  error message gave the game away: it told a T3 operator that **T2** was
+  unavailable, explaining a tier they had not asked for. Now `tier == 2`.
+
+  **B-032 — `--tier` was dropped on any client that already had a config.**
+  Two causes in series. `onboard.py` passed `--tier` but not `--add-tier`, and
+  `bootstrap_config.main()` only reads the tier for an existing config inside
+  `if args.add_tier:`; otherwise it prints `[OK] Config already exists` and
+  exits **0**. Behind that, `add_tier` is append-only — it declines a config
+  that already declares a tier and *also* returns 0. So the request evaporated
+  twice over and the run printed `[READY]`.
+
+  Measured on `lee-series-web`: `wf-onboard … --tier 3` exited **0** with the
+  full success banner while `docs/client-config.yml` still said `tier: 1` and
+  the worklist still reported `78 above tier`. Nothing in the output said the
+  tier had not moved.
+
+  The append-only behaviour is **kept**. A tier raise being a reviewed human
+  commit is the model (CLAUDE.md §Tiering: the agent can never raise its own
+  tier, and `docs/client-config.yml` is on the deny floor at every tier). The
+  defect was never the refusal, it was reporting success while refusing. So
+  onboard now passes `--add-tier` (inert on a fresh config) and a post-bootstrap
+  guard compares the on-disk tier against an explicitly requested one, stopping
+  at exit **1** with the hand-edit instruction rather than measuring and
+  planning at a tier the operator did not ask for. `--tier` defaults to `None`
+  instead of `1`, so an omitted flag stays distinguishable from `--tier 1` and
+  re-running a T2/T3 client with no flag never trips the guard.
+
+  This is the same rule the gates already follow, applied to a pipeline stage:
+  **a step that did not do the thing must not report success.** A worklist
+  planned at the wrong tier is worse than no worklist, because it reads as an
+  answer — the operator sees "78 above tier" and concludes the client needs a
+  raise they just performed.
+
+  Verified end to end on the real client: before, exit 0 and `tier: 1`; after,
+  exit 1 and `[STOPPED] you asked for tier 3, but docs/client-config.yml still
+  declares tier 1`; then, once the config was edited by hand,
+  `worklist: 114 actionable, 0 above tier` at `Tier: T3`. **673 passed**
+  (was 669: +3 onboard guard tests, +1 T3 validation test).
 
 - **`audit_ssr` scanned nothing and reported a pass on every repo that took
   `create-next-app`'s default layout — closes B-027.** It looked for a folder

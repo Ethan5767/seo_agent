@@ -46,7 +46,11 @@ SEO_CODES = {
 # Answer-engine surface: can a machine read what this page is and answer from it.
 AEO_CODES = {
     "health.schema_business_missing",
-    "health.schema_faq_missing",
+    # `health.schema_faq_missing` was here until 2026-08-11 (B-022). Scoring a
+    # client down for markup Google stopped reading on 2026-05-07 made the AEO
+    # number measure compliance with a dead feature. Dropping it RAISES existing
+    # AEO scores, which is the correct direction: the pages were never actually
+    # worse for answer engines.
     "health.schema_breadcrumb_missing",
     "health.thin_content",
 }

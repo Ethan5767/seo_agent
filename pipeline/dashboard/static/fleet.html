@@ -34,8 +34,9 @@
 <input id="ob-repo" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="acme/roofing-site  ·  https://github.com/acme/roofing-site" type="text"/></label>
 <label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">LIVE DOMAIN</span>
 <input id="ob-domain" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="acmeroofing.com" type="text"/></label>
-<label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">GITHUB TOKEN — OPTIONAL</span>
-<input id="ob-token" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="leave blank if gh is already logged in" type="password" autocomplete="new-password"/></label>
+<label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">GITHUB TOKEN — OPTIONAL, FOR THIS CLONE ONLY</span>
+<input id="ob-token" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="leave blank if gh is already logged in" type="password" autocomplete="new-password"/>
+<span class="font-body-sm text-body-sm text-on-surface-variant/70">Not the CI secret. This one only clones the repo right now, then is discarded — see the note below.</span></label>
 </div>
 <!-- Tier — the agent's authority over this repo. T1 by default: raising a tier is
      a deliberate act. The deny floor holds at every tier, so the agent still can
@@ -51,6 +52,25 @@
 <label class="block"><span class="font-label-caps text-label-caps text-on-surface-variant">CONTENT REGISTRY</span>
 <input id="ob-registry" class="w-full mt-xs bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="src/data/posts.ts  (space or comma separated)" type="text"/>
 <span class="font-body-sm text-body-sm text-on-surface-variant/70">The nav/data file a new page is wired into, or <code class="font-mono-sm">orphan_check</code> refuses the PR.</span></label>
+</div>
+</div>
+<!-- The one manual step onboarding cannot perform for itself. Stated HERE, at the
+     moment a client is created, because the cost of learning it later is a first
+     PR whose every gate fails at checkout — which reads as a broken pipeline
+     rather than a missing key. `wf-onboard` prints the same thing on completion. -->
+<div class="border-t border-outline-variant pt-md mb-md">
+<span class="font-label-caps text-label-caps text-primary">AFTER ONBOARDING — ADD THE <code class="font-mono-sm">SEO_AGENT</code> SECRET</span>
+<div class="font-body-sm text-body-sm text-on-surface-variant/80 mt-xs">
+The gates live in this engine repo, which is <strong>private</strong>. A client repo's built-in
+<code class="font-mono-sm">GITHUB_TOKEN</code> cannot read a different private repo, so without a key
+<strong>every gate fails to start</strong> and the PR is ungated.
+<div class="mt-xs">On the <strong>client's</strong> repo → Settings → Secrets and variables → Actions → New repository secret:</div>
+<ul class="mt-xs ml-md list-disc">
+<li>Name <code class="font-mono-sm">seo_agent</code> (GitHub stores it as <code class="font-mono-sm">SEO_AGENT</code>)</li>
+<li>Value: a <strong>fine-grained</strong> PAT — only <code class="font-mono-sm">Ethan5767/seo_agent</code>, <code class="font-mono-sm">Contents: Read-only</code>. Not a classic token: its <code class="font-mono-sm">repo</code> scope is read/write over everything you own.</li>
+<li>Fine-grained tokens expire (1 year max). Diary it — expiry looks like a broken pipeline, not a missing key.</li>
+</ul>
+<div class="mt-xs">Being a collaborator is not enough: that grants <em>you</em> access, not the client repo's runner.</div>
 </div>
 </div>
 <div class="flex gap-md items-center flex-wrap">

@@ -72,8 +72,8 @@ ACTIONS = {
     # tier_check still judges the real diff, so a client whose copy is NOT in
     # text_paths still gets refused — at the diff, which is where it belongs.
     "health.thin_content":      ("thin_content",                  1, {"min_words": 500}),
-    # T2 — needs new content written
-    "health.schema_faq_missing": ("schema_faq_missing",           2, None),
+    # (No T2 entries. `schema_faq_missing` was the only one and it is deleted —
+    #  B-022, Google retired FAQ rich results 2026-05-07. See measure.py.)
     # T3 — template, layout, routing, analytics
     "health.status_not_200":    ("url_not_200",                   3, {"status": 200}),
     "health.h1_count":          ("h1_count_wrong",                3, {"count": 1}),

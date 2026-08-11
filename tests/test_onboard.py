@@ -149,9 +149,60 @@ def test_the_declared_tier_is_passed_to_bootstrap(repo, monkeypatch):
     o.onboard(str(repo), "acmeroofing.com", repo.parent, True, False, tier=2,
               content_location="src/content/blog/",
               content_registry=["src/data/posts.ts"])
-    assert seen["argv"][-6:] == ["--tier", "2",
-                                 "--content-location", "src/content/blog/",
-                                 "--content-registry", "src/data/posts.ts"]
+    argv = seen["argv"]
+    assert argv[argv.index("--tier") + 1] == "2"
+    assert argv[argv.index("--content-location") + 1] == "src/content/blog/"
+    assert argv[argv.index("--content-registry") + 1] == "src/data/posts.ts"
+
+
+def test_a_re_onboard_actually_applies_the_new_tier(repo, monkeypatch):
+    """B-032: `wf-onboard --tier 3` on an ALREADY-onboarded client silently kept
+    the old tier and reported success.
+
+    `wf-bootstrap-config` only writes the tier into an existing config when
+    `--add-tier` is passed; without it, it prints "Config already exists" and
+    exits 0. onboard read that 0 as done. The operator saw a clean run, the
+    worklist kept saying "78 above tier", and the config still said `tier: 1`.
+    Caught on lee-series-web, which is the only shape that reproduces it: a
+    client whose config is already on disk.
+    """
+    seen = {}
+
+    def fake_run(argv, cwd=None, capture=False):
+        if argv[0] == "gh":
+            return result(0, "WRITE")
+        if argv[0] == "wf-bootstrap-config":
+            seen["argv"] = argv
+        return result(0)
+
+    monkeypatch.setattr(o, "run", fake_run)
+    monkeypatch.setattr(o.shutil, "which", lambda name: f"/usr/bin/{name}")
+    o.onboard(str(repo), "acmeroofing.com", repo.parent, True, False, tier=3)
+    assert "--add-tier" in seen["argv"], (
+        "without --add-tier the tier is dropped on any config that already exists"
+    )
+
+
+def test_an_ignored_tier_raise_stops_the_run_instead_of_reporting_ready(repo, calls, capsys):
+    """B-032: the `repo` fixture already declares tier 1, so asking for 3 is the
+    exact lee-series-web case. `add_tier` declines an existing tier and exits 0,
+    so without this guard the run sailed on to measure, plan and a [READY] banner
+    while the worklist still tier-blocked everything above T1."""
+    assert o.onboard(str(repo), "acmeroofing.com", repo.parent, True, False, tier=3) == 1
+    err = capsys.readouterr().err
+    assert "you asked for tier 3" in err
+    assert "still declares tier 1" in err
+    # Nothing downstream may run: a worklist planned at the wrong tier is worse
+    # than no worklist, because it reads as an answer.
+    assert "wf-preflight" not in calls.seen
+    assert "wf-site-health" not in calls.seen
+
+
+def test_a_re_run_without_the_flag_never_trips_the_tier_guard(repo, calls):
+    """The guard keys on an EXPLICIT --tier. Re-running a T2/T3 client with no
+    flag at all must not stop just because argparse would have defaulted to 1."""
+    assert o.onboard(str(repo), "acmeroofing.com", repo.parent, False, False) == 0
+    assert "wf-site-health" in calls.seen
 
 
 def test_tier_defaults_to_one_and_says_so(repo, calls):

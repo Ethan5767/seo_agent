@@ -115,8 +115,11 @@ def test_a_partially_configured_client_scores_only_what_ran():
 
 
 def test_aeo_is_never_config_gated():
-    # Schema and word count need no config, so AEO always scores over all four.
-    assert family_score(doc([]), {}, AEO_CODES)["total"] == 4
+    # Schema and word count need no config, so AEO always scores over every code
+    # in the family. Three since B-022 dropped `schema_faq_missing`; asserted
+    # against len(AEO_CODES) rather than a literal, because the property under
+    # test is "none of them are config-gated", not how many there happen to be.
+    assert family_score(doc([]), {}, AEO_CODES)["total"] == len(AEO_CODES) == 3
 
 
 # ── property 3: unmeasured is not a clean site ───────────────────────────────

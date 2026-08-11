@@ -207,7 +207,7 @@ Read `docs/BUG-LEDGER.md` for the live list. The ones that bite hardest:
 
 1. **A client with no `docs/gate-baseline.json` runs the gates BARE.** Record one before their first PR (`wf-gate-baseline --project <repo> --out docs/gate-baseline.json`, committed to *their* repo) or every piece of inherited debt reads as blocking. The workflow warns loudly rather than failing, which is deliberate — but "warns" is not "handled" (B-007).
 2. **`em_dash_check` accepts no baseline at all.** One em dash in a client's legacy copy blocks every PR forever, with no recording that can accept it. Open as **B-008**; needs a human decision, not a workaround.
-3. **A human collaborator grant is not Actions access.** Being a collaborator on this private repo does not let a client repo's workflow check it out. That needs a `PIPELINE_REPO_TOKEN` secret in the client repo.
+3. **A human collaborator grant is not Actions access.** Being a collaborator on this private repo does not let a client repo's workflow check it out. That needs a `SEO_AGENT` secret in the client repo.
 4. **Static export is an onboarding precondition, not a footnote.** **Nine** gates derive what they judge from the built HTML tree — including `forbidden_sweep`, which is never-baselineable for legal exposure. Two failure modes, and they are not the same (B-018):
    - **No tree at all** → `build-site` exits 1 and every build-tree step is **SKIPPED**, not green. Loud, and recoverable.
    - **A tree that exists and holds no HTML** → every gate globs zero files and reports **green over nothing**. This is the dangerous one, and pointing `build_output_dir` at `.next` produces exactly it.

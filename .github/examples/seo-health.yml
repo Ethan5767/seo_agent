@@ -24,7 +24,7 @@
 # monitoring alert: it tells you a live site regressed, it does not gate one.
 #
 # SECRETS: `inherit` passes the repo's secrets through. This workflow declares
-# only CHAT_WEBHOOK_URL (optional chat alert) and PIPELINE_REPO_TOKEN (read-only
+# only CHAT_WEBHOOK_URL (optional chat alert) and SEO_AGENT (read-only
 # PAT for the pipeline checkout, needed while the pipeline repo is private). A
 # reusable workflow can only use what it declares, so `inherit` cannot leak
 # anything else into it.

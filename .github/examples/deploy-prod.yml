@@ -34,7 +34,7 @@
 # only. The reusable workflow's deploy job binds to that Environment.
 #
 # SECRETS: `inherit` passes the three required CF secrets plus the optional
-# INDEXNOW_KEY, CHAT_WEBHOOK_URL and PIPELINE_REPO_TOKEN. The rail runs green on
+# INDEXNOW_KEY, CHAT_WEBHOOK_URL and SEO_AGENT. The rail runs green on
 # just the three CF secrets.
 # ---------------------------------------------------------------------------
 name: Deploy Prod

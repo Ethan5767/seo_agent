@@ -17,6 +17,7 @@ from pipeline.lib.common import (
     DEFAULT_DENY,
     client_profile,
     detect_static_export,
+    tier_verdict,
     validate_profile,
 )
 
@@ -96,7 +97,22 @@ def test_tier_with_no_text_paths_is_fatal():
 
 def test_t2_without_content_location_is_fatal():
     prof = client_profile(cfg(tier=2, text_paths=["src/data/**/*.ts"]))
-    assert any("tier 2+ requires content.location" in m for m in errors(prof))
+    assert any("tier 2 requires content.location" in m for m in errors(prof))
+
+
+def test_t3_does_not_need_a_content_location(tmp_path):
+    """B-033: the check was `tier >= 2`, so a T3 config with no content.location
+    failed validation at exit 5 and could never be onboarded.
+
+    T3 does not use the key: `tier_verdict` returns True on its `tier >= 3` branch
+    before content_location is read. The old error also told a T3 operator that
+    "T2 is unavailable", explaining a tier they had not asked for.
+    """
+    prof = client_profile(cfg(tier=3, text_paths=["src/data/**/*.ts"]), tmp_path)
+    assert errors(prof) == []
+    # And the authority it implies is real, with the deny floor still standing.
+    assert tier_verdict(prof, "app/(site)/page.tsx", "M")[0] is True
+    assert tier_verdict(prof, "docs/client-config.yml", "M")[0] is False
 
 
 def test_t2_without_registry_warns_about_the_orphan():

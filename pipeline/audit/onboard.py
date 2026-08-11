@@ -278,6 +278,10 @@ def check_static_export(project: Path) -> None:
 def onboard(repo: str, domain: str, clients_dir: Path, skip_clone: bool,
             dry_run: bool, tier: int = 1, content_location: str = "",
             content_registry=None) -> int:
+    # `tier` arrives as None when the operator did not type --tier at all. Keeping
+    # that distinct from an explicit `--tier 1` is what lets the mismatch check
+    # below stay quiet on an ordinary re-run and speak up on an ignored request.
+    requested_tier, tier = tier, (tier or 1)
     project = checkout(repo, clients_dir, skip_clone)
     print(f"[ok] checkout: {project}")
 
@@ -291,7 +295,14 @@ def onboard(repo: str, domain: str, clients_dir: Path, skip_clone: bool,
     # The tier is declared HERE, before the scaffold commit below, so one commit
     # carries the finished config. Writing tier 1 and amending it later would put
     # a raise in a second commit that nobody reviews as a raise.
-    bootstrap = ["wf-bootstrap-config", str(project), domain, "--tier", str(tier)]
+    #
+    # `--add-tier` is what makes the tier land on a config that ALREADY exists —
+    # without it `wf-bootstrap-config` prints "Config already exists" and exits 0,
+    # so `wf-onboard --tier 3` on an onboarded client silently kept the old tier
+    # and reported success (B-032). It is inert on a fresh config, where the tier
+    # comes from `tier_block` on the write path instead.
+    bootstrap = ["wf-bootstrap-config", str(project), domain,
+                 "--tier", str(tier), "--add-tier"]
     if content_location:
         bootstrap += ["--content-location", content_location]
     for reg in content_registry or []:
@@ -304,6 +315,26 @@ def onboard(repo: str, domain: str, clients_dir: Path, skip_clone: bool,
     if code != 0:
         raise OnboardError("wf-bootstrap-config failed — it refuses rather than write a "
                            "config nothing can load")
+
+    # A tier that was ASKED FOR and not applied must never reach the [READY] banner
+    # (B-032). `add_tier` is append-only: it declines an existing `tier:` and returns
+    # 0, so raising a declared tier is deliberately a human edit. That is a fine
+    # model; reporting a clean run while the request was dropped is not. Same rule
+    # the gates follow — a step that did not do the thing must not read as success.
+    if requested_tier is not None:
+        on_disk = load_config(str(project)).get("tier")
+        if on_disk != requested_tier:
+            print(f"\n[STOPPED] you asked for tier {requested_tier}, but "
+                  f"docs/client-config.yml still declares tier {on_disk}. The tier was "
+                  f"NOT changed.\n"
+                  f"  Why     `wf-bootstrap-config --add-tier` appends a MISSING tier "
+                  f"block; it never rewrites one that is already declared.\n"
+                  f"  Fix     edit `tier:` in {project}/docs/client-config.yml by hand, "
+                  f"commit it to the default branch, then re-run this command.\n"
+                  f"  Note    that commit is the human declaration the tier model rests "
+                  f"on (v3 §2) — the agent can never raise its own tier.",
+                  file=sys.stderr)
+            return 1
 
     code = run(["wf-preflight", str(project)]).returncode
     if code:
@@ -347,6 +378,15 @@ def onboard(repo: str, domain: str, clients_dir: Path, skip_clone: bool,
     print(f"  Report    {project}/docs/audit/<cycle>/report.md")
     print(f"  Worklist  {project}/docs/audit/<cycle>/worklist.json")
     print(f"  Next      wf-site-remediate --project {project} --max-items 1 --dry-run")
+    # The one step onboarding cannot do for itself, said at the end of every run
+    # rather than once in ADMIN-CHECKLIST. Without it the client's first PR fails
+    # at the pipeline checkout and reads as a broken pipeline, not a missing key.
+    print("\n  [HUMAN] Add the `SEO_AGENT` secret to the CLIENT repo before its first PR.")
+    print("          Settings -> Secrets and variables -> Actions -> New repository secret")
+    print("          Name  seo_agent   (GitHub stores it as SEO_AGENT)")
+    print("          Value a FINE-GRAINED PAT: only Ethan5767/seo_agent, Contents Read-only.")
+    print("          Why   the gates live in a private repo, and a client repo's GITHUB_TOKEN")
+    print("                cannot read a different private repo — every gate fails to start.")
     return 0
 
 
@@ -362,9 +402,14 @@ def main() -> int:
                     help="refuse to clone; the checkout must already exist")
     ap.add_argument("--dry-run", action="store_true",
                     help="resolve the checkout and report access, write nothing")
-    ap.add_argument("--tier", type=int, choices=(1, 2, 3), default=1,
+    # default=None, not 1: an omitted --tier and an explicit `--tier 1` must stay
+    # distinguishable, or the B-032 mismatch check fires on every ordinary re-run
+    # of a T2/T3 client. `onboard()` resolves None to 1.
+    ap.add_argument("--tier", type=int, choices=(1, 2, 3), default=None,
                     help="the agent's authority over this repo (default: 1, copy only). "
-                         "T2 requires --content-location and --content-registry.")
+                         "T2 requires --content-location and --content-registry. "
+                         "Raising a tier that is already declared is a human edit to "
+                         "docs/client-config.yml — this flag will not do it for you.")
     ap.add_argument("--content-location", default="",
                     help="T2+: the directory the agent may CREATE pages under")
     ap.add_argument("--content-registry", action="append", default=[], metavar="PATH",

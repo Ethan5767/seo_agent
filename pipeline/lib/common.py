@@ -752,9 +752,15 @@ def validate_profile(profile: dict) -> list:
             issues.append(("ERROR",
                 f"tier {tier} declared but text_paths is empty — the allow-list permits "
                 "nothing, so every copy fix would be refused."))
-        if tier >= 2 and not profile.get("content_location"):
+        # `tier == 2`, NOT `tier >= 2` (B-033). content.location is what DEFINES T2's
+        # create authority, so T2 without it grants nothing and is refused. T3 does not
+        # use the key at all: `tier_verdict` returns True on the `tier >= 3` branch
+        # above, before content_location is ever read. Requiring it at T3 blocked every
+        # full-authority client at exit 5 and told them "T2 is unavailable" to explain
+        # a T3 config — the message never matched the tier it was judging.
+        if tier == 2 and not profile.get("content_location"):
             issues.append(("ERROR",
-                "tier 2+ requires content.location — no declared content home means T2 is "
+                "tier 2 requires content.location — no declared content home means T2 is "
                 "unavailable and the agent does structural SEO only (v3 §2)."))
         if tier >= 2 and not profile.get("content_registry"):
             issues.append(("WARN",

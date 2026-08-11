@@ -18,7 +18,7 @@
 # SECRETS: `inherit` passes the repo's secrets through. The quality-gate
 # reusable workflow declares NO Cloudflare secrets, so even with `inherit` the
 # CF token cannot enter this job — a reusable workflow can only use what it
-# declares. The only secret it can consume is the optional PIPELINE_REPO_TOKEN
+# declares. The only secret it can consume is the optional SEO_AGENT
 # (a read-only PAT for the pipeline checkout, needed while the pipeline repo is
 # private).
 # ---------------------------------------------------------------------------

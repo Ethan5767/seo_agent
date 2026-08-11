@@ -55,7 +55,17 @@ CONTROL = re.compile(r"\b(if|for|while|switch|catch|else)\b\s*\([^)]*\)\s*$")
 FUNC_SIG = re.compile(r"\bfunction\b\s*\*?\s*[\w$]*\s*\([^)]*\)\s*$")
 NAMED_CALL = re.compile(r"[\w$]\s*\([^)]*\)\s*$")
 GUARD_IF = re.compile(r"\bif\s*\(.*typeof\s+(window|document|globalThis|navigator|self|localStorage|sessionStorage).*\)\s*$")
+# NOTE: this one is matched against the RAW line, never the masked one — `_mask`
+# blanks string contents, so `typeof window === "undefined"` masks to
+# `typeof window ===` and the quoted literal this pattern requires is gone. It
+# never matched anything until B-036. It stays honest because the caller also
+# requires the MASKED line to carry a `typeof`, which a commented-out or
+# stringified guard cannot.
 EARLY_RETURN_GUARD = re.compile(r"typeof\s+(window|document)\s*===?\s*['\"]undefined['\"]")
+# Opens a paren group that belongs to a function signature: `function`, with or
+# without a name, `async`, `export` or `export default` in front. Used to carry
+# signature state across lines — see `_is_func_open`.
+FUNC_SIG_OPEN = re.compile(r"\bfunction\b\s*\*?\s*[\w$]*\s*$")
 
 
 def _mask(text: str) -> str:
@@ -92,14 +102,28 @@ def _mask(text: str) -> str:
     return ''.join(out)
 
 
-def _is_func_open(pre: str) -> bool:
-    """Does the masked text before a `{` open a FUNCTION body (vs an object/block/control)?"""
+def _is_func_open(pre: str, sig_close: bool = False) -> bool:
+    """Does the masked text before a `{` open a FUNCTION body (vs an object/block/control)?
+
+    `sig_close` is set by the caller when the `)` immediately behind this `{`
+    closed a paren group that a `function` keyword opened — which is the only way
+    to see a signature spread over several lines (B-036):
+
+        export default function AddressPanels({    <- `{` here is DESTRUCTURING
+          addresses,
+        }: Props) {                                <- `{` here opens the body
+
+    Neither line can be recognised on its own: the first has no closing paren, the
+    second has no `function`. Every React component written with named props looks
+    like this, and without it the component's own frame was never counted, so
+    every event handler inside it read as a render body.
+    """
     s = pre.rstrip()
     if s.endswith('=>'):
         return True
     if FUNC_SIG.search(s):
         return True
-    if s.endswith(')') and not CONTROL.search(s) and NAMED_CALL.search(s):
+    if s.endswith(')') and not CONTROL.search(s) and (sig_close or NAMED_CALL.search(s)):
         return True
     return False
 
@@ -118,14 +142,19 @@ def scan_file(path: Path) -> list:
     brace_depth = 0
     func_frames = []   # brace_depth at which each function body opened
     guard_frames = []  # brace_depth at which a typeof-guard scope opened
+    paren_ctx = []     # per open paren: did a `function` keyword open this group?
+    sig_close = False  # the last `)` closed a function signature's paren group
 
     for idx, mline in enumerate(masked_lines):
         rline = raw_lines[idx] if idx < len(raw_lines) else ""
         same_line_guard = bool(TYPEOF.search(mline))
         access_cols = {m.start(1) for m in GLOBAL.finditer(mline)}
 
-        # early-return guard (`if (typeof window === 'undefined') return`) guards the rest of the fn
-        if same_line_guard and EARLY_RETURN_GUARD.search(mline) and ('return' in mline or 'throw' in mline):
+        # Early-return guard (`if (typeof window === 'undefined') return`) guards
+        # the rest of the fn. The quoted-literal half is read from the RAW line
+        # because masking blanks it (B-036); `same_line_guard` on the MASKED line
+        # is what still proves the guard is code rather than a comment.
+        if same_line_guard and EARLY_RETURN_GUARD.search(rline) and ('return' in mline or 'throw' in mline):
             guard_frames.append(func_frames[-1] if func_frames else 0)
 
         for col, ch in enumerate(mline):
@@ -135,19 +164,26 @@ def scan_file(path: Path) -> list:
                     hit = GLOBAL.search(rline)
                     issues.append((idx + 1, hit.group(0) if hit else "window/document",
                                    rline.strip()[:120]))
-            if ch == '{':
+            if ch == '(':
+                paren_ctx.append(bool(FUNC_SIG_OPEN.search(mline[:col])))
+            elif ch == ')':
+                sig_close = paren_ctx.pop() if paren_ctx else False
+            elif ch == '{':
                 pre = mline[:col]
-                if _is_func_open(pre):
+                if _is_func_open(pre, sig_close):
                     func_frames.append(brace_depth)
                 if same_line_guard and GUARD_IF.search(pre):
                     guard_frames.append(brace_depth)
                 brace_depth += 1
+                sig_close = False
             elif ch == '}':
                 brace_depth = max(0, brace_depth - 1)
                 while func_frames and func_frames[-1] >= brace_depth:
                     func_frames.pop()
                 while guard_frames and guard_frames[-1] >= brace_depth:
                     guard_frames.pop()
+            elif ch == ';':
+                sig_close = False
     return issues
 
 

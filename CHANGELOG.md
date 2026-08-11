@@ -6,7 +6,56 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`audit_ssr` was red on five things that cannot run at server render — B-036.**
+  v3.1.0 shipped B-027, which fixed where this gate *looks*. Pointed at the first
+  real client, it reported `[FAIL] 4 files have SSR-dangerous patterns` — six
+  violations, and **five were false positives**. Two defects:
+
+  **(a) The early-return guard had never matched anything.** `_mask` blanks string
+  contents before the scan, so
+
+  ```
+  raw   :   if (typeof window === "undefined") return Promise.resolve();
+  masked:   if (typeof window ===            ) return Promise.resolve();
+  ```
+
+  and `EARLY_RETURN_GUARD` requires the `'undefined'` literal that masking just
+  deleted. The docstring has documented early-return guards as SSR-SAFE the whole
+  time. Four of the six findings were inside functions whose *first line* was that
+  guard. Now matched against the raw line — honest because the caller still
+  requires a `typeof` on the **masked** line, so a commented-out guard proves
+  nothing (asserted).
+
+  **(b) A multi-line function signature opened no function frame.**
+
+  ```tsx
+  export default function AddressPanels({   // no closing paren on this line
+    addresses,
+  }: Props) {                               // no `function` on this line
+  ```
+
+  Neither line is recognisable alone, and that is how every React component with
+  named props is written. The lost frame undercounts depth for the whole file, so
+  `window.confirm` inside a click handler read as a render body. A paren-context
+  stack now carries the signature across lines.
+
+  **On the client that exposed it, same command: `[FAIL] 4 files` (6 violations)
+  → `[FAIL] 1 files` (1).** The survivor is the documented ceiling — the depth-1
+  rule cannot tell a plain exported helper from a component render body without
+  real parsing, and a browser-only helper arguably should carry its own guard.
+
+  > **This is B-027's lesson from the other side.** A never-baselineable gate that
+  > under-scans reports a silent green; one that over-reports makes a PR
+  > permanently red. Both end with the gate switched off. When you add a gate,
+  > decide what its empty input means *and* what its noise floor is.
+
+  Narrowed, not disarmed — three of the eight tests exist only to prove it did not
+  get quieter: a guard is still scoped to its own function, a commented-out guard
+  still counts for nothing, and a genuine render-body access is still caught in a
+  multi-line component. `tests/test_audit_ssr_guards.py`, fixtures reduced from
+  the real flagged code, every one failing before the fix. 685 passed.
 
 ---
 

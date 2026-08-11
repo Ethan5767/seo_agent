@@ -40,6 +40,32 @@ see `CLAUDE.md` (the sync contract).
 
 ### Changed
 
+- **`Ethan5767/seo_agent` is now PUBLIC, and `SEO_AGENT` is therefore optional.**
+  The two entries below this one describe the secret as the thing without which
+  *"every gate fails to start"*. That was true while the repo was private; it is
+  no longer. All four reusable workflows already declare it `required: false` and
+  fall back to `token: ${{ secrets.SEO_AGENT || github.token }}`, and a client
+  repo's `GITHUB_TOKEN` can read any public repo.
+
+  ```
+  $ gh repo view Ethan5767/seo_agent --json isPrivate,visibility
+  {"isPrivate":false,"visibility":"PUBLIC"}
+
+  $ git ls-remote https://github.com/Ethan5767/seo_agent refs/tags/v3.0.0   # no credentials
+  ff2fb5221fa8132061dca89e65b2c63ecd24b198	refs/tags/v3.0.0
+  ```
+
+  Same SHA lee's run 31458064499 resolved. **What this actually retires is sharp
+  edge #3** — "a human collaborator grant is not Actions access" — whose only
+  workaround was a PAT with an expiry date living in someone else's repo. That is
+  a poor fit for a client in a different account: `lee-wave` is not `Ethan5767`,
+  and the operator who owns the token may not administer the repo it goes into.
+
+  > **Unverified at the Actions layer.** lee has `SEO_AGENT` set and every run to
+  > date used it, so the fallback is proven at the git layer and inferred above
+  > it. The first client onboarded without the secret settles it.
+  > `ADMIN-CHECKLIST.md` §1a says the same rather than rounding it up.
+
 - **The `PIPELINE_REPO_TOKEN` secret is renamed `SEO_AGENT`**, after the repo it
   opens, so a client's secret list says what the key is for without a trip to
   `ADMIN-CHECKLIST.md`. Renamed in all four `*.reusable.yml` (declaration and

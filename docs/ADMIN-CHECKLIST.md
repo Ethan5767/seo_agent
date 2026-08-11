@@ -15,18 +15,45 @@ The thin callers pass them through with `secrets: inherit`.
 
 | Secret | Required by | Without it |
 |---|---|---|
-| `SEO_AGENT` | quality-gate, preview, deploy, seo-health | **Every gate fails to start.** See §1a. |
+| `SEO_AGENT` | quality-gate, preview, deploy, seo-health | ~~Every gate fails to start~~ — **nothing, since `seo_agent` went public.** The workflows fall back to `github.token`, which can read a public repo. See §1a. |
 | `CLOUDFLARE_API_TOKEN` | preview, deploy | Deploy and preview cannot run |
 | `CLOUDFLARE_ACCOUNT_ID` | preview, deploy | Same |
 | `CLOUDFLARE_PAGES_PROJECT` | preview, deploy | Same |
 | `INDEXNOW_KEY` | deploy (optional) | IndexNow submit no-ops; rail stays green |
 | `CHAT_WEBHOOK_URL` | deploy, preview, seo-health (optional) | Notifications skipped; run logs the link |
 
-### 1a. `SEO_AGENT` — the one that blocks everything
+### 1a. `SEO_AGENT` — no longer required (2026-08-11)
 
-A GitHub PAT with read access to `Ethan5767/seo_agent`, stored as a secret on
-each client repo. **Named after the repo it opens**, so what it is for is legible
-in the client's secret list without consulting this file.
+> **`Ethan5767/seo_agent` is PUBLIC, so this secret is optional.** Verified
+> 2026-08-11, both halves:
+>
+> ```
+> $ gh repo view Ethan5767/seo_agent --json isPrivate,visibility
+> {"isPrivate":false,"visibility":"PUBLIC"}
+>
+> $ git ls-remote https://github.com/Ethan5767/seo_agent refs/tags/v3.0.0   # no credentials
+> ff2fb5221fa8132061dca89e65b2c63ecd24b198	refs/tags/v3.0.0
+> ```
+>
+> That is the same SHA lee's run 31458064499 resolved. A client repo's
+> `GITHUB_TOKEN` can read any public repo, so the `|| github.token` fallback
+> below now carries the checkout on its own.
+>
+> **This matters most for a client in a different account.** lee-wave is not
+> Ethan5767, and this was written as though the operator could always mint and
+> install a PAT scoped to a repo they own into a repo they may not administer.
+> Going public removes the coupling entirely rather than working around it.
+>
+> **Not yet observed on a real run with the secret absent.** lee has `SEO_AGENT`
+> set (added 2026-08-11T01:29:30Z) and every run to date used it, so the fallback
+> path is proven at the git layer and inferred at the Actions layer. Say so, do
+> not round it up. First client onboarded without the secret settles it.
+
+Still worth setting if you want the pipeline to keep working should the repo ever
+go private again. If you do set it: a GitHub PAT with read access to
+`Ethan5767/seo_agent`, stored as a secret on each client repo. **Named after the
+repo it opens**, so what it is for is legible in the client's secret list without
+consulting this file.
 
 > Type **fine-grained**, not classic. Classic tokens only offer the `repo` scope,
 > which is read **and write** to every repository you own — handed to a third
@@ -55,15 +82,18 @@ repo. All four reusable workflows declare it `required: false` and fall back:
 token: ${{ secrets.SEO_AGENT || github.token }}
 ```
 
-That fallback only works once `seo_agent` is **public**. While it is private,
-the PAT is mandatory or the gates cannot check out the code that runs them.
+That fallback needs `seo_agent` to be **public**, which it now is — see the box
+above. While it was private the PAT was mandatory, because the gates could not
+otherwise check out the code that runs them.
 
 **A human collaborator grant is not Actions access.** Being a collaborator lets
 *you* clone the repo. It grants nothing to a client repo's runner — different
-identity entirely. (`CLAUDE.md` sharp edge #3.)
+identity entirely. (`CLAUDE.md` sharp edge #3.) **This is what going public
+retires**, and it was the sharpest edge here: the workaround for it was a PAT,
+and a PAT is a credential with an expiry date sitting in someone else's repo.
 
-This secret becomes unnecessary the moment `seo_agent` goes public, which v3
-made viable: both cron pollers and their ~2,180 Actions minutes/month are gone.
+Going public is what v3 made viable: both cron pollers and their ~2,180 Actions
+minutes/month are gone, so the repo costs nothing to expose.
 
 ---
 

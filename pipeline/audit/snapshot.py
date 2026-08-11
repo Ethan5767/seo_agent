@@ -51,7 +51,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from pipeline.audit.measure import discover_urls
-from pipeline.lib.common import curl, curl_status, load_config
+from pipeline.lib.common import curl, curl_final_host, curl_status, load_config
 
 SCHEMA = "render-snapshot/1"
 MANIFEST = "snapshot.json"
@@ -120,6 +120,28 @@ def snapshot(project, base_url: str, out: Path, urls: list, limit=None) -> dict:
     # candidate's own sitemap would let a PR that dropped a route also drop it from
     # the set of routes being judged.
     paths = [route_for(u) for u in discover_urls(cfg, urls, limit)]
+
+    # An auth wall answers 200 for every route, from a different host (B-037).
+    # Vercel Deployment Protection redirects to `vercel.com/sso-api`, Cloudflare
+    # Access to `<team>.cloudflareaccess.com`, Netlify to its own password form —
+    # and `curl -L` follows all of them, so a walled deployment crawls cleanly
+    # into 26 copies of a login page that every OUT gate then judges as the site.
+    # That is strictly worse than the empty tree this crawler already refuses:
+    # green over nothing at least has an empty directory to notice.
+    #
+    # Checked once, on the first route, before anything is written. Compared by
+    # HOST, so a host-relative redirect (trailing-slash policy, locale prefix) is
+    # untouched — the crawler must keep following those.
+    want_host = urlsplit(base).netloc.lower()
+    landed = curl_final_host(base + (paths[0] if paths else "/"))
+    if landed and landed != want_host:
+        raise SnapshotError(
+            f"{base} redirects to a different host ({landed}). That is an auth wall or "
+            f"an interstitial, not the site — every route would answer 200 with the same "
+            f"login page, and the OUT gates would judge that instead of the deployment. "
+            f"Nothing was written. If this is Vercel Deployment Protection, either turn it "
+            f"off for this project or supply a protection-bypass secret; the equivalent "
+            f"exists for Cloudflare Access and Netlify.")
 
     written, failed = [], []
     for route in dict.fromkeys(paths):

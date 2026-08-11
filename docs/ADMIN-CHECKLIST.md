@@ -109,6 +109,7 @@ minutes/month are gone, so the repo costs nothing to expose.
 | 6 | Branch protection on the default branch | **Cannot be enabled on GitHub Free for a private repo.** The gate reports but cannot block. Needs a paid plan, or a public client repo | ☐ |
 | 7 | Cloudflare Pages project created in the **client's own** Cloudflare account | Model A: the client repo is the single source of truth, host swappable | ☐ |
 | 8 | `seo-health.yml` thin caller copied from `.github/examples/seo-health.yml` | ~~No example caller exists~~ — one does, and has since before v3.1.0. Verified: `ls .github/examples/` → `deploy-prod.yml  preview.yml  quality-gate.yml  seo-health.yml`. This is the **only thing watching production**, so a client without it is gated but unwatched | ☐ |
+| 9 | **Deployment protection OFF (or a bypass secret) on the client's host, if the repo has no static export** | Only matters when `render_url` is feeding the nine OUT gates. Vercel Deployment Protection, Cloudflare Access and Netlify password protection all answer **every** preview route with a 302 to their own login page, which returns 200 — so the host's own "deployment succeeded" status goes red and the crawl, if it ever ran, would capture a login screen. `wf-render-snapshot` refuses at exit 19 rather than writing that tree (B-037). Verified on lee 2026-08-11: every deployment `state=failure`, `description="Deployment was blocked"`, while the URL itself returned 200 with `<title>Login – Vercel</title>` | ☐ |
 
 ---
 

@@ -6,7 +6,49 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`wf-render-snapshot` would have crawled an auth wall's login page into the
+  build tree and called it a success — B-037.** `curl -L` follows redirects,
+  which a site with a no-trailing-slash policy needs. An auth wall exploits
+  exactly that: Vercel Deployment Protection answers **every** route with a 302
+  to `vercel.com/sso-api` and a 200 login page, and Cloudflare Access and Netlify
+  password protection do the same to their own domains. Every route 200s, every
+  body is real HTML, and the crawler's only refusal — *"no page was fetched"* —
+  never fires.
+
+  **Sharp edge #4's dangerous case is "green over nothing". This is green over
+  the WRONG thing**, and it is worse: it leaves a full, plausible `./out` with no
+  empty directory to notice.
+
+  Found live, and it is why lee's `render_url` produced nothing:
+
+  ```
+  $ curl -s -o /dev/null -w "%{http_code}" -L  https://lee-series-…-lee-serie.vercel.app
+  200
+  $ curl -s -o /dev/null -w "%{redirect_url}" https://lee-series-…-lee-serie.vercel.app
+  https://vercel.com/sso-api?url=…
+  $ curl -sL … | grep -o '<title>[^<]*</title>'
+  <title>Login – Vercel</title>
+  ```
+
+  New `common.curl_final_host()` returns the host a URL actually lands on.
+  `snapshot()` probes the first route **before writing anything** and refuses at
+  the existing exit 19 when it lands off-host. Compared by host, not URL, so a
+  same-host redirect is untouched — asserted, along with an unreachable host
+  still getting the empty-crawl message rather than being called a wall.
+
+  ```
+  $ wf-render-snapshot --base-url https://lee-series-…-lee-serie.vercel.app --out ./wallout
+  [REFUSED] … redirects to a different host (vercel.com). That is an auth wall or an
+  interstitial, not the site — every route would answer 200 with the same login page,
+  and the OUT gates would judge that instead of the deployment. Nothing was written.
+  ```
+
+  No bad verdict shipped: lee's caller requires the GitHub deployment to be
+  `state=="success"`, so the walled deployment was refused upstream and the nine
+  gates stayed SKIPPED. The hazard is any path that hands the crawler a URL
+  directly. 688 passed.
 
 ---
 

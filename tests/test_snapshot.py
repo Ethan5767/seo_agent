@@ -49,6 +49,11 @@ def served(monkeypatch):
 
     monkeypatch.setattr(sn, "curl_status", fake_status)
     monkeypatch.setattr(sn, "curl", fake_curl)
+    # The auth-wall probe (B-037). Stubbed to "the host you asked for answered",
+    # which is the ordinary case; the wall tests below override it. Without this
+    # stub every test here would make a real 30-second network call.
+    monkeypatch.setattr(sn, "curl_final_host",
+                        lambda url: url.split("://", 1)[-1].split("/", 1)[0].lower())
     # discover_urls fetches the LIVE sitemap through measure's own curl.
     monkeypatch.setattr("pipeline.audit.measure.curl", lambda u, **kw: SITEMAP)
     return pages
@@ -113,6 +118,49 @@ def test_an_empty_crawl_refuses_and_writes_no_tree(project, served, tmp_path):
     with pytest.raises(sn.SnapshotError, match="report green"):
         sn.snapshot(project, "https://dead.pages.dev", out, ["/", "/about/"])
     assert list(out.iterdir()) == []
+
+
+def test_an_auth_wall_refuses_instead_of_crawling_the_login_page(project, served,
+                                                                 tmp_path, monkeypatch):
+    """B-037 — the failure mode that is WORSE than an empty tree.
+
+    Found live: lee's Vercel previews had Deployment Protection on, so every route
+    302'd to `vercel.com/sso-api` and answered 200 with `<title>Login – Vercel</title>`.
+    `curl -L` follows that, so the crawl would have written 26 identical login pages
+    and reported success — and the nine OUT gates would have judged a login screen as
+    the client's site. An empty --out at least leaves an empty directory to notice.
+    """
+    served.update({"/": PAGE, "/about/": PAGE})   # the wall answers 200 for everything
+    monkeypatch.setattr(sn, "curl_final_host", lambda url: "vercel.com")
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(sn.SnapshotError, match="auth wall"):
+        sn.snapshot(project, "https://lee-series-rn75is60j-lee-serie.vercel.app",
+                    out, ["/", "/about/"])
+    assert list(out.iterdir()) == [], "a walled crawl wrote a tree"
+
+
+def test_a_same_host_redirect_is_still_followed(project, served, tmp_path, monkeypatch):
+    """Narrowed, not disarmed. Trailing-slash policies and locale prefixes redirect
+    within the same host and MUST keep working — that is why `curl -L` is there."""
+    served.update({"/": PAGE, "/about/": PAGE})
+    monkeypatch.setattr(sn, "curl_final_host", lambda url: "x.pages.dev")
+    out = tmp_path / "out"
+    out.mkdir()
+    m = sn.snapshot(project, "https://x.pages.dev", out, ["/", "/about/"])
+    assert m["routes"] == ["/", "/about/"]
+
+
+def test_an_unreachable_probe_does_not_masquerade_as_a_wall(project, served, tmp_path,
+                                                            monkeypatch):
+    """`curl_final_host` returns "" when it cannot reach the host at all. That is
+    already the empty-crawl case, which has its own refusal and its own message —
+    reporting it as an auth wall would send the operator to the wrong setting."""
+    monkeypatch.setattr(sn, "curl_final_host", lambda url: "")
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(sn.SnapshotError, match="report green"):
+        sn.snapshot(project, "https://dead.pages.dev", out, ["/", "/about/"])
 
 
 def test_a_route_that_404s_is_skipped_and_recorded(project, served, tmp_path):

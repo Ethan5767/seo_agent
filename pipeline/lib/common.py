@@ -1,6 +1,7 @@
 """Shared helpers for SEO pipeline v3 scripts."""
 import sys, os, re, json, subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 try:
     import yaml
@@ -45,6 +46,28 @@ def curl(url: str, cache_bust: bool = True) -> str:
     except subprocess.TimeoutExpired:
         return ""
     return r.stdout
+
+
+def curl_final_host(url: str) -> str:
+    """The host `url` actually ends up on after redirects, or "" if unreachable.
+
+    `curl`/`curl_status` both follow redirects, which is correct for a site with a
+    no-trailing-slash policy and wrong for an auth wall: Vercel Deployment
+    Protection, Cloudflare Access and Netlify password protection all answer every
+    route with a 302 to THEIR OWN domain and a 200 login page. Following that
+    silently turns "the deployment" into "somebody's login screen" while every
+    status code still reads 200. Callers that care which SITE answered compare
+    this against the host they asked for — see `snapshot.py` and B-037.
+    """
+    try:
+        r = subprocess.run(
+            ["curl", "-sIL", "-A", BROWSER_UA, "-H", f"Accept: {BROWSER_ACCEPT}",
+             "-o", "/dev/null", "-w", "%{url_effective}", url],
+            capture_output=True, text=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return ""
+    return urlsplit(r.stdout.strip()).netloc.lower()
 
 
 def curl_status(url: str, follow: bool = True) -> int:

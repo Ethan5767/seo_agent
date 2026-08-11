@@ -180,7 +180,7 @@ env:
   # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha
   # (see "Resolve pipeline ref" below). Advanced at every tag-cut. Self-consistent
   # because the stamp lives IN the versioned file.
-  PIPELINE_REF: "v3.1.0"
+  PIPELINE_REF: "v3.1.1"
   PIPELINE_REPO: "Ethan5767/seo_agent"
 
 jobs:

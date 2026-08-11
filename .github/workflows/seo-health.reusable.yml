@@ -42,7 +42,7 @@
 #     contents: read
 #   jobs:
 #     health:
-#       uses: Ethan5767/seo_agent/.github/workflows/seo-health.reusable.yml@v3.1.0
+#       uses: Ethan5767/seo_agent/.github/workflows/seo-health.reusable.yml@v3.1.1
 #       with:
 #         domain: "example.com"
 #         critical_pages: "/ /services/ /contact/"
@@ -133,7 +133,7 @@ env:
   # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha
   # (see "Resolve pipeline ref"). Advanced at every tag-cut; self-consistent
   # because the stamp lives IN the versioned file.
-  PIPELINE_REF: "v3.1.0"
+  PIPELINE_REF: "v3.1.1"
   PIPELINE_REPO: "Ethan5767/seo_agent"
 
 jobs:

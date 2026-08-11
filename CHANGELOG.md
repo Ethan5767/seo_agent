@@ -6,6 +6,17 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [v3.1.1] — 2026-08-11
+
+**A same-day patch on v3.1.0, and the release exists because v3.1.0 worked.**
+B-027 (in v3.1.0) fixed where `audit_ssr` looks; pointing it at a real client for
+the first time is what exposed B-036. Bump `@v3.1.0` → `@v3.1.1` on each `uses:`
+line; nothing else changes, and no client action is needed.
+
 ### Fixed
 
 - **`audit_ssr` was red on five things that cannot run at server render — B-036.**

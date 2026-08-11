@@ -50,7 +50,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: Ethan5767/seo_agent/.github/workflows/deploy.reusable.yml@v3.1.0
+    uses: Ethan5767/seo_agent/.github/workflows/deploy.reusable.yml@v3.1.1
     with:
       prod_url: "https://example.com"           # no trailing slash
       indexnow_host: "example.com"              # bare domain, no scheme

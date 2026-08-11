@@ -6,6 +6,29 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Documentation
+
+- **`docs/gate-reference.md` cited three documents as its authority and none of
+  them exist — B-040.** The **Authority** line named
+  `PIPELINE-MASTER-BUILD-PLAN.md`, `VERIFY-REPORT-RUN1.md` and
+  `DOCTRINE-GATE-MATRIX.md`. `ls docs/` returns none of the three; they went with
+  an earlier cleanup and the reference was never repointed. Same class as the
+  2026-08-06 `MODULES.md` defect CLAUDE.md §3 cites, and it matters more here:
+  this is the file an operator opens to learn whether a gate blocks and what its
+  exit code means.
+
+  Repointed to what exists and is consulted at runtime — the exit-code registry
+  in `quality-gate.reusable.yml`'s header plus the `reg()` case block in its
+  Evaluate step, and each gate's own module docstring. The dead links are
+  **recorded in place rather than deleted**, with the consequence stated: the
+  **WORKS?** column throughout is populated from the 2026-07-19 run report that is
+  now gone, so those entries mean *last seen working*, not *currently proven*.
+
+  Also documents the render-source path the last three releases changed: where
+  the BUILT tree comes from, that `steps.tree.outputs.ready` is what blocks
+  rather than the build outcome, and the three things that stop it becoming a
+  pass over the wrong input.
+
 ### Fixed
 
 - **B-038's fix changed the words and not the verdict. B-039 makes it real.**

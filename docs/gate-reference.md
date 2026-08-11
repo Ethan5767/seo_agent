@@ -2,7 +2,20 @@
 
 Every gate in the seo-content-pipeline: what it checks, when it runs, whether it blocks, and the exit code it claims.
 
-**Authority:** the exit-code registry in [`PIPELINE-MASTER-BUILD-PLAN.md`](./PIPELINE-MASTER-BUILD-PLAN.md#exit-code-registry-keep-gates-attributable). Gate behaviour and real-world verdicts come from [`VERIFY-REPORT-RUN1.md`](./VERIFY-REPORT-RUN1.md) (full suite run against a real Acme Next 16 build, 103 HTML files / 99 sitemap URLs, 2026-07-19). Doctrine provenance for each content gate is in [`DOCTRINE-GATE-MATRIX.md`](./DOCTRINE-GATE-MATRIX.md).
+**Authority:** the exit-code registry in the header of
+[`.github/workflows/quality-gate.reusable.yml`](../.github/workflows/quality-gate.reusable.yml),
+and the `reg()` case block in its Evaluate step — those two are what the CI
+actually attributes a failure to. Each gate's own module docstring in
+[`pipeline/gates/`](../pipeline/gates/) is authoritative for what it checks.
+
+> **Three docs this file cited as its authority no longer exist**, and had not
+> for at least a release: `PIPELINE-MASTER-BUILD-PLAN.md`,
+> `VERIFY-REPORT-RUN1.md` and `DOCTRINE-GATE-MATRIX.md`. Corrected 2026-08-11
+> (B-040). Verified: `ls docs/` returns none of the three. The verdicts recorded
+> in the **WORKS?** column below came from the 2026-07-19 Acme run those files
+> described, and are kept because they are dated observations — but the run
+> report itself is gone, so treat any column entry older than a client-specific
+> note beside it as *last seen working*, not as *currently proven*.
 
 ---
 
@@ -15,6 +28,32 @@ Every gate in the seo-content-pipeline: what it checks, when it runs, whether it
 | **LIVE** | Post-deploy, against the production URL | The live edge (Cloudflare in front of the site) | No — it runs *after* the operator's merge; it fails the deploy job and alerts |
 
 Blocking vs advisory: **BLOCKING** gates are wired into the quality-gate Evaluate loop and turn the PR check red. **ADVISORY** gates report into the sticky PR comment and are never allowed to red a merge.
+
+### Where the BUILT tree comes from, and what blocks when there isn't one
+
+The nine BUILT gates glob `<build_output_dir>/**/*.html` and do not care how it
+got there. There are two sources:
+
+| Source | When | Step |
+|---|---|---|
+| the build | the client has a static export | `build-site` action |
+| a **crawl** of a rendered deployment | the client has none, and the caller passes `render_url` | `wf-render-snapshot` |
+
+`steps.tree.outputs.ready` is the one question the suite asks — *is there HTML to
+judge* — and it is what blocks, **not the build outcome**. A client with no static
+export configures the build to fail on purpose (`./out` is never produced), so
+blocking on `steps.build.outcome` made `render_url` unable to produce a green PR
+for the only clients it exists for (B-038, and B-039 for the half of that fix
+that changed the comment without changing the verdict).
+
+Three things keep this from becoming a pass over the wrong input, which is the
+whole point of sharp edge #4:
+
+1. the caller's resolver only accepts a deployment the host reports as `success`;
+2. `wf-render-snapshot` exits **19** and writes nothing if no page answered, and
+   also if the crawl lands on a **different host** — an auth wall answers 200 for
+   every route with a login page, which is worse than an empty tree (B-037);
+3. no tree at all is an `::error::` and a red PR, never a silent skip.
 
 ---
 

@@ -162,6 +162,7 @@ Then **tell the other side what changed** — do not assume they will read the l
 | `docs/gate-reference.md` | What each gate checks, its exit code, and whether it is baselineable |
 | `docs/ADMIN-CHECKLIST.md` | Human-only setup + live status table |
 | `docs/HOW-IT-WORKS.md` | Plain-language walkthrough of the whole v3 flow, onboarding to proof |
+| `docs/HANDOFF-<date>.md` | Session narratives for the other operator. Newest first, and **dated records** — read the newest, then the ledger. An older one is what was true that day, not now |
 | `pipeline/audit/` | The rail: `onboard` · `measure` · `plan` · `remediate` · `providers`, plus client bootstrap/preflight |
 | `pipeline/gates/` | The 19 gates |
 | `pipeline/lib/` | `common.py` (config + tiering), `baseline.py` (the ratchet), `client_docs.py` |

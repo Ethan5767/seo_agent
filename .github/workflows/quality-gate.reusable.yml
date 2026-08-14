@@ -135,7 +135,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
           disable-sudo: true
@@ -143,7 +143,7 @@ jobs:
       # CHECKOUT 1 — the CLIENT SITE. A reusable workflow's steps execute in the
       # caller's context, so the default checkout fetches the client repo.
       - name: Checkout client site
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Full history: tier-check and claim-provenance judge the PR DIFF, and
@@ -187,7 +187,7 @@ jobs:
       # CHECKOUT 2 — the PIPELINE, version-locked to THIS workflow file.
       # This is what lets client repos vendor NO scripts.
       - name: Checkout pipeline (version-locked)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.PIPELINE_REPO }}
           ref: ${{ steps.pipe.outputs.ref }}
@@ -614,7 +614,7 @@ jobs:
       # --- Sticky PR comment (upsert exactly one) ----------------------------
       - name: Upsert sticky PR comment
         if: always()
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');

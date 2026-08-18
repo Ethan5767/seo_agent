@@ -52,6 +52,9 @@ function widget(name, kind) {
       <input type="checkbox" class="arg accent-primary" data-arg="${esc(name)}" data-kind="flag"/>
       <span>--${esc(name)}</span></label>`;
   }
+  // Free text, one term per line — unlike path-list, a search term can
+  // contain spaces, so it cannot be split on whitespace.
+  if (kind === 'text-list') return `<textarea ${a} rows="3" placeholder="one search term per line"></textarea>`;
   return `<div class="mb-md font-mono-sm text-mono-sm text-error">no input for argument type ${esc(kind)}</div>`;
 }
 
@@ -79,7 +82,8 @@ function collect() {
     const v = i.value.trim();
     if (!v) return;
     args[i.dataset.arg] = kind === 'int' ? parseInt(v, 10)
-      : kind === 'path-list' ? v.split(/\s+/) : v;
+      : kind === 'path-list' ? v.split(/\s+/)
+      : kind === 'text-list' ? v.split('\n').map((s) => s.trim()).filter(Boolean) : v;
   });
   return args;
 }

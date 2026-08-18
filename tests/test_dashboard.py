@@ -112,6 +112,47 @@ def test_cycle_argument_is_a_month_or_nothing():
             build_argv("site-plan", "/p", {"cycle": bad})
 
 
+def test_text_list_argument_accepts_real_terms():
+    argv = build_argv("search-add", "/p", {"write": ["Top AI agency in Cambodia", "best seo phnom penh"]})
+    assert argv == ["wf-seed-queries", "--project", "/p",
+                     "--write", "Top AI agency in Cambodia",
+                     "--write", "best seo phnom penh"]
+
+
+def test_text_list_argument_must_be_a_list():
+    with pytest.raises(ValueError):
+        build_argv("search-add", "/p", {"write": "Top AI agency in Cambodia"})
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "x" * 201])
+def test_text_list_argument_rejects_blank_or_oversized_terms(bad):
+    with pytest.raises(ValueError):
+        build_argv("search-add", "/p", {"write": [bad]})
+
+
+def test_site_health_provider_flags_are_declared_including_serp():
+    argv = build_argv("site-health", "/p",
+                       {"with-crux": True, "with-gsc": True, "with-dataforseo": True,
+                        "with-serp": True, "max-crawl-pages": 20})
+    assert "--with-crux" in argv
+    assert "--with-gsc" in argv
+    assert "--with-dataforseo" in argv
+    assert "--with-serp" in argv
+    assert "--max-crawl-pages" in argv and "20" in argv
+
+
+def test_search_suggest_caps_the_agent_at_five_and_asks_for_json():
+    argv = build_argv("search-suggest", "/p", {})
+    assert argv == ["wf-seed-queries", "--project", "/p", "--limit", "5", "--format", "json"]
+
+
+def test_there_is_no_separate_search_check_command():
+    """A second command with a narrower provider set than site-health's would
+    let one button silently erase the other's findings from findings.json.
+    There must be exactly one measuring command."""
+    assert "search-check" not in COMMANDS
+
+
 # ── git actions: no merge, no default-branch push ────────────────────────────
 
 def test_merge_is_not_an_available_action(tmp_path):
@@ -1083,7 +1124,7 @@ def test_every_declared_argument_type_has_a_builder():
     """A kind with no branch in build_argv used to fall through to the path-list
     input and send the wrong shape; an unhandled kind now raises. This asserts the
     two lists agree, so adding a type to COMMANDS cannot silently break a command."""
-    handled = {"int", "path-list", "cycle", "flag", "url"}
+    handled = {"int", "path-list", "cycle", "flag", "url", "text-list"}
     for name, spec in COMMANDS.items():
         for arg, kind in spec["args"].items():
             assert kind in handled, f"{name}.{arg} declares unhandled type {kind}"

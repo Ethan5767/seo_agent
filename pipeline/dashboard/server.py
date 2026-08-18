@@ -53,7 +53,9 @@ COMMANDS = {
     # does not, because a refusal must not be followed by work built on it.
     "site-health": {
         "argv": ["wf-site-health", "--project", "{project}"],
-        "args": {"limit": "int", "url": "path-list"},
+        "args": {"limit": "int", "url": "path-list",
+                 "with-crux": "flag", "with-gsc": "flag", "with-dataforseo": "flag",
+                 "with-serp": "flag", "max-crawl-pages": "int"},
         "label": "Measure live site",
         "exits": {},
         "then": "site-plan",
@@ -63,6 +65,32 @@ COMMANDS = {
         "args": {"cycle": "cycle"},
         "label": "Plan lanes + worklist",
         "exits": {},
+    },
+    # Every dashboard-triggered measurement is ONE command, deliberately — a
+    # second command with a narrower provider set than site-health's own args
+    # would let either silently overwrite findings.json with fewer providers
+    # than the last run measured, and the ratchet would report the erased
+    # findings RESOLVED. search-suggest/search-add below never measure
+    # anything; they only curate the seed_queries list site-health's own
+    # --with-serp then measures.
+    "search-suggest": {
+        "argv": ["wf-seed-queries", "--project", "{project}", "--limit", "5", "--format", "json"],
+        "args": {},
+        "label": "Suggest 5 search terms (agent-grounded)",
+        "exits": {
+            2: ("error", "`claude` is not on PATH — nothing to generate with"),
+            19: ("error", "the sitemap could not be crawled for grounding"),
+            20: ("error", "the agent's reply was not a usable query list"),
+        },
+    },
+    "search-add": {
+        "argv": ["wf-seed-queries", "--project", "{project}"],
+        "args": {"write": "text-list"},
+        "label": "Add search term(s) to track",
+        "exits": {
+            4: ("refused", "REFUSED — seed_queries: is not a plain list, every term "
+                           "given was blank, or docs/client-config.yml is missing"),
+        },
     },
     # `dry-run` prints the prompts and writes nothing, which is the right first
     # click against any client — the console has no undo.
@@ -340,6 +368,17 @@ def build_argv(command, project, args):
                     not re.fullmatch(r"https?://[\w.\-]+(?::\d{1,5})?(?:/[\w\-./~%]*)?", value):
                 raise ValueError(f"{key} must be an absolute http(s) URL")
             argv += [f"--{key}", value]
+        elif kind == "text-list":
+            # Free-text terms (search queries), not paths — no path-safety
+            # regex, just a length bound so one `--write` cannot smuggle a
+            # multi-kilobyte string into an argv the shell never sees anyway.
+            if not isinstance(value, list):
+                raise ValueError(f"{key} must be a list")
+            for item in value:
+                stripped = item.strip() if isinstance(item, str) else ""
+                if not (1 <= len(stripped) <= 200):
+                    raise ValueError(f"bad {key} value: {item!r}")
+                argv += [f"--{key}", stripped]
         elif kind == "flag":
             # A flag carries no value, so anything other than an explicit true is
             # a caller that thinks it is setting something. Refuse rather than

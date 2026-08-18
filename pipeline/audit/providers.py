@@ -53,6 +53,7 @@ import urllib.parse
 import urllib.request
 
 from pipeline.lib.baseline import Finding, assign_ordinals
+from pipeline.lib.common import curl_final_host
 
 # ── field Core Web Vitals thresholds (Google's own "good" boundaries) ────────
 CWV_GOOD = {
@@ -115,20 +116,53 @@ def parse_crux(record: dict, location: str) -> list:
     return out
 
 
+def _same_site(resolved: str, domain: str) -> bool:
+    """True if `resolved` is `domain`, `www.<domain>`, or a subdomain of it.
+
+    CrUX has real field data for domains this pipeline has no business
+    reporting as a client's own — most notably an auth wall's own domain
+    (vercel.com, *.pages.dev's SSO host, cloudflareaccess.com), which
+    curl_final_host correctly follows to and reports (B-037). A resolved host
+    that isn't the same site is not trusted; the caller falls back to the
+    literal configured domain instead.
+    """
+    resolved = resolved.split(":")[0]  # drop a port, if curl reported one
+    return resolved == domain or resolved == f"www.{domain}" or resolved.endswith(f".{domain}")
+
+
 def crux_findings(domain: str, urls=None) -> tuple:
     """(findings, status). Origin-level by default; per-URL when `urls` is given.
 
     A 404 from CrUX means the origin has too little traffic to have field data.
     That is a fact about the dataset, not a defect in the site, so it emits no
-    finding — but it is reported in the status so nobody reads the silence as a pass.
+    finding — but it is reported in the status so nobody reads the silence as a
+    pass.
+
+    Origin-level queries target the domain's REAL serving host, not the literal
+    config string. CrUX is not redirect-aware: a client configured as the bare
+    apex that 301s to `www` (or vice versa) has almost no Chrome navigations
+    recorded against the un-redirected host, so querying it returns "no record"
+    even when the real origin has field data. Proven live 2026-08-14: bare
+    `wikipedia.org` had no CrUX record, `en.wikipedia.org` — the real serving
+    origin — did. `curl_final_host` (built for B-037) resolves it; the result is
+    only trusted when `_same_site` agrees it's the configured domain or one of
+    its subdomains — otherwise (unresolvable, or an auth wall's own domain) this
+    falls back to the literal string, so the fix is never worse than before it
+    and never reports a stranger's Core Web Vitals as the client's. Per-URL mode
+    is untouched — those URLs are already absolute.
     """
     key = os.environ.get("CRUX_API_KEY")
     if not key:
         return [], "skipped: CRUX_API_KEY unset"
 
     endpoint = f"https://chromeuxreport.googleapis.com/v1/records:queryRecord?key={key}"
-    targets = [("origin", f"https://{domain}", "/")] if not urls else \
-              [("url", u, "/" + u.split("//", 1)[-1].split("/", 1)[-1]) for u in urls]
+    if urls:
+        targets = [("url", u, "/" + u.split("//", 1)[-1].split("/", 1)[-1]) for u in urls]
+        report_domain = domain
+    else:
+        resolved = curl_final_host(f"https://{domain}")
+        report_domain = resolved if resolved and _same_site(resolved, domain) else domain
+        targets = [("origin", f"https://{report_domain}", "/")]
 
     findings, missing, errors = [], 0, []
     for field, value, location in targets:
@@ -141,11 +175,14 @@ def crux_findings(domain: str, urls=None) -> tuple:
             continue
         findings += parse_crux((doc or {}).get("record") or {}, location)
 
+    resolved_note = f" (resolved to {report_domain})" if report_domain != domain else ""
     if errors:
-        return assign_ordinals(findings), f"partial: {len(errors)} request(s) failed ({errors[0]})"
+        return assign_ordinals(findings), \
+            f"partial: {len(errors)} request(s) failed ({errors[0]}){resolved_note}"
     if missing == len(targets):
-        return [], f"no field data: CrUX has no record for {domain} (too little traffic)"
-    return assign_ordinals(findings), f"ok: {len(targets)} record(s)"
+        return [], f"no field data: CrUX has no record for {report_domain} " \
+                   f"(too little traffic){resolved_note}"
+    return assign_ordinals(findings), f"ok: {len(targets)} record(s){resolved_note}"
 
 
 # ── Google Search Console ────────────────────────────────────────────────────

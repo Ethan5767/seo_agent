@@ -74,6 +74,92 @@ def test_a_metric_absent_from_the_record_emits_nothing():
     assert p.parse_crux(_record(lcp=None), "/") == []
 
 
+def test_crux_queries_the_resolved_origin_not_the_configured_domain(monkeypatch):
+    """A client configured as the bare apex whose site redirects to www must be
+    queried at the host Chrome actually recorded traffic against — proven live
+    2026-08-14: bare wikipedia.org had no CrUX record, en.wikipedia.org did."""
+    monkeypatch.setenv("CRUX_API_KEY", "k")
+    monkeypatch.setattr(p, "curl_final_host", lambda url: "www.example.com")
+    seen = []
+
+    def fake(endpoint, payload=None, headers=None, timeout=45):
+        seen.append(payload)
+        return {"record": {}}, None
+
+    monkeypatch.setattr(p, "_request", fake)
+    findings, status = p.crux_findings("example.com")
+    assert seen == [{"origin": "https://www.example.com"}]
+    assert "resolved to www.example.com" in status
+
+
+def test_a_subdomain_of_the_configured_domain_is_trusted(monkeypatch):
+    monkeypatch.setenv("CRUX_API_KEY", "k")
+    monkeypatch.setattr(p, "curl_final_host", lambda url: "shop.example.com")
+    seen = []
+    monkeypatch.setattr(p, "_request", lambda e, payload=None, **k: (seen.append(payload), ({"record": {}}, None))[1])
+    findings, status = p.crux_findings("example.com")
+    assert seen == [{"origin": "https://shop.example.com"}]
+
+
+def test_an_unresolvable_domain_falls_back_to_the_configured_string(monkeypatch):
+    monkeypatch.setenv("CRUX_API_KEY", "k")
+    monkeypatch.setattr(p, "curl_final_host", lambda url: "")
+    seen = []
+
+    def fake(endpoint, payload=None, headers=None, timeout=45):
+        seen.append(payload)
+        return {"record": {}}, None
+
+    monkeypatch.setattr(p, "_request", fake)
+    findings, status = p.crux_findings("example.com")
+    assert seen == [{"origin": "https://example.com"}]
+    assert "resolved to" not in status
+
+
+def test_a_resolved_host_that_is_not_the_same_site_is_not_trusted(monkeypatch):
+    """B-037's exact scenario: an auth wall (Vercel Deployment Protection,
+    Cloudflare Access, Netlify password protection) 302s every route to ITS
+    OWN domain, which curl_final_host correctly reports. CrUX has abundant
+    real field data for vercel.com — querying it and calling the result the
+    client's would be invention, not a measurement."""
+    monkeypatch.setenv("CRUX_API_KEY", "k")
+    monkeypatch.setattr(p, "curl_final_host", lambda url: "vercel.com")
+    seen = []
+
+    def fake(endpoint, payload=None, headers=None, timeout=45):
+        seen.append(payload)
+        return {"record": {}}, None
+
+    monkeypatch.setattr(p, "_request", fake)
+    findings, status = p.crux_findings("example.com")
+    assert seen == [{"origin": "https://example.com"}]
+    assert "resolved to" not in status
+
+
+def test_per_url_mode_does_not_resolve_the_origin(monkeypatch):
+    """Per-URL queries are already absolute; resolution only applies to the
+    origin-level default path."""
+    monkeypatch.setenv("CRUX_API_KEY", "k")
+
+    def boom(url):
+        raise AssertionError("curl_final_host must not be called in per-URL mode")
+
+    monkeypatch.setattr(p, "curl_final_host", boom)
+    monkeypatch.setattr(p, "_request", lambda *a, **k: ({"record": {}}, None))
+    findings, status = p.crux_findings("example.com", urls=["https://example.com/a/"])
+    assert status.startswith("ok:")
+
+
+def test_the_no_field_data_message_names_the_resolved_host(monkeypatch):
+    monkeypatch.setenv("CRUX_API_KEY", "k")
+    monkeypatch.setattr(p, "curl_final_host", lambda url: "www.example.com")
+    monkeypatch.setattr(p, "_request", lambda *a, **k: (None, "HTTP 404 from x"))
+    findings, status = p.crux_findings("example.com")
+    assert findings == []
+    assert "www.example.com" in status
+    assert "too little traffic" in status
+
+
 # ── Search Console ───────────────────────────────────────────────────────────
 
 def _row(page, impressions=0, ctr=0.0, position=10.0, query=None):

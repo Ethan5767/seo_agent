@@ -147,16 +147,20 @@ grounded in the site's vocabulary but **not volume-ranked** — a query nobody
 searches produces a real `serp.absent` finding that reads like a site defect,
 which is why the human paste step exists.
 
-**Live status, 2026-08-07.** Two of the four have now run against their real
-APIs; the flag names above were wrong (`--crux` for `--with-crux`) until this
-was checked against `measure.py`, and DataForSEO was described as SERP data,
-which is the one thing it does not do.
+The Analytics dashboard page can also do this directly — type a term or accept
+an agent suggestion, both go through `wf-seed-queries --write`, same
+human-commit requirement, no bare CLI flags to remember.
+
+**Live status, 2026-08-14 (updated from 2026-08-07).** Three of the four have
+now run against their real APIs; the flag names above were wrong (`--crux` for
+`--with-crux`) until this was checked against `measure.py`, and DataForSEO was
+described as SERP data, which is the one thing it does not do.
 
 | Provider | Status |
 |---|---|
-| CrUX | **Ran live.** On `www.leeserie.com`: `no field data: CrUX has no record (too little traffic)` — a fact about Google's dataset, not the site. |
-| Bright Data SERP | **Ran live.** `partial: 4/5 queries measured`. Two defects only the real payload exposed: `global_rank` counts SERP features so a #1 result read as rank 4, and **B-019**, page-two findings can never fire because Google returns one page of organic results. |
-| DataForSEO | **Blocked, not broken.** Credentials authenticate (`20000 Ok`, $51 balance) but every billable endpoint returns `40104 Please verify your account before using the API`. One-time verification at app.dataforseo.com. |
+| CrUX | **Ran live.** On `www.leeserie.com` (2026-08-07): `no field data: CrUX has no record (too little traffic)` — a fact about Google's dataset, not the site. Re-verified 2026-08-14 against `new-wave.io` and, as a sanity check on the mechanism itself, `en.wikipedia.org` (real data came back). That check caught **B-041** — CrUX was querying the literal config domain rather than the domain's real serving host, fixed by resolving via `curl_final_host`. |
+| Bright Data SERP | **Ran live.** `partial: 4/5 queries measured` (2026-08-07). Two defects only the real payload exposed: `global_rank` counts SERP features so a #1 result read as rank 4, and **B-019**, page-two findings can never fire because Google returns one page of organic results. Re-verified 2026-08-14, `ok: 1/1 queries measured`. |
+| DataForSEO | **Ran live 2026-08-14.** Was blocked on 2026-08-07 — credentials authenticated (`20000 Ok`, $51 balance) but every billable endpoint returned `40104 Please verify your account before using the API`. Account verification cleared it: crawled 5 pages of `new-wave.io`, found real `dfs.image_alt_missing` findings. |
 | Search Console | **Never run.** No client has granted access — see below. |
 
 ### Getting Search Console access (human, per client)

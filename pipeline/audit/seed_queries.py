@@ -9,10 +9,16 @@ regenerated every cycle makes every finding NEW forever and the RESOLVED /
 PERSISTING ratchet stops meaning anything. The list is generated once, reviewed
 by a human, and committed — the same shape as the tier.
 
-Nothing here writes docs/client-config.yml. It is on DEFAULT_DENY at every tier
-including T3, and the human paste IS the review step: these queries are derived
-from the site's own vocabulary but they are not volume-ranked, so a query nobody
-searches would produce a real serp.absent finding that reads like a site defect.
+The AGENT-suggestion path (no --write) still never writes docs/client-config.yml
+— it prints a YAML block and the human paste IS the review step, because these
+queries are derived from the site's own vocabulary but are not volume-ranked, so
+a query nobody searches would produce a real serp.absent finding that reads like
+a site defect. `docs/client-config.yml` stays on DEFAULT_DENY at every tier
+including T3 for the AGENT specifically — it can never raise its own authority
+by writing config. `--write` is a second, human/dashboard-triggered path onto
+the same file (see write_seed_queries below), not a relaxation of that: it still
+never runs unprompted, and the operator still must commit the result before it
+takes effect on the next cycle.
 
 The agent is asked for a JSON array and its reply is `json.loads`-ed. An earlier
 draft asked for one query per line and recovered structure with heuristics —

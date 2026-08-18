@@ -6,6 +6,58 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **Analytics dashboard page — trigger and curate the four external providers
+  without hand-typing CLI flags.** New `/analytics` page: a "Re-check now"
+  button runs `wf-site-health` with every provider flag (CrUX, GSC,
+  DataForSEO capped at 20 pages, Bright Data SERP for whatever terms are
+  tracked) and streams the live log — always the full set, never a narrower
+  one, so a re-run can never silently erase a previous run's findings from
+  `findings.json` and feed the ratchet a false RESOLVED. A Search Terms
+  panel lets the operator type terms or accept agent-suggested ones
+  (`wf-seed-queries`, unchanged in its own default behavior — still never
+  auto-commits) and see each term's rank status, derived from the SERP
+  provider's own status string so a term that already ranks on page one
+  (which produces no finding at all, by design) reads as a win rather than
+  as unmeasured. New `wf-seed-queries --write` mode appends to
+  `seed_queries:` in `docs/client-config.yml` (line-based, same pattern as
+  `wf-bootstrap-config --add-tier` — never a PyYAML round-trip, which would
+  eat the file's comments) and still requires a human commit, same as every
+  other config write in this pipeline. New `--format json` mode gives a
+  caller that parses output (the dashboard) one unambiguous `[QUERIES]` line
+  instead of requiring it to scrape a pasteable YAML block out of merged
+  stdout/stderr.
+
+### Fixed
+
+- **CrUX queried the literal config domain instead of the host Chrome
+  actually recorded traffic against — B-041.** Proven live 2026-08-14: bare
+  `wikipedia.org` had no CrUX record, `en.wikipedia.org` (the real serving
+  origin) did. Any client whose apex redirects to `www` (or the reverse) was
+  at risk of a false "too little traffic" read. Origin-level queries now
+  resolve the real serving host via the existing `curl_final_host` helper
+  before querying, trusting the result only when it's the same site (an
+  auth wall's own domain, `curl_final_host`'s original B-037 case, has real
+  CrUX data too and is deliberately not trusted), and falling back to the
+  literal domain otherwise.
+
+### Verified
+
+- **CrUX, DataForSEO and Bright Data SERP were run live for the first time
+  on 2026-08-14**, against `new-wave.io` with real credentials in a local,
+  gitignored `.env`. All three worked: CrUX correctly reported no field data
+  for a low-traffic site (cross-checked against `en.wikipedia.org`, which did
+  return real data, to confirm the mechanism itself is sound); DataForSEO
+  crawled 5 pages and found real `dfs.image_alt_missing` findings; Bright
+  Data SERP measured a real query and correctly reported `serp.absent`. This
+  closes the "never run against the live API" caveat both providers' source
+  comments and the 2026-08-12 handoff carried. `docs/ADMIN-CHECKLIST.md`'s
+  provider status table (last updated 2026-08-07) is updated to match —
+  DataForSEO was blocked on account verification back then, not broken.
+
+`.venv/bin/python -m pytest -q` → **714 passed**.
+
 ### Documentation
 
 - **`docs/gate-reference.md` cited three documents as its authority and none of

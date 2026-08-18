@@ -305,10 +305,12 @@ def dataforseo_findings(domain: str, max_pages: int = 100, poll_seconds: int = 1
                         max_polls: int = 20) -> tuple:
     """(findings, status). Posts a crawl, polls the summary, reads the pages.
 
-    NOTE: the network path here has never been run against the live API — it is
-    written from the documented request/response shapes and only the parser is
-    covered by tests. Treat the first real run as the verification, and read the
-    status string, not the finding count.
+    Run live for the first time 2026-08-14 against a real domain with real
+    DataForSEO credentials: the request/response shapes documented here match
+    the vendor. That one run is not exhaustive coverage of every response
+    shape the API can return — the automated test suite still only covers the
+    pure parser (`parse_dataforseo_pages`), which is the honest boundary; read
+    the status string, not just the finding count, on every run.
     """
     login = os.environ.get("DATAFORSEO_LOGIN")
     password = os.environ.get("DATAFORSEO_PASSWORD")
@@ -413,10 +415,12 @@ def parse_serp(payload: dict, domain: str, query: str) -> list:
 def serp_findings(domain: str, queries=None) -> tuple:
     """(findings, status). One Google SERP request per seed query.
 
-    NOTE: like the other three providers, this network path has never been run
-    against the live API — it is written from Bright Data's documented request
-    shape and only `parse_serp` is covered by tests. Treat the first real run as
-    the verification, and read the status string, not the finding count.
+    Run live for the first time 2026-08-14 against a real domain with real
+    Bright Data credentials: Bright Data's documented request shape matches
+    what the vendor actually accepts. That one run is not exhaustive coverage
+    of every response shape the API can return — the automated test suite
+    still only covers the pure parser (`parse_serp`), which is the honest
+    boundary; read the status string, not just the finding count, on every run.
     """
     api_key = os.environ.get("BRIGHTDATA_API_KEY")
     zone = os.environ.get("BRIGHTDATA_SERP_ZONE")

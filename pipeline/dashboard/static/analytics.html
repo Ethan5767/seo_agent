@@ -26,8 +26,18 @@
 </section>
 
 <section id="search-section" class="border border-outline-variant rounded bg-surface-container-low">
-  <div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">SEARCH TERMS</div>
-  <div class="p-md font-body-sm text-body-sm text-on-surface-variant/70">Loading…</div>
+  <div class="px-md py-sm border-b border-outline-variant flex items-center justify-between flex-wrap gap-sm">
+    <span class="font-label-caps text-label-caps text-on-surface-variant">SEARCH TERMS</span>
+    <button id="suggest" class="font-mono-sm text-mono-sm px-sm py-xs rounded border border-outline-variant hover:bg-surface-container-highest">SUGGEST 5 WITH THE AGENT</button>
+  </div>
+  <div class="px-md py-sm border-b border-outline-variant flex gap-sm">
+    <input id="new-term" class="flex-1 bg-surface-container-highest border border-outline-variant text-on-surface font-mono-base text-mono-base rounded px-sm py-xs focus:outline-none focus:border-primary" placeholder="Top AI agency in Cambodia"/>
+    <button id="add-term" class="font-mono-sm text-mono-sm px-sm py-xs rounded border border-outline-variant hover:bg-surface-container-highest">ADD</button>
+  </div>
+  <div id="commit-banner" class="hidden px-md py-xs bg-tertiary-container/20 text-tertiary font-body-sm text-body-sm border-b border-outline-variant"></div>
+  <div id="suggestions" class="hidden px-md py-sm border-b border-outline-variant"></div>
+  <div id="search-log" class="px-md py-sm border-b border-outline-variant font-mono-sm text-mono-sm text-on-surface-variant/70 hidden"></div>
+  <div id="terms" class="p-md"></div>
 </section>
 
 </div>

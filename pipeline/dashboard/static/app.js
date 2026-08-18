@@ -43,6 +43,7 @@ const NAV = [
   { href: '/fleet', icon: 'dns', label: 'Fleet', keepClient: false },
   { href: '/client', icon: 'group', label: 'Client', needsClient: true },
   { href: '/findings', icon: 'troubleshoot', label: 'Findings', needsClient: true },
+  { href: '/analytics', icon: 'query_stats', label: 'Analytics', needsClient: true },
   { href: '/worklist', icon: 'assignment', label: 'Worklist', needsClient: true },
   { href: '/review', icon: 'difference', label: 'Review Diff', needsClient: true },
   { href: '/report', icon: 'analytics', label: 'Report', needsClient: true },

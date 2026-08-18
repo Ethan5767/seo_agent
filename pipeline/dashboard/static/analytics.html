@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Analytics · wf-dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<script src="/static/theme.js"></script>
+<link href="/static/theme.css" rel="stylesheet"/>
+</head>
+<body class="font-body-md text-body-md antialiased">
+<main class="md:ml-60 pt-12 h-screen flex flex-col bg-background overflow-auto">
+<div class="h-12 border-b border-outline-variant bg-surface-container flex items-center gap-md px-md shrink-0">
+<span class="font-label-caps text-label-caps text-on-surface-variant">Analytics</span>
+</div>
+<div id="providers" class="shrink-0 border-b border-outline-variant bg-surface-container-low px-md py-xs flex items-center flex-wrap gap-x-md gap-y-xs"></div>
+<div class="p-md flex flex-col gap-lg max-w-4xl">
+
+<section class="border border-outline-variant rounded bg-surface-container-low">
+  <div class="px-md py-sm border-b border-outline-variant flex items-center justify-between flex-wrap gap-sm">
+    <span class="font-label-caps text-label-caps text-on-surface-variant">SITE HEALTH PROVIDERS</span>
+    <button id="recheck" class="font-mono-sm text-mono-sm px-sm py-xs rounded bg-primary text-on-primary hover:opacity-90">RE-CHECK NOW (CrUX + GSC + DataForSEO up to 20 pages + Bright Data for tracked terms)</button>
+  </div>
+  <div id="recheck-log" class="p-md font-mono-sm text-mono-sm text-on-surface-variant/70">Not run yet this session.</div>
+</section>
+
+<section id="search-section" class="border border-outline-variant rounded bg-surface-container-low">
+  <div class="px-md py-sm border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant">SEARCH TERMS</div>
+  <div class="p-md font-body-sm text-body-sm text-on-surface-variant/70">Loading…</div>
+</section>
+
+</div>
+</main>
+<script src="/static/app.js"></script>
+<script src="/static/page-analytics.js"></script>
+</body></html>

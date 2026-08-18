@@ -478,7 +478,8 @@ def build_onboard(body, clients_dir):
 PAGES = {"/": "fleet.html", "/fleet": "fleet.html", "/client": "client.html",
          "/findings": "findings.html", "/runs": "runs.html", "/git": "git.html",
          "/worklist": "worklist.html", "/report": "report.html", "/config": "config.html",
-         "/changelog": "changelog.html", "/review": "review.html"}
+         "/changelog": "changelog.html", "/review": "review.html",
+         "/analytics": "analytics.html"}
 
 
 class Handler(BaseHTTPRequestHandler):

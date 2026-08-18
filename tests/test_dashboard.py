@@ -1154,10 +1154,14 @@ def test_the_cycle_bundle_carries_provider_statuses(tmp_path):
 def test_the_findings_screen_actually_renders_the_provider_strip():
     """Asserting the call site, not just the helper. The strip is dead weight if
     the page never calls it or the element it targets is missing — and no JS test
-    harness exists here to catch that."""
+    harness exists here to catch that. renderProviders lives in app.js (shared
+    with Analytics), not page-findings.js — findings.html must load app.js for
+    the call site in page-findings.js to resolve at all."""
     static = Path(__file__).resolve().parents[1] / "pipeline" / "dashboard" / "static"
-    js = (static / "page-findings.js").read_text()
+    app_js = (static / "app.js").read_text()
+    page_js = (static / "page-findings.js").read_text()
     html = (static / "findings.html").read_text()
     assert 'id="providers"' in html, "renderProviders writes into #providers"
-    assert "renderProviders(doc.providers)" in js, "helper defined but never called"
-    assert "function renderProviders" in js
+    assert "renderProviders(doc.providers)" in page_js, "helper defined but never called"
+    assert "function renderProviders" in app_js
+    assert '<script src="/static/app.js"></script>' in html

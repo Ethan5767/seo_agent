@@ -32,44 +32,6 @@ async function load(cycle) {
   } catch (err) { fail(tableEl, err); }
 }
 
-// Provider statuses — the one thing on this screen that is NOT a finding.
-//
-// measure.py writes a status string per external source it was asked for, for
-// one reason: a provider that returned nothing because it was never asked must
-// not read as a provider that returned nothing because the site is clean. The
-// table below cannot carry that — zero rows looks the same either way — so the
-// strip states it in words above the count.
-//
-// Three states, because only one of them means "this number is complete":
-// green `ok:`, red `failed:`, amber for everything else (skipped, partial,
-// timed out, no field data). Amber is not a warning about the site, it is a
-// warning about the measurement.
-function providerTone(status) {
-  if (status.startsWith('ok:')) return 'text-green-400';
-  if (status.startsWith('failed:')) return 'text-error';
-  return 'text-tertiary';
-}
-
-function renderProviders(providers) {
-  const el = document.getElementById('providers');
-  const names = Object.keys(providers || {}).sort();
-  if (!names.length) {
-    // The empty case is the one that misleads, so it is the loudest. An
-    // HTTP-only cycle is a real measurement, just not of anything a provider
-    // sees — and nothing else on this screen would say so.
-    el.innerHTML = `<span class="font-mono-sm text-mono-sm text-tertiary">`
-      + `HTTP-only cycle — no external provider ran. CrUX, Search Console, `
-      + `DataForSEO and Bright Data findings are absent because they were never `
-      + `asked for, not because the site is clean.</span>`;
-    return;
-  }
-  el.innerHTML = `<span class="font-label-caps text-label-caps text-on-surface-variant shrink-0">PROVIDERS</span>`
-    + names.map((n) => `<span class="font-mono-sm text-mono-sm whitespace-nowrap shrink-0">`
-        + `<span class="text-on-surface">${esc(n)}</span> `
-        + `<span class="${providerTone(String(providers[n]))}">${esc(String(providers[n]))}</span>`
-      + `</span>`).join('');
-}
-
 const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort();
 
 function fillSelect(el, values, current, placeholder) {

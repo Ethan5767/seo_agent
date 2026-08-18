@@ -317,3 +317,93 @@ def test_no_claude_on_path_refuses_before_crawling(monkeypatch, capsys):
     assert sq.main() == 2
     assert "claude" in capsys.readouterr().err.lower()
     assert crawled == []
+
+
+# ── write_seed_queries: the config-editing seam ──────────────────────────────
+
+def test_write_seed_queries_appends_a_new_block_when_the_key_is_absent(tmp_path):
+    target = tmp_path / "client-config.yml"
+    target.write_text("domain: example.com\ntier: 1\n")
+    code = sq.write_seed_queries(target, ["Top AI agency in Cambodia"])
+    assert code == 0
+    text = target.read_text()
+    assert "seed_queries:" in text
+    assert "  - Top AI agency in Cambodia" in text
+    assert "domain: example.com" in text
+    assert "tier: 1" in text
+
+
+def test_write_seed_queries_can_write_twice_in_a_row(tmp_path):
+    """The blocker the review caught: the first write's own output (a trailing
+    comment on the seed_queries: line) must be re-parseable by the second."""
+    target = tmp_path / "client-config.yml"
+    target.write_text("tier: 1\n")
+    assert sq.write_seed_queries(target, ["first term"]) == 0
+    assert sq.write_seed_queries(target, ["second term"]) == 0
+    text = target.read_text()
+    assert "  - first term" in text
+    assert "  - second term" in text
+    assert text.index("- first term") < text.index("- second term")
+
+
+def test_write_seed_queries_appends_to_an_existing_block(tmp_path):
+    target = tmp_path / "client-config.yml"
+    target.write_text("seed_queries:\n  - existing term\ntier: 1\n")
+    code = sq.write_seed_queries(target, ["new term"])
+    assert code == 0
+    text = target.read_text()
+    assert text.index("- existing term") < text.index("- new term")
+    assert text.count("tier: 1") == 1
+
+
+def test_write_seed_queries_dedupes_case_insensitively(tmp_path):
+    target = tmp_path / "client-config.yml"
+    target.write_text("seed_queries:\n  - Existing Term\n")
+    code = sq.write_seed_queries(target, ["existing term"])
+    assert code == 0
+    assert target.read_text().count("  - ") == 1
+
+
+def test_write_seed_queries_collapses_internal_whitespace(tmp_path):
+    """Finding.context (baseline.py) normalizes whitespace before fingerprinting
+    a SERP finding's query. Storing the raw double-spaced text here would make
+    a stored term never match its own finding — collapse on write instead."""
+    target = tmp_path / "client-config.yml"
+    target.write_text("tier: 1\n")
+    code = sq.write_seed_queries(target, ["  top   ai  agency  "])
+    assert code == 0
+    assert "  - top ai agency\n" in target.read_text()
+
+
+def test_write_seed_queries_refuses_a_flow_style_list(tmp_path):
+    target = tmp_path / "client-config.yml"
+    original = "seed_queries: [already, here]\n"
+    target.write_text(original)
+    code = sq.write_seed_queries(target, ["new term"])
+    assert code == 4
+    assert target.read_text() == original
+
+
+def test_write_seed_queries_rejects_blank_input(tmp_path):
+    target = tmp_path / "client-config.yml"
+    target.write_text("tier: 1\n")
+    code = sq.write_seed_queries(target, ["   ", ""])
+    assert code == 4
+    assert target.read_text() == "tier: 1\n"
+
+
+def test_write_seed_queries_inserts_right_after_the_last_existing_item_even_with_a_trailing_key(tmp_path):
+    target = tmp_path / "client-config.yml"
+    target.write_text("seed_queries:\n  - one\n  - two\ntier: 1\n")
+    code = sq.write_seed_queries(target, ["three"])
+    assert code == 0
+    text = target.read_text()
+    assert text == "seed_queries:\n  - one\n  - two\n  - three\ntier: 1\n"
+
+
+# ── --write on the CLI: exit 4 (not 2) when the config is missing ────────────
+
+def test_write_flag_on_a_missing_config_exits_4(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv",
+        ["wf-seed-queries", "--project", str(tmp_path), "--write", "a term"])
+    assert sq.main() == 4

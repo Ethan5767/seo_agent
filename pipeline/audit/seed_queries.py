@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from pipeline.audit.measure import urls_or_refuse
@@ -264,14 +265,84 @@ def unwrap_envelope(out: str) -> tuple:
     return True, str(doc.get("result") or "")
 
 
+# ── write_seed_queries: append-only, line-based, same shape as add_tier ──────
+
+def write_seed_queries(target: Path, new_queries: list) -> int:
+    """Append new_queries to seed_queries: in an EXISTING docs/client-config.yml.
+
+    Line-based, like bootstrap_config.add_tier — PyYAML round-tripping this
+    file eats its comments. Reads the key line with any trailing `# comment`
+    stripped before comparing it, specifically so this function's OWN output
+    (the fresh block below carries one) is still recognized on the next call —
+    a regex anchored on a bare newline after the colon cannot see past its own
+    comment and would refuse every write after the first.
+
+    Refuses (4) rather than guess when seed_queries: exists but is not a plain
+    block list (`seed_queries: []` or flow-style `[a, b]`): editing that safely
+    needs a real parser, and this module deliberately doesn't carry one for
+    this file. Appends a fresh commented block when the key is absent
+    entirely, matching add_tier's append-at-end shape. Dedupes
+    case-insensitively and collapses internal whitespace — Finding.context
+    (baseline.py) does the same before fingerprinting a SERP finding, and a
+    stored term that doesn't match its own finding's context never resolves.
+    """
+    cleaned = [" ".join(q.split()) for q in new_queries if q and q.strip()]
+    if not cleaned:
+        print("[ERROR] no non-blank query given", file=sys.stderr)
+        return 4
+
+    lines = target.read_text().splitlines(keepends=True)
+    key = next((i for i, l in enumerate(lines) if l.startswith("seed_queries:")), None)
+
+    if key is None:
+        block = ("\nseed_queries:                     # Bright Data SERP tracks "
+                  "these — one paid request each per cycle\n"
+                  + "".join(f"  - {q}\n" for q in cleaned))
+        target.write_text("".join(lines).rstrip("\n") + "\n" + block)
+        print(f"[OK] Added seed_queries: to {target} with {len(cleaned)} term(s).")
+        print("[NEXT] Commit docs/client-config.yml.")
+        return 0
+
+    if lines[key].split("#", 1)[0].strip() != "seed_queries:":
+        print(f"[ERROR] seed_queries: exists in {target} but is not a plain "
+              f"block list — refusing to edit it blind. Edit it by hand.",
+              file=sys.stderr)
+        return 4
+
+    end = key + 1
+    while end < len(lines) and lines[end].lstrip().startswith("- "):
+        end += 1
+    have = {lines[i].lstrip()[2:].strip().lower() for i in range(key + 1, end)}
+
+    to_add = []
+    for q in cleaned:
+        if q.lower() in have:
+            print(f"[INFO] already tracked, skipped: {q}")
+            continue
+        have.add(q.lower())
+        to_add.append(q)
+    if not to_add:
+        print("[OK] Nothing new — every term given is already tracked.")
+        return 0
+
+    lines[end:end] = [f"  - {q}\n" for q in to_add]
+    target.write_text("".join(lines))
+    print(f"[OK] Added {len(to_add)} term(s) to seed_queries: in {target}.")
+    print("[NEXT] Commit docs/client-config.yml.")
+    return 0
+
+
 # ── the CLI ──────────────────────────────────────────────────────────────────
 
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="wf-seed-queries",
-        description="Generate a grounded seed_queries list for a client. Prints "
-                    "a YAML block; never writes docs/client-config.yml, which is "
-                    "on the deny floor at every tier.")
+        description="Generate a grounded seed_queries list for a client, or "
+                    "(--write) append specific terms directly. The agent-suggestion "
+                    "path only ever prints a YAML block for a human to paste and "
+                    "commit; --write is the same human/dashboard-triggered write, "
+                    "just typed instead of pasted — docs/client-config.yml still "
+                    "stays on the deny floor for the AGENT at every tier.")
     ap.add_argument("--project", default=".", help="client checkout")
     ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT,
                     help=f"max queries to emit (default {DEFAULT_LIMIT}). Every "
@@ -280,7 +351,21 @@ def main() -> int:
                     help=f"max pages to read for grounding (default {CRAWL_MAX})")
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--timeout", type=int, default=600)
+    ap.add_argument("--write", action="append", default=[], metavar="QUERY",
+                    help="append this query to seed_queries: in docs/client-config.yml "
+                         "and exit — skips the crawl and the agent entirely")
+    ap.add_argument("--format", choices=("yaml", "json"), default="yaml",
+                    help="yaml (default): a pasteable seed_queries: block. json: a "
+                         "single [QUERIES] <json array> line for a caller that parses "
+                         "output, e.g. the dashboard.")
     args = ap.parse_args()
+
+    if args.write:
+        target = Path(args.project) / "docs" / "client-config.yml"
+        if not target.exists():
+            print(f"[ERROR] {target} does not exist", file=sys.stderr)
+            return 4
+        return write_seed_queries(target, args.write)
 
     # Refuse before crawling: 40 requests and then "no writer" wastes the
     # operator's time and the client's bandwidth.
@@ -312,9 +397,20 @@ def main() -> int:
               "array of strings. Raw reply:\n" + text[-400:], file=sys.stderr)
         return 20
 
-    print("seed_queries:")
-    for q in queries:
-        print(f"  - {q}")
+    if args.format == "json":
+        # A single, unambiguous line a caller can find in merged stdout+stderr
+        # (the dashboard's Run streams both together) without heuristics. The
+        # `[QUERIES] ` prefix matches this repo's existing [OK]/[INFO]/[WARN]
+        # vocabulary. Contrast with parsing printed `  - text` lines, which
+        # this module's own docstring already names as a defect it fixed once
+        # (stripped bullets and word-count heuristics that admitted CLI
+        # warning lines as queries) — reintroducing that one layer up, in JS,
+        # over a stderr-merged stream, would be the same mistake restaged.
+        print("[QUERIES] " + json.dumps(queries))
+    else:
+        print("seed_queries:")
+        for q in queries:
+            print(f"  - {q}")
     print(f"\n[INFO] {len(queries)} queries. Each is one paid Bright Data request "
           f"per cycle. Review, then paste into docs/client-config.yml and commit.",
           file=sys.stderr)

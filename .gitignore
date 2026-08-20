@@ -86,3 +86,5 @@ stitch_local_operator_dashboard/
 # Stray Playwright screenshots taken while verifying the console by hand.
 client.png
 *.png
+
+graphify-out/cache/

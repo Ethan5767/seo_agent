@@ -157,6 +157,7 @@ Then **tell the other side what changed** — do not assume they will read the l
 |---|---|
 | `CHANGELOG.md` | **Every change, newest first.** Read this first after a pull. |
 | `SITE-AUDIT-PIPELINE.md` | The v3 design doc — what was removed, the tier model, the build sequence, the open decisions |
+| `docs/SYSTEM-PLAN.md` | The stage-by-stage process/planning doc, built one pipeline stage at a time — decisions and process context not derivable from code alone (what to ask a client for, cadence/vendor decisions). Read alongside `docs/ARCHITECTURE.md`. |
 | `docs/BUG-LEDGER.md` | Open and fixed bugs, each with reproduction and evidence |
 | `docs/MODULES.md` | **The complete module map** — every package/gate/workflow, one line each |
 | `docs/gate-reference.md` | What each gate checks, its exit code, and whether it is baselineable |

@@ -118,40 +118,49 @@ Short version: Search Console tells you if you're *findable*; Analytics
 tells you if the page *works* once found. SEO/AEO work leans on Search
 Console because it's query-level and pre-click.
 
-### 1c. Access model — code access and search-data access as independent axes
+### 1c. Access model — code access and search-data access, tracked separately
 
 Onboarding today implicitly assumes one shape: the operator built the site,
 holds GitHub collaborator write access, and can ask for GSC/GA4 directly
 (§1a). Real agency intake is wider than that — an already-built client, a
 client who hands over an existing site built by someone else, and a client
 who will only ever accept a change request, never grant access at all.
-Rather than three hard-coded tiers, these are points on **two independent
-axes**, either of which a real client can land anywhere on:
+Rather than three hard-coded tiers, these are tracked as two separate
+fields, either of which a real client can land anywhere on:
 
-| Axis | Values |
+| Field | Values |
 |---|---|
 | **Code access** | `git_write` (collaborator, direct PR + merge path) · `git_fork` (can open a PR against their repo, no merge rights) · `none` (no repo reachable at all — no git anywhere, or a CMS with no code surface) |
-| **Search data access** | `granted` (added as a user on an existing GSC/GA4 property, per §1d) · `unverifiable` (no property exists, and no DNS/code access to create one) · `none requested` |
+| **Search data access** | `granted` (added as a user on an existing GSC/GA4 property, per §1d) · `unverifiable` (no property exists, and no DNS/code access to create one) · `refused` (asked, per §1a's decision, and declined) |
 
-**Both axes are now a required ask, per the decision at the end of §1a** —
-domain URL, GSC, and GA4 access are asked for on every client, not just
+**Correction: these are not independent axes**, and the table isn't a true
+2-D grid — flagged in review and worth stating plainly rather than
+re-asserting. Verifying a *new* GSC/GA4 property (the `unverifiable` case)
+itself needs DNS or code access, so search-data access is partly a function
+of code access, not a free-standing dimension. It's tracked as its own
+field because it's asked, decided, and reported separately per client — not
+because it varies independently.
+
+**Both fields are now a required ask, per the decision at the end of §1a**
+— domain URL, GSC, and GA4 access are asked for on every client, not just
 Model-A ones. A client who refuses does not block onboarding; the pipeline
 degrades to what it can measure, the same "named skip, never silent"
 pattern §2a's `_CONFIG_GATED` checks already use for everything else.
 
-**What each pipeline stage needs from these axes:**
+**What each pipeline stage needs, corrected against actual gate/workflow
+behavior (an earlier draft of this table overstated what git_fork gets):**
 
-| Stage | Needs from either axis? | Behavior |
-|---|---|---|
-| Measure, Plan | Neither | Unaffected — both already run off the live domain alone (§2a), regardless of code or search-data access. |
-| Remediate | Code access | `git_write`/`git_fork` → today's PR path (a fork just targets upstream with no merge rights, same mechanics). `code_access: none` → the existing `--recommend` brief mode (§4a, built for CMS-copy-not-in-repo) is promoted from fallback to the default output for every worklist item, not just copy ones. No new writer logic — a new entry point that skips straight to the brief queue. |
-| Gates | Code access | Only meaningful where a PR exists (`git_write`/`git_fork`). `code_access: none` has no PR to gate; §3b's already-scoped `next_cycle` acceptance type (verify by re-measuring next cycle, not by re-checking a build) generalizes from specific provider codes to any brief-based item — same mechanism, wider trigger. |
-| Human Merge | Code access | N/A for `code_access: none` — nothing to merge. The client (or whoever holds the CMS login) applies the brief by hand. |
-| Monitor | Code access | Needs a repo to host the ~15-line workflow file, not code access to the site itself (§7a: Monitor never touches client code, only the live domain). Solved for `git_write` (today) and `git_fork` (a monitoring-only PR is low-risk and easy to get merged — read-only, no secrets required). `code_access: none` has nowhere to put the file at all — see §1e's delivery/scheduling design, which now carries this case instead of a dedicated fleet-monitor workflow. |
+| Stage | Behavior |
+|---|---|
+| Measure, Plan | **Not fully unaffected, corrected.** Both need a writable project root to read `client-config.yml` from and write `findings.json`/`worklist.json` into — for `code_access: none` clients that root is §1f's agency-owned folder, not a client checkout. Search-data access changes output quality, not presence: a `refused` client runs on crawl-based heuristics only (§1a) rather than real query data — degraded, not unaffected. |
+| Remediate | `git_write`/`git_fork` → today's PR path (a fork just targets upstream with no merge rights, same mechanics). `code_access: none` → **not a drop-in reuse of `--recommend`, corrected.** That mode's only candidate pool today is `refused_in_cycle()` — items a normal writer run already attempted inside a checkout and marked `no_change`; with no checkout to attempt anything in, that pool is always empty and the mode hard-errors as written. Making briefs the default `code_access: none` output needs real changes: a new candidate-pool derivation (every actionable worklist item, not just refused ones), reworking `selectable()`'s tier filter (there's no tier to check without a repo), and replacing `build_recommend_prompt()`'s repository-evidence instructions — its own rule collapses every derivable line to `[NEEDS FROM CLIENT: ...]` with no repo to read, so the realistic output here is closer to a structured question list than a drafted brief. Named as an open item in §1h, not scoped to files yet. |
+| Gates | `git_write` → the 19 gates run as today. `git_fork` → **no gate coverage today, and that's a decided limitation, not an oversight.** `quality-gate.reusable.yml` skips its gate job entirely for fork-authored PRs (the comment-write token can't reach fork code) — combined with §6b's branch-protection gap, nothing enforces `tier_check`/`claim_provenance_check`/`acceptance_check` against a fork PR. Decided this round: accepted as-is for now rather than blocking `git_fork`'s inclusion in the access model on solving it — an operator relying on a fork-only client reads every PR by hand before asking them to merge, the same discipline §6b already names for GitHub-Free clients generally. A real fix (an operator-side gate run against the fork head, or a token-scoped alternative) is a future item. `code_access: none` has no PR at all, so verification runs through §3a's own cycle-over-cycle ratchet (RESOLVED/PERSISTING/REGRESSION) — **not** through `acceptance_check.py`'s `next_cycle` branch (§3b), which only ever executes inside a gate run on a PR and therefore never fires when there's no PR to gate. §3b's `next_cycle` type stays exactly as scoped, for provider codes inside a `git_write`/`git_fork` PR — a different mechanism from what a `code_access: none` client gets, corrected from an earlier draft that conflated the two. |
+| Human Merge | N/A for `code_access: none` — nothing to merge. The client (or whoever holds the CMS login) applies the brief by hand. |
+| Monitor | Needs a repo to host the ~15-line workflow file, not code access to the site itself (§7a: Monitor never touches client code, only the live domain). Solved for `git_write` (today). `git_fork` **is not "no secrets required," corrected** — `seo-health.reusable.yml` needs a `SEO_AGENT` PAT added to the client's own repo secrets (`CLAUDE.md` sharp edge #3: collaborator access isn't Actions access) even for a read-only monitor; a fork-only client willing to merge a monitoring PR still has to separately agree to add that secret. `code_access: none` has nowhere to put the file at all — see §1e's delivery/scheduling design, which carries this case instead of a dedicated fleet-monitor workflow. |
 
 This reframing replaces "three client types" as the design's organizing
-idea — a real client is just a point on this two-axis grid, and the stage
-table above is what actually branches, not a scenario number.
+idea — a real client is a point on these two fields, and the stage table
+above is what actually branches, not a scenario number.
 
 ### 1d. Centralized GSC/GA4 service account — scoped
 
@@ -174,8 +183,29 @@ ask as before, just always the same identity instead of a personal login.
 a ~1-hour user OAuth token that cannot survive an unattended weekly cron
 without a refresh-token exchange being built. A service account sidesteps
 this entirely — it signs its own short-lived tokens on demand from a
-non-expiring key, no refresh-token dance, no per-client OAuth setup. Doesn't
-remove the *other* half of §2e's blocker list, but removes this one.
+non-expiring key (current Google Cloud guidance favors workload identity
+federation over a long-lived JSON key for exactly this reason — the safer
+implementation path, not a blocker to the design), no refresh-token dance,
+no per-client OAuth setup. Doesn't remove the *other* half of §2e's blocker
+list, but removes this one.
+
+**Blast radius, named plainly — this is not the same secret category it
+was first filed under.** `CRUX_API_KEY`/`DATAFORSEO_LOGIN` are vendor
+credentials with no client-specific data behind them; this one key reads
+*every* onboarded client's Search Console and GA4 data at once, so one leak
+exposes every client, not one. §2e's own finding compounds this: GitHub
+Free has no org-level secrets, so the "hand-copy it into each client repo's
+secrets like any other" pattern §2e already describes for `CRUX_API_KEY`
+would, applied naively to this key, put a fleet-wide credential into N
+different client repos — readable by each client's own collaborators, so
+any one client's team could read every other client's search data. Given
+Measure runs as an operator CLI today, not inside client Actions (§2e:
+"`wf-site-health` has never run inside GitHub Actions at all"), the
+simplest fix is also the cheapest: the key stays in the operator's own
+environment only, the same way `ANTHROPIC_API_KEY` already works, and never
+becomes a client-repo secret. This only turns into a real problem if §2e's
+cron ships and needs this key inside client-repo Actions — worth resolving
+before that happens, not before this section ships.
 
 **What doesn't change:** if no property exists yet, someone still needs DNS
 or code access to verify a new one (a TXT record, an HTML file, or a
@@ -211,51 +241,83 @@ and reused below; only how the result reaches the client changes.
    content, rendered to PDF instead of committed markdown.
 2. **Action-Needed report** — what still needs to change, split into two
    sections so a reader can tell which items need nothing from them and
-   which do: **(a) already in a PR** (for `git_write`/`git_fork` clients —
-   a summary of what Remediate opened, linked to the PR) and **(b) needs a
-   manual change** (brief-mode items from §1c's `code_access: none` path,
-   or any CMS-copy brief a `git_write` client still gets per §4a/B-025).
-   Reuses `read_briefs()`/`render_briefs()` as the source — both are
-   already fingerprint-keyed and format-agnostic about what produced the
-   finding, so this is a new renderer, not new brief-selection logic.
+   which do: **(a) proposed in a PR, awaiting review** (for `git_write`/
+   `git_fork` clients — a summary of what Remediate opened, linked to the
+   PR) and **(b) needs a manual change** (brief-mode items from §1c's
+   `code_access: none` path, or any CMS-copy brief a `git_write` client
+   still gets per §4a/B-025). Section (a) reports the PR's existence, never
+   completion — "proposed and awaiting review," not "fixed," until Human
+   Merge (Part 6) actually happens; a PR that later fails a gate or closes
+   unmerged must never have already read to the client as done. The
+   Improvement report (type 1) is where a merged, gate-passed fix gets to
+   claim credit. Reuses `read_briefs()` as the fingerprint-keyed source, but
+   **`render_briefs()` itself needs a real change, not just reuse** — its
+   current header text asserts every brief exists "because the copy does
+   not live in this repository at any path," true only while briefs are the
+   CMS-copy fallback (§4a/B-025). Once §1c makes briefs the default
+   `code_access: none` output, that sentence is false for most of what it
+   would render; it needs to branch on *why* an item is a brief (no repo at
+   all vs. copy-not-in-repo) instead of asserting one reason unconditionally.
 
 Same derivation-only rule §7c already states: every number traces to
 code-computed data; an optional Claude pass turns facts into prose, never
 invents a number.
 
-**Delivery: per-client contact + cadence, sent automatically, not pasted by
-the operator.** The operator inputs a client's delivery target (email
-address or Telegram chat ID) and frequency (daily/weekly) once, at
-onboarding or any time after; the pipeline sends the relevant PDF(s) on
-that cadence without a human forwarding it each time.
+**Delivery: per-client contact + cadence, held in an operator-approval
+queue, sent only after approval — decided this round, not fully
+automated end-to-end.** The pipeline builds the due PDF(s) on schedule and
+holds them in an approval queue (the same 127.0.0.1 dashboard Part 6
+already uses); the operator approves or edits, and only then does delivery
+fire to the stored email/Telegram target. This gives up the "operator
+forwards nothing, ever" convenience the original draft aimed for, on
+purpose: `render_briefs()`'s own output already names the operator as "the
+accountable step" before a client sees agent-authored content, and
+automating that away removed the one review point standing between
+un-gated model prose and a paying client — none of `tier_check`/
+`claim_provenance_check`/`acceptance_check` ever sees brief content (§3a).
+Keeping a human approval step preserves that property for the one artifact
+type that structurally bypasses all three gates.
 
-**Where this state lives is the same gap §1f solves, generalized**: contact
-info is PII (`CLAUDE.md` §6 — no client PII in this repo), so it cannot
-live in `docs/client-config.yml` inside a client's own repo the way
-`target_keywords`/`seed_queries` do. It lives under a `secrets/` path in
-whatever record is tracking that client (§1f, for `code_access: none`
-clients; a to-be-decided operator-side location for `git_write`/`git_fork`
-clients, since those don't currently have an agency-owned record at all —
-open item, not resolved here).
+**Correction: the PII framing above overstated what `CLAUDE.md` §6
+actually prohibits.** §6 governs *this engine repo* ("no client PII in this
+repo... client config lives in the client's own repo"), not a client's own
+repo — a `git_write` client's contact email living in *their* own
+`client-config.yml` is ordinary client config, no different from
+`target_keywords`. The real constraint is narrower: only `code_access:
+none` clients have no repo of their own to hold it in, which is what §1f
+is actually solving. Where a `git_write`/`git_fork` client's contact info
+lives is a smaller, separate open question (§1h) — an operator-side store,
+still undecided, not a §6 violation either way.
+
+**Daily cadence needs a reason to be daily, not just an option.** Measure
+runs monthly today (weekly at best once §2e ships) — a daily Improvement
+PDF would be near-byte-identical roughly thirty times running unless
+Monitor's own results start persisting (§7b item 1, unbuilt) or this
+report's own approval/tracking state (§1g) changes day to day. Until one of
+those exists, weekly is the practical floor; "daily" stays offerable but
+should read as aspirational rather than something with daily-fresh content
+behind it today.
 
 **Architecture note, stated plainly, not glossed over:** this is new,
 scheduled, outbound infrastructure — the exact shape `CLAUDE.md` describes
 as deliberately removed in v3 ("both fleet-wide pollers went with the
 intake rail... which was the entire argument for making this repo public")
 and the exact thing §7a/§7c's "PR-terminal, human is the last step" framing
-was written to avoid. Reversing that is a legitimate product decision, not
-a mistake — but it means this is a new subsystem (a scheduler + an email/
-Telegram sender + a secrets store for contact info), not a tweak to an
-existing file, and its cost/complexity should be sized as such before
-building.
+was written to avoid. Reversing the delivery model is a legitimate product
+decision; keeping the approval-queue step above is what keeps the
+underlying safety property intact. Either way this is a new subsystem (a
+scheduler + an approval queue + an email/Telegram sender + a contact-info
+store), not a tweak to an existing file, and its cost/complexity should be
+sized as such before building.
 
-Scoped change list:
+Not scoped — open design, not a build-ready file list (vendor, renderer,
+and approval-queue UI are all undecided; this table names the shape only):
 
 | # | File | Change |
 |---|---|---|
 | 1 | New file, e.g. `pipeline/audit/client_report.py` | Builds on §7c's planned `wf-client-report`: reads the latest cycle's `findings.json`/`worklist.json`/`changelog.json`, computes the Improvement report from `score.py`, renders the Action-Needed report's two sections from `read_briefs()` + open-PR state, writes both as PDF. |
-| 2 | New delivery mechanism, not yet named | Reads each client's contact + cadence, sends the due PDF(s) via email or Telegram Bot API. Needs its own scheduled trigger — the same "where does this run" question §1c's Monitor row raises for `code_access: none`, now generalized to every client's report cadence rather than a narrow fleet-monitor exception. |
-| 3 | Vendor choice (email provider, Telegram bot) | Not decided here — operator call. |
+| 2 | New delivery mechanism, not yet named | Reads each client's contact + cadence, holds the approval queue, sends the approved PDF(s) via email or Telegram Bot API. Needs its own scheduled trigger — the same "where does this run" question §1c's Monitor row raises for `code_access: none`, now generalized to every client's report cadence rather than a narrow fleet-monitor exception. |
+| 3 | Vendor choice (email provider, Telegram bot, PDF renderer) | Not decided here — operator call. |
 | 4 | `CHANGELOG.md`, `docs/MODULES.md`, `docs/ADMIN-CHECKLIST.md` | per the sync-contract note in Part 2; note the PDF is a public-facing artifact, so `CLAUDE.md`'s Writing Standards (Title Case headings, no em dashes, derivation-only claims) apply, same as §7c already states. |
 
 ### 1f. Agency-owned client records for `code_access: none` — scoped
@@ -267,71 +329,144 @@ all, so nothing in Model A has anywhere to land for them — not
 `client-config.yml`, not `docs/audit/<YYYY-MM>/`, not the §1e contact
 record.
 
-**Proposed: not a new model, Model A's existing shape ported to an
-agency-owned host.** One repo the agency itself controls, one folder per
-`code_access: none` client keyed by a client slug (name + domain), holding
-the same file shapes already defined elsewhere in this doc —
-`client-config.yml`, `docs/audit/<YYYY-MM>/findings.json`/`worklist.json`/
-`changelog.json` — just rooted under `clients/<slug>/` instead of at a
-client repo's root. PII (§1e's contact info) sits under that same folder's
-`secrets/`, gitignored, per `CLAUDE.md` §6 — an existing rule, not a new
-one.
+**Proposed: a second model, correction from an earlier draft that called
+this a reuse of Model A.** Model A's own definition carries two properties
+this doesn't have: artifacts ship inside a PR ("the worker holds no state
+and the host is swappable") and the two-operator coordination habit
+(`git -C <client-repo> pull --ff-only`) reads the client repo directly.
+Neither holds with no client repo. Call this **Model B**: the same file
+shapes as Model A (`client-config.yml`, `docs/audit/<YYYY-MM>/...`),
+deliberately reused for consistency, but held as centralized fleet state in
+one agency-owned repo — the exact shape `CLAUDE.md` describes v3 as having
+deliberately removed for the old Discord/Drive intake rail. Reusing the
+file shapes is still right; claiming it isn't a new model wasn't.
 
-This one repo is also the natural home for the delivery scheduler (§1e) to
+**The PII placement above has a real gap, not just a naming issue.** §1e
+put contact info under this folder's `secrets/`, gitignored per
+`CLAUDE.md` §6 — but gitignored means *not committed*, so a scheduler
+reading this repo via a normal clone/pull finds nothing there. Either the
+scheduler needs direct filesystem access to an un-gitignored secrets store
+outside this repo's working tree, or contact info needs an actual
+secrets-manager integration. Left open in §1h, not resolved here.
+
+This one repo is still the natural home for the delivery scheduler (§1e) to
 enumerate its client list from, since it already knows every
-`code_access: none` client by folder.
+`code_access: none` client by folder — the contact-info gap above is
+separate from that enumeration working fine.
 
 Scoped change list:
 
 | # | File | Change |
 |---|---|---|
-| 1 | New agency-owned repo (name TBD, e.g. `seo-agent-clients`) | One `clients/<slug>/` folder per `code_access: none` client, mirroring the file shapes Model A already defines. |
-| 2 | `pipeline/audit/*.py` entry points (`measure.py`, `plan.py`, etc.) | Need a `--project` path that can point at `clients/<slug>/` inside this new repo instead of assuming a standalone client checkout — likely already close to how `--project` works today, needs confirming once this is scoped to code. |
+| 1 | New agency-owned repo (name TBD, e.g. `seo-agent-clients`) | One `clients/<slug>/` folder per `code_access: none` client, mirroring the file shapes Model A already defines (now Model B — see above). |
+| 2 | `pipeline/audit/*.py` entry points (`measure.py`, `plan.py`, `remediate.py`) | Needs a `--project` path pointed at `clients/<slug>/` instead of a standalone checkout root. **Not confirmed as uniformly drop-in, correction from an earlier draft:** `remediate.py`'s `--project` today drives `snapshot(project)`, `tier_verdict` against `text_paths`, and the writer's Read/Grep surface — all three assume a source tree, not a folder of JSON artifacts. Since Remediate never writes code for a `code_access: none` client anyway (§1c's Remediate row), `remediate.py`'s own use of `--project` may not need to change at all; `measure.py`/`plan.py`'s simpler read/write-JSON usage is the more plausible drop-in. Confirm per entry point, not assumed uniformly. |
 | 3 | `CHANGELOG.md`, `docs/MODULES.md`, `docs/ADMIN-CHECKLIST.md` | per the sync-contract note in Part 2 |
 
 ### 1g. Lighter tracking for brief follow-through — scoped
 
-The ask was tracking without new infrastructure. It doesn't need any: a
-brief's fingerprint is already exactly what §3b's ratchet compares
-cycle-over-cycle. Recording a brief item's fingerprint + the cycle it was
-sent in (already implicit in which cycle's `worklist.json`/`changelog.json`
-it came from) is enough — next cycle's Measure re-run already answers "did
-this get applied" via the same RESOLVED/PERSISTING/REGRESSION lanes §3a
-already computes for everything else. No new tracking mechanism, just
-surfacing that comparison back to the operator: the §1e Improvement report
-can state "N of M requested changes from last cycle's Action-Needed report
-were applied," read directly off the ratchet.
+The ask was tracking without new infrastructure. Turns out it needs one
+small piece of state, not zero — corrected below from an earlier "no
+scoped change list" claim.
 
-No scoped change list — this is a reporting-layer read of data the
-ratchet already produces, not new state.
+**What §3a's ratchet actually answers, and what it doesn't.** RESOLVED/
+PERSISTING/REGRESSION says whether a finding's *fingerprint* still measures
+as present next cycle — not whether the client applied the specific change
+a brief requested. A finding can resolve for unrelated reasons (a redeploy,
+a theme update) or persist despite the client having applied the change
+badly. Read this as "did the symptom go away," a reasonable proxy for "was
+it acted on," not as direct confirmation of the request itself — this is
+the mechanism §1c's Gates row now correctly points `code_access: none`
+verification at (not `acceptance_check.py`'s `next_cycle` branch, which
+never runs without a PR to gate).
+
+**"N of M" needs to know what M was — a small new manifest, not zero new
+state.** Recovering "last cycle's Action-Needed report" purely from
+`worklist.json`/`changelog.json` only works while a report and a
+measurement cycle share one boundary — once §1e's per-client daily/weekly
+cadence exists, they won't always line up. Minimal fix: §1e's report
+generator writes a small manifest alongside each sent PDF (the fingerprints
+it named), and the tracking check becomes "which of that manifest's
+fingerprints does the next Measure run still find" — one small new file,
+smaller than a full tracking system, but not the "no new state" this
+section originally claimed.
+
+**A consequence worth stating here, not discovered later.**
+`remediate.py`'s `selectable()` permanently excludes a briefed fingerprint
+from ever being re-queued — a briefed item leaves the fix queue for good.
+Once §1c makes briefs the default `code_access: none` output, that means
+such a client's entire worklist gets briefed once, ever, and an item never
+applied is never re-surfaced by Remediate again — only this manifest
+comparison in the report would still show it outstanding. Whether that's
+the right behavior, versus re-briefing anything still open after N cycles,
+is a real design call, left open here.
+
+Scoped change list:
+
+| # | File | Change |
+|---|---|---|
+| 1 | §1e's report generator (`client_report.py`, once built) | Writes a small per-sent-report manifest (the fingerprints named in that report) alongside the PDF, so next cycle's comparison has something concrete to check against. |
+| 2 | `CHANGELOG.md`, `docs/MODULES.md` | per the sync-contract note in Part 2 |
 
 ### 1h. Open items for this stage
 
+Reviewed against actual gate/workflow code once (a thermo-nuclear pass on
+the first draft of §1c–§1g) — several claims below were corrected in place
+rather than left wrong; this list reflects what's still genuinely open
+after those corrections, plus two decisions made explicitly this round.
+
+**Decided this round, not open any more:**
+- `git_fork` clients get no PR gate coverage today (`quality-gate.reusable.yml`
+  skips fork PRs by design) — accepted as a known, documented limitation
+  rather than something blocking `git_fork`'s inclusion in the access
+  model. A real fix is future work, not scoped here.
+- §1e's automated delivery keeps a human approval step before any
+  agent-authored content reaches a client — the operator reviews the queued
+  PDF(s) before send, not a fully automated pipeline end to end.
+
+**Still open:**
 - No forcing function in `wf-onboard` for GSC/GA/strategy-input collection —
   currently process discipline only, per §1a.
-- §1c's two-axis access model is a reframing, not yet reflected in
-  `docs/client-config.yml`'s schema — no `access_model` field exists there
-  today; adding one is implied but not scoped to a specific field shape
-  here.
-- §1d's centralized service account is scoped but not built; `gsc_findings()`'s
-  token acquisition is the one required code change, everything else is
-  intake process.
+- §1c's access-model fields aren't yet reflected in `docs/client-config.yml`'s
+  schema — no field exists there today; adding one is implied but not
+  scoped to a specific shape here.
+- §1c's Remediate row names real required changes (`refused_in_cycle()`'s
+  candidate-pool derivation, `selectable()`'s tier filter, and
+  `build_recommend_prompt()`'s repository-evidence assumptions) that aren't
+  scoped to a file-level change list yet — needed before `code_access: none`
+  briefing can actually run, not just entered from a new CLI flag.
+- §1d's centralized service account is scoped but not built;
+  `gsc_findings()`'s token acquisition is the one required code change. Its
+  key must stay an operator-side secret, never copied into client-repo
+  secrets (§1d's blast-radius note) — worth stating again here since it's
+  an easy thing to get wrong when this is actually built.
 - §1e's delivery infrastructure is the largest open item on this page — a
-  new scheduler plus an email/Telegram sender is real infrastructure, not a
-  file tweak, and it deliberately reverses two stated architectural
-  decisions (`CLAUDE.md`'s no-fleet-cron stance, §7c's operator-is-last-step
-  model). Vendor choice, PDF rendering approach, and where the scheduler
-  itself runs are all open.
-- §1e also leaves an explicit gap: where a `git_write`/`git_fork` client's
-  contact info lives is unresolved — §1f only covers `code_access: none`
-  clients' records.
-- §1f's agency-owned client repo needs `pipeline/audit/*.py`'s `--project`
-  handling confirmed against a nested `clients/<slug>/` path rather than a
-  standalone checkout root — not verified in this pass.
-- §7c should get a short cross-reference note pointing at §1e once this
-  section is committed, so it stops describing a delivery model this page
-  has since superseded — noted here so it isn't forgotten, not fixed in
-  this pass.
+  new scheduler, an approval queue, and an email/Telegram sender is real
+  infrastructure, not a file tweak, and it reverses `CLAUDE.md`'s
+  no-fleet-cron stance deliberately (the approval-queue decision above
+  keeps §7c's operator-accountability property, just not its "operator
+  physically forwards it" mechanic). Vendor choice, PDF rendering approach,
+  the approval-queue UI, and where the scheduler itself runs are all open.
+- Where a `git_write`/`git_fork` client's contact info lives is unresolved
+  — §1f/Model B only covers `code_access: none` clients' records. §1f's own
+  gitignored-`secrets/` mechanism has a real gap too (a scheduler cloning
+  the repo normally can't read a gitignored path) — needs an actual
+  secrets-manager answer, not a folder convention.
+- §1f's Model B repo needs `pipeline/audit/*.py`'s `--project` handling
+  confirmed per entry point against a nested `clients/<slug>/` path —
+  `measure.py`/`plan.py` look like plausible drop-ins, `remediate.py`
+  likely doesn't need to change at all since it never writes code for these
+  clients, per the corrected note in §1f.
+- §1g's manifest (fingerprints named per sent report) isn't built yet — a
+  small, genuinely new piece of state, not the "zero new state" the first
+  draft of this section claimed.
+- The permanent-brief consequence named in §1g (a `code_access: none`
+  client's whole worklist gets briefed once and never re-queued) is a real
+  design call — re-brief after N stale cycles, or leave it to the
+  manifest-comparison signal alone — not decided here.
+- §2e, §2g, and §7c each now carry a short correction/cross-reference note
+  pointing back at this section (§1d supersedes §2e's refresh-token
+  prerequisite if built first; §7c's delivery/cadence claims are superseded
+  by §1e) — added in the same pass as this list, not left for later.
 
 ---
 
@@ -595,6 +730,14 @@ is new code in `providers.py`, not just a new workflow file, and it's a
 prerequisite for §2d item 5 (weekly GSC) specifically — CrUX and SERP
 have no equivalent token-expiry problem and aren't blocked by this.
 
+**Cross-reference, added after Part 1 was written:** §1d proposes a
+centralized GSC/GA4 service account that would remove this specific
+blocker outright — a signed service-account token needs no refresh-token
+exchange at all. If §1d ships first, this paragraph's blocker no longer
+applies to weekly GSC; if it doesn't, this remains the prerequisite as
+described. The Secrets row above ("`GSC_ACCESS_TOKEN`/`GSC_SITE_URL` stay
+client-side/per-repo, as today") is the specific line §1d would change.
+
 Scoped change list:
 
 | # | File | Change |
@@ -686,7 +829,10 @@ needle" signal §2d's cadence argument is about — but nothing above requires
   weekly run doesn't clobber the monthly cycle's `findings.json`.
 - `gsc_findings()`'s refresh-token exchange (§2e blocker) is a hard
   prerequisite specifically for weekly GSC (§2d item 5) — the other
-  cadence items (SERP, CrUX/Lighthouse) aren't blocked by it.
+  cadence items (SERP, CrUX/Lighthouse) aren't blocked by it. §1d's
+  centralized service-account proposal, if built, would replace this
+  specific prerequisite rather than require it — see the cross-reference
+  added to §2e above.
 - Three new DataForSEO products (§2f: LLM Mentions, Labs domain intersection,
   Keywords search volume) — scoped to files, **approved to build**. LLM
   Mentions' response schema is now confirmed against DataForSEO's published
@@ -1453,6 +1599,15 @@ last step.
 §2e's `measure-cron.reusable.yml` is already the weekly-run home; a client
 report is a natural additional consumer of that same run rather than a
 new cron surface.
+
+**Superseded by Part 1, cross-reference added after §1e was written.** §1e
+now proposes a dedicated per-client delivery scheduler (email/Telegram,
+held in an operator-approval queue) as the general report-delivery
+mechanism for every client — that is the fourth schedule this section
+originally ruled out, and it replaces the "operator sends or pastes this"
+model stated two paragraphs above. This section's score/delta/fixed-count
+computation stays valid and is exactly what §1e reuses; only the send
+model and cadence claims here are superseded.
 
 Scoped change list:
 

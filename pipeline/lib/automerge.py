@@ -54,6 +54,46 @@ YMYL_TERMS: frozenset[str] = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class Decision:
+    """The outcome of the eligibility check."""
+
+    action: str  # "AUTO" or "HUMAN"
+    reason: str
+
+
+def decide(
+    gate_results: dict[str, bool],
+    tier: str,
+    creates: list[str],
+    text: str,
+    policy: AutoMergePolicy = DEFAULT_POLICY,
+) -> Decision:
+    """Return AUTO (merge without a human) or HUMAN (route to review), + reason.
+
+    Escalate-when-unsure order: an off switch, a failing/absent gate, a
+    disallowed tier, or a high-risk change each force HUMAN. Only an
+    all-green, low-risk, allowed-tier change reaches AUTO.
+    """
+    if not policy.enabled:
+        return Decision("HUMAN", "auto-merge disabled for this client")
+
+    if policy.require_all_gates_pass:
+        if not gate_results:
+            return Decision("HUMAN", "no gate results — nothing was verified")
+        failed = sorted(name for name, passed in gate_results.items() if not passed)
+        if failed:
+            return Decision("HUMAN", f"gate(s) failed: {', '.join(failed)}")
+
+    if tier not in policy.allowed_tiers:
+        return Decision("HUMAN", f"tier {tier or '(none)'} not eligible for auto-merge")
+
+    if risk_level(tier, creates, text) == "high":
+        return Decision("HUMAN", "high-risk change (new page or medical/legal claim)")
+
+    return Decision("AUTO", "all gates green, low-risk T1 change")
+
+
 def risk_level(tier: str, creates: list[str], text: str) -> str:
     """Return "high" (escalate to a human) or "low" (eligible for auto-merge).
 

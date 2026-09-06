@@ -4,7 +4,65 @@ Task 2: risk_level() — decides whether a change is safe to auto-merge or must
 go to a human. High risk = escalate to a human; low risk = eligible for auto.
 """
 
-from pipeline.lib.automerge import risk_level, AutoMergePolicy, DEFAULT_POLICY
+from pipeline.lib.automerge import (
+    risk_level,
+    AutoMergePolicy,
+    DEFAULT_POLICY,
+    decide,
+    Decision,
+)
+
+# A client that has switched auto-merge ON (default is OFF).
+ENABLED = AutoMergePolicy(enabled=True)
+# All 19 gates green.
+ALL_GREEN = {"tier": True, "provenance": True, "acceptance": True, "orphan": True}
+
+
+# ── Task 3: the eligibility decision (gates + tier + risk -> AUTO / HUMAN) ────
+
+def test_disabled_policy_always_human():
+    d = decide(gate_results=ALL_GREEN, tier="T1", creates=[], text="ok", policy=DEFAULT_POLICY)
+    assert d.action == "HUMAN"
+    assert "disabled" in d.reason.lower()
+
+
+def test_all_green_low_risk_t1_is_auto():
+    d = decide(gate_results=ALL_GREEN, tier="T1", creates=[], text="Open at 8am.", policy=ENABLED)
+    assert d.action == "AUTO"
+
+
+def test_a_failing_gate_forces_human():
+    failed = dict(ALL_GREEN, orphan=False)
+    d = decide(gate_results=failed, tier="T1", creates=[], text="ok", policy=ENABLED)
+    assert d.action == "HUMAN"
+    assert "orphan" in d.reason.lower()
+
+
+def test_high_risk_tier_forces_human_even_if_all_green():
+    d = decide(gate_results=ALL_GREEN, tier="T2", creates=[], text="ok", policy=ENABLED)
+    assert d.action == "HUMAN"
+
+
+def test_medical_claim_forces_human_even_if_all_green():
+    d = decide(gate_results=ALL_GREEN, tier="T1", creates=[], text="This cures the disease.", policy=ENABLED)
+    assert d.action == "HUMAN"
+
+
+def test_new_page_forces_human_even_if_all_green():
+    d = decide(gate_results=ALL_GREEN, tier="T1", creates=["src/app/x/page.tsx"], text="ok", policy=ENABLED)
+    assert d.action == "HUMAN"
+
+
+def test_empty_gate_results_is_human():
+    # No gate evidence at all is never a pass.
+    d = decide(gate_results={}, tier="T1", creates=[], text="ok", policy=ENABLED)
+    assert d.action == "HUMAN"
+
+
+def test_decision_carries_a_reason():
+    d = decide(gate_results=ALL_GREEN, tier="T1", creates=[], text="ok", policy=ENABLED)
+    assert isinstance(d, Decision)
+    assert d.reason  # non-empty explanation always
 
 
 # ── Task 1: the auto-merge policy (the rules, as data) ───────────────────────

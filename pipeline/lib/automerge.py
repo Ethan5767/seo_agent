@@ -11,6 +11,31 @@ Task 2 lives here: risk_level(). Later tasks add the full eligibility decision
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class AutoMergePolicy:
+    """The rules that decide whether a change may auto-merge.
+
+    Frozen so the safety rails cannot be loosened by a stray assignment. The
+    default is deliberately the safest possible: auto-merge OFF, and even when a
+    client turns it on it stays limited to T1 copy edits that pass every gate.
+
+    - enabled: opt-in per client. Never auto-merges until explicitly switched on.
+    - allowed_tiers: only these tiers may auto-merge (T1 = plain copy edits).
+    - require_all_gates_pass: every gate must be green; one failure => human.
+    """
+
+    enabled: bool = False
+    allowed_tiers: frozenset[str] = field(default_factory=lambda: frozenset({"T1"}))
+    require_all_gates_pass: bool = True
+
+
+# The fleet-wide default. A client repo opts in by constructing its own policy
+# with enabled=True; nothing auto-merges under this default.
+DEFAULT_POLICY = AutoMergePolicy()
+
 # YMYL ("Your Money or Your Life") terms. A change whose text touches medical or
 # legal claims must never auto-merge, regardless of tier — the cost of a wrong
 # automated edit here is far higher than the cost of a human glance. The list is

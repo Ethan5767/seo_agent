@@ -4,7 +4,40 @@ Task 2: risk_level() — decides whether a change is safe to auto-merge or must
 go to a human. High risk = escalate to a human; low risk = eligible for auto.
 """
 
-from pipeline.lib.automerge import risk_level
+from pipeline.lib.automerge import risk_level, AutoMergePolicy, DEFAULT_POLICY
+
+
+# ── Task 1: the auto-merge policy (the rules, as data) ───────────────────────
+
+def test_default_policy_is_off():
+    # Auto-merge must be opt-in per client — never on by default.
+    assert DEFAULT_POLICY.enabled is False
+
+
+def test_default_policy_allows_only_t1():
+    assert DEFAULT_POLICY.allowed_tiers == frozenset({"T1"})
+
+
+def test_default_policy_requires_all_gates():
+    assert DEFAULT_POLICY.require_all_gates_pass is True
+
+
+def test_policy_is_immutable():
+    # Frozen so a stray edit can't silently loosen the safety rules.
+    import dataclasses
+    try:
+        DEFAULT_POLICY.enabled = True  # type: ignore[misc]
+    except dataclasses.FrozenInstanceError:
+        return
+    raise AssertionError("policy should be immutable")
+
+
+def test_policy_can_be_enabled_per_client():
+    on = AutoMergePolicy(enabled=True)
+    assert on.enabled is True
+    # enabling does not loosen the other rails
+    assert on.allowed_tiers == frozenset({"T1"})
+    assert on.require_all_gates_pass is True
 
 
 def test_t1_copy_edit_is_low_risk():

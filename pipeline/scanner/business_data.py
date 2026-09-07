@@ -8,11 +8,9 @@ verify against a live response. Pure parser + injectable caller.
 from __future__ import annotations
 
 from pipeline.scanner.dataforseo import _tool, LOCATION_CODE, LANGUAGE_CODE, result_items
+from pipeline.scanner.rows import make_row
 
-
-def _row(what, severity, why, fix, detail=""):
-    return {"code": f"gbp.{what.lower().replace(' ', '_')}", "what": what,
-            "why": why, "fix": fix, "detail": detail, "severity": severity}
+_row = make_row("gbp")
 
 
 def parse_gbp(doc: dict) -> list[dict]:

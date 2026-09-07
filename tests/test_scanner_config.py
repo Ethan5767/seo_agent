@@ -21,3 +21,15 @@ def test_keeps_existing_config(tmp_path):
     ensure_config(repo, "https://other.com/", tier=1)
     cfg = yaml.safe_load((repo / "docs" / "client-config.yml").read_text())
     assert cfg["client"] == "keep-me" and cfg["tier"] == 3
+
+
+def test_onboard_profile_is_written_into_config(tmp_path):
+    repo = tmp_path / "site"; repo.mkdir()
+    profile = {"business": "Orienda Hospital", "keywords": ["hospital phnom penh"],
+               "competitors": ["rival.com"], "goal": "more calls"}
+    p = ensure_config(repo, "https://x.com/", tier=1, profile=profile)
+    cfg = yaml.safe_load(p.read_text())
+    assert cfg["client"] == "Orienda Hospital"
+    assert cfg["seed_queries"] == ["hospital phnom penh"]
+    assert cfg["competitors"] == ["rival.com"]
+    assert cfg["goal"] == "more calls"

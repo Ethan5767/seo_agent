@@ -9,8 +9,11 @@ from urllib.parse import urlsplit
 import yaml
 
 
-def ensure_config(repo: Path, url: str, tier: int = 1) -> Path:
-    """Return docs/client-config.yml, scaffolding a minimal one if absent."""
+def ensure_config(repo: Path, url: str, tier: int = 1, profile: dict | None = None) -> Path:
+    """Return docs/client-config.yml, scaffolding one if absent. `profile` is the
+    Onboard intake (business/keywords/competitors/goal) and is folded into the
+    scaffolded config so later stages (Plan, the DataForSEO keyword-gap tool) can
+    use the client's own targets. An existing config is left untouched."""
     repo = Path(repo)
     docs = repo / "docs"
     path = docs / "client-config.yml"
@@ -19,8 +22,9 @@ def ensure_config(repo: Path, url: str, tier: int = 1) -> Path:
     docs.mkdir(parents=True, exist_ok=True)
     parts = urlsplit(url)
     host = parts.netloc
+    profile = profile or {}
     cfg = {
-        "client": repo.name or "scanned-client",
+        "client": profile.get("business") or repo.name or "scanned-client",
         "domain": host,
         "website": f"{parts.scheme}://{host}",
         "topology_class": "single-site-single-state",
@@ -30,5 +34,11 @@ def ensure_config(repo: Path, url: str, tier: int = 1) -> Path:
         "repo": {"framework": "nextjs-app-router", "build_output_dir": "out"},
         "text_paths": ["out/**/*.html"],
     }
+    if profile.get("keywords"):
+        cfg["seed_queries"] = list(profile["keywords"])
+    if profile.get("competitors"):
+        cfg["competitors"] = list(profile["competitors"])
+    if profile.get("goal"):
+        cfg["goal"] = profile["goal"]
     path.write_text(yaml.safe_dump(cfg, sort_keys=False))
     return path

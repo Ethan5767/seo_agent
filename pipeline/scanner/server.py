@@ -180,6 +180,18 @@ class Handler(BaseHTTPRequestHandler):
         url = normalize_url(req.get("url") or "")
         repo = (req.get("repo") or "").strip()
         model = (req.get("model") or "B").strip().upper()
+
+        def _list(v):
+            if isinstance(v, list):
+                return [str(x).strip() for x in v if str(x).strip()]
+            return [s.strip() for s in str(v or "").split(",") if s.strip()]
+
+        profile = {
+            "business": (req.get("business") or "").strip(),
+            "keywords": _list(req.get("keywords")),
+            "competitors": _list(req.get("competitors")),
+            "goal": (req.get("goal") or "").strip(),
+        }
         crawl = bool(req.get("crawl"))
         try:
             max_pages = max(1, min(int(req.get("max_pages") or 25), 100))
@@ -207,7 +219,7 @@ class Handler(BaseHTTPRequestHandler):
             out = {"audit": build_report(url, log=log, crawl=crawl,
                                          max_pages=max_pages, deep=bool(req.get("deep")))}
             if repo:
-                out["cycle"] = run_cycle(Path(repo), url, model, log=log)
+                out["cycle"] = run_cycle(Path(repo), url, model, log=log, profile=profile)
             out["log"] = list(log)
             emit({"result": out})
             print(f"[scan] done — score {out['audit']['score']}/100", flush=True)

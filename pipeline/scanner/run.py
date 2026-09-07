@@ -73,10 +73,10 @@ def _brief(items: list[dict]) -> str:
 
 
 def run_cycle(repo: Path, url: str, model: str, cycle: str | None = None,
-              log=None) -> dict:
+              log=None, profile: dict | None = None) -> dict:
     log = log if log is not None else []
     repo = Path(repo)
-    ensure_config(repo, url, tier=1)
+    ensure_config(repo, url, tier=1, profile=profile)
     _ensure_repo(repo)
     cycle = cycle or date.today().strftime("%Y-%m")
 

@@ -58,13 +58,13 @@ def test_bare_domain_is_normalized_to_https():
 
 
 def test_build_report_site_audit_uses_dataforseo_not_free_crawler(monkeypatch):
-    # Site-wide comes from DataForSEO. Tests inject by monkeypatching the module
-    # seam (dataforseo.site_audit) — no per-tool injection params on build_report.
-    from pipeline.scanner import dataforseo
-    monkeypatch.setattr(dataforseo, "site_audit", lambda domain, mp: (
-        [{"code": "dfs.orphan_page", "what": "orphan page", "why": "w", "fix": "f",
-          "severity": "warn", "detail": "/x/"}], "ok: crawled 20 · ~$0.0075 est", 0.0075))
+    # Site-wide comes from DataForSEO's on-page audit. Tests inject by
+    # monkeypatching the module seam (onpage_audit.site_audit_full).
+    from pipeline.scanner import onpage_audit
+    monkeypatch.setattr(onpage_audit, "site_audit_full", lambda domain, mp: (
+        [{"code": "dfs.op.is_orphan_page", "what": "Orphan page", "why": "w", "fix": "f",
+          "severity": "warn", "detail": "1 page(s)"}], "crawled 20 · $0.0075", 0.0075))
     report = build_report("https://s.com/", fetch=lambda u: (BAD, 200, "", ""),
                           crux=None, crawl=True)
-    assert report["site"] and report["site"][0]["code"] == "dfs.orphan_page"
+    assert report["site"] and report["site"][0]["code"] == "dfs.op.is_orphan_page"
     assert report["cost"] == 0.0075  # the DataForSEO crawl cost flowed into the total

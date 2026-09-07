@@ -126,7 +126,7 @@ export default function Home() {
 
       <label style={{ display: "block", margin: ".25rem 0" }}>
         <input type="checkbox" checked={crawl} onChange={(e) => setCrawl(e.target.checked)} />{" "}
-        Scan the whole site (crawl up to 25 pages — our own crawler, free)
+        Site audit — crawl the whole site via DataForSEO (JS-aware; finds broken links, orphans, duplicates · 💰 paid, ~$0.0003/page)
       </label>
       <label style={{ display: "block", margin: ".25rem 0" }}>
         <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} />{" "}

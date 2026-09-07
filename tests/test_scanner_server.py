@@ -57,18 +57,14 @@ def test_bare_domain_is_normalized_to_https():
     assert https["severity"] == "ok"  # no longer a false error
 
 
-def test_build_report_crawl_adds_site_group():
-    # entry links to /a/ and /b/ (dup titles); injected page fetcher, no network.
-    site_pages = {
-        "https://s.com/": '<title>Home</title><a href="/a/">a</a><a href="/b/">b</a>',
-        "https://s.com/a/": "<title>Dup</title>",
-        "https://s.com/b/": "<title>Dup</title>",
-    }
-    def fetch(u):  # single-page fetch (entry): html,status,robots,sitemap
-        return site_pages["https://s.com/"], 200, "", ""
-    def page_fetch(u):
-        return site_pages.get(u, ""), (200 if u in site_pages else 404)
+def test_build_report_site_audit_uses_dataforseo_not_free_crawler():
+    # Site-wide now comes from DataForSEO (injected), not the retired free crawler.
+    def fetch(u):
+        return BAD, 200, "", ""
+    fake_site_audit = lambda domain, mp: (
+        [{"code": "dfs.orphan_page", "what": "orphan page", "why": "w", "fix": "f",
+          "severity": "warn", "detail": "/x/"}], "ok: crawled 20 · ~$0.0075 est", 0.0075)
     report = build_report("https://s.com/", fetch=fetch, crux=None,
-                          crawl=True, page_fetch=page_fetch, max_pages=25)
-    assert "site" in report and report["site"]
-    assert any(r["code"] == "site.duplicate_page_titles" for r in report["site"])
+                          crawl=True, site_audit_run=fake_site_audit)
+    assert report["site"] and report["site"][0]["code"] == "dfs.orphan_page"
+    assert report["cost"] == 0.0075  # the DataForSEO crawl cost flowed into the total

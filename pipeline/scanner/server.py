@@ -16,7 +16,6 @@ from pipeline.audit import measure
 from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
 from pipeline.scanner import dataforseo
-from pipeline.scanner.crawl import crawl_site, site_rows
 from pipeline.scanner.extra_checks import tech_rows
 from pipeline.scanner.run import run_cycle
 
@@ -61,7 +60,7 @@ def _status_line(rows: list) -> str:
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                  crawl=False, page_fetch=None, max_pages=25, deep=False,
-                 on_tool=None) -> dict:
+                 on_tool=None, site_audit_run=None) -> dict:
     """Compose the audit. `fetch(url)->(html,status,robots[,sitemap])`. `crux` =
     None (disabled), a (metrics,status) tuple, or 'auto' (call CrUX if key set).
     `log` collects a human trace; `on_tool(name, state, rows, status)` fires
@@ -109,13 +108,12 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
 
     site: list[dict] = []
     if crawl:
-        running("Whole-site crawl (our crawler)")
-        c = crawl_site(url, page_fetch or _default_page_fetch,
-                       sitemap_text=sitemap, max_pages=max_pages,
-                       on_page=lambda n, total, u: log.append(f"  crawling {n}/{total}: {u}"))
-        site = site_rows(c)
-        n_ok = sum(1 for p in c["pages"] if p["status"] == 200)
-        done("Whole-site crawl (our crawler)", site, f"{n_ok} page(s) walked, {_status_line(site)}")
+        # DataForSEO's on-page crawl (JS-aware) — replaces our free HTML crawler,
+        # which couldn't see JS-rendered menus and produced false orphans.
+        running("Site Health (DataForSEO)")
+        runner = site_audit_run or dataforseo.site_audit
+        site, s_status, s_cost = runner(urlsplit(url).netloc or url, max_pages)
+        done("Site Health (DataForSEO)", site, s_status, s_cost)
 
     rankings: list[dict] = []
     if deep:

@@ -36,8 +36,15 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [model, setModel] = useState("B");
   const [repo, setRepo] = useState("");
-  const [keywords, setKeywords] = useState("");
+  const [kwList, setKwList] = useState<string[]>([]);
+  const [kwInput, setKwInput] = useState("");
   const [competitors, setCompetitors] = useState("");
+
+  function addKeyword() {
+    const v = kwInput.trim();
+    if (v && !kwList.includes(v)) setKwList([...kwList, v]);
+    setKwInput("");
+  }
   const [goal, setGoal] = useState("");
   // Measure options
   const [crawl, setCrawl] = useState(false);
@@ -53,7 +60,7 @@ export default function Home() {
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
-        body: JSON.stringify({ url, repo, model, crawl, deep, business, keywords, competitors, goal, max_pages: 25 }),
+        body: JSON.stringify({ url, repo, model, crawl, deep, business, keywords: kwList, competitors, goal, max_pages: 25 }),
       });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();
@@ -98,7 +105,21 @@ export default function Home() {
             </select>
           </label>
           {model === "B" && <label>Repo path (to fix)<input style={box} value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="/path/to/repo" /></label>}
-          <label>Target keywords (comma-separated)<input style={box} value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="hospital phnom penh, pediatric care cambodia" /></label>
+          <label>Target keywords (type one, press Enter to add)
+            <input style={box} value={kwInput}
+              onChange={(e) => setKwInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addKeyword(); } }}
+              placeholder="hospital phnom penh" />
+          </label>
+          {kwList.length > 0 && (
+            <div style={{ margin: ".25rem 0" }}>
+              {kwList.map((k) => (
+                <span key={k} style={{ display: "inline-block", background: "#e6efe9", borderRadius: 12, padding: ".15rem .6rem", margin: ".15rem" }}>
+                  {k} <span style={{ cursor: "pointer", color: "#a00" }} onClick={() => setKwList(kwList.filter((x) => x !== k))}>×</span>
+                </span>
+              ))}
+            </div>
+          )}
           <label>Competitors (comma-separated)<input style={box} value={competitors} onChange={(e) => setCompetitors(e.target.value)} placeholder="competitor1.com, competitor2.com" /></label>
           <label>Growth goal<input style={box} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="More booking calls from local search" /></label>
           <button disabled={!url.trim()} onClick={() => setStage("measure")}
@@ -119,7 +140,7 @@ export default function Home() {
 
       <div style={{ background: "#f7f7f7", borderRadius: 6, padding: "1rem", margin: "1rem 0" }}>
         <b>{business || url}</b> · Model {model}{repo ? ` · ${repo}` : ""}<br />
-        {keywords && <>Keywords: {keywords}<br /></>}
+        {kwList.length > 0 && <>Keywords: {kwList.join(", ")}<br /></>}
         {competitors && <>Competitors: {competitors}<br /></>}
         {goal && <>Goal: {goal}</>}
       </div>

@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from pipeline.audit import measure
 from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
+from pipeline.scanner.crawl import crawl_site, site_rows
 from pipeline.scanner.extra_checks import tech_rows
 from pipeline.scanner.run import run_cycle
 
@@ -35,6 +36,12 @@ def _default_fetch(url: str):
     return html, status, robots, sitemap
 
 
+def _default_page_fetch(url: str):
+    """(html, status) for one page — the crawler's per-page fetcher."""
+    status = measure.curl_status(url)
+    return (measure.curl(url) if status else ""), status
+
+
 def normalize_url(url: str) -> str:
     """A bare domain (no scheme) becomes https:// — otherwise urlsplit gets an
     empty netloc and robots/sitemap/CrUX/HTTPS all mis-read. Users paste bare
@@ -45,7 +52,8 @@ def normalize_url(url: str) -> str:
     return url
 
 
-def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
+def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
+                 crawl=False, page_fetch=None, max_pages=25) -> dict:
     """Compose the audit. `fetch(url)->(html,status,robots[,sitemap])`. `crux` =
     None (disabled), a (metrics,status) tuple, or 'auto' (call CrUX if key set).
     `log` (a list) collects a human-readable trace of what the scan did."""
@@ -77,14 +85,22 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
     log.append(
         f"Sitemap.xml -> {'found' if sitemap and sitemap.strip() else 'none found'}."
     )
-    all_rows = seo + aeo + perf + tech
+    site: list[dict] = []
+    if crawl:
+        c = crawl_site(url, page_fetch or _default_page_fetch,
+                       sitemap_text=sitemap, max_pages=max_pages)
+        site = site_rows(c)
+        n_ok = sum(1 for p in c["pages"] if p["status"] == 200)
+        log.append(f"Crawled the whole site — {n_ok} page(s) walked"
+                   + (" (page cap reached)." if c["capped"] else "."))
+    all_rows = seo + aeo + perf + tech + site
     issues = sum(1 for r in all_rows if r["severity"] in ("error", "warn"))
     passed = sum(1 for r in all_rows if r["severity"] == "ok")
     log.append(
         f"Checked {len(all_rows)} things — {issues} need attention, {passed} passed. "
         "Everything is listed below (green = good)."
     )
-    return A.assemble(seo, aeo, perf, tech)
+    return A.assemble(seo, aeo, perf, tech, site)
 
 
 def _human_size(n: int) -> str:
@@ -137,9 +153,14 @@ class Handler(BaseHTTPRequestHandler):
         url = normalize_url(req.get("url") or "")
         repo = (req.get("repo") or "").strip()
         model = (req.get("model") or "B").strip().upper()
+        crawl = bool(req.get("crawl"))
+        try:
+            max_pages = max(1, min(int(req.get("max_pages") or 25), 100))
+        except (TypeError, ValueError):
+            max_pages = 25
         log: list[str] = []
         try:
-            out = {"audit": build_report(url, log=log)}
+            out = {"audit": build_report(url, log=log, crawl=crawl, max_pages=max_pages)}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log)
         except Exception as exc:  # a failed scan is data, not a crash

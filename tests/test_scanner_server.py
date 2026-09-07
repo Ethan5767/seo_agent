@@ -55,3 +55,20 @@ def test_bare_domain_is_normalized_to_https():
     assert seen["u"].startswith("https://example.com/")
     https = next(r for r in report["tech"] if r["what"] == "HTTPS")
     assert https["severity"] == "ok"  # no longer a false error
+
+
+def test_build_report_crawl_adds_site_group():
+    # entry links to /a/ and /b/ (dup titles); injected page fetcher, no network.
+    site_pages = {
+        "https://s.com/": '<title>Home</title><a href="/a/">a</a><a href="/b/">b</a>',
+        "https://s.com/a/": "<title>Dup</title>",
+        "https://s.com/b/": "<title>Dup</title>",
+    }
+    def fetch(u):  # single-page fetch (entry): html,status,robots,sitemap
+        return site_pages["https://s.com/"], 200, "", ""
+    def page_fetch(u):
+        return site_pages.get(u, ""), (200 if u in site_pages else 404)
+    report = build_report("https://s.com/", fetch=fetch, crux=None,
+                          crawl=True, page_fetch=page_fetch, max_pages=25)
+    assert "site" in report and report["site"]
+    assert any(r["code"] == "site.duplicate_page_titles" for r in report["site"])

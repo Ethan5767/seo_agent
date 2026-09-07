@@ -1,0 +1,53 @@
+"""Whole-site crawl + site-wide findings (pipeline/scanner/crawl.py).
+
+A fake 5-URL site, fetched through an injected callable (no network):
+  /          Home, links -> /a/, /b/
+  /a/        title "Dup", links -> /
+  /b/        title "Dup"  (duplicate title with /a/), links -> /missing/
+  /missing/  404          (broken internal link, reached from /b/)
+  /orphan/   200, in sitemap but linked by nobody  (orphan)
+"""
+from pipeline.scanner.crawl import crawl_site, site_rows, links_in
+
+PAGES = {
+    "https://s.com/": '<title>Home</title><a href="/a/">a</a> <a href="/b/">b</a>',
+    "https://s.com/a/": '<title>Dup</title><a href="/">home</a>',
+    "https://s.com/b/": '<title>Dup</title><a href="/missing/">x</a>',
+    "https://s.com/orphan/": "<title>Orphan</title>",
+}
+SITEMAP = ("<urlset><loc>https://s.com/</loc><loc>https://s.com/a/</loc>"
+           "<loc>https://s.com/b/</loc><loc>https://s.com/orphan/</loc></urlset>")
+
+
+def fetch(url):
+    if url == "https://s.com/missing/":
+        return "", 404
+    html = PAGES.get(url)
+    return (html, 200) if html is not None else ("", 404)
+
+
+def test_links_are_same_site_and_normalized():
+    got = links_in("https://s.com/", PAGES["https://s.com/"])
+    assert got == {"https://s.com/a/", "https://s.com/b/"}
+
+
+def test_crawl_reaches_linked_pages_not_the_orphan():
+    c = crawl_site("https://s.com/", fetch, sitemap_text=SITEMAP, max_pages=25)
+    assert "https://s.com/orphan/" not in c["reachable"]  # only via sitemap
+    assert "https://s.com/a/" in c["reachable"]
+
+
+def test_site_rows_find_dup_title_broken_link_and_orphan():
+    rows = site_rows(crawl_site("https://s.com/", fetch, sitemap_text=SITEMAP))
+    codes = {r["code"] for r in rows}
+    assert "site.duplicate_page_titles" in codes
+    assert "site.broken_internal_link" in codes
+    assert "site.orphan_page" in codes
+    # the summary is always present
+    assert any(r["what"] == "Pages crawled" for r in rows)
+
+
+def test_broken_link_is_an_error_and_orphan_is_a_warn():
+    rows = {r["code"]: r for r in site_rows(crawl_site("https://s.com/", fetch, sitemap_text=SITEMAP))}
+    assert rows["site.broken_internal_link"]["severity"] == "error"
+    assert rows["site.orphan_page"]["severity"] == "warn"

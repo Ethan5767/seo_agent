@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
-type Audit = { seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; score: number; counts: Record<string, number> };
+type Audit = { seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; score: number; counts: Record<string, number> };
 type Cycle =
   | { model: "A"; brief: string; worklist: unknown[] }
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
@@ -28,6 +28,7 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [repo, setRepo] = useState("");
   const [model, setModel] = useState("B");
+  const [crawl, setCrawl] = useState(false);
   const [busy, setBusy] = useState(false);
   const [data, setData] = useState<ScanResult | null>(null);
 
@@ -37,7 +38,7 @@ export default function Home() {
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
-        body: JSON.stringify({ url, repo, model }),
+        body: JSON.stringify({ url, repo, model, crawl, max_pages: 25 }),
       });
       setData(await res.json());
     } catch (e) {
@@ -66,6 +67,10 @@ export default function Home() {
         <option value="B">Model B (we fix the code)</option>
         <option value="A">Model A (brief only)</option>
       </select>
+      <label style={{ display: "block", margin: ".5rem 0" }}>
+        <input type="checkbox" checked={crawl} onChange={(e) => setCrawl(e.target.checked)} />{" "}
+        Scan the whole site (crawl up to 25 pages — slower, finds orphans/broken links/duplicates)
+      </label>
       <button onClick={run} disabled={busy}
         style={{ padding: ".6rem 1.2rem", background: "#1a5", color: "#fff", border: 0, borderRadius: 6, cursor: "pointer" }}>
         {busy ? "Running… (a real fix can take 10-60s)" : "Run"}
@@ -83,6 +88,7 @@ export default function Home() {
           <h2>AEO (AI answer engines)</h2><Rows list={a.aeo} />
           <h2>Performance</h2><Rows list={a.perf} />
           <h2>Technical</h2><Rows list={a.tech} />
+          {a.site && a.site.length > 0 && <><h2>Whole site</h2><Rows list={a.site} /></>}
         </div>
       )}
 

@@ -27,7 +27,8 @@ $("run").onclick = async () => {
     <h2>SEO</h2>${rows(a.seo)}
     <h2>AEO (AI answer engines)</h2>${rows(a.aeo)}
     <h2>Performance</h2>${rows(a.perf)}
-    <h2>Technical</h2>${rows(a.tech || [])}`;
+    <h2>Technical</h2>${rows(a.tech || [])}
+    ${(a.site && a.site.length) ? `<h2>Whole site</h2>${rows(a.site)}` : ""}`;
 
   if (data.cycle) {
     const c = data.cycle;

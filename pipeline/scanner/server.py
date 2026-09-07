@@ -76,13 +76,14 @@ TOOLS = [
     ("Site Health (DataForSEO)", "site", "crawl", lambda c: dataforseo.site_audit(c.domain, c.max_pages)),
     ("Rankings (DataForSEO)", "rankings", "deep", lambda c: dataforseo.rankings(c.domain, c.keywords)),
     ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
+    ("AI citations (DataForSEO)", "ai", "deep", lambda c: dataforseo.llm_mentions(c.brand, c.domain)),
 ]
-_GROUP_KEYS = ("seo", "aeo", "perf", "tech", "site", "rankings", "keywords")
+_GROUP_KEYS = ("seo", "aeo", "perf", "tech", "site", "rankings", "keywords", "ai")
 
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                  crawl=False, max_pages=25, deep=False, keywords=None,
-                 competitors=None, on_tool=None) -> dict:
+                 competitors=None, business="", on_tool=None) -> dict:
     """Compose the audit by running each tool in TOOLS whose gate is on.
     `fetch(url)->(html,status,robots[,sitemap])`. `crux`: None | (metrics,status)
     | 'auto'. `log` collects a human trace; `on_tool(name,state,rows,status,cost)`
@@ -100,7 +101,8 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     ctx = SimpleNamespace(
         url=url, domain=urlsplit(url).netloc or url, html=html, status=status,
         robots=fetched[2], sitemap=fetched[3] if len(fetched) > 3 else None,
-        crux=crux, max_pages=max_pages, keywords=keywords or [], competitors=competitors or [])
+        crux=crux, max_pages=max_pages, keywords=keywords or [], competitors=competitors or [],
+        brand=business or (urlsplit(url).netloc or url))
     opts = {"crawl": crawl, "deep": deep}
 
     groups: dict[str, list] = {}
@@ -234,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
             out = {"audit": build_report(url, log=log, crawl=crawl,
                                          max_pages=max_pages, deep=bool(req.get("deep")),
                                          on_tool=on_tool, keywords=profile["keywords"],
-                                         competitors=profile["competitors"])}
+                                         competitors=profile["competitors"], business=profile["business"])}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log, profile=profile)
             out["log"] = list(log)

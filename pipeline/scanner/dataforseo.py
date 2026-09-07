@@ -349,3 +349,36 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
         r, _s, c = keyword_ideas(keywords, call=call); rows += r; cost += c
     cost = round(cost, 4)
     return rows, f"keywords: {len(rows)} row(s) · ${cost:.4f}", cost
+
+
+# ── AI visibility (tool 17): LLM mentions ────────────────────────────────────
+
+def parse_llm_mentions(doc: dict, brand: str) -> list[dict]:
+    """One summary row: is the brand cited by AI answer engines, and how often."""
+    items = result_items(doc)
+    if not items:
+        return [{"code": "dfs.llm_mentions", "what": f"{brand}: not cited by AI engines",
+                 "why": "AI answer engines (ChatGPT, Perplexity, Google AI) don't reference the brand yet — the AEO gap.",
+                 "fix": "publish citable, factual content (clear answers, stats, entity schema) so AI engines cite you",
+                 "severity": "warn", "detail": "0 mentions"}]
+    models = sorted({str(it.get("ai_provider") or it.get("model") or it.get("llm_model") or "AI")
+                     for it in items})
+    return [{"code": "dfs.llm_mentions", "what": f"{brand}: cited {len(items)} time(s) by AI",
+             "why": "AI answer engines already reference the brand — solid AEO footing.",
+             "fix": "keep and expand the citable content that's earning the mentions",
+             "severity": "ok", "detail": ", ".join(models)[:80]}]
+
+
+def llm_mentions(brand: str, domain: str, call=call) -> tuple:
+    """(rows, status, cost) — is `brand`/`domain` cited across AI answer engines."""
+    target = [
+        {"keyword": brand, "search_filter": "include",
+         "search_scope": ["answer"], "match_type": "partial_match"},
+        {"domain": domain, "search_filter": "include", "search_scope": ["sources"]},
+    ]
+    doc, err = call("/v3/ai_optimization/llm_mentions/search_mentions/live",
+                    [{"target": target, "location_code": LOCATION_CODE,
+                      "language_code": LANGUAGE_CODE, "limit": 100}])
+    if err:
+        return [], err, 0.0
+    return parse_llm_mentions(doc, brand), "ok", cost_of(doc)

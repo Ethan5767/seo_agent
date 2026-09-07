@@ -3,7 +3,7 @@ import { useState } from "react";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
 type Audit = {
-  seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; rankings: Row[]; keywords: Row[];
+  seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; rankings: Row[]; keywords: Row[]; ai: Row[];
   score: number; counts: Record<string, number>;
 };
 type Cycle =

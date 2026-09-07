@@ -167,3 +167,25 @@ def test_keywords_card_aggregates_and_sums_cost():
     codes = {r["code"] for r in rows}
     assert {"dfs.competitor", "dfs.keyword_gap", "dfs.keyword_volume", "dfs.keyword_idea"} <= codes
     assert cost == round(0.005 + 0.01 + 0.02 + 0.008, 4)
+
+
+# ── Task 6: AI visibility (LLM mentions) ─────────────────────────────────────
+from pipeline.scanner.dataforseo import parse_llm_mentions, llm_mentions
+
+
+def test_llm_mentions_cited_is_ok():
+    doc = {"tasks": [{"result": [{"items": [
+        {"ai_provider": "chatgpt"}, {"ai_provider": "perplexity"}]}]}]}
+    rows = parse_llm_mentions(doc, "Orienda")
+    assert rows[0]["severity"] == "ok" and "cited 2 time" in rows[0]["what"]
+
+
+def test_llm_mentions_absent_is_warn_gap():
+    rows = parse_llm_mentions({"tasks": [{"result": [{"items": []}]}]}, "Orienda")
+    assert rows[0]["severity"] == "warn" and "not cited" in rows[0]["what"]
+
+
+def test_llm_mentions_caller_injected():
+    rows, status, cost = llm_mentions("Orienda", "x.com",
+                                      call=lambda p, b: ({"cost": 0.03, "tasks": [{"result": [{"items": [{"model": "gpt"}]}]}]}, None))
+    assert cost == 0.03 and rows[0]["severity"] == "ok"

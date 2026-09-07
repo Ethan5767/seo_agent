@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from pipeline.audit import measure
 from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
+from pipeline.scanner.extra_checks import tech_rows
 from pipeline.scanner.run import run_cycle
 
 STATIC = Path(__file__).parent / "static"
@@ -24,12 +25,14 @@ from pipeline.lib.env import load_env as load_dotenv  # noqa: E402 (re-export)
 
 
 def _default_fetch(url: str):
-    """(html, status, robots_text) for a live URL. Reuses measure's curl."""
+    """(html, status, robots_text, sitemap_text) for a live URL. Reuses curl."""
     status = measure.curl_status(url)
     html = measure.curl(url) if status else ""
     parts = urlsplit(url)
-    robots = measure.curl(f"{parts.scheme}://{parts.netloc}/robots.txt", cache_bust=False)
-    return html, status, robots
+    origin = f"{parts.scheme}://{parts.netloc}"
+    robots = measure.curl(f"{origin}/robots.txt", cache_bust=False)
+    sitemap = measure.curl(f"{origin}/sitemap.xml", cache_bust=False)
+    return html, status, robots, sitemap
 
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
@@ -37,7 +40,9 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
     (disabled), a (findings,status) tuple, or 'auto' (call CrUX if key set).
     `log` (a list) collects a human-readable trace of what the scan did."""
     log = log if log is not None else []
-    html, status, robots = fetch(url)
+    fetched = fetch(url)
+    html, status, robots = fetched[0], fetched[1], fetched[2]
+    sitemap = fetched[3] if len(fetched) > 3 else None
     if status == 200:
         log.append(f"Opened the page — {_human_size(len(html))}, loaded OK.")
     else:
@@ -57,14 +62,18 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
     seo = A.seo_rows(url, html, status, {})
     aeo = A.aeo_rows(robots, html)
     perf = A.perf_rows(crux)
-    all_rows = seo + aeo + perf
+    tech = tech_rows(url, html, status, sitemap)
+    log.append(
+        f"Sitemap.xml -> {'found' if sitemap and sitemap.strip() else 'none found'}."
+    )
+    all_rows = seo + aeo + perf + tech
     issues = sum(1 for r in all_rows if r["severity"] in ("error", "warn"))
     passed = sum(1 for r in all_rows if r["severity"] == "ok")
     log.append(
         f"Checked {len(all_rows)} things — {issues} need attention, {passed} passed. "
         "Everything is listed below (green = good)."
     )
-    return A.assemble(seo, aeo, perf)
+    return A.assemble(seo, aeo, perf, tech)
 
 
 def _human_size(n: int) -> str:

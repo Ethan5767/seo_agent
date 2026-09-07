@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
-type Audit = { seo: Row[]; aeo: Row[]; perf: Row[]; score: number; counts: Record<string, number> };
+type Audit = { seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; score: number; counts: Record<string, number> };
 type Cycle =
   | { model: "A"; brief: string; worklist: unknown[] }
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
@@ -82,6 +82,7 @@ export default function Home() {
           <h2>SEO</h2><Rows list={a.seo} />
           <h2>AEO (AI answer engines)</h2><Rows list={a.aeo} />
           <h2>Performance</h2><Rows list={a.perf} />
+          <h2>Technical</h2><Rows list={a.tech} />
         </div>
       )}
 

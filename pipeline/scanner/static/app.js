@@ -26,7 +26,8 @@ $("run").onclick = async () => {
   let html = `<div class="score">Score ${a.score}/100</div>
     <h2>SEO</h2>${rows(a.seo)}
     <h2>AEO (AI answer engines)</h2>${rows(a.aeo)}
-    <h2>Performance</h2>${rows(a.perf)}`;
+    <h2>Performance</h2>${rows(a.perf)}
+    <h2>Technical</h2>${rows(a.tech || [])}`;
 
   if (data.cycle) {
     const c = data.cycle;

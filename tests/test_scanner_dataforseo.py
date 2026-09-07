@@ -212,3 +212,22 @@ def test_backlinks_none_is_warn():
 def test_backlinks_caller_injected():
     rows, status, cost = backlinks("x.com", call=lambda p, b: ({"cost": 0.02, "tasks": [{"result": [{"backlinks": 5, "referring_domains": 2}]}]}, None))
     assert cost == 0.02 and rows[0]["code"] == "dfs.backlinks"
+
+
+# ── Measure-completion: Historical rank trend (#11) ──────────────────────────
+from pipeline.scanner.dataforseo import parse_historical_rank, historical_rank
+
+
+def test_historical_rank_trend_up_is_ok():
+    doc = {"tasks": [{"result": [{"items": [
+        {"year": 2025, "month": 1, "metrics": {"organic": {"count": 80}}},
+        {"year": 2025, "month": 6, "metrics": {"organic": {"count": 120}}}]}]}]}
+    rows = parse_historical_rank(doc)
+    assert rows[0]["severity"] == "ok" and "up 40" in rows[0]["what"]
+
+
+def test_historical_rank_trend_down_is_warn():
+    doc = {"tasks": [{"result": [{"items": [
+        {"year": 2025, "month": 1, "metrics": {"organic": {"count": 120}}},
+        {"year": 2025, "month": 6, "metrics": {"organic": {"count": 90}}}]}]}]}
+    assert parse_historical_rank(doc)[0]["severity"] == "warn"

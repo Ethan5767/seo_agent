@@ -404,3 +404,33 @@ def backlinks(domain: str, call=call) -> tuple:
     return _tool("/v3/backlinks/summary/live",
                  [{"target": domain, "internal_list_limit": 10, "backlinks_status_type": "live"}],
                  parse_backlinks, call=call)
+
+
+# ── Historical rank overview (#11): visibility trend over time ───────────────
+
+def parse_historical_rank(doc: dict) -> list[dict]:
+    """One trend row: is the domain's organic keyword count rising or falling?"""
+    pts = []
+    for it in result_items(doc):
+        org = (it.get("metrics") or {}).get("organic") or {}
+        cnt = org.get("count")
+        if isinstance(cnt, (int, float)):
+            pts.append((it.get("year"), it.get("month"), int(cnt)))
+    if not pts:
+        return []
+    first, last = pts[0][2], pts[-1][2]
+    delta = last - first
+    sev = "ok" if delta > 0 else "warn" if delta < 0 else "info"
+    arrow = "up" if delta > 0 else "down" if delta < 0 else "flat"
+    return [{"code": "dfs.rank_trend",
+             "what": f"Visibility trend: {last} keywords ({arrow} {abs(delta)} vs earliest sampled)",
+             "why": "Whether the site is gaining or losing organic footprint over time.",
+             "fix": "keep the momentum" if delta > 0 else "reverse the decline — refresh decaying pages" if delta < 0 else "push for growth",
+             "severity": sev, "detail": f"{first} → {last}"}]
+
+
+def historical_rank(domain: str, call=call) -> tuple:
+    """(rows, status, cost) — organic visibility trend. Input = domain only."""
+    return _tool("/v3/dataforseo_labs/google/historical_rank_overview/live",
+                 [{"target": domain, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 parse_historical_rank, call=call)

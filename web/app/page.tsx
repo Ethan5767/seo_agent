@@ -10,10 +10,10 @@ type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string; log?: string[]
 
 const COLOR: Record<string, string> = { error: "#b00", warn: "#a60", info: "#999", ok: "#1a5" };
 
-function Rows({ list }: { list: Row[] }) {
+function Rows({ list }: { list?: Row[] }) {
   return (
     <>
-      {list.map((r, i) => (
+      {(list || []).map((r, i) => (
         <div key={i} style={{ padding: ".5rem", borderLeft: `4px solid ${COLOR[r.severity] || "#ccc"}`, marginBottom: ".4rem" }}>
           <b>{r.severity === "ok" ? "✓ PASS" : r.severity.toUpperCase()}</b> {r.what} {r.detail ? `(${r.detail})` : ""}
           <div>{r.why}</div>

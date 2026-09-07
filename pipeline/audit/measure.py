@@ -237,6 +237,8 @@ def _warn_unmeasurable(cfg: dict) -> None:
 
 
 def main() -> int:
+    from pipeline.lib.env import load_env
+    load_env()  # one shared .env: CRUX/GSC/DataForSEO/BrightData keys, if present
     ap = argparse.ArgumentParser(
         prog="wf-site-health",
         description="Measure a live site and write typed findings for the ratchet.")

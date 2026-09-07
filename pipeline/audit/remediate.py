@@ -738,6 +738,8 @@ def _base(item: dict) -> dict:
 
 
 def main() -> int:
+    from pipeline.lib.env import load_env
+    load_env()  # one shared .env, same file every wf-* command reads
     # Line-buffer stdout when piped (dashboard SSE, `./run.sh`, CI). Without
     # this, print() sits in a block buffer and the operator sees RUNNING with a
     # blank pane until the process exits.

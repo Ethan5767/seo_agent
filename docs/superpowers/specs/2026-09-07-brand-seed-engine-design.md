@@ -136,12 +136,23 @@ BLOGGER_ACCESS_TOKEN / BLOGGER_BLOG_ID
 ```
 Each optional; absence → loud skip for that platform only.
 
-## MVP (v1)
+## MVP (v1) — core engine, no external platform accounts
 
-`gaps.json` → generate → **Dev.to** green auto-post (cleanest API) + yellow
-queue to `drafts/` + `seed-log.json`, all behind `--dry-run` default with
-`--live` opt-in. Prove one green platform end-to-end, then fan out Medium /
-Hashnode / Tumblr / Blogger as identical-shape poster fns.
+Build the pipeline end-to-end with a **stub poster**, so the only external
+dependency is `ANTHROPIC_API_KEY`:
+
+```
+gaps.json → generate (Claude) → dispatch by tier → seed-log.json
+   green  → stub poster: logs "would POST to <platform>: <title>"  (no HTTP)
+   yellow → REAL: writes drafts/<platform>-<slug>.md               (free, no account)
+   red    → skip, logged
+```
+
+This proves gaps parsing, draft generation, tiering, dispatch, and logging with
+zero platform signup. Real green posters (Dev.to first — free API key, cleanest)
+are added afterward as identical-shape fns that replace the stub one platform at
+a time. Free platform APIs only (Dev.to / Hashnode / Tumblr / Blogger); paid or
+locked APIs (Medium) deferred/swapped.
 
 ## Future (not now — YAGNI)
 

@@ -77,6 +77,7 @@ TOOLS = [
     ("Rankings (DataForSEO)", "rankings", "deep", lambda c: dataforseo.rankings(c.domain, c.keywords)),
     ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
     ("AI citations (DataForSEO)", "ai", "deep", lambda c: dataforseo.llm_mentions(c.brand, c.domain)),
+    ("Backlinks (DataForSEO)", "backlinks", "deep", lambda c: dataforseo.backlinks(c.domain)),
 ]
 
 

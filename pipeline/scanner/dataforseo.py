@@ -370,3 +370,37 @@ def llm_mentions(brand: str, domain: str, call=call) -> tuple:
                  [{"target": target, "location_code": LOCATION_CODE,
                    "language_code": LANGUAGE_CODE, "limit": 100}],
                  lambda d: parse_llm_mentions(d, brand), call=call)
+
+
+# ── Backlinks (SOP Measure: backlink analysis) ───────────────────────────────
+# NOTE: endpoint not in the tested INPUTS-17 doc — parser built to DataForSEO's
+# documented Backlinks Summary shape; verify against a live response.
+
+def parse_backlinks(doc: dict) -> list[dict]:
+    res = (doc.get("tasks") or [{}])[0].get("result") if doc else None
+    r0 = (res or [{}])[0] or {}
+    if not r0:
+        return []
+    bl = r0.get("backlinks") or 0
+    rd = r0.get("referring_domains") or 0
+    rank = r0.get("rank")
+    rows = [{"code": "dfs.backlinks",
+             "what": f"{bl} backlinks from {rd} referring domains",
+             "why": "Backlinks are a top Google ranking factor — other sites vouching for yours.",
+             "fix": "keep earning links from relevant, trusted sites" if bl else "no links yet — start earning quality backlinks",
+             "severity": "ok" if bl else "warn",
+             "detail": f"authority rank {rank}" if rank is not None else ""}]
+    broken = r0.get("broken_backlinks") or 0
+    if broken:
+        rows.append({"code": "dfs.broken_backlinks", "what": f"{broken} broken backlink(s)",
+                     "why": "Links pointing at dead pages on your site waste the authority they'd pass.",
+                     "fix": "restore or 301-redirect those target URLs so the link equity isn't lost",
+                     "severity": "warn", "detail": f"{broken} broken"})
+    return rows
+
+
+def backlinks(domain: str, call=call) -> tuple:
+    """(rows, status, cost) — backlink profile summary. Input = domain only."""
+    return _tool("/v3/backlinks/summary/live",
+                 [{"target": domain, "internal_list_limit": 10, "backlinks_status_type": "live"}],
+                 parse_backlinks, call=call)

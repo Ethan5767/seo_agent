@@ -189,3 +189,26 @@ def test_llm_mentions_caller_injected():
     rows, status, cost = llm_mentions("Orienda", "x.com",
                                       call=lambda p, b: ({"cost": 0.03, "tasks": [{"result": [{"items": [{"model": "gpt"}]}]}]}, None))
     assert cost == 0.03 and rows[0]["severity"] == "ok"
+
+
+# ── Measure-completion: Backlinks ────────────────────────────────────────────
+from pipeline.scanner.dataforseo import parse_backlinks, backlinks
+
+
+def test_backlinks_summary_row():
+    doc = {"cost": 0.02, "tasks": [{"result": [
+        {"backlinks": 340, "referring_domains": 45, "rank": 210, "broken_backlinks": 3}]}]}
+    rows = parse_backlinks(doc)
+    by = {r["code"]: r for r in rows}
+    assert "340 backlinks" in by["dfs.backlinks"]["what"] and by["dfs.backlinks"]["severity"] == "ok"
+    assert by["dfs.broken_backlinks"]["severity"] == "warn"
+
+
+def test_backlinks_none_is_warn():
+    rows = parse_backlinks({"tasks": [{"result": [{"backlinks": 0, "referring_domains": 0}]}]})
+    assert rows[0]["severity"] == "warn"
+
+
+def test_backlinks_caller_injected():
+    rows, status, cost = backlinks("x.com", call=lambda p, b: ({"cost": 0.02, "tasks": [{"result": [{"backlinks": 5, "referring_domains": 2}]}]}, None))
+    assert cost == 0.02 and rows[0]["code"] == "dfs.backlinks"

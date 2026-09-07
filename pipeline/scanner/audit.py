@@ -176,21 +176,15 @@ def perf_rows(crux) -> list[dict]:
     return rows
 
 
-# Every result group the report can carry, in display order. Adding a group is
-# one entry here — assemble and the UI both key off it, no positional coupling.
-GROUP_KEYS = ("seo", "aeo", "perf", "tech", "site", "rankings", "keywords", "ai")
-
-
 def assemble(groups: dict) -> dict:
-    """Combine result groups (a {key: rows} dict) into one report with a headline
-    score. Unknown keys are ignored; missing ones default to empty."""
-    out = {k: groups.get(k) or [] for k in GROUP_KEYS}
+    """Combine result groups (a {key: rows} dict, in insertion/display order) into
+    one report with a headline score. Passes every group through as-is, so adding
+    a new tool/card needs no change here — the group just appears."""
     counts = {"error": 0, "warn": 0, "info": 0, "ok": 0}
-    for rows in out.values():
+    for rows in groups.values():
         for r in rows:
             counts[r["severity"]] = counts.get(r["severity"], 0) + 1
     # Only real problems move the score; "ok"/"info" and the informational
     # rankings/keywords/ai groups do not.
-    out["score"] = max(0, 100 - 10 * counts["error"] - 3 * counts["warn"])
-    out["counts"] = counts
-    return out
+    score = max(0, 100 - 10 * counts["error"] - 3 * counts["warn"])
+    return {**groups, "score": score, "counts": counts}

@@ -172,18 +172,32 @@ def site_rows(crawl: dict) -> list[dict]:
     # be a false positive (the common case on a big site). Same if links are
     # JavaScript-rendered: our HTML crawler can't see them. So gate on capped,
     # and word the real finding to admit the JS caveat.
+    sitemap_n = len(crawl["sitemap_urls"])
     orphans = sorted(u for u in crawl["sitemap_urls"] if u not in crawl["reachable"])
+    orphan_share = (len(orphans) / sitemap_n) if sitemap_n else 0.0
+
     if crawl["capped"]:
         rows.append(_row("Orphan check", "info",
                          f"Only crawled {len(ok)} pages of a larger site, so we can't tell which sitemap "
-                         f"pages are truly unlinked ({len(orphans)} were unreached, but that's likely just "
-                         f"the crawl limit). Raise the page cap for a full orphan audit.",
+                         f"pages are truly unlinked ({len(orphans)} unreached — likely just the crawl limit). "
+                         f"Raise the page cap for a full orphan audit.",
                          "raise the crawl page cap", detail=f"{len(orphans)} unreached"))
+    elif sitemap_n and orphan_share > 0.5:
+        # Most of the sitemap "unreached" isn't a site with hundreds of orphans —
+        # it's a navigation our HTML crawler couldn't follow (almost always a
+        # JavaScript-rendered menu). Report that honestly instead of a false list.
+        rows.append(_row("Orphan check", "info",
+                         f"Our crawler could only follow links to {len(ok)} of {sitemap_n} sitemap pages. "
+                         f"That usually means the site's menu is JavaScript-rendered — the links are there "
+                         f"for people, but not in the raw HTML that search/AI crawlers read. Worth checking: "
+                         f"a JS-only menu also makes these pages hard for AI crawlers to find.",
+                         "make the main navigation real <a href> links in the HTML (not JS-only)",
+                         detail=f"{len(orphans)} of {sitemap_n} unreached"))
     else:
         for u in orphans:
             rows.append(_row("Orphan page", "warn",
                              f"{u} is in the sitemap but our crawl found no internal link to it. "
-                             f"(If it's linked only from a JavaScript menu, our crawler can't see that — verify manually.)",
+                             f"(If it's linked only from a JavaScript menu, verify manually.)",
                              "Add an internal link to this page from a relevant page.",
                              detail=u))
 

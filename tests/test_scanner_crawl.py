@@ -60,3 +60,23 @@ def test_capped_crawl_suppresses_orphan_false_positives():
     assert "site.orphan_page" not in codes          # no false orphan warnings
     assert "site.orphan_check" in codes             # honest "incomplete" note instead
     assert next(r for r in rows if r["code"] == "site.orphan_check")["severity"] == "info"
+
+
+def test_js_nav_site_not_flagged_as_hundreds_of_orphans():
+    # homepage has NO raw-HTML links (JS menu); sitemap lists 4 pages.
+    js_pages = {
+        "https://j.com/": "<title>Home</title>",           # no <a> links
+        "https://j.com/a/": "<title>A</title>",
+        "https://j.com/b/": "<title>B</title>",
+        "https://j.com/c/": "<title>C</title>",
+    }
+    smap = "<urlset><loc>https://j.com/</loc><loc>https://j.com/a/</loc><loc>https://j.com/b/</loc><loc>https://j.com/c/</loc></urlset>"
+    def jfetch(u):
+        h = js_pages.get(u)
+        return (h, 200) if h is not None else ("", 404)
+    rows = site_rows(crawl_site("https://j.com/", jfetch, sitemap_text=smap, max_pages=25))
+    codes = {r["code"] for r in rows}
+    assert "site.orphan_page" not in codes           # not a wall of false orphans
+    note = next(r for r in rows if r["code"] == "site.orphan_check")
+    assert note["severity"] == "info"
+    assert "JavaScript" in note["why"]

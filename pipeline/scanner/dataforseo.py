@@ -65,6 +65,16 @@ def cost_of(doc: dict) -> float:
         return 0.0
 
 
+def _tool(path: str, payload: list, parse, call=call, status: str = "ok") -> tuple:
+    """The one caller shape shared by every DataForSEO tool: POST, and on success
+    return (parse(doc), status, cost_of(doc)); on error ([], error, 0.0). Kills
+    the per-tool call/err/cost boilerplate. `parse(doc) -> rows`."""
+    doc, err = call(path, payload)
+    if err:
+        return [], err, 0.0
+    return parse(doc), status, cost_of(doc)
+
+
 def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict:
     return {"code": "dfs.ranked_keyword", "what": what, "why": why,
             "fix": fix, "detail": detail, "severity": severity}
@@ -171,12 +181,9 @@ def parse_domain_overview(doc: dict) -> list[dict]:
 
 def domain_overview(domain: str, call=call) -> tuple:
     """(rows, status, cost) — the domain's organic visibility overview."""
-    doc, err = call("/v3/dataforseo_labs/google/domain_rank_overview/live",
-                    [{"target": domain, "location_code": LOCATION_CODE,
-                      "language_code": LANGUAGE_CODE}])
-    if err:
-        return [], err, 0.0
-    return parse_domain_overview(doc), "ok", cost_of(doc)
+    return _tool("/v3/dataforseo_labs/google/domain_rank_overview/live",
+                 [{"target": domain, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 parse_domain_overview, call=call)
 
 
 def parse_serp_rank(doc: dict, domain: str, keyword: str) -> list[dict]:
@@ -197,12 +204,10 @@ def parse_serp_rank(doc: dict, domain: str, keyword: str) -> list[dict]:
 
 def serp_rank(keyword: str, domain: str, call=call) -> tuple:
     """(rows, status, cost) — the client's Google position for one keyword."""
-    doc, err = call("/v3/serp/google/organic/live/advanced",
-                    [{"keyword": keyword, "location_code": LOCATION_CODE,
-                      "language_code": LANGUAGE_CODE, "depth": 20}])
-    if err:
-        return [], err, 0.0
-    return parse_serp_rank(doc, domain, keyword), "ok", cost_of(doc)
+    return _tool("/v3/serp/google/organic/live/advanced",
+                 [{"keyword": keyword, "location_code": LOCATION_CODE,
+                   "language_code": LANGUAGE_CODE, "depth": 20}],
+                 lambda d: parse_serp_rank(d, domain, keyword), call=call)
 
 
 def rankings(domain: str, keywords=None, call=call, max_serp: int = 5) -> tuple:
@@ -283,52 +288,37 @@ def parse_competitors(doc: dict, top: int = 10) -> list[dict]:
     return rows
 
 
-def _labs(path: str, payload: list, call):
-    doc, err = call(path, payload)
-    return (None, err) if err else (doc, None)
-
-
 def search_volume(keywords: list, call=call) -> tuple:
     if not keywords:
         return [], "skipped: no keywords", 0.0
-    doc, err = _labs("/v3/keywords_data/google_ads/search_volume/live",
-                     [{"keywords": keywords, "location_code": LOCATION_CODE,
-                       "language_code": LANGUAGE_CODE}], call)
-    if err:
-        return [], err, 0.0
-    return parse_search_volume(doc), "ok", cost_of(doc)
+    return _tool("/v3/keywords_data/google_ads/search_volume/live",
+                 [{"keywords": keywords, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 parse_search_volume, call=call)
 
 
 def keyword_ideas(seeds: list, call=call) -> tuple:
     if not seeds:
         return [], "skipped: no seed keywords", 0.0
-    doc, err = _labs("/v3/dataforseo_labs/google/keyword_ideas/live",
-                     [{"keywords": seeds, "location_code": LOCATION_CODE,
-                       "language_code": LANGUAGE_CODE, "limit": 50}], call)
-    if err:
-        return [], err, 0.0
-    return parse_keyword_ideas(doc), "ok", cost_of(doc)
+    return _tool("/v3/dataforseo_labs/google/keyword_ideas/live",
+                 [{"keywords": seeds, "location_code": LOCATION_CODE,
+                   "language_code": LANGUAGE_CODE, "limit": 50}],
+                 parse_keyword_ideas, call=call)
 
 
 def keyword_gap(you: str, competitor: str, call=call) -> tuple:
     if not competitor:
         return [], "skipped: no competitor", 0.0
-    doc, err = _labs("/v3/dataforseo_labs/google/domain_intersection/live",
-                     [{"target1": competitor, "target2": you, "intersections": False,
-                       "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE,
-                       "limit": 100}], call)
-    if err:
-        return [], err, 0.0
-    return parse_keyword_gap(doc, competitor), "ok", cost_of(doc)
+    return _tool("/v3/dataforseo_labs/google/domain_intersection/live",
+                 [{"target1": competitor, "target2": you, "intersections": False,
+                   "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE, "limit": 100}],
+                 lambda d: parse_keyword_gap(d, competitor), call=call)
 
 
 def competitors(domain: str, call=call) -> tuple:
-    doc, err = _labs("/v3/dataforseo_labs/google/competitors_domain/live",
-                     [{"target": domain, "location_code": LOCATION_CODE,
-                       "language_code": LANGUAGE_CODE, "limit": 10}], call)
-    if err:
-        return [], err, 0.0
-    return parse_competitors(doc), "ok", cost_of(doc)
+    return _tool("/v3/dataforseo_labs/google/competitors_domain/live",
+                 [{"target": domain, "location_code": LOCATION_CODE,
+                   "language_code": LANGUAGE_CODE, "limit": 10}],
+                 parse_competitors, call=call)
 
 
 def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -> tuple:
@@ -376,9 +366,7 @@ def llm_mentions(brand: str, domain: str, call=call) -> tuple:
          "search_scope": ["answer"], "match_type": "partial_match"},
         {"domain": domain, "search_filter": "include", "search_scope": ["sources"]},
     ]
-    doc, err = call("/v3/ai_optimization/llm_mentions/search_mentions/live",
-                    [{"target": target, "location_code": LOCATION_CODE,
-                      "language_code": LANGUAGE_CODE, "limit": 100}])
-    if err:
-        return [], err, 0.0
-    return parse_llm_mentions(doc, brand), "ok", cost_of(doc)
+    return _tool("/v3/ai_optimization/llm_mentions/search_mentions/live",
+                 [{"target": target, "location_code": LOCATION_CODE,
+                   "language_code": LANGUAGE_CODE, "limit": 100}],
+                 lambda d: parse_llm_mentions(d, brand), call=call)

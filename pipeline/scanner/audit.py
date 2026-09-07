@@ -6,6 +6,8 @@ robots_aicrawler_check; performance reuses providers.crux_findings.
 """
 from __future__ import annotations
 
+import re
+
 from pipeline.audit import measure
 from pipeline.gates.robots_aicrawler_check import (
     DEFAULT_CITATION_UAS, parse_groups, root_blocked, rules_for_ua,
@@ -108,7 +110,29 @@ def aeo_rows(robots_text: str | None, html: str) -> list[dict]:
         rows.append(_pass_row(
             "LocalBusiness schema",
             "AI engines can read the business's name, address and phone directly."))
+
+    # 3. Answer-first structure (the genuine gap DataForSEO has no tool for):
+    # can an AI engine lift a clean Q&A/answer from the page?
+    rows.append(_answer_structure_row(html))
     return rows
+
+
+_INTERROGATIVE_H = re.compile(r"<h[23][^>]*>[^<]*\?\s*</h[23]>", re.IGNORECASE)
+
+
+def _answer_structure_row(html: str) -> dict:
+    """AI answer engines lift question→answer blocks. A page with interrogative
+    headings or FAQ schema is extractable; one without is not."""
+    has_faq = '"@type":"FAQPage"' in html.replace(" ", "").replace("'", '"')
+    has_q_heading = _INTERROGATIVE_H.search(html or "") is not None
+    if has_faq or has_q_heading:
+        return _pass_row(
+            "Answer-first structure",
+            "The page has question/answer blocks AI engines can extract and cite.")
+    return {"code": "aeo.no_answer_structure", "what": "Answer-first structure",
+            "why": "No question→answer blocks, so AI answer engines can't easily lift a citable answer from the page.",
+            "fix": "add interrogative headings (\"How much does X cost?\") with a concise answer right below, or FAQ schema",
+            "severity": "warn", "detail": ""}
 
 
 _CWV_WHY = {

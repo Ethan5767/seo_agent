@@ -75,3 +75,24 @@ def test_assemble_scores_and_groups():
     assert report["score"] == 100 - 10 - 3
     assert report["seo"] and report["aeo"] and report["perf"]
     assert report["counts"]["error"] == 1
+
+
+# ── Task 7: answer-first structure gap check (DataForSEO has no tool for this) ─
+def test_answer_structure_flagged_when_absent():
+    rows = aeo_rows("User-agent: *\nAllow: /\n", "<html><body><h2>Our Services</h2></body></html>")
+    by = {r["what"]: r for r in rows}
+    assert by["Answer-first structure"]["severity"] == "warn"
+
+
+def test_answer_structure_passes_with_interrogative_heading():
+    html = "<html><body><h2>How much does a roof cost?</h2><p>About $X.</p></body></html>"
+    rows = aeo_rows("User-agent: *\nAllow: /\n", html)
+    by = {r["what"]: r for r in rows}
+    assert by["Answer-first structure"]["severity"] == "ok"
+
+
+def test_answer_structure_passes_with_faq_schema():
+    html = '<html><body><script type="application/ld+json">{"@type":"FAQPage"}</script></body></html>'
+    rows = aeo_rows("User-agent: *\nAllow: /\n", html)
+    by = {r["what"]: r for r in rows}
+    assert by["Answer-first structure"]["severity"] == "ok"

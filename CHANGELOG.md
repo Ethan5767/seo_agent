@@ -8,6 +8,21 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Scanner Measure rebuilt on DataForSEO (`pipeline/scanner/dataforseo.py`).**
+  Following the rule "DataForSEO for anything it has a tool for; our own only for
+  gaps," Measure now streams a card per tool, each with the exact cost from the
+  response's `cost` field: **Site Health** (DataForSEO on-page crawl — JS-aware,
+  replaces the free HTML crawler that produced false orphans), **Rankings**
+  (ranked keywords + domain overview + SERP position), **Keywords** (competitors
+  + keyword-gap vs a competitor + search volume + ideas), **AI Visibility** (LLM
+  mentions). The three gaps DataForSEO has no tool for stay ours: robots
+  AI-crawler allow, SSR-vs-CSR rendering, and answer-first/entity structure.
+  Every DataForSEO tool is a pure parser + injectable caller, unit-tested offline
+  with canned responses (no network/cost in CI). `build_report` is a `TOOLS`
+  descriptor loop (adding a tool = one row); `assemble` takes a groups dict
+  keyed by `GROUP_KEYS`. Onboard captures business/keywords(chips)/competitors/
+  goal and feeds them into the client config + the keyword/gap tools. 769 → 808.
+
 - **URL-audit web MVP (`wf-scan-web`, new `pipeline/scanner/` package).** A
   127.0.0.1 web backend: paste a URL (+ optional repo, + Model A/B) and get an
   **SEO + AEO + performance** audit, and — with a repo — either a **Model A

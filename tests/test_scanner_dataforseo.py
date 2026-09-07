@@ -1,5 +1,19 @@
 """DataForSEO ranked-keywords parser + caller (offline, canned response)."""
-from pipeline.scanner.dataforseo import parse_ranked_keywords, ranked_keywords
+from pipeline.scanner.dataforseo import (
+    parse_ranked_keywords, ranked_keywords, cost_of, result_items,
+)
+
+
+def test_cost_of_reads_top_level_cost():
+    assert cost_of({"cost": 0.0123}) == 0.0123
+    assert cost_of({}) == 0.0
+    assert cost_of({"cost": "bad"}) == 0.0
+
+
+def test_result_items_digs_the_nest():
+    assert result_items({"tasks": [{"result": [{"items": [{"k": 1}]}]}]}) == [{"k": 1}]
+    assert result_items({}) == []
+    assert result_items({"tasks": []}) == []
 
 # A minimal response mirroring DataForSEO's ranked_keywords shape.
 DOC = {"cost": 0.0123, "tasks": [{"result": [{"items": [

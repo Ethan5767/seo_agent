@@ -255,3 +255,19 @@ def test_search_intent_labels_keyword():
         {"keyword": "buy roof repair", "keyword_intent": {"label": "transactional"}}]}]}]}
     rows = parse_search_intent(doc)
     assert rows[0]["code"] == "dfs.search_intent" and "transactional intent" in rows[0]["what"]
+
+
+# ── keyword suggestions (#14) ────────────────────────────────────────────────
+from pipeline.scanner.dataforseo import parse_keyword_suggestions, keyword_suggestions
+
+
+def test_keyword_suggestions_parsed():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword": "emergency roof repair near me", "keyword_info": {"search_volume": 40}}]}]}]}
+    rows = parse_keyword_suggestions(doc)
+    assert rows[0]["code"] == "dfs.keyword_suggestion" and "emergency roof" in rows[0]["what"]
+
+
+def test_keyword_suggestions_no_seed_skips():
+    rows, status, cost = keyword_suggestions("")
+    assert rows == [] and "skipped" in status

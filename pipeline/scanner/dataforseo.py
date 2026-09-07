@@ -307,6 +307,26 @@ def keyword_ideas(seeds: list, call=call) -> tuple:
                  parse_keyword_ideas, call=call)
 
 
+def parse_keyword_suggestions(doc: dict, top: int = 15) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        kw, vol = _kw_vol(it)
+        if kw:
+            rows.append(_kw_row("dfs.keyword_suggestion", kw, vol, "info",
+                                "A long-tail variant of your seed term — often easier to rank for.",
+                                "consider a page/section for high-intent long-tails"))
+    return rows
+
+
+def keyword_suggestions(seed: str, call=call) -> tuple:
+    if not seed:
+        return [], "skipped: no seed keyword", 0.0
+    return _tool("/v3/dataforseo_labs/google/keyword_suggestions/live",
+                 [{"keyword": seed, "location_code": LOCATION_CODE,
+                   "language_code": LANGUAGE_CODE, "limit": 50}],
+                 parse_keyword_suggestions, call=call)
+
+
 def keyword_gap(you: str, competitor: str, call=call) -> tuple:
     if not competitor:
         return [], "skipped: no competitor", 0.0
@@ -341,6 +361,7 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
         r, _s, c = keyword_ideas(keywords, call=call); rows += r; cost += c
         r, _s, c = keyword_difficulty(keywords, call=call); rows += r; cost += c
         r, _s, c = search_intent(keywords, call=call); rows += r; cost += c
+        r, _s, c = keyword_suggestions(keywords[0], call=call); rows += r; cost += c
     cost = round(cost, 4)
     return rows, f"keywords: {len(rows)} row(s) · ${cost:.4f}", cost
 

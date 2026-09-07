@@ -78,7 +78,7 @@ TOOLS = [
     ("Performance (speed)", "perf", None, _perf_tool),
     ("Technical", "tech", None, lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
     ("On-page (deep)", "onpage", None, lambda c: (onpage_deep_rows(c.url, c.html, c.status), None, 0.0)),
-    ("Trust (E-E-A-T)", "eeat", None, lambda c: (eeat_rows(c.html), None, 0.0)),
+    ("Trust (E-E-A-T)", "eeat", None, lambda c: (eeat_rows(c.html), None, 0.0)),\n    ("Schema validation", "schema", None, lambda c: (schema_rows(c.html), None, 0.0)),
     ("Video", "video", None, lambda c: (video_rows(c.html), None, 0.0)),
     ("Internal links", "internal", None, lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
     ("Source code", "source", "source",

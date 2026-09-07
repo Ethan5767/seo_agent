@@ -59,6 +59,23 @@ CHECKS = {
     "no_content_encoding":    ("No compression", "Response isn't gzip/br compressed.", "enable compression", "warn", True),
     "seo_friendly_url":       ("SEO-friendly URLs", "URLs are clean and readable.", "keep slugs clean", "ok", False),
     "is_https":               ("HTTPS", "Pages served over HTTPS.", "keep HTTPS", "ok", False),
+    # ── more DataForSEO on-page flags ────────────────────────────────────────
+    "is_http":                ("Served over HTTP", "Pages served over insecure http://.", "serve over https", "error", True),
+    "has_micromarkup_errors": ("Structured-data errors", "Schema markup has errors — it may earn nothing.", "validate the JSON-LD", "warn", True),
+    "title_too_many_words":   ("Title too many words", "Title has too many words — Google truncates it.", "tighten the title", "warn", True),
+    "small_page_size":        ("Very small page", "Page is unusually small — often thin content.", "add substantive content", "info", True),
+    "irrelevant_meta_keywords": ("Irrelevant meta keywords", "meta keywords don't match the page (and Google ignores them).", "drop the meta keywords tag", "info", True),
+    "canonical_chain":        ("Canonical chain", "Canonical points through a chain, not the final URL.", "canonicalize directly", "warn", True),
+    "no_h2":                  ("Missing H2s", "No H2 subheadings — weak structure.", "add descriptive H2s", "warn", True),
+    "no_image_title":         ("Image title missing", "Images lack a title attribute.", "optional: add titles", "info", True),
+    "meta_refresh_redirect":  ("Meta refresh redirect", "Uses a meta-refresh redirect — bad for SEO.", "use a 301", "warn", True),
+    "has_meta_refresh_redirect": ("Meta refresh redirect", "Uses a meta-refresh redirect — bad for SEO.", "use a 301", "warn", True),
+    "frame":                  ("Frames", "Old-style frames.", "use modern layout", "warn", True),
+    "high_content_rate":      ("Very dense text", "Extremely high text density — may hurt readability.", "add whitespace/structure", "info", True),
+    "canonical":              ("Canonical present", "Pages declare a canonical URL.", "keep canonicals", "ok", False),
+    "has_html_doctype":       ("HTML5 doctype", "Pages declare a valid doctype.", "keep it", "ok", False),
+    "meta_charset_consistency": ("Charset consistent", "Declared charset matches the response.", "keep consistent", "ok", False),
+    "has_micromarkup":        ("Structured data present", "Pages carry schema.org markup.", "keep/expand schema", "ok", False),
 }
 
 

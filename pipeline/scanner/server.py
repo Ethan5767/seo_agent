@@ -18,6 +18,28 @@ from pipeline.scanner import audit as A
 from pipeline.scanner.run import run_cycle
 
 STATIC = Path(__file__).parent / "static"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_dotenv(path: Path | None = None) -> list[str]:
+    """Load KEY=VALUE lines from a gitignored .env at the repo root into the
+    environment (without overwriting anything already set). Returns the names
+    loaded. This is how CRUX_API_KEY etc. reach the backend without the operator
+    exporting them every run — the file is .gitignored, never committed."""
+    path = path or (REPO_ROOT / ".env")
+    loaded: list[str] = []
+    if not path.is_file():
+        return loaded
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key, val = key.strip(), val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+            loaded.append(key)
+    return loaded
 
 
 def _default_fetch(url: str):
@@ -95,6 +117,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
+    loaded = load_dotenv()
+    if loaded:
+        print(f"loaded from .env: {', '.join(loaded)}")
     port = int(os.environ.get("SCAN_PORT", "8765"))
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"wf-scan-web on http://127.0.0.1:{port}  (Ctrl-C to stop)")

@@ -49,3 +49,30 @@ def test_ranked_keywords_uses_injected_call_and_reports_cost():
 def test_call_error_degrades_to_status_not_crash():
     rows, status, cost = ranked_keywords("x.com", call=lambda p, b: (None, "skipped: creds unset"))
     assert rows == [] and "skipped" in status and cost == 0.0
+
+
+# ── Task 2: Site Health card (DataForSEO on-page audit) ──────────────────────
+from pipeline.scanner.dataforseo import site_audit
+from pipeline.lib.baseline import Finding
+
+
+def test_site_audit_maps_findings_to_rows_offline():
+    fake_run = lambda d, n: (
+        [Finding("dataforseo", "dfs.broken_links", "/a/", detail="404"),
+         Finding("dataforseo", "dfs.orphan_page", "/b/"),
+         Finding("dataforseo", "dfs.duplicate_title", "/c/")],
+        "ok: crawled 20 pages")
+    rows, status, cost = site_audit("x.com", max_pages=20, run=fake_run)
+    by = {r["code"]: r for r in rows}
+    assert by["dfs.broken_links"]["severity"] == "error"
+    assert by["dfs.orphan_page"]["severity"] == "warn"
+    assert by["dfs.duplicate_title"]["severity"] == "warn"
+    # every row carries why + fix
+    assert all(r["why"] and r["fix"] for r in rows)
+    # cost is a labelled per-page estimate for the crawl
+    assert "est" in status and cost > 0
+
+
+def test_site_audit_empty_crawl_is_clean_not_crash():
+    rows, status, cost = site_audit("x.com", run=lambda d, n: ([], "ok: 0 issues"))
+    assert rows == []

@@ -28,16 +28,18 @@ def _auth() -> str | None:
     return "Basic " + base64.b64encode(f"{login}:{pw}".encode()).decode()
 
 
-def call(path: str, payload: list, timeout: int = 60) -> tuple:
-    """(json, error). POST to DataForSEO with Basic auth. Never raises — a
-    provider that is down or unauthorized is a skip, not a crash."""
+def call(path: str, payload=None, timeout: int = 60) -> tuple:
+    """(json, error). POST to DataForSEO with Basic auth (GET when payload is
+    None — e.g. the on-page summary poll). Never raises — a provider that is down
+    or unauthorized is a skip, not a crash."""
     auth = _auth()
     if not auth:
         return None, "skipped: DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset"
+    data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
-        BASE + path, data=json.dumps(payload).encode(),
+        BASE + path, data=data,
         headers={"Content-Type": "application/json", "Authorization": auth},
-        method="POST")
+        method="POST" if data is not None else "GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode()), None

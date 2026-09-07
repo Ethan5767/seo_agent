@@ -19,6 +19,7 @@ from pipeline.scanner import audit as A
 from pipeline.scanner import dataforseo
 from pipeline.scanner.extra_checks import tech_rows, video_rows, internal_link_rows
 from pipeline.scanner import source_audit
+from pipeline.scanner import onpage_audit
 from pipeline.scanner.onpage import onpage_deep_rows
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.run import run_cycle
@@ -82,7 +83,7 @@ TOOLS = [
     ("Internal links", "internal", None, lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
     ("Source code", "source", "source",
      lambda c: (source_audit.analyze_source(source_audit.fetch_repo_files(c.repo, c.github_token)), None, 0.0)),
-    ("Site Health (DataForSEO)", "site", "crawl", lambda c: dataforseo.site_audit(c.domain, c.max_pages)),
+    ("Site Health (DataForSEO)", "site", "crawl", lambda c: onpage_audit.site_audit_full(c.domain, c.max_pages)),
     ("Rankings (DataForSEO)", "rankings", "deep", lambda c: dataforseo.rankings(c.domain, c.keywords)),
     ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
     ("AI citations (DataForSEO)", "ai", "deep", lambda c: dataforseo.llm_mentions(c.brand, c.domain)),

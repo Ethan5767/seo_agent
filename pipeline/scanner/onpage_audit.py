@@ -1,0 +1,143 @@
+"""DataForSEO on-page full audit — the ~40-check, site-wide layer (Semrush-parity).
+
+DataForSEO's on-page crawl returns a `checks` object of ~40 boolean flags per
+page. This crawls the site (task_post -> poll summary -> pull /pages), then maps
+every flag to a report row, aggregated across pages. Separate module so
+dataforseo.py stays focused and under the split line.
+
+`parse_onpage_checks(pages)` is pure (page dicts in, rows out) and unit-tested;
+`crawl_onpage` does the async crawl (injectable `call`/`sleep` for tests).
+"""
+from __future__ import annotations
+
+import time
+
+from pipeline.scanner.dataforseo import call as _call, cost_of
+
+# DataForSEO on-page `checks` flag -> (label, why, fix, severity, bad_when).
+# bad_when=True  → the flag being True is the problem (most).
+# bad_when=False → the flag being False is the problem (good-signal flags).
+CHECKS = {
+    "is_4xx_code":            ("4xx pages", "Pages returning a 4xx (not found) error.", "fix or redirect them", "error", True),
+    "is_5xx_code":            ("5xx pages", "Pages returning a 5xx server error.", "fix the server error", "error", True),
+    "is_broken":              ("Broken pages", "Pages that don't load (broken).", "restore or remove", "error", True),
+    "is_redirect":            ("Redirecting pages", "Pages that redirect — chains waste crawl budget.", "link to the final URL", "warn", True),
+    "canonical_to_broken":    ("Canonical → broken", "Canonical points at a broken URL.", "canonicalize to a live URL", "error", True),
+    "canonical_to_redirect":  ("Canonical → redirect", "Canonical points at a redirect, not the final URL.", "canonicalize directly", "warn", True),
+    "recursive_canonical":    ("Recursive canonical", "Canonical loops back on itself.", "fix the canonical chain", "error", True),
+    "redirect_loop":          ("Redirect loop", "A redirect loop traps crawlers.", "break the loop", "error", True),
+    "no_title":               ("Missing title", "Page has no <title>.", "add a unique title", "error", True),
+    "title_too_long":         ("Title too long", "Title exceeds the recommended length.", "trim to ~60 chars", "warn", True),
+    "title_too_short":        ("Title too short", "Title is very short.", "make it 30-60 chars", "warn", True),
+    "duplicate_title_tag":    ("Duplicate titles", "Pages share the same <title>.", "make each unique", "warn", True),
+    "no_description":         ("Missing meta description", "Page has no meta description.", "add one (120-160 chars)", "warn", True),
+    "duplicate_meta_tags":    ("Duplicate meta tags", "Duplicate meta descriptions across pages.", "make each unique", "warn", True),
+    "irrelevant_description":  ("Irrelevant description", "Meta description doesn't match the page.", "rewrite to match content", "warn", True),
+    "irrelevant_title":       ("Irrelevant title", "Title doesn't match the page content.", "align title with content", "warn", True),
+    "no_h1_tag":              ("Missing H1", "Page has no <h1>.", "add one clear H1", "warn", True),
+    "no_image_alt":           ("Images missing alt", "Images without alt text.", "add descriptive alt", "warn", True),
+    "no_image_title":         ("Images missing title", "Images without a title attribute.", "optional: add image titles", "info", True),
+    "no_favicon":             ("Missing favicon", "No favicon.", "add one", "info", True),
+    "no_doctype":             ("Missing doctype", "No <!DOCTYPE html>.", "add it", "warn", True),
+    "no_encoding_meta_tag":   ("Missing charset", "No charset meta tag.", "add <meta charset>", "warn", True),
+    "high_loading_time":      ("Slow loading", "Page loads slowly.", "optimise assets/server", "warn", True),
+    "high_waiting_time":      ("Slow server (TTFB)", "High time-to-first-byte.", "speed up the server", "warn", True),
+    "size_greater_than_3mb":  ("Page over 3MB", "Page weighs more than 3MB.", "compress/trim assets", "warn", True),
+    "has_render_blocking_resources": ("Render-blocking resources", "CSS/JS block first paint.", "defer/async them", "warn", True),
+    "low_content_rate":       ("Low text ratio", "Little text relative to code.", "add substantive copy", "warn", True),
+    "low_readability_rate":   ("Hard to read", "Low readability score.", "simplify the writing", "info", True),
+    "lorem_ipsum":            ("Placeholder text", "'lorem ipsum' placeholder on the page.", "replace with real content", "error", True),
+    "deprecated_html_tags":   ("Deprecated HTML", "Obsolete tags (font/center/…).", "use modern HTML/CSS", "warn", True),
+    "flash":                  ("Flash content", "Flash — obsolete/unsupported.", "replace with HTML5", "warn", True),
+    "frame":                  ("Frames", "Old-style frames.", "use modern layout", "warn", True),
+    "broken_resources":       ("Broken resources", "The page references broken assets.", "fix/remove them", "error", True),
+    "broken_links":           ("Broken links", "Links to dead URLs.", "fix or remove", "error", True),
+    "links_relation_conflict": ("Link rel conflict", "Conflicting link relations.", "resolve the conflict", "warn", True),
+    "is_orphan_page":         ("Orphan page", "No internal link points here.", "link it from a relevant page", "warn", True),
+    "duplicate_content":      ("Duplicate content", "Body largely duplicates another page.", "consolidate/differentiate", "warn", True),
+    "https_to_http_links":    ("HTTPS→HTTP links", "Secure page links to insecure URLs.", "link to https", "warn", True),
+    "no_content_encoding":    ("No compression", "Response isn't gzip/br compressed.", "enable compression", "warn", True),
+    "seo_friendly_url":       ("SEO-friendly URLs", "URLs are clean and readable.", "keep slugs clean", "ok", False),
+    "is_https":               ("HTTPS", "Pages served over HTTPS.", "keep HTTPS", "ok", False),
+}
+
+
+def parse_onpage_checks(pages: list) -> list[dict]:
+    """Aggregate the per-page `checks` across the crawl → one row per check,
+    with the count of pages affected."""
+    counts: dict[str, int] = {}
+    ok_flags: dict[str, int] = {}
+    total = 0
+    for p in pages:
+        checks = (p or {}).get("checks") or {}
+        if not checks:
+            continue
+        total += 1
+        for flag, val in checks.items():
+            if flag not in CHECKS:
+                continue
+            _l, _w, _f, _sev, bad_when = CHECKS[flag]
+            if bool(val) == bad_when and bad_when:
+                counts[flag] = counts.get(flag, 0) + 1
+            elif not bad_when:
+                ok_flags[flag] = ok_flags.get(flag, 0) + (1 if val else 0)
+    rows = []
+    for flag, (label, why, fix, sev, bad_when) in CHECKS.items():
+        if bad_when:
+            n = counts.get(flag, 0)
+            if n:
+                rows.append({"code": f"dfs.op.{flag}", "what": label, "why": why,
+                             "fix": fix, "severity": sev, "detail": f"{n} page(s)"})
+        else:
+            # good-signal flag: pass row when all crawled pages have it
+            if total and ok_flags.get(flag, 0) == total:
+                rows.append({"code": f"dfs.op.{flag}", "what": label, "why": why,
+                             "fix": "passing", "severity": "ok", "detail": f"{total} page(s)"})
+    return rows
+
+
+def crawl_onpage(domain: str, max_pages: int = 20, call=_call,
+                 sleep=time.sleep, poll_seconds: int = 12, max_polls: int = 20) -> tuple:
+    """(pages, cost, err). task_post -> poll summary until finished -> /pages."""
+    posted, err = call("/v3/on_page/task_post",
+                       [{"target": domain, "max_crawl_pages": max_pages,
+                         "load_resources": False, "enable_javascript": False}])
+    if err:
+        return [], 0.0, err
+    cost = cost_of(posted)
+    try:
+        task_id = posted["tasks"][0]["id"]
+    except (KeyError, IndexError, TypeError):
+        return [], cost, "no task id from task_post"
+    for _ in range(max_polls):
+        sleep(poll_seconds)
+        summary, err = call(f"/v3/on_page/summary/{task_id}")
+        if err:
+            return [], cost, err
+        try:
+            result = summary["tasks"][0]["result"][0]
+        except (KeyError, IndexError, TypeError):
+            continue
+        if result.get("crawl_progress") == "finished":
+            break
+    else:
+        return [], cost, f"crawl of {domain} did not finish in time"
+    pages_doc, err = call("/v3/on_page/pages", [{"id": task_id, "limit": max_pages}])
+    if err:
+        return [], cost, err
+    cost += cost_of(pages_doc)
+    try:
+        items = pages_doc["tasks"][0]["result"][0].get("items") or []
+    except (KeyError, IndexError, TypeError):
+        items = []
+    return items, round(cost, 4), None
+
+
+def site_audit_full(domain: str, max_pages: int = 20, crawl=crawl_onpage) -> tuple:
+    """(rows, status, cost) — the full on-page audit as a Site Health card."""
+    pages, cost, err = crawl(domain, max_pages)
+    if err:
+        return [], err, cost
+    rows = parse_onpage_checks(pages)
+    ok = sum(1 for p in pages if (p or {}).get("checks"))
+    return rows, f"crawled {ok} page(s), {len(rows)} check(s) flagged · ${cost:.4f}", cost

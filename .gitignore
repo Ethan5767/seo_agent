@@ -6,6 +6,7 @@
 # Secrets / credentials — NEVER commit these
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 *.token

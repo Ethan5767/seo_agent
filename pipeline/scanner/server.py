@@ -53,12 +53,32 @@ def normalize_url(url: str) -> str:
     return url
 
 
+def _status_line(rows: list) -> str:
+    issues = sum(1 for r in rows if r["severity"] in ("error", "warn"))
+    passed = sum(1 for r in rows if r["severity"] == "ok")
+    return f"{issues} issue(s), {passed} passed"
+
+
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
-                 crawl=False, page_fetch=None, max_pages=25, deep=False) -> dict:
+                 crawl=False, page_fetch=None, max_pages=25, deep=False,
+                 on_tool=None) -> dict:
     """Compose the audit. `fetch(url)->(html,status,robots[,sitemap])`. `crux` =
     None (disabled), a (metrics,status) tuple, or 'auto' (call CrUX if key set).
-    `log` (a list) collects a human-readable trace of what the scan did."""
+    `log` collects a human trace; `on_tool(name, state, rows, status)` fires
+    per tool (state 'running' then 'done') so the UI shows a card per tool."""
     log = log if log is not None else []
+
+    totals = {"cost": 0.0}
+
+    def running(name):
+        if on_tool:
+            on_tool(name, "running", [], "", 0.0)
+
+    def done(name, rows, status=None, cost=0.0):
+        totals["cost"] += cost
+        if on_tool:
+            on_tool(name, "done", rows, status or _status_line(rows), cost)
+
     url = normalize_url(url)
     fetched = fetch(url)
     html, status, robots = fetched[0], fetched[1], fetched[2]
@@ -67,52 +87,48 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         log.append(f"Opened the page — {_human_size(len(html))}, loaded OK.")
     else:
         log.append(f"Opened the page — the server responded {status} (couldn't read it normally).")
-    log.append(
-        f"Found robots.txt — the file that tells Google and AI crawlers what they may read."
-        if robots else
-        "No robots.txt found — crawlers have no explicit instructions."
-    )
-    log.append("Running on-page SEO checks…")
+
+    running("On-page SEO")
     seo = A.seo_rows(url, html, status, {})
-    log.append("Running AI-visibility (AEO) checks…")
+    done("On-page SEO", seo)
+
+    running("AI visibility (AEO)")
     aeo = A.aeo_rows(robots, html)
-    log.append("Measuring speed (Core Web Vitals)…")
+    done("AI visibility (AEO)", aeo)
+
+    running("Performance (speed)")
     if crux == "auto":
-        if os.environ.get("CRUX_API_KEY"):
-            crux = crux_metrics(urlsplit(url).netloc)
-            log.append("Speed (Core Web Vitals) — " + _human_crux(crux[1]))
-        else:
-            crux = None
-            log.append("Speed (Core Web Vitals) — skipped: no Google speed key set up yet.")
+        crux = crux_metrics(urlsplit(url).netloc) if os.environ.get("CRUX_API_KEY") else None
     perf = A.perf_rows(crux)
-    log.append("Running technical checks…")
+    done("Performance (speed)", perf,
+         "real Google field data" if isinstance(crux, tuple) else "no speed key / no field data")
+
+    running("Technical")
     tech = tech_rows(url, html, status, sitemap)
-    log.append(
-        f"Sitemap.xml -> {'found' if sitemap and sitemap.strip() else 'none found'}."
-    )
+    done("Technical", tech)
+
     site: list[dict] = []
     if crawl:
-        log.append(f"Crawling the whole site (up to {max_pages} pages)…")
+        running("Whole-site crawl (our crawler)")
         c = crawl_site(url, page_fetch or _default_page_fetch,
                        sitemap_text=sitemap, max_pages=max_pages,
                        on_page=lambda n, total, u: log.append(f"  crawling {n}/{total}: {u}"))
         site = site_rows(c)
         n_ok = sum(1 for p in c["pages"] if p["status"] == 200)
-        log.append(f"Crawled the whole site — {n_ok} page(s) walked"
-                   + (" (page cap reached)." if c["capped"] else "."))
+        done("Whole-site crawl (our crawler)", site, f"{n_ok} page(s) walked, {_status_line(site)}")
+
     rankings: list[dict] = []
     if deep:
-        log.append("Deep scan — DataForSEO: fetching the keywords you rank for (paid)…")
-        rankings, status = dataforseo.ranked_keywords(urlsplit(url).netloc or url)
-        log.append(f"DataForSEO ranked keywords — {status}")
+        running("Rankings (DataForSEO)")
+        rankings, dfs_status, dfs_cost = dataforseo.ranked_keywords(urlsplit(url).netloc or url)
+        done("Rankings (DataForSEO)", rankings, dfs_status, dfs_cost)
+
     all_rows = seo + aeo + perf + tech + site + rankings
-    issues = sum(1 for r in all_rows if r["severity"] in ("error", "warn"))
-    passed = sum(1 for r in all_rows if r["severity"] == "ok")
-    log.append(
-        f"Checked {len(all_rows)} things — {issues} need attention, {passed} passed. "
-        "Everything is listed below (green = good)."
-    )
-    return A.assemble(seo, aeo, perf, tech, site, rankings)
+    log.append(f"Checked {len(all_rows)} things — {_status_line(all_rows)}. "
+               f"Cost this run: ${totals['cost']:.4f}.")
+    report = A.assemble(seo, aeo, perf, tech, site, rankings)
+    report["cost"] = round(totals["cost"], 4)
+    return report
 
 
 def _human_size(n: int) -> str:
@@ -215,9 +231,14 @@ class Handler(BaseHTTPRequestHandler):
 
         print(f"\n[scan] url={url!r} model={model} crawl={crawl} repo={repo or '-'}", flush=True)
         log = Progress(cb=lambda ln: (emit({"log": ln}), print(f"   {ln}", flush=True)))
+
+        def on_tool(name, state, rows, status, cost):
+            emit({"tool": name, "state": state, "rows": rows, "status": status, "cost": cost})
+
         try:
             out = {"audit": build_report(url, log=log, crawl=crawl,
-                                         max_pages=max_pages, deep=bool(req.get("deep")))}
+                                         max_pages=max_pages, deep=bool(req.get("deep")),
+                                         on_tool=on_tool)}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log, profile=profile)
             out["log"] = list(log)

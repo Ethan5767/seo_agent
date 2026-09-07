@@ -88,12 +88,22 @@ def parse_ranked_keywords(doc: dict, top: int = 15) -> list[dict]:
     return rows
 
 
+def _cost(doc: dict) -> float:
+    """DataForSEO reports the money spent on the request in the top-level
+    `cost` field (USD). Read it so the UI shows the exact charge, never a guess."""
+    try:
+        return round(float(doc.get("cost") or 0.0), 4)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def ranked_keywords(domain: str, call=call, top: int = 15) -> tuple:
-    """(rows, status) — the keywords `domain` ranks for. Input = domain only."""
+    """(rows, status, cost_usd) — keywords `domain` ranks for. Input = domain."""
     doc, err = call("/v3/dataforseo_labs/google/ranked_keywords/live",
                     [{"target": domain, "location_code": LOCATION_CODE,
                       "language_code": LANGUAGE_CODE, "limit": 100}])
     if err:
-        return [], err
+        return [], err, 0.0
     rows = parse_ranked_keywords(doc, top=top)
-    return rows, f"ok: {len(rows)} ranked keyword(s)"
+    cost = _cost(doc)
+    return rows, f"ok: {len(rows)} ranked keyword(s) · ${cost:.4f}", cost

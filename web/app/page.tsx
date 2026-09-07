@@ -10,6 +10,7 @@ type Cycle =
   | { model: "A"; brief: string; worklist: unknown[] }
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
 type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string; log?: string[] };
+type Tool = { name: string; state: string; rows: Row[]; status: string; cost: number };
 
 const COLOR: Record<string, string> = { error: "#b00", warn: "#a60", info: "#999", ok: "#1a5" };
 const box = { padding: ".5rem", margin: ".25rem 0", width: "100%", boxSizing: "border-box" as const };
@@ -43,10 +44,12 @@ export default function Home() {
   const [deep, setDeep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<string[]>([]);
+  const [tools, setTools] = useState<Tool[]>([]);
   const [data, setData] = useState<ScanResult | null>(null);
 
   async function run() {
-    setBusy(true); setData(null); setLive([]);
+    setBusy(true); setData(null); setLive([]); setTools([]);
+    const toolMap = new Map<string, Tool>();
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
@@ -63,7 +66,10 @@ export default function Home() {
         for (const part of parts) {
           if (!part.trim()) continue;
           const ev = JSON.parse(part);
-          if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
+          if (ev.tool) {
+            toolMap.set(ev.tool, { name: ev.tool, state: ev.state, rows: ev.rows || [], status: ev.status || "", cost: ev.cost || 0 });
+            setTools([...toolMap.values()]);
+          } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
           else if (ev.result) setData(ev.result);
           else if (ev.error) setData({ error: ev.error, log: ev.log });
         }
@@ -131,35 +137,39 @@ export default function Home() {
         {busy ? "Measuring…" : "Run Measure"}
       </button>
 
-      {busy && live.length > 0 && (
-        <div style={{ background: "#f4f7ff", border: "1px solid #cdd8ff", borderRadius: 6, padding: "1rem", margin: "1rem 0" }}>
-          <b>Scanning…</b>
-          <ul style={{ lineHeight: 1.7, margin: ".5rem 0 0" }}>{live.map((ln, i) => <li key={i}>{ln}</li>)}</ul>
-        </div>
-      )}
-
       {data?.error && <pre style={{ background: "#fee", padding: "1rem" }}>{data.error}</pre>}
 
-      {data?.log && data.log.length > 0 && !busy && (
-        <div style={{ background: "#f4f7ff", border: "1px solid #cdd8ff", borderRadius: 6, padding: "1rem", margin: "1rem 0" }}>
-          <h2 style={{ marginTop: 0 }}>What we did</h2>
-          <ul style={{ lineHeight: 1.8, margin: 0 }}>{data.log.map((ln, i) => <li key={i}>{ln}</li>)}</ul>
+      {(a || tools.length > 0) && (
+        <div style={{ margin: "1rem 0" }}>
+          {a && <span style={{ fontSize: "2rem", fontWeight: 700 }}>Score {a.score}/100</span>}
+          {a && <span style={{ color: "#555", marginLeft: "1rem" }}>
+            {a.counts.error || 0} errors · {a.counts.warn || 0} warnings · {a.counts.ok || 0} passing
+          </span>}
+          <div style={{ marginTop: ".25rem", color: "#a60", fontWeight: 600 }}>
+            Cost this run: ${((data?.audit?.cost) ?? tools.reduce((s, t) => s + (t.cost || 0), 0)).toFixed(4)}
+          </div>
         </div>
       )}
 
-      {a && (
-        <div>
-          <div style={{ fontSize: "2rem", fontWeight: 700, margin: "1rem 0 0" }}>Score {a.score}/100</div>
-          <div style={{ color: "#555", marginBottom: "1rem" }}>
-            {a.counts.error || 0} errors · {a.counts.warn || 0} warnings · {a.counts.ok || 0} passing
+      {/* One card per tool — loads live, then fills with its result + cost. */}
+      {tools.map((t) => (
+        <div key={t.name} style={{ border: "1px solid #ddd", borderRadius: 8, margin: ".75rem 0", overflow: "hidden" }}>
+          <div style={{ background: "#f7f7f7", padding: ".6rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <b>{t.state === "running" ? "⏳" : "✓"} {t.name}</b>
+            <span style={{ color: "#666", fontSize: 13 }}>
+              {t.state === "running" ? "running…" : t.status}
+              {" · "}<span style={{ color: t.cost > 0 ? "#a60" : "#1a5" }}>{t.cost > 0 ? `$${t.cost.toFixed(4)}` : "free"}</span>
+            </span>
           </div>
-          <h2>SEO</h2><Rows list={a.seo} />
-          <h2>AEO (AI answer engines)</h2><Rows list={a.aeo} />
-          <h2>Performance</h2><Rows list={a.perf} />
-          <h2>Technical</h2><Rows list={a.tech} />
-          {a.site && a.site.length > 0 && <><h2>Whole site</h2><Rows list={a.site} /></>}
-          {a.rankings && a.rankings.length > 0 && <><h2>Rankings (DataForSEO)</h2><Rows list={a.rankings} /></>}
+          {t.state === "done" && <div style={{ padding: ".5rem .9rem" }}><Rows list={t.rows} /></div>}
         </div>
+      ))}
+
+      {data?.log && data.log.length > 0 && !busy && (
+        <details style={{ margin: "1rem 0", color: "#555" }}>
+          <summary>What we did (full log)</summary>
+          <ul style={{ lineHeight: 1.8 }}>{data.log.map((ln, i) => <li key={i}>{ln}</li>)}</ul>
+        </details>
       )}
 
       {c && c.model === "B" && (

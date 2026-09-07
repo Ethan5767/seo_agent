@@ -130,6 +130,59 @@ def _same_site(resolved: str, domain: str) -> bool:
     return resolved == domain or resolved == f"www.{domain}" or resolved.endswith(f".{domain}")
 
 
+CWV_LABELS = {
+    "largest_contentful_paint": "LCP",
+    "interaction_to_next_paint": "INP",
+    "cumulative_layout_shift": "CLS",
+}
+# Google's "needs improvement / poor" boundary (above this p75 = poor).
+CWV_POOR = {
+    "largest_contentful_paint": 4000,
+    "interaction_to_next_paint": 500,
+    "cumulative_layout_shift": 0.25,
+}
+
+
+def _crux_verdict(metric: str, value: float) -> str:
+    if value <= CWV_GOOD[metric]:
+        return "good"
+    return "needs-improvement" if value <= CWV_POOR[metric] else "poor"
+
+
+def crux_metrics(domain: str, urls=None) -> tuple:
+    """(metrics, status) — every CWV metric with its p75 and verdict, PASS and
+    FAIL, for display. Unlike crux_findings (which only fires on problems), this
+    surfaces the good values too, so an operator sees the real numbers. Same host
+    resolution as crux_findings."""
+    key = os.environ.get("CRUX_API_KEY")
+    if not key:
+        return [], "skipped: CRUX_API_KEY unset"
+    endpoint = f"https://chromeuxreport.googleapis.com/v1/records:queryRecord?key={key}"
+    resolved = curl_final_host(f"https://{domain}")
+    report_domain = resolved if resolved and _same_site(resolved, domain) else domain
+    doc, err = _request(endpoint, {"origin": f"https://{report_domain}"})
+    note = f" (resolved to {report_domain})" if report_domain != domain else ""
+    if err:
+        if "404" in err:
+            return [], f"no field data: CrUX has no record for {report_domain}{note}"
+        return [], f"error: {err}{note}"
+    record = (doc or {}).get("record") or {}
+    metrics = []
+    for metric, good in CWV_GOOD.items():
+        p75 = ((record.get("metrics") or {}).get(metric) or {}).get("percentiles", {}).get("p75")
+        if p75 is None:
+            continue
+        try:
+            value = float(p75)
+        except (TypeError, ValueError):
+            continue
+        metrics.append({
+            "metric": CWV_LABELS[metric], "p75": p75, "good": good,
+            "verdict": _crux_verdict(metric, value),
+        })
+    return metrics, f"ok{note}"
+
+
 def crux_findings(domain: str, urls=None) -> tuple:
     """(findings, status). Origin-level by default; per-URL when `urls` is given.
 

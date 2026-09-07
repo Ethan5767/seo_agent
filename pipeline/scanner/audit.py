@@ -53,23 +53,54 @@ def aeo_rows(robots_text: str | None, html: str) -> list[dict]:
     return rows
 
 
+_CWV_WHY = {
+    "LCP": "Largest Contentful Paint — how fast the main content appears. Good <= 2.5s.",
+    "INP": "Interaction to Next Paint — how fast the page responds to a tap/click. Good <= 200ms.",
+    "CLS": "Cumulative Layout Shift — how much the page jumps while loading. Good <= 0.1.",
+}
+_VERDICT_SEV = {"good": "ok", "needs-improvement": "warn", "poor": "error"}
+
+
 def perf_rows(crux) -> list[dict]:
-    """Rows from providers.crux_findings output, or an honest 'enable' row."""
+    """Rows from providers.crux_metrics output — every CWV metric, pass and fail,
+    with its real p75. `crux` is None (no key -> 'enable' row) or a
+    (metrics, status) tuple; an empty metrics list means CrUX has no field data
+    for this site (too little traffic), which is surfaced, never faked."""
     if crux is None:
         r = recommend("crux.disabled")
         return [{
             "code": "crux.disabled", "what": "core web vitals not measured",
             "why": r["why"], "fix": r["fix"], "detail": "", "severity": "info",
         }]
-    findings, _status = crux
-    return [_row(f.code, f.to_json().get("detail", "")) for f in findings]
+    metrics, status = crux
+    if not metrics:
+        return [{
+            "code": "crux.nodata", "what": "core web vitals — no field data",
+            "why": "CrUX only has field data for pages with enough Chrome traffic.",
+            "fix": status or "not enough traffic for a CrUX record",
+            "detail": "", "severity": "info",
+        }]
+    rows = []
+    for m in metrics:
+        verdict = m["verdict"]
+        rows.append({
+            "code": f"crux.{m['metric'].lower()}",
+            "what": f"{m['metric']} {m['p75']} (p75)",
+            "why": _CWV_WHY.get(m["metric"], "Core Web Vital."),
+            "fix": "passing" if verdict == "good" else f"{verdict}: bring below {m['good']}",
+            "detail": verdict,
+            "severity": _VERDICT_SEV.get(verdict, "warn"),
+        })
+    return rows
 
 
 def assemble(seo: list[dict], aeo: list[dict], perf: list[dict]) -> dict:
     """Combine the three groups into one report with a headline score."""
     rows = seo + aeo + perf
-    counts = {"error": 0, "warn": 0, "info": 0}
+    counts = {"error": 0, "warn": 0, "info": 0, "ok": 0}
     for r in rows:
         counts[r["severity"]] = counts.get(r["severity"], 0) + 1
+    # Only real problems move the score; "ok" (a passing metric) and "info"
+    # (not-measured) do not.
     score = max(0, 100 - 10 * counts["error"] - 3 * counts["warn"])
     return {"seo": seo, "aeo": aeo, "perf": perf, "score": score, "counts": counts}

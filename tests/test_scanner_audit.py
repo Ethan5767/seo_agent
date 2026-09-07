@@ -1,5 +1,4 @@
 from pipeline.scanner.audit import seo_rows, aeo_rows, perf_rows, assemble
-from pipeline.lib.baseline import Finding
 
 BAD = ("<!DOCTYPE html><html><head>"
        "<title>Way too long a title that runs well past the sixty character ceiling for sure</title>"
@@ -40,11 +39,22 @@ def test_perf_disabled_when_no_crux():
     assert rows[0]["severity"] == "info"
 
 
-def test_perf_maps_crux_findings():
-    f = [Finding("crux", "crux.lcp_above_good", "https://x.com/", detail="p75=3800ms")]
-    rows = perf_rows((f, "ok"))
-    assert rows[0]["code"] == "crux.lcp_above_good"
-    assert "3800" in rows[0]["detail"]
+def test_perf_shows_every_metric_pass_and_fail():
+    metrics = [
+        {"metric": "LCP", "p75": 2100, "good": 2500, "verdict": "good"},
+        {"metric": "INP", "p75": 620, "good": 200, "verdict": "poor"},
+    ]
+    rows = perf_rows((metrics, "ok"))
+    lcp = next(r for r in rows if r["code"] == "crux.lcp")
+    inp = next(r for r in rows if r["code"] == "crux.inp")
+    assert "2100" in lcp["what"] and lcp["severity"] == "ok"
+    assert inp["severity"] == "error"  # poor -> error
+
+
+def test_perf_no_field_data_is_info_not_faked():
+    rows = perf_rows(([], "no field data: too little traffic"))
+    assert rows[0]["code"] == "crux.nodata"
+    assert rows[0]["severity"] == "info"
 
 
 def test_assemble_scores_and_groups():

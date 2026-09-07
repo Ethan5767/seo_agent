@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from pipeline.audit import measure
-from pipeline.audit.providers import crux_findings
+from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
 from pipeline.scanner.run import run_cycle
 
@@ -42,7 +42,7 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
     log.append(f"robots.txt -> {str(len(robots)) + ' bytes' if robots else 'none served'}")
     if crux == "auto":
         if os.environ.get("CRUX_API_KEY"):
-            crux = crux_findings(urlsplit(url).netloc)
+            crux = crux_metrics(urlsplit(url).netloc)
             log.append(f"CrUX -> {crux[1]}")
         else:
             crux = None

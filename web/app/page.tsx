@@ -8,7 +8,7 @@ type Cycle =
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
 type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string; log?: string[] };
 
-const COLOR: Record<string, string> = { error: "#b00", warn: "#a60", info: "#999" };
+const COLOR: Record<string, string> = { error: "#b00", warn: "#a60", info: "#999", ok: "#1a5" };
 
 function Rows({ list }: { list: Row[] }) {
   return (

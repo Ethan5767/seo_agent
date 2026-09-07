@@ -71,7 +71,7 @@ def test_assemble_scores_and_groups():
     seo = [{"code": "health.title_length", "severity": "error", "what": "", "why": "", "fix": "", "detail": ""}]
     aeo = [{"code": "aeo.crawler_blocked", "severity": "warn", "what": "", "why": "", "fix": "", "detail": "GPTBot"}]
     perf = perf_rows(None)
-    report = assemble(seo, aeo, perf)
+    report = assemble({"seo": seo, "aeo": aeo, "perf": perf})
     assert report["score"] == 100 - 10 - 3
     assert report["seo"] and report["aeo"] and report["perf"]
     assert report["counts"]["error"] == 1

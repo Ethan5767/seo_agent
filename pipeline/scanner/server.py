@@ -78,7 +78,6 @@ TOOLS = [
     ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
     ("AI citations (DataForSEO)", "ai", "deep", lambda c: dataforseo.llm_mentions(c.brand, c.domain)),
 ]
-_GROUP_KEYS = ("seo", "aeo", "perf", "tech", "site", "rankings", "keywords", "ai")
 
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
@@ -120,10 +119,10 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         if on_tool:
             on_tool(name, "done", rows, line, tool_cost)
 
-    all_rows = [r for key in _GROUP_KEYS for r in groups.get(key, [])]
+    all_rows = [r for rows in groups.values() for r in rows]
     log.append(f"Checked {len(all_rows)} things — {_status_line(all_rows)}. "
                f"Cost this run: ${cost:.4f}.")
-    report = A.assemble(*(groups.get(k, []) for k in _GROUP_KEYS))
+    report = A.assemble(groups)
     report["cost"] = round(cost, 4)
     return report
 

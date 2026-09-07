@@ -176,23 +176,21 @@ def perf_rows(crux) -> list[dict]:
     return rows
 
 
-def assemble(seo: list[dict], aeo: list[dict], perf: list[dict],
-             tech: list[dict] | None = None, site: list[dict] | None = None,
-             rankings: list[dict] | None = None, keywords: list[dict] | None = None,
-             ai: list[dict] | None = None) -> dict:
-    """Combine the groups into one report with a headline score."""
-    tech = tech or []
-    site = site or []
-    rankings = rankings or []
-    keywords = keywords or []
-    ai = ai or []
-    rows = seo + aeo + perf + tech + site + rankings + keywords + ai
+# Every result group the report can carry, in display order. Adding a group is
+# one entry here — assemble and the UI both key off it, no positional coupling.
+GROUP_KEYS = ("seo", "aeo", "perf", "tech", "site", "rankings", "keywords", "ai")
+
+
+def assemble(groups: dict) -> dict:
+    """Combine result groups (a {key: rows} dict) into one report with a headline
+    score. Unknown keys are ignored; missing ones default to empty."""
+    out = {k: groups.get(k) or [] for k in GROUP_KEYS}
     counts = {"error": 0, "warn": 0, "info": 0, "ok": 0}
-    for r in rows:
-        counts[r["severity"]] = counts.get(r["severity"], 0) + 1
+    for rows in out.values():
+        for r in rows:
+            counts[r["severity"]] = counts.get(r["severity"], 0) + 1
     # Only real problems move the score; "ok"/"info" and the informational
     # rankings/keywords/ai groups do not.
-    score = max(0, 100 - 10 * counts["error"] - 3 * counts["warn"])
-    return {"seo": seo, "aeo": aeo, "perf": perf, "tech": tech, "site": site,
-            "rankings": rankings, "keywords": keywords, "ai": ai,
-            "score": score, "counts": counts}
+    out["score"] = max(0, 100 - 10 * counts["error"] - 3 * counts["warn"])
+    out["counts"] = counts
+    return out

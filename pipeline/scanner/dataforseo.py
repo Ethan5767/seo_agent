@@ -338,6 +338,7 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
         r, _s, c = search_volume(keywords, call=call); rows += r; cost += c
         r, _s, c = keyword_ideas(keywords, call=call); rows += r; cost += c
         r, _s, c = keyword_difficulty(keywords, call=call); rows += r; cost += c
+        r, _s, c = search_intent(keywords, call=call); rows += r; cost += c
     cost = round(cost, 4)
     return rows, f"keywords: {len(rows)} row(s) · ${cost:.4f}", cost
 
@@ -461,3 +462,26 @@ def keyword_difficulty(keywords: list, call=call) -> tuple:
     return _tool("/v3/dataforseo_labs/google/bulk_keyword_difficulty/live",
                  [{"keywords": keywords, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
                  parse_keyword_difficulty, call=call)
+
+
+# ── Search intent (Labs): what the searcher wants per keyword ────────────────
+
+def parse_search_intent(doc: dict, top: int = 15) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        kw = it.get("keyword") or (it.get("keyword_data") or {}).get("keyword")
+        intent = (it.get("keyword_intent") or {}).get("label") or it.get("main_intent")
+        if kw and intent:
+            rows.append({"code": "dfs.search_intent", "what": f'"{kw}" — {intent} intent',
+                         "why": "What the searcher wants (informational / commercial / transactional) — decides the page type to build.",
+                         "fix": "match the page type to the intent (guide vs comparison vs booking)",
+                         "severity": "info", "detail": str(intent)})
+    return rows
+
+
+def search_intent(keywords: list, call=call) -> tuple:
+    if not keywords:
+        return [], "skipped: no keywords", 0.0
+    return _tool("/v3/dataforseo_labs/google/search_intent/live",
+                 [{"keywords": keywords, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 parse_search_intent, call=call)

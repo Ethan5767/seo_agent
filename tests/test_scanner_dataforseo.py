@@ -244,3 +244,14 @@ def test_keyword_difficulty_low_is_ok_high_is_info():
     by = {r["what"]: r for r in parse_keyword_difficulty(doc)}
     assert by['"easy term" — difficulty 20/100']["severity"] == "ok"
     assert by['"hard term" — difficulty 80/100']["severity"] == "info"
+
+
+# ── Measure-completion: search intent ────────────────────────────────────────
+from pipeline.scanner.dataforseo import parse_search_intent
+
+
+def test_search_intent_labels_keyword():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword": "buy roof repair", "keyword_intent": {"label": "transactional"}}]}]}]}
+    rows = parse_search_intent(doc)
+    assert rows[0]["code"] == "dfs.search_intent" and "transactional intent" in rows[0]["what"]

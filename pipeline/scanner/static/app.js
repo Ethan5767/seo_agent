@@ -38,5 +38,8 @@ $("run").onclick = async () => {
       html += `<h2>Brief (Model A)</h2><pre>${esc(c.brief)}</pre>`;
     }
   }
+  if (data.log && data.log.length) {
+    html += `<h2>Log</h2><pre style="background:#111;color:#0f0">${esc(data.log.join("\n"))}</pre>`;
+  }
   $("out").innerHTML = html;
 };

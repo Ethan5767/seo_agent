@@ -29,15 +29,25 @@ def _default_fetch(url: str):
     return html, status, robots
 
 
-def build_report(url: str, fetch=_default_fetch, crux="auto") -> dict:
+def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
     """Compose the audit. `fetch(url)->(html,status,robots)`. `crux` = None
-    (disabled), a (findings,status) tuple, or 'auto' (call CrUX if key set)."""
+    (disabled), a (findings,status) tuple, or 'auto' (call CrUX if key set).
+    `log` (a list) collects a human-readable trace of what the scan did."""
+    log = log if log is not None else []
     html, status, robots = fetch(url)
+    log.append(f"GET {url} -> HTTP {status}, {len(html)} bytes")
+    log.append(f"robots.txt -> {str(len(robots)) + ' bytes' if robots else 'none served'}")
     if crux == "auto":
-        crux = crux_findings(urlsplit(url).netloc) if os.environ.get("CRUX_API_KEY") else None
+        if os.environ.get("CRUX_API_KEY"):
+            crux = crux_findings(urlsplit(url).netloc)
+            log.append(f"CrUX -> {crux[1]}")
+        else:
+            crux = None
+            log.append("CrUX -> disabled (no CRUX_API_KEY in the backend env)")
     seo = A.seo_rows(url, html, status, {})
     aeo = A.aeo_rows(robots, html)
     perf = A.perf_rows(crux)
+    log.append(f"checks -> {len(seo)} SEO, {len(aeo)} AEO finding(s)")
     return A.assemble(seo, aeo, perf)
 
 
@@ -72,12 +82,15 @@ class Handler(BaseHTTPRequestHandler):
         url = (req.get("url") or "").strip()
         repo = (req.get("repo") or "").strip()
         model = (req.get("model") or "B").strip().upper()
+        log: list[str] = []
         try:
-            out = {"audit": build_report(url)}
+            out = {"audit": build_report(url, log=log)}
             if repo:
-                out["cycle"] = run_cycle(Path(repo), url, model)
+                out["cycle"] = run_cycle(Path(repo), url, model, log=log)
         except Exception as exc:  # a failed scan is data, not a crash
-            return self._send(200, json.dumps({"error": f"{type(exc).__name__}: {exc}"}))
+            log.append(f"ERROR {type(exc).__name__}: {exc}")
+            return self._send(200, json.dumps({"error": f"{type(exc).__name__}: {exc}", "log": log}))
+        out["log"] = log
         self._send(200, json.dumps(out, default=str))
 
 

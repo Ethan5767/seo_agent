@@ -6,7 +6,7 @@ type Audit = { seo: Row[]; aeo: Row[]; perf: Row[]; score: number; counts: Recor
 type Cycle =
   | { model: "A"; brief: string; worklist: unknown[] }
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
-type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string };
+type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string; log?: string[] };
 
 const COLOR: Record<string, string> = { error: "#b00", warn: "#a60", info: "#999" };
 
@@ -93,6 +93,15 @@ export default function Home() {
         <div>
           <h2>Brief (Model A)</h2>
           <pre style={{ background: "#f6f6f6", padding: "1rem", overflow: "auto" }}>{c.brief}</pre>
+        </div>
+      )}
+
+      {data?.log && data.log.length > 0 && (
+        <div>
+          <h2>Log</h2>
+          <pre style={{ background: "#111", color: "#0f0", padding: "1rem", overflow: "auto", fontSize: 13 }}>
+            {data.log.join("\n")}
+          </pre>
         </div>
       )}
     </main>

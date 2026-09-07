@@ -12,6 +12,8 @@ per-finding recommendation, which is what a client applies by hand.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -70,20 +72,32 @@ def _brief(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def run_cycle(repo: Path, url: str, model: str, cycle: str | None = None) -> dict:
+def run_cycle(repo: Path, url: str, model: str, cycle: str | None = None,
+              log=None) -> dict:
+    log = log if log is not None else []
     repo = Path(repo)
     ensure_config(repo, url, tier=1)
     _ensure_repo(repo)
     cycle = cycle or date.today().strftime("%Y-%m")
-    _measure_and_plan(repo, url)
+
+    # Capture the stages' own stdout/stderr ([OK]/[FIXED]/... lines) into the log.
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        _measure_and_plan(repo, url)
+    log += [f"measure/plan: {ln}" for ln in buf.getvalue().splitlines() if ln.strip()]
     items = _worklist(repo, cycle)
+    log.append(f"plan -> {len(items)} work item(s)")
 
     if model.upper() == "A":
+        log.append("Model A -> brief written (code untouched)")
         return {"model": "A", "worklist": items, "brief": _brief(items)}
 
     # Model B: edit the code, commit, judge the diff.
-    changelog, _code = rem.remediate(repo, cycle, max_items=20, max_files=20,
-                                     model="sonnet", timeout=300, dry_run=False)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        changelog, _code = rem.remediate(repo, cycle, max_items=20, max_files=20,
+                                         model="sonnet", timeout=300, dry_run=False)
+    log += [f"remediate: {ln}" for ln in buf.getvalue().splitlines() if ln.strip()]
     (repo / "docs" / "audit" / changelog["cycle"] / "changelog.json").write_text(
         json.dumps(changelog, indent=2, sort_keys=True) + "\n")
 
@@ -94,5 +108,6 @@ def run_cycle(repo: Path, url: str, model: str, cycle: str | None = None) -> dic
          "commit", "-q", "-m", "scan: apply fixes")
     diff = _git(repo, "diff", f"{base}..HEAD")
     decision = ag.decide_pr(repo, base, gates_passed=True, enabled=True)
+    log.append(f"decision -> {decision.action}: {decision.reason}")
     return {"model": "B", "changelog": changelog, "diff": diff,
             "decision": {"action": decision.action, "reason": decision.reason}}

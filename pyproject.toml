@@ -52,6 +52,9 @@ wf-indexnow-submit = "pipeline.deploy.indexnow_submit:main"
 
 # ── operator console ─────────────────────────────────────────────────────────
 wf-dashboard = "pipeline.dashboard.server:main"
+# The URL-audit web MVP backend — POST /scan returns the SEO+AEO+CrUX audit and,
+# given a repo, a Model A brief or Model B fix + auto-merge decision.
+wf-scan-web = "pipeline.scanner.server:main"
 
 # ── audit / setup ────────────────────────────────────────────────────────────
 wf-onboard = "pipeline.audit.onboard:main"

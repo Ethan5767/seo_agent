@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-09-07** · 5 packages, 42 modules, 5 workflows, 35 `wf-*` commands, 753 tests.
+**As of 2026-09-07** · 6 packages, 47 modules, 5 workflows, 36 `wf-*` commands, 769 tests.
 (Counted, not remembered: modules = `.py` under `pipeline/` excluding `__init__.py`;
 commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. Only the test
 count moved on 2026-08-10 — `--recommend` is a flag on an existing command, and
@@ -101,6 +101,18 @@ Baseline-aware unless marked ⛔ (never baselineable — legacy debt is still li
 ## `pipeline/dashboard` — the local operator console (3 + static)
 
 `server.py` (`wf-dashboard`) — the command allow-list, the `Run` class and the HTTP handler; `state.py` — what the console KNOWS, derived from files on disk (discovery, git state, the cycle bundle, the score, and `next_action`'s eight stages), with no HTTP in it; `review.py` — GATE 2 and the git actions, where approving is `git add`. Together: a `127.0.0.1` web UI over the artifacts client repos already hold. Stdlib only; holds no state, and stores no credential — the optional GitHub token on the Add Client form is passed to that one `wf-onboard` subprocess as `GH_TOKEN` and is never written to argv, the run log or disk. Clients are discovered by scanning `--clients-dir` for git repos containing `docs/client-config.yml`, so there is no roster to maintain; **Add Client** on the fleet screen runs `wf-onboard <owner/name> <domain>` into that directory, which is the only run that has no client yet. Runs are launched from a **fixed command allow-list** (never a shell string) and streamed over SSE; git actions stop at the PR — there is no merge action to call. The fleet card carries each client's baseline state, because a client with no `docs/gate-baseline.json` runs the gates bare. The client screen carries a **stage rail** — the eight stages and the three human gates, derived from the artifacts on disk — so one screen answers "what do I do now" instead of nine screens each showing an artifact; plus the SEO/AEO score and a chart of it per cycle (measured solid, projected dashed, verified only when `acceptance_check` can actually run). **Review Diff** is Gate 2: per-item diffs where approving is `git add`, so the git index IS the approval record and there is no parallel state to drift. Items that touched the same file are one approval unit, because those diffs are not separable. `static/` holds the ten screens (fleet · client · findings · worklist · **review** · report · changelog · runs · git · config) as plain HTML + `app.js` + `chart.js`, no build step.
+
+## `pipeline/scanner` — the URL-audit web MVP (5)
+
+The backend behind `wf-scan-web`: paste a URL (+ optional repo, + Model A/B), get an SEO + AEO + performance audit and — with a repo — a Model A brief or a Model B fix + auto-merge decision. Same rails as `pipeline/dashboard` (127.0.0.1, stdlib `http.server`, no DB, no accounts, no secrets on disk). Reuses the engine in-process; adds no measurement logic of its own.
+
+| Module | What it does |
+|---|---|
+| `recommendations.py` | `RECOMMENDATIONS` — a plain-English *why it matters / how to fix* per finding code (SEO + AEO + CrUX), with a safe generic fallback. Advisory copy only; the machine-checkable acceptance still lives in `plan.ACTIONS`. |
+| `audit.py` | Pure assembly (no HTTP, no network): `seo_rows` (via `measure.check_page`), `aeo_rows` (robots citation-crawler check via `robots_aicrawler_check` + LocalBusiness schema), `perf_rows` (from `providers.crux_findings`, or an honest `crux.disabled` info row when no `CRUX_API_KEY`), and `assemble` → grouped report + a 0-100 score (−10/error, −3/warn). |
+| `config.py` | `ensure_config` — scaffolds a minimal `docs/client-config.yml` (domain from the URL, tier int 1, `out` build dir, `text_paths`) for a repo that has none, so plan/remediate can run on an arbitrary site. A repo that already declares a config is left untouched. |
+| `run.py` | `run_cycle(repo, url, model)` — orchestration only. Model A: measure→plan→a brief built from the worklist + recommendations, code never touched. Model B: measure→plan→`remediate` (edit)→commit→`git diff` + `automerge_gate.decide_pr`. |
+| `server.py` | `wf-scan-web` — `http.server` with `GET /` + `/static/*` (the zero-dep fallback page) and `POST /scan` (JSON: `{url, repo, model}` → audit + cycle). `build_report` is split out with an injected fetcher so it is unit-testable with no network. A failed scan is returned as `{error}`, never a crash. This JSON endpoint is also the API a Next.js front end calls. |
 
 ## `.github/workflows` — the runtime (5)
 

@@ -8,6 +8,29 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **URL-audit web MVP (`wf-scan-web`, new `pipeline/scanner/` package).** A
+  127.0.0.1 web backend: paste a URL (+ optional repo, + Model A/B) and get an
+  **SEO + AEO + performance** audit, and — with a repo — either a **Model A
+  brief** (recommendations to apply yourself, code untouched) or a **Model B
+  fix** (Claude edits the code) with a `git diff` and the auto-merge
+  AUTO/HUMAN decision. Reuses the engine in-process (measure/plan/remediate/
+  providers/robots/automerge_gate); adds no measurement logic of its own.
+  - `audit.py` composes three groups from already-fetched inputs (pure, unit-
+    tested offline): SEO via `measure.check_page`, AEO via the robots
+    citation-crawler check + LocalBusiness schema, performance via
+    `providers.crux_findings`. No `CRUX_API_KEY` → an honest `crux.disabled`
+    row, never faked numbers. `assemble` scores 0-100 (−10/error, −3/warn).
+  - `config.ensure_config` scaffolds a minimal `client-config.yml` for a repo
+    that has none, so the pipeline can run on an arbitrary site; an existing
+    config is left untouched.
+  - `run.run_cycle` orchestrates Model A (brief from worklist + recommendations,
+    tree never touched) and Model B (edit → commit → diff → `decide_pr`). NOTE:
+    Model A does not use `remediate --recommend` (that only briefs prior-refused
+    items); the brief is the planned worklist plus each finding's recommendation.
+  - `server.py` serves `GET /` + `/static/*` (a zero-dependency fallback page)
+    and `POST /scan` (JSON), which is also the API a Next.js front end calls.
+  - 16 new tests, all network-free (fetchers/agent injected). 753 → 769.
+
 - **Automation spine — the pipeline can now run the whole cycle and merge a
   safe fix without a human, proven end to end (Tasks 4-11).** On top of the
   decision brain (`pipeline/lib/automerge.py`, Tasks 1-3), two new pieces:

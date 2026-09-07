@@ -57,3 +57,20 @@ def test_video_with_schema_ok():
 
 def test_no_video_is_pass():
     assert video_rows("<html><body>no video</body></html>")[0]["severity"] == "ok"
+
+
+# ── Internal link structure ──────────────────────────────────────────────────
+from pipeline.scanner.extra_checks import internal_link_rows
+
+
+def test_generic_anchor_flagged():
+    html = '<a href="/services/">click here</a> <a href="/about/">Our roofing services</a>'
+    by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
+    assert by["Internal links"]["severity"] == "ok"      # 2 internal links
+    assert by["Anchor text quality"]["severity"] == "warn"  # "click here"
+
+
+def test_no_internal_links_warns():
+    html = '<a href="https://external.com/">out</a>'
+    by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
+    assert by["Internal links"]["severity"] == "warn"

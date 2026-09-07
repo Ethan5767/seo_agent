@@ -10,6 +10,7 @@ audit.py, so the UI renders them identically. Every check shows pass or fail.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 
 def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict:
@@ -158,3 +159,39 @@ def video_rows(html: str) -> list[dict]:
                  f"{n} embedded video(s) but no VideoObject schema — Google/AI can't show a rich video snippet.",
                  "add VideoObject JSON-LD (name, description, thumbnailUrl, uploadDate, duration) per video",
                  detail=f"{n} video(s)")]
+
+
+# ── Internal link structure (SOP Measure) — page-level anchor quality ────────
+
+_A_TAG = re.compile(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
+_GENERIC_ANCHORS = {"click here", "read more", "here", "learn more", "more",
+                    "this", "read", "link", "click", "see more"}
+
+
+def internal_link_rows(url: str, html: str) -> list[dict]:
+    """Internal-link count + anchor-text quality. Descriptive anchors pass
+    keyword context; 'click here' / naked URLs waste it."""
+    host = urlsplit(url).netloc
+    internal, generic = 0, []
+    for href, raw in _A_TAG.findall(html or ""):
+        href = href.strip()
+        if href.startswith(("mailto:", "tel:", "#", "javascript:", "data:")):
+            continue
+        is_internal = href.startswith("/") or (host and host in href) or not href.startswith("http")
+        if not is_internal:
+            continue
+        internal += 1
+        text = re.sub(r"<[^>]+>", "", raw).strip().lower()
+        if not text or text in _GENERIC_ANCHORS or text.startswith("http"):
+            generic.append(text or "(empty)")
+    rows = [_row("Internal links", "ok" if internal else "warn",
+                 f"{internal} internal link(s) on this page — they spread ranking authority and guide crawlers."
+                 if internal else "No internal links on this page — it's a dead end for crawlers and authority.",
+                 "passing" if internal else "add contextual links to related pages",
+                 detail=f"{internal} links")]
+    if generic:
+        rows.append(_row("Anchor text quality", "warn",
+                         f"{len(generic)} non-descriptive anchor(s) (click here / read more / naked URL) — they carry no keyword signal.",
+                         "use descriptive anchor text naming the target page's topic",
+                         detail=f"{len(generic)} weak"))
+    return rows

@@ -39,7 +39,7 @@ $("run").onclick = async () => {
     }
   }
   if (data.log && data.log.length) {
-    html += `<h2>Log</h2><pre style="background:#111;color:#0f0">${esc(data.log.join("\n"))}</pre>`;
+    html += `<h2>What we did</h2><ul>${data.log.map(l => `<li>${esc(l)}</li>`).join("")}</ul>`;
   }
   $("out").innerHTML = html;
 };

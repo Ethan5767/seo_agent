@@ -38,20 +38,49 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
     `log` (a list) collects a human-readable trace of what the scan did."""
     log = log if log is not None else []
     html, status, robots = fetch(url)
-    log.append(f"GET {url} -> HTTP {status}, {len(html)} bytes")
-    log.append(f"robots.txt -> {str(len(robots)) + ' bytes' if robots else 'none served'}")
+    if status == 200:
+        log.append(f"Opened the page — {_human_size(len(html))}, loaded OK.")
+    else:
+        log.append(f"Opened the page — the server responded {status} (couldn't read it normally).")
+    log.append(
+        f"Found robots.txt — the file that tells Google and AI crawlers what they may read."
+        if robots else
+        "No robots.txt found — crawlers have no explicit instructions."
+    )
     if crux == "auto":
         if os.environ.get("CRUX_API_KEY"):
             crux = crux_metrics(urlsplit(url).netloc)
-            log.append(f"CrUX -> {crux[1]}")
+            log.append("Speed (Core Web Vitals) — " + _human_crux(crux[1]))
         else:
             crux = None
-            log.append("CrUX -> disabled (no CRUX_API_KEY in the backend env)")
+            log.append("Speed (Core Web Vitals) — skipped: no Google speed key set up yet.")
     seo = A.seo_rows(url, html, status, {})
     aeo = A.aeo_rows(robots, html)
     perf = A.perf_rows(crux)
-    log.append(f"checks -> {len(seo)} SEO, {len(aeo)} AEO finding(s)")
+    log.append(
+        f"Checked the page — found {len(seo)} search (SEO) issue(s) "
+        f"and {len(aeo)} AI-visibility (AEO) issue(s)."
+    )
     return A.assemble(seo, aeo, perf)
+
+
+def _human_size(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f} MB"
+    if n >= 1000:
+        return f"{n // 1000} KB"
+    return f"{n} bytes"
+
+
+def _human_crux(status: str) -> str:
+    s = (status or "").lower()
+    if s.startswith("ok"):
+        return "real Google speed data found for this site."
+    if "no field data" in s or "no record" in s:
+        return "no Google speed data yet — the site needs more visitor traffic to be measured."
+    if "skipped" in s:
+        return "skipped: no Google speed key set up yet."
+    return status
 
 
 class Handler(BaseHTTPRequestHandler):

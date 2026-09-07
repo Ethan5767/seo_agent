@@ -98,10 +98,10 @@ export default function Home() {
 
       {data?.log && data.log.length > 0 && (
         <div>
-          <h2>Log</h2>
-          <pre style={{ background: "#111", color: "#0f0", padding: "1rem", overflow: "auto", fontSize: 13 }}>
-            {data.log.join("\n")}
-          </pre>
+          <h2>What we did</h2>
+          <ul style={{ lineHeight: 1.8 }}>
+            {data.log.map((ln, i) => <li key={i}>{ln}</li>)}
+          </ul>
         </div>
       )}
     </main>

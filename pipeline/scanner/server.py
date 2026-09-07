@@ -17,7 +17,7 @@ from pipeline.audit import measure
 from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
 from pipeline.scanner import dataforseo
-from pipeline.scanner.extra_checks import tech_rows
+from pipeline.scanner.extra_checks import tech_rows, video_rows
 from pipeline.scanner.run import run_cycle
 
 STATIC = Path(__file__).parent / "static"
@@ -73,6 +73,7 @@ TOOLS = [
     ("AI visibility (AEO)", "aeo", None, lambda c: (A.aeo_rows(c.robots, c.html), None, 0.0)),
     ("Performance (speed)", "perf", None, _perf_tool),
     ("Technical", "tech", None, lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
+    ("Video", "video", None, lambda c: (video_rows(c.html), None, 0.0)),
     ("Site Health (DataForSEO)", "site", "crawl", lambda c: dataforseo.site_audit(c.domain, c.max_pages)),
     ("Rankings (DataForSEO)", "rankings", "deep", lambda c: dataforseo.rankings(c.domain, c.keywords)),
     ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),

@@ -122,3 +122,39 @@ def tech_rows(url: str, html: str, status: int, sitemap: str | None) -> list[dic
                          "Add relevant schema.org JSON-LD (LocalBusiness, Breadcrumb, etc.)."))
 
     return rows
+
+
+# ── Video snippets (SOP Measure: video/multimedia audit) — a DataForSEO gap ──
+
+_VIDEO_ID = re.compile(
+    r"(?:youtube\.com/embed/|youtu\.be/|youtube\.com/watch\?v=)([A-Za-z0-9_-]{6,})",
+    re.IGNORECASE)
+
+
+def find_video_ids(html: str) -> list[str]:
+    """Embedded YouTube video ids on the page (dedup, order preserved)."""
+    seen = []
+    for vid in _VIDEO_ID.findall(html or ""):
+        if vid not in seen:
+            seen.append(vid)
+    return seen
+
+
+def video_rows(html: str) -> list[dict]:
+    """One row: are embedded videos backed by VideoObject schema (rich-snippet
+    eligible)? No video = nothing to optimise (pass)."""
+    ids = find_video_ids(html)
+    has_native = "<video" in (html or "").lower()
+    if not ids and not has_native:
+        return [_row("Video snippets", "ok",
+                     "No embedded video on this page — nothing to optimise.", "passing")]
+    has_schema = '"@type":"VideoObject"' in (html or "").replace(" ", "").replace("'", '"')
+    n = len(ids) or 1
+    if has_schema:
+        return [_row("Video snippets", "ok",
+                     f"{n} video(s) with VideoObject schema — eligible for rich video results and AI citation.",
+                     "passing", detail=f"{n} video(s)")]
+    return [_row("Video snippets", "warn",
+                 f"{n} embedded video(s) but no VideoObject schema — Google/AI can't show a rich video snippet.",
+                 "add VideoObject JSON-LD (name, description, thumbnailUrl, uploadDate, duration) per video",
+                 detail=f"{n} video(s)")]

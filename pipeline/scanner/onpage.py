@@ -119,4 +119,59 @@ def onpage_deep_rows(url: str, html: str, status: int) -> list[dict]:
     else:
         rows.append(_ok("Semantic <main>", "A <main> landmark marks the primary content."))
 
+    # ── URL hygiene ──────────────────────────────────────────────────────────
+    parts = urlsplit(url)
+    if len(url) > 115:
+        rows.append(_row("URL length", "warn", f"URL is long ({len(url)} chars) — long URLs read poorly and truncate in results.",
+                         "shorten the slug", detail=f"{len(url)} chars"))
+    if "_" in parts.path:
+        rows.append(_row("URL underscores", "warn", "URL uses underscores — Google treats hyphens as word separators, not underscores.",
+                         "use hyphens in slugs"))
+    if parts.path != parts.path.lower():
+        rows.append(_row("URL case", "warn", "URL has uppercase letters — can create duplicate-URL issues.",
+                         "use lowercase URLs"))
+    if parts.query:
+        rows.append(_row("URL parameters", "info", "URL has query parameters — prefer clean paths for key landing pages.",
+                         "use a clean path where possible"))
+
+    # ── Headings ─────────────────────────────────────────────────────────────
+    if not re.search(r"<h2\b", low):
+        rows.append(_row("Subheadings (H2)", "warn", "No H2 subheadings — weaker structure and skimmability.",
+                         "break content with descriptive H2s"))
+    if re.search(r"<h1", low) and re.search(r"<h3", low) and not re.search(r"<h2", low):
+        rows.append(_row("Heading order", "warn", "Heading levels skip (H1 → H3 with no H2) — confuses structure/readers.",
+                         "don't skip heading levels"))
+
+    # ── Misc technical ───────────────────────────────────────────────────────
+    if re.search(r'http-equiv=["\']?refresh', low):
+        rows.append(_row("Meta refresh", "warn", "A <meta refresh> redirect — bad for SEO and accessibility.",
+                         "use a server-side 301 redirect instead"))
+    if len(re.findall(r'rel=["\']canonical', low)) > 1:
+        rows.append(_row("Single canonical", "warn", "Multiple canonical tags — conflicting signals to Google.",
+                         "keep exactly one canonical"))
+    if "lorem ipsum" in low:
+        rows.append(_row("Placeholder text", "error", "'lorem ipsum' placeholder text is live on the page.",
+                         "replace it with real content"))
+    if re.search(r"\.swf\b|application/x-shockwave", low):
+        rows.append(_row("Flash", "warn", "Flash content — obsolete and unsupported by browsers.",
+                         "replace with HTML5"))
+    iframes = len(re.findall(r"<iframe\b", low))
+    if iframes > 3:
+        rows.append(_row("Iframe count", "warn", f"{iframes} iframes — heavy and often slow/insecure.",
+                         "reduce iframes", detail=f"{iframes}"))
+    inline = len(re.findall(r'\bstyle=["\']', low))
+    if inline > 25:
+        rows.append(_row("Inline styles", "warn", f"{inline} inline style attributes — move to CSS for caching + smaller HTML.",
+                         "extract to a stylesheet", detail=f"{inline}"))
+    empties = len(re.findall(r'href=["\'](?:#|)["\']', low))
+    if empties:
+        rows.append(_row("Empty links", "warn", f"{empties} empty / '#' link(s) — dead anchors waste crawl + confuse users.",
+                         "give links a real destination", detail=f"{empties}"))
+    if re.search(r'name=["\']keywords["\']', low):
+        rows.append(_row("Legacy meta keywords", "info", "A <meta keywords> tag is present — ignored by Google since 2009 (harmless).",
+                         "safe to remove"))
+    if not re.search(r'rel=["\'][^"\']*apple-touch-icon', low):
+        rows.append(_row("Apple touch icon", "info", "No apple-touch-icon — the home-screen icon on iOS falls back to a screenshot.",
+                         "add <link rel=apple-touch-icon>"))
+
     return rows

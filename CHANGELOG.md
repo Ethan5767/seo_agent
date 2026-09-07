@@ -8,6 +8,43 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Automation spine — the pipeline can now run the whole cycle and merge a
+  safe fix without a human, proven end to end (Tasks 4-11).** On top of the
+  decision brain (`pipeline/lib/automerge.py`, Tasks 1-3), two new pieces:
+  - `pipeline/audit/automerge_gate.py` (`wf-automerge-decide`): the CI-side
+    decision. Given a client repo and the PR's `base..head`, it derives the
+    risk inputs from the REAL diff — declared tier from the config, created
+    files and changed copy from git — and runs `automerge.decide`. Prints
+    `AUTO`/`HUMAN` with a reason and writes `decision=<...>` to
+    `$GITHUB_OUTPUT`. It NEVER merges and NEVER fails the run (a decision is
+    data). Two deliberate scopings: the YMYL risk check judges the ADDED copy
+    (the diff), not the whole page, so an incidental word already on the page
+    can't block an edit that never went near it; and `public_creates()`
+    excludes `docs/`, because the audit trail (findings/worklist/changelog)
+    ships inside every remediation PR by design (Model A) and must not read as
+    "a new page" — otherwise every real PR is forced to a human and the spine
+    is pointless.
+  - `quality-gate.reusable.yml`: a new `automerge_enabled` input (boolean,
+    **default false** for the whole fleet) and an `auto-merge` job that runs
+    only when BOTH the flag is on AND the gate job succeeded, then
+    `gh pr merge --squash` only when the decision is `AUTO`, else comments the
+    HUMAN reason on the PR. Two independent guards; the merge step is itself
+    re-guarded on `AUTO`. This is the only step in the system that merges
+    without a person, and it is off until a client's caller opts in. An
+    auto-merge is an ordinary push to `main`, so `deploy.reusable.yml`'s
+    verify-live + auto-rollback still fire unchanged (Task 11).
+  - `tests/e2e_fixture.py` + `tests/test_e2e_spine.py`: a hermetic full-cycle
+    E2E — measure→plan→remediate→gates→decision on a seeded one-page fixture,
+    with the network stubbed at `curl`/`curl_status` and the writer stubbed at
+    the `run_agent` seam, the seven content gates a T1 copy edit is
+    responsible for run with their real CLIs (all exit 0), ending in an `AUTO`
+    verdict. `tests/test_automerge_gate.py` + `tests/test_automerge_workflow.py`
+    cover the CLI and the workflow wiring (defaults off, both guards present).
+  - `scripts/spine_demo.py`: the same cycle as a readable before/after
+    transcript for a stakeholder (`.venv/bin/python scripts/spine_demo.py`).
+  - Test count 735 → 753. NOTE: a client-config `tier` must be the int `1`,
+    not the string `"T1"` — `common.client_profile` reads a non-int as no tier.
+
 - **Analytics dashboard page — trigger and curate the four external providers
   without hand-typing CLI flags.** New `/analytics` page: a "Re-check now"
   button runs `wf-site-health` with every provider flag (CrUX, GSC,

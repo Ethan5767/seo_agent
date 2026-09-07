@@ -83,6 +83,19 @@ on:
         required: false
         type: string
         default: ""
+      # AUTOMATION SPINE — the auto-merge master switch. OFF for the whole fleet
+      # by default: a client turns it on in its own thin caller only after the
+      # operator trusts the loop for that repo. When off, the auto-merge job does
+      # not run at all and every PR waits for a human, exactly as before. When on,
+      # the job still merges ONLY what wf-automerge-decide calls AUTO — all gates
+      # green AND a low-risk T1 copy edit (no new page, no medical/legal claim);
+      # everything else is left for a human. Two independent guards, both must
+      # agree: this flag, and the decision.
+      automerge_enabled:
+        description: "Allow the pipeline to auto-merge AUTO-classified PRs (all gates green + low-risk T1). Default false = every PR waits for a human."
+        required: false
+        type: boolean
+        default: false
       node_version:
         description: "Node.js version for the build"
         required: false
@@ -719,3 +732,107 @@ jobs:
             exit 1
           fi
           echo "Quality Gate GREEN — all blocking gates passed."
+
+  # ---------------------------------------------------------------------------
+  # AUTO-MERGE (automation spine) — merges ONLY what the decision calls AUTO.
+  #
+  # Runs after the gate, and only when BOTH guards agree:
+  #   1. the caller opted in            (inputs.automerge_enabled == true)
+  #   2. every blocking gate was green  (needs.quality-gate.result == 'success')
+  # Even then it merges only if `wf-automerge-decide` returns AUTO — all gates
+  # green AND a low-risk T1 copy edit (no new public page, no medical/legal
+  # claim). Anything else it leaves for a human, with a comment saying why. The
+  # decision NEVER fails the run; leaving a PR for a human is a normal outcome,
+  # not an error.
+  #
+  # This is the ONLY step in the whole system that merges without a person, and
+  # it is off for the entire fleet until a client's caller sets the flag.
+  # ---------------------------------------------------------------------------
+  auto-merge:
+    name: Auto-merge (spine)
+    needs: quality-gate
+    if: ${{ inputs.automerge_enabled && needs.quality-gate.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write        # to merge the PR into the default branch
+      pull-requests: write   # to merge / comment on the PR
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      # Full history so wf-automerge-decide can diff base..head for creates + copy.
+      - name: Checkout client site
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Resolve pipeline ref
+        id: pipe
+        env:
+          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          STAMPED_REF: ${{ env.PIPELINE_REF }}
+        run: |
+          REF="${JOB_WORKFLOW_SHA:-}"
+          if [ -z "$REF" ]; then
+            REF="${STAMPED_REF:-}"
+            echo "::warning::github.job_workflow_sha was empty — falling back to the stamped PIPELINE_REF '${REF}'."
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::No pipeline ref could be resolved. Refusing to auto-merge from an unknown pipeline version."
+            exit 1
+          fi
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pipeline (version-locked)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.PIPELINE_REPO }}
+          ref: ${{ steps.pipe.outputs.ref }}
+          path: .pipeline
+          persist-credentials: false
+          token: ${{ secrets.SEO_AGENT || github.token }}
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install pipeline package
+        run: |
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet ./.pipeline
+
+      # The decision. Reaching this job already means all gates were green, so
+      # --gates-passed true reflects the real state; --enabled reflects guard 1.
+      # The decision is written to $GITHUB_OUTPUT (decision=AUTO|HUMAN, reason=...).
+      - name: Decide auto-merge
+        id: decide
+        run: |
+          wf-automerge-decide \
+            --project . \
+            --base "origin/${{ github.event.pull_request.base.ref }}" \
+            --head HEAD \
+            --gates-passed true \
+            --enabled
+
+      - name: Merge (AUTO only)
+        if: ${{ steps.decide.outputs.decision == 'AUTO' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Decision AUTO — ${{ steps.decide.outputs.reason }}"
+          gh pr merge "${{ github.event.pull_request.number }}" --squash --delete-branch
+
+      - name: Hold for human (everything else)
+        if: ${{ steps.decide.outputs.decision != 'AUTO' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Decision HUMAN — ${{ steps.decide.outputs.reason }}"
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body "🤖 Auto-merge held for a human: ${{ steps.decide.outputs.reason }}"

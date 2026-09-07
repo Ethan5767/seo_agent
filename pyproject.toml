@@ -58,6 +58,10 @@ wf-onboard = "pipeline.audit.onboard:main"
 wf-site-health = "pipeline.audit.measure:main"
 wf-site-plan = "pipeline.audit.plan:main"
 wf-site-remediate = "pipeline.audit.remediate:main"
+# Auto-merge decision for a green PR (automation spine). Prints AUTO/HUMAN and
+# writes decision=<...> to $GITHUB_OUTPUT; never merges. The workflow's guarded
+# `gh pr merge` step reads that output. Off unless the caller sets automerge_enabled.
+wf-automerge-decide = "pipeline.audit.automerge_gate:main"
 # Crawls a rendered deployment into the static tree the nine OUT gates glob, so a
 # client with no static export can be gated at all (v3 sharp edge #4).
 wf-render-snapshot = "pipeline.audit.snapshot:main"

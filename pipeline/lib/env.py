@@ -31,7 +31,9 @@ def load_env(path: Path | None = None) -> list[str]:
             continue
         key, _, val = line.partition("=")
         key, val = key.strip(), val.strip().strip('"').strip("'")
-        if key and key not in os.environ:
+        # Skip blank values: an empty placeholder line is "not set", so it must
+        # not shadow the environment or read as a loaded credential.
+        if key and val and key not in os.environ:
             os.environ[key] = val
             loaded.append(key)
     return loaded

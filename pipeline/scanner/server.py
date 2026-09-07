@@ -20,6 +20,7 @@ from pipeline.scanner import dataforseo
 from pipeline.scanner.extra_checks import tech_rows, video_rows, internal_link_rows
 from pipeline.scanner import source_audit
 from pipeline.scanner.onpage import onpage_deep_rows
+from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.run import run_cycle
 
 STATIC = Path(__file__).parent / "static"
@@ -76,6 +77,7 @@ TOOLS = [
     ("Performance (speed)", "perf", None, _perf_tool),
     ("Technical", "tech", None, lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
     ("On-page (deep)", "onpage", None, lambda c: (onpage_deep_rows(c.url, c.html, c.status), None, 0.0)),
+    ("Trust (E-E-A-T)", "eeat", None, lambda c: (eeat_rows(c.html), None, 0.0)),
     ("Video", "video", None, lambda c: (video_rows(c.html), None, 0.0)),
     ("Internal links", "internal", None, lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
     ("Source code", "source", "source",

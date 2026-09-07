@@ -122,3 +122,48 @@ def test_rankings_aggregates_and_sums_cost():
     assert cost == round(0.01 + 0.002 + 0.0011, 4)     # exact sum of each call
     codes = {r["code"] for r in rows}
     assert {"dfs.ranked_keyword", "dfs.domain_overview", "dfs.serp_rank"} <= codes
+
+
+# ── Task 5: Keywords (volume, ideas, gap, competitors, aggregator) ───────────
+from pipeline.scanner.dataforseo import (
+    parse_search_volume, parse_keyword_gap, parse_competitors, keywords_card,
+)
+
+
+def test_search_volume_parses_flat_google_ads_items():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword": "hospital phnom penh", "search_volume": 1200}]}]}]}
+    rows = parse_search_volume(doc)
+    assert rows[0]["code"] == "dfs.keyword_volume" and "1200/mo" in rows[0]["what"]
+
+
+def test_keyword_gap_is_a_warn_opportunity():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword_data": {"keyword": "icu cambodia", "keyword_info": {"search_volume": 90}}}]}]}]}
+    rows = parse_keyword_gap(doc, "rival.com")
+    assert rows[0]["code"] == "dfs.keyword_gap" and rows[0]["severity"] == "warn"
+    assert "rival.com" in rows[0]["why"]
+
+
+def test_competitors_parsed():
+    doc = {"tasks": [{"result": [{"items": [{"domain": "rival.com"}]}]}]}
+    assert parse_competitors(doc)[0]["what"] == "rival.com"
+
+
+def test_keywords_card_aggregates_and_sums_cost():
+    def fake_call(path, body):
+        if "competitors_domain" in path:
+            return {"cost": 0.005, "tasks": [{"result": [{"items": [{"domain": "rival.com"}]}]}]}, None
+        if "domain_intersection" in path:
+            return {"cost": 0.01, "tasks": [{"result": [{"items": [
+                {"keyword_data": {"keyword": "icu cambodia", "keyword_info": {"search_volume": 90}}}]}]}]}, None
+        if "search_volume" in path:
+            return {"cost": 0.02, "tasks": [{"result": [{"items": [{"keyword": "hospital", "search_volume": 1200}]}]}]}, None
+        if "keyword_ideas" in path:
+            return {"cost": 0.008, "tasks": [{"result": [{"items": [
+                {"keyword": "clinic", "keyword_info": {"search_volume": 300}}]}]}]}, None
+        return {}, None
+    rows, status, cost = keywords_card("x.com", keywords=["hospital"], call=fake_call)
+    codes = {r["code"] for r in rows}
+    assert {"dfs.competitor", "dfs.keyword_gap", "dfs.keyword_volume", "dfs.keyword_idea"} <= codes
+    assert cost == round(0.005 + 0.01 + 0.02 + 0.008, 4)

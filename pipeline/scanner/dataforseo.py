@@ -218,3 +218,134 @@ def rankings(domain: str, keywords=None, call=call, max_serp: int = 5) -> tuple:
         r, _s, c = serp_rank(kw, domain, call=call); rows += r; cost += c
     cost = round(cost, 4)
     return rows, f"rankings: {len(rows)} row(s) · ${cost:.4f}", cost
+
+
+# ── Keywords (tools 12-16): volume, ideas, gap, competitors ──────────────────
+
+def _kw_vol(it: dict) -> tuple:
+    """(keyword, search_volume) from either a google_ads item (flat) or a Labs
+    item (nested under keyword_info / keyword_data)."""
+    kw = it.get("keyword") or (it.get("keyword_data") or {}).get("keyword")
+    vol = it.get("search_volume")
+    if vol is None:
+        info = it.get("keyword_info") or (it.get("keyword_data") or {}).get("keyword_info") or {}
+        vol = info.get("search_volume")
+    return kw, vol
+
+
+def _kw_row(code: str, kw: str, vol, sev: str, why: str, fix: str) -> dict:
+    return {"code": code, "what": f'"{kw}"' + (f" — {vol}/mo searches" if vol else ""),
+            "why": why, "fix": fix, "severity": sev, "detail": f"{vol}/mo" if vol else ""}
+
+
+def parse_search_volume(doc: dict, top: int = 15) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        kw, vol = _kw_vol(it)
+        if kw:
+            rows.append(_kw_row("dfs.keyword_volume", kw, vol, "info",
+                                "Real monthly search demand for this term.",
+                                "prioritise terms with demand you can realistically rank for"))
+    return rows
+
+
+def parse_keyword_ideas(doc: dict, top: int = 15) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        kw, vol = _kw_vol(it)
+        if kw:
+            rows.append(_kw_row("dfs.keyword_idea", kw, vol, "info",
+                                "A related keyword you could target with new/expanded content.",
+                                "consider a page or section for this term"))
+    return rows
+
+
+def parse_keyword_gap(doc: dict, competitor: str, top: int = 15) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        kw, vol = _kw_vol(it)
+        if kw:
+            rows.append(_kw_row("dfs.keyword_gap", kw, vol, "warn",
+                                f"{competitor} ranks for this term and you do not — a gap you're losing.",
+                                "create content targeting this term to close the gap"))
+    return rows
+
+
+def parse_competitors(doc: dict, top: int = 10) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        dom = it.get("domain") or it.get("target")
+        if dom:
+            rows.append({"code": "dfs.competitor", "what": dom,
+                         "why": "A domain competing for your keywords on Google.",
+                         "fix": "study their pages for the terms you're missing",
+                         "severity": "info", "detail": ""})
+    return rows
+
+
+def _labs(path: str, payload: list, call):
+    doc, err = call(path, payload)
+    return (None, err) if err else (doc, None)
+
+
+def search_volume(keywords: list, call=call) -> tuple:
+    if not keywords:
+        return [], "skipped: no keywords", 0.0
+    doc, err = _labs("/v3/keywords_data/google_ads/search_volume/live",
+                     [{"keywords": keywords, "location_code": LOCATION_CODE,
+                       "language_code": LANGUAGE_CODE}], call)
+    if err:
+        return [], err, 0.0
+    return parse_search_volume(doc), "ok", cost_of(doc)
+
+
+def keyword_ideas(seeds: list, call=call) -> tuple:
+    if not seeds:
+        return [], "skipped: no seed keywords", 0.0
+    doc, err = _labs("/v3/dataforseo_labs/google/keyword_ideas/live",
+                     [{"keywords": seeds, "location_code": LOCATION_CODE,
+                       "language_code": LANGUAGE_CODE, "limit": 50}], call)
+    if err:
+        return [], err, 0.0
+    return parse_keyword_ideas(doc), "ok", cost_of(doc)
+
+
+def keyword_gap(you: str, competitor: str, call=call) -> tuple:
+    if not competitor:
+        return [], "skipped: no competitor", 0.0
+    doc, err = _labs("/v3/dataforseo_labs/google/domain_intersection/live",
+                     [{"target1": competitor, "target2": you, "intersections": False,
+                       "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE,
+                       "limit": 100}], call)
+    if err:
+        return [], err, 0.0
+    return parse_keyword_gap(doc, competitor), "ok", cost_of(doc)
+
+
+def competitors(domain: str, call=call) -> tuple:
+    doc, err = _labs("/v3/dataforseo_labs/google/competitors_domain/live",
+                     [{"target": domain, "location_code": LOCATION_CODE,
+                       "language_code": LANGUAGE_CODE, "limit": 10}], call)
+    if err:
+        return [], err, 0.0
+    return parse_competitors(doc), "ok", cost_of(doc)
+
+
+def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -> tuple:
+    """(rows, status, cost) — the Keywords card: competitors + keyword-gap vs the
+    top competitor + search volume for the client's terms + fresh ideas. The
+    competitor for the gap comes from the onboard list, else auto-discovered."""
+    keywords = keywords or []
+    rows: list[dict] = []
+    cost = 0.0
+    comp_rows, _s, c = competitors(domain, call=call); rows += comp_rows; cost += c
+    competitor = (competitor_list or [None])[0]
+    if not competitor and comp_rows:
+        competitor = comp_rows[0]["what"]
+    if competitor:
+        r, _s, c = keyword_gap(domain, competitor, call=call); rows += r; cost += c
+    if keywords:
+        r, _s, c = search_volume(keywords, call=call); rows += r; cost += c
+        r, _s, c = keyword_ideas(keywords, call=call); rows += r; cost += c
+    cost = round(cost, 4)
+    return rows, f"keywords: {len(rows)} row(s) · ${cost:.4f}", cost

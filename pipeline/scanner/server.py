@@ -60,7 +60,8 @@ def _status_line(rows: list) -> str:
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                  crawl=False, page_fetch=None, max_pages=25, deep=False,
-                 on_tool=None, site_audit_run=None) -> dict:
+                 on_tool=None, site_audit_run=None, keywords=None,
+                 rankings_run=None) -> dict:
     """Compose the audit. `fetch(url)->(html,status,robots[,sitemap])`. `crux` =
     None (disabled), a (metrics,status) tuple, or 'auto' (call CrUX if key set).
     `log` collects a human trace; `on_tool(name, state, rows, status)` fires
@@ -115,16 +116,17 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         site, s_status, s_cost = runner(urlsplit(url).netloc or url, max_pages)
         done("Site Health (DataForSEO)", site, s_status, s_cost)
 
-    rankings: list[dict] = []
+    ranking_rows: list[dict] = []
     if deep:
         running("Rankings (DataForSEO)")
-        rankings, dfs_status, dfs_cost = dataforseo.ranked_keywords(urlsplit(url).netloc or url)
-        done("Rankings (DataForSEO)", rankings, dfs_status, dfs_cost)
+        runner = rankings_run or dataforseo.rankings
+        ranking_rows, r_status, r_cost = runner(urlsplit(url).netloc or url, keywords or [])
+        done("Rankings (DataForSEO)", ranking_rows, r_status, r_cost)
 
-    all_rows = seo + aeo + perf + tech + site + rankings
+    all_rows = seo + aeo + perf + tech + site + ranking_rows
     log.append(f"Checked {len(all_rows)} things — {_status_line(all_rows)}. "
                f"Cost this run: ${totals['cost']:.4f}.")
-    report = A.assemble(seo, aeo, perf, tech, site, rankings)
+    report = A.assemble(seo, aeo, perf, tech, site, ranking_rows)
     report["cost"] = round(totals["cost"], 4)
     return report
 
@@ -236,7 +238,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             out = {"audit": build_report(url, log=log, crawl=crawl,
                                          max_pages=max_pages, deep=bool(req.get("deep")),
-                                         on_tool=on_tool)}
+                                         on_tool=on_tool, keywords=profile["keywords"])}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log, profile=profile)
             out["log"] = list(log)

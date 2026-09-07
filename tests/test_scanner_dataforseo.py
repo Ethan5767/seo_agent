@@ -76,3 +76,49 @@ def test_site_audit_maps_findings_to_rows_offline():
 def test_site_audit_empty_crawl_is_clean_not_crash():
     rows, status, cost = site_audit("x.com", run=lambda d, n: ([], "ok: 0 issues"))
     assert rows == []
+
+
+# ── Task 4: Rankings (domain overview + SERP position + aggregator) ──────────
+from pipeline.scanner.dataforseo import (
+    parse_domain_overview, domain_overview, parse_serp_rank, serp_rank, rankings,
+)
+
+OVERVIEW_DOC = {"cost": 0.002, "tasks": [{"result": [{"items": [
+    {"metrics": {"organic": {"count": 120, "etv": 3400.5, "pos_1": 4}}}]}]}]}
+SERP_DOC = {"cost": 0.0011, "tasks": [{"result": [{"items": [
+    {"type": "organic", "domain": "other.com", "rank_absolute": 1},
+    {"type": "organic", "domain": "x.com", "rank_absolute": 5}]}]}]}
+
+
+def test_domain_overview_parses_footprint():
+    rows = parse_domain_overview(OVERVIEW_DOC)
+    assert rows[0]["code"] == "dfs.domain_overview"
+    assert "120 keywords" in rows[0]["what"]
+    assert "3400" in rows[0]["fix"] or "3401" in rows[0]["fix"]
+
+
+def test_serp_rank_finds_the_client_position():
+    rows = parse_serp_rank(SERP_DOC, "x.com", "hospital")
+    assert rows[0]["what"] == '"hospital" — rank #5' and rows[0]["severity"] == "ok"
+
+
+def test_serp_rank_absent_is_a_warn():
+    rows = parse_serp_rank({"tasks": [{"result": [{"items": []}]}]}, "x.com", "kw")
+    assert rows[0]["severity"] == "warn" and "not in top 20" in rows[0]["what"]
+
+
+def test_rankings_aggregates_and_sums_cost():
+    def fake_call(path, body):
+        if "ranked_keywords" in path:
+            return {"cost": 0.01, "tasks": [{"result": [{"items": [
+                {"keyword_data": {"keyword": "kw", "keyword_info": {"search_volume": 10}},
+                 "ranked_serp_element": {"serp_item": {"rank_absolute": 2}}}]}]}]}, None
+        if "domain_rank_overview" in path:
+            return OVERVIEW_DOC, None
+        if "serp/google" in path:
+            return SERP_DOC, None
+        return {}, None
+    rows, status, cost = rankings("x.com", keywords=["hospital"], call=fake_call)
+    assert cost == round(0.01 + 0.002 + 0.0011, 4)     # exact sum of each call
+    codes = {r["code"] for r in rows}
+    assert {"dfs.ranked_keyword", "dfs.domain_overview", "dfs.serp_rank"} <= codes

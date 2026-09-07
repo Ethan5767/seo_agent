@@ -147,3 +147,74 @@ def ranked_keywords(domain: str, call=call, top: int = 15) -> tuple:
     rows = parse_ranked_keywords(doc, top=top)
     cost = cost_of(doc)
     return rows, f"ok: {len(rows)} ranked keyword(s) · ${cost:.4f}", cost
+
+
+# ── Rankings (tools 8-11): domain overview + SERP position ───────────────────
+
+def parse_domain_overview(doc: dict) -> list[dict]:
+    """One visibility row from domain_rank_overview: how many keywords the
+    domain ranks for, its estimated traffic value, and #1 positions."""
+    items = result_items(doc)
+    if not items:
+        return []
+    org = (items[0].get("metrics") or {}).get("organic") or {}
+    count = org.get("count")
+    if count is None:
+        return []
+    etv = round(float(org.get("etv") or 0))
+    pos1 = org.get("pos_1") or 0
+    return [{"code": "dfs.domain_overview", "what": f"Ranks for {count} keywords on Google",
+             "why": "The domain's total organic footprint — how many searches it shows up for.",
+             "fix": f"est. traffic value ${etv}/mo · {pos1} keyword(s) at position #1",
+             "severity": "ok" if count else "info", "detail": f"{count} keywords"}]
+
+
+def domain_overview(domain: str, call=call) -> tuple:
+    """(rows, status, cost) — the domain's organic visibility overview."""
+    doc, err = call("/v3/dataforseo_labs/google/domain_rank_overview/live",
+                    [{"target": domain, "location_code": LOCATION_CODE,
+                      "language_code": LANGUAGE_CODE}])
+    if err:
+        return [], err, 0.0
+    return parse_domain_overview(doc), "ok", cost_of(doc)
+
+
+def parse_serp_rank(doc: dict, domain: str, keyword: str) -> list[dict]:
+    """Where `domain` sits in the live Google results for `keyword` (or absent)."""
+    for it in result_items(doc):
+        if it.get("type") == "organic" and domain in (it.get("domain") or ""):
+            r = it.get("rank_absolute")
+            sev = "ok" if isinstance(r, int) and r <= 10 else "warn" if isinstance(r, int) and r <= 30 else "info"
+            return [{"code": "dfs.serp_rank", "what": f'"{keyword}" — rank #{r}',
+                     "why": f"Where {domain} ranks on Google for this exact term.",
+                     "fix": "holding page one" if sev == "ok" else "improve the page targeting this term",
+                     "severity": sev, "detail": f"position {r}"}]
+    return [{"code": "dfs.serp_rank", "what": f'"{keyword}" — not in top 20',
+             "why": f"{domain} does not appear in the first 20 Google results for this term.",
+             "fix": "create or optimise a page targeting this keyword",
+             "severity": "warn", "detail": "not ranking"}]
+
+
+def serp_rank(keyword: str, domain: str, call=call) -> tuple:
+    """(rows, status, cost) — the client's Google position for one keyword."""
+    doc, err = call("/v3/serp/google/organic/live/advanced",
+                    [{"keyword": keyword, "location_code": LOCATION_CODE,
+                      "language_code": LANGUAGE_CODE, "depth": 20}])
+    if err:
+        return [], err, 0.0
+    return parse_serp_rank(doc, domain, keyword), "ok", cost_of(doc)
+
+
+def rankings(domain: str, keywords=None, call=call, max_serp: int = 5) -> tuple:
+    """(rows, status, cost) — the Rankings card: ranked keywords + domain
+    overview + a SERP position check for up to `max_serp` of the client's
+    target keywords. Cost is the exact sum of every call's reported cost."""
+    keywords = keywords or []
+    rows: list[dict] = []
+    cost = 0.0
+    r, _s, c = ranked_keywords(domain, call=call); rows += r; cost += c
+    r, _s, c = domain_overview(domain, call=call); rows += r; cost += c
+    for kw in keywords[:max_serp]:
+        r, _s, c = serp_rank(kw, domain, call=call); rows += r; cost += c
+    cost = round(cost, 4)
+    return rows, f"rankings: {len(rows)} row(s) · ${cost:.4f}", cost

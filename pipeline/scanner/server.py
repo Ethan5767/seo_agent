@@ -20,6 +20,7 @@ from pipeline.scanner import dataforseo
 from pipeline.scanner.extra_checks import tech_rows, video_rows, internal_link_rows
 from pipeline.scanner import source_audit
 from pipeline.scanner import onpage_audit
+from pipeline.scanner import business_data
 from pipeline.scanner.onpage import onpage_deep_rows
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.schema_check import schema_rows
@@ -90,6 +91,7 @@ TOOLS = [
     ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
     ("AI citations (DataForSEO)", "ai", "deep", lambda c: dataforseo.llm_mentions(c.brand, c.domain)),
     ("Backlinks (DataForSEO)", "backlinks", "deep", lambda c: dataforseo.backlinks(c.domain)),
+    ("Local / GBP (DataForSEO)", "gbp", "deep", lambda c: business_data.gbp_local(c.brand)),
     ("Rankings trend (DataForSEO)", "rank_trend", "deep", lambda c: dataforseo.historical_rank(c.domain)),
 ]
 

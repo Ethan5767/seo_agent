@@ -12,9 +12,8 @@ import re
 from urllib.parse import urlsplit
 
 
-def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict:
-    return {"code": f"op.{what.lower().replace(' ', '_')}", "what": what,
-            "why": why, "fix": fix, "detail": detail, "severity": severity}
+from pipeline.scanner.rows import make_row
+_row = make_row("op")
 
 
 def _ok(what, why):

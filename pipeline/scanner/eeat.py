@@ -11,9 +11,8 @@ from __future__ import annotations
 import re
 
 
-def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict:
-    return {"code": f"eeat.{what.lower().replace(' ', '_')}", "what": what,
-            "why": why, "fix": fix, "detail": detail, "severity": severity}
+from pipeline.scanner.rows import make_row
+_row = make_row("eeat")
 
 
 def _has(low: str, *needles: str) -> bool:

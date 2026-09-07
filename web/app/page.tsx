@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import { AuthGate } from "./auth";
+import { saveClient, saveScan } from "../lib/db";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
 type Audit = {
@@ -30,7 +32,12 @@ function Rows({ list }: { list?: Row[] }) {
 }
 
 export default function Home() {
+  return <AuthGate><Scanner /></AuthGate>;
+}
+
+function Scanner() {
   const [stage, setStage] = useState<"onboard" | "measure">("onboard");
+  const [clientId, setClientId] = useState<string | null>(null);
   // Onboard profile
   const [business, setBusiness] = useState("");
   const [url, setUrl] = useState("");
@@ -77,7 +84,10 @@ export default function Home() {
             toolMap.set(ev.tool, { name: ev.tool, state: ev.state, rows: ev.rows || [], status: ev.status || "", cost: ev.cost || 0 });
             setTools([...toolMap.values()]);
           } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
-          else if (ev.result) setData(ev.result);
+          else if (ev.result) {
+            setData(ev.result);
+            saveScan(clientId || "", { url, model, crawl, deep }, ev.result.audit || {}, ev.result.log || []);
+          }
           else if (ev.error) setData({ error: ev.error, log: ev.log });
         }
       }
@@ -122,7 +132,17 @@ export default function Home() {
           )}
           <label>Competitors (comma-separated)<input style={box} value={competitors} onChange={(e) => setCompetitors(e.target.value)} placeholder="competitor1.com, competitor2.com" /></label>
           <label>Growth goal<input style={box} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="More booking calls from local search" /></label>
-          <button disabled={!url.trim()} onClick={() => setStage("measure")}
+          <button disabled={!url.trim()} onClick={async () => {
+            const host = url.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+            const id = await saveClient({
+              business, domain: host, website: url.trim(), model, repo, tier: 1,
+              keywords: kwList,
+              competitors: competitors.split(",").map((s) => s.trim()).filter(Boolean),
+              goal,
+            });
+            setClientId(id);
+            setStage("measure");
+          }}
             style={{ marginTop: ".75rem", padding: ".6rem 1.2rem", background: url.trim() ? "#1a5" : "#aaa", color: "#fff", border: 0, borderRadius: 6, cursor: url.trim() ? "pointer" : "not-allowed" }}>
             Onboard → Measure
           </button>

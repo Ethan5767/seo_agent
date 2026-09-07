@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AuthGate } from "./auth";
 import { saveClient, saveScan } from "../lib/db";
+import { listRepos } from "../lib/github";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
 type Audit = {
@@ -38,6 +39,9 @@ export default function Home() {
 function Scanner() {
   const [stage, setStage] = useState<"onboard" | "measure">("onboard");
   const [clientId, setClientId] = useState<string | null>(null);
+  const [repos, setRepos] = useState<string[]>([]);
+
+  useEffect(() => { listRepos().then(setRepos); }, []);
   // Onboard profile
   const [business, setBusiness] = useState("");
   const [url, setUrl] = useState("");
@@ -114,7 +118,18 @@ function Scanner() {
               <option value="A">Model A — we hand you a brief (read-only)</option>
             </select>
           </label>
-          {model === "B" && <label>Repo path (to fix)<input style={box} value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="/path/to/repo" /></label>}
+          {model === "B" && (
+            <label>Repo (choose an existing one, or type a path)
+              {repos.length > 0 && (
+                <select style={box} value={repos.includes(repo) ? repo : ""} onChange={(e) => setRepo(e.target.value)}>
+                  <option value="">— pick a repo —</option>
+                  {repos.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              )}
+              <input style={box} value={repo} onChange={(e) => setRepo(e.target.value)}
+                placeholder={repos.length ? "or type owner/repo / a local path" : "owner/repo or /path/to/repo"} />
+            </label>
+          )}
           <label>Target keywords (type one, press Enter to add)
             <input style={box} value={kwInput}
               onChange={(e) => setKwInput(e.target.value)}

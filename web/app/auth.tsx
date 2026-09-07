@@ -23,7 +23,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       setErr("…");
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "github",
-        options: { redirectTo: typeof window !== "undefined" ? window.location.origin : undefined },
+        options: {
+          // `repo` = permission to read/write the user's repos (Model B pushes/PRs).
+          // `read:user` + `user:email` = identity. Supabase exposes the GitHub
+          // token as session.provider_token after login (session-lived).
+          scopes: "repo read:user user:email",
+          redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+        },
       });
       if (error) setErr(error.message);
     };

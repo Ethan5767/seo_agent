@@ -159,14 +159,24 @@ class Handler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             max_pages = 25
         log: list[str] = []
+        print(f"\n[scan] url={url!r} model={model} crawl={crawl} repo={repo or '-'}",
+              flush=True)
         try:
             out = {"audit": build_report(url, log=log, crawl=crawl, max_pages=max_pages)}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log)
         except Exception as exc:  # a failed scan is data, not a crash
             log.append(f"ERROR {type(exc).__name__}: {exc}")
+            for ln in log:
+                print(f"   {ln}", flush=True)
+            print("[scan] FAILED", flush=True)
             return self._send(200, json.dumps({"error": f"{type(exc).__name__}: {exc}", "log": log}))
         out["log"] = log
+        # Live server-side log in the terminal — the request/response trace
+        # between the web UI and this Python backend.
+        for ln in log:
+            print(f"   {ln}", flush=True)
+        print(f"[scan] done — score {out['audit']['score']}/100", flush=True)
         self._send(200, json.dumps(out, default=str))
 
 

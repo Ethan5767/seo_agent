@@ -78,6 +78,15 @@ export default function Home() {
 
       {data?.error && <pre style={{ background: "#fee", padding: "1rem" }}>{data.error}</pre>}
 
+      {data?.log && data.log.length > 0 && (
+        <div style={{ background: "#f4f7ff", border: "1px solid #cdd8ff", borderRadius: 6, padding: "1rem", margin: "1rem 0" }}>
+          <h2 style={{ marginTop: 0 }}>What we did</h2>
+          <ul style={{ lineHeight: 1.8, margin: 0 }}>
+            {data.log.map((ln, i) => <li key={i}>{ln}</li>)}
+          </ul>
+        </div>
+      )}
+
       {a && (
         <div>
           <div style={{ fontSize: "2rem", fontWeight: 700, margin: "1rem 0 0" }}>Score {a.score}/100</div>
@@ -103,15 +112,6 @@ export default function Home() {
         <div>
           <h2>Brief (Model A)</h2>
           <pre style={{ background: "#f6f6f6", padding: "1rem", overflow: "auto" }}>{c.brief}</pre>
-        </div>
-      )}
-
-      {data?.log && data.log.length > 0 && (
-        <div>
-          <h2>What we did</h2>
-          <ul style={{ lineHeight: 1.8 }}>
-            {data.log.map((ln, i) => <li key={i}>{ln}</li>)}
-          </ul>
         </div>
       )}
     </main>

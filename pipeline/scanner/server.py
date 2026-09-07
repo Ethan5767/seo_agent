@@ -10,6 +10,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from pipeline.audit import measure
@@ -36,12 +37,6 @@ def _default_fetch(url: str):
     return html, status, robots, sitemap
 
 
-def _default_page_fetch(url: str):
-    """(html, status) for one page — the crawler's per-page fetcher."""
-    status = measure.curl_status(url)
-    return (measure.curl(url) if status else ""), status
-
-
 def normalize_url(url: str) -> str:
     """A bare domain (no scheme) becomes https:// — otherwise urlsplit gets an
     empty netloc and robots/sitemap/CrUX/HTTPS all mis-read. Users paste bare
@@ -58,84 +53,76 @@ def _status_line(rows: list) -> str:
     return f"{issues} issue(s), {passed} passed"
 
 
+def _perf_tool(c) -> tuple:
+    """Resolve CrUX (auto = call it when a key is set) and build the perf rows.
+    The one place the crux param's shape ('auto' | None | tuple) matters."""
+    crux = c.crux
+    if crux == "auto":
+        crux = crux_metrics(c.domain) if os.environ.get("CRUX_API_KEY") else None
+    status = ("Core Web Vitals — " + _human_crux(crux[1])) if isinstance(crux, tuple) \
+        else "Core Web Vitals — skipped: no Google speed key set up yet."
+    return A.perf_rows(crux), status, 0.0
+
+
+# One row per tool: (card name, report-group key, opts-flag gating it, run(ctx)).
+# Adding a tool = append one row here — the orchestrator loop never changes.
+# `run(ctx) -> (rows, status|None, cost)`. Free tools cost 0.0; DataForSEO tools
+# return the exact cost from their response.
+TOOLS = [
+    ("On-page SEO", "seo", None, lambda c: (A.seo_rows(c.url, c.html, c.status, {}), None, 0.0)),
+    ("AI visibility (AEO)", "aeo", None, lambda c: (A.aeo_rows(c.robots, c.html), None, 0.0)),
+    ("Performance (speed)", "perf", None, _perf_tool),
+    ("Technical", "tech", None, lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
+    ("Site Health (DataForSEO)", "site", "crawl", lambda c: dataforseo.site_audit(c.domain, c.max_pages)),
+    ("Rankings (DataForSEO)", "rankings", "deep", lambda c: dataforseo.rankings(c.domain, c.keywords)),
+    ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
+]
+_GROUP_KEYS = ("seo", "aeo", "perf", "tech", "site", "rankings", "keywords")
+
+
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
-                 crawl=False, page_fetch=None, max_pages=25, deep=False,
-                 on_tool=None, site_audit_run=None, keywords=None,
-                 rankings_run=None, competitors=None, keywords_run=None) -> dict:
-    """Compose the audit. `fetch(url)->(html,status,robots[,sitemap])`. `crux` =
-    None (disabled), a (metrics,status) tuple, or 'auto' (call CrUX if key set).
-    `log` collects a human trace; `on_tool(name, state, rows, status)` fires
-    per tool (state 'running' then 'done') so the UI shows a card per tool."""
+                 crawl=False, max_pages=25, deep=False, keywords=None,
+                 competitors=None, on_tool=None) -> dict:
+    """Compose the audit by running each tool in TOOLS whose gate is on.
+    `fetch(url)->(html,status,robots[,sitemap])`. `crux`: None | (metrics,status)
+    | 'auto'. `log` collects a human trace; `on_tool(name,state,rows,status,cost)`
+    fires per tool (running → done) so the UI shows a card per tool.
+
+    Tests inject DataForSEO tools by monkeypatching `dataforseo.<fn>` (the same
+    module-level seam the parser tests use) — no per-tool injection params."""
     log = log if log is not None else []
-
-    totals = {"cost": 0.0}
-
-    def running(name):
-        if on_tool:
-            on_tool(name, "running", [], "", 0.0)
-
-    def done(name, rows, status=None, cost=0.0):
-        totals["cost"] += cost
-        if on_tool:
-            on_tool(name, "done", rows, status or _status_line(rows), cost)
-
     url = normalize_url(url)
     fetched = fetch(url)
-    html, status, robots = fetched[0], fetched[1], fetched[2]
-    sitemap = fetched[3] if len(fetched) > 3 else None
-    if status == 200:
-        log.append(f"Opened the page — {_human_size(len(html))}, loaded OK.")
-    else:
-        log.append(f"Opened the page — the server responded {status} (couldn't read it normally).")
+    html, status = fetched[0], fetched[1]
+    log.append(f"Opened the page — {_human_size(len(html))}, loaded OK." if status == 200
+               else f"Opened the page — the server responded {status} (couldn't read it normally).")
 
-    running("On-page SEO")
-    seo = A.seo_rows(url, html, status, {})
-    done("On-page SEO", seo)
+    ctx = SimpleNamespace(
+        url=url, domain=urlsplit(url).netloc or url, html=html, status=status,
+        robots=fetched[2], sitemap=fetched[3] if len(fetched) > 3 else None,
+        crux=crux, max_pages=max_pages, keywords=keywords or [], competitors=competitors or [])
+    opts = {"crawl": crawl, "deep": deep}
 
-    running("AI visibility (AEO)")
-    aeo = A.aeo_rows(robots, html)
-    done("AI visibility (AEO)", aeo)
+    groups: dict[str, list] = {}
+    cost = 0.0
+    for name, key, gate, run in TOOLS:
+        if gate and not opts.get(gate):
+            continue
+        if on_tool:
+            on_tool(name, "running", [], "", 0.0)
+        rows, tool_status, tool_cost = run(ctx)
+        cost += tool_cost
+        groups[key] = rows
+        line = tool_status or _status_line(rows)
+        log.append(f"{name} — {line}")
+        if on_tool:
+            on_tool(name, "done", rows, line, tool_cost)
 
-    running("Performance (speed)")
-    if crux == "auto":
-        crux = crux_metrics(urlsplit(url).netloc) if os.environ.get("CRUX_API_KEY") else None
-    perf = A.perf_rows(crux)
-    done("Performance (speed)", perf,
-         "real Google field data" if isinstance(crux, tuple) else "no speed key / no field data")
-
-    running("Technical")
-    tech = tech_rows(url, html, status, sitemap)
-    done("Technical", tech)
-
-    site: list[dict] = []
-    if crawl:
-        # DataForSEO's on-page crawl (JS-aware) — replaces our free HTML crawler,
-        # which couldn't see JS-rendered menus and produced false orphans.
-        running("Site Health (DataForSEO)")
-        runner = site_audit_run or dataforseo.site_audit
-        site, s_status, s_cost = runner(urlsplit(url).netloc or url, max_pages)
-        done("Site Health (DataForSEO)", site, s_status, s_cost)
-
-    ranking_rows: list[dict] = []
-    if deep:
-        running("Rankings (DataForSEO)")
-        runner = rankings_run or dataforseo.rankings
-        ranking_rows, r_status, r_cost = runner(urlsplit(url).netloc or url, keywords or [])
-        done("Rankings (DataForSEO)", ranking_rows, r_status, r_cost)
-
-    keyword_rows: list[dict] = []
-    if deep:
-        running("Keywords (DataForSEO)")
-        kw_runner = keywords_run or dataforseo.keywords_card
-        keyword_rows, k_status, k_cost = kw_runner(urlsplit(url).netloc or url,
-                                                   keywords or [], competitors or [])
-        done("Keywords (DataForSEO)", keyword_rows, k_status, k_cost)
-
-    all_rows = seo + aeo + perf + tech + site + ranking_rows + keyword_rows
+    all_rows = [r for key in _GROUP_KEYS for r in groups.get(key, [])]
     log.append(f"Checked {len(all_rows)} things — {_status_line(all_rows)}. "
-               f"Cost this run: ${totals['cost']:.4f}.")
-    report = A.assemble(seo, aeo, perf, tech, site, ranking_rows, keyword_rows)
-    report["cost"] = round(totals["cost"], 4)
+               f"Cost this run: ${cost:.4f}.")
+    report = A.assemble(*(groups.get(k, []) for k in _GROUP_KEYS))
+    report["cost"] = round(cost, 4)
     return report
 
 

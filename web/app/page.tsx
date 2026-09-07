@@ -3,10 +3,11 @@ import { useState, useEffect } from "react";
 import { AuthGate } from "./auth";
 import { saveClient, saveScan } from "../lib/db";
 import { listRepos } from "../lib/github";
+import { supabase } from "../lib/supabase";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
 type Audit = {
-  seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; rankings: Row[]; keywords: Row[]; ai: Row[];
+  seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; rankings: Row[]; keywords: Row[]; ai: Row[]; source: Row[];
   score: number; counts: Record<string, number>;
 };
 type Cycle =
@@ -69,9 +70,11 @@ function Scanner() {
     setBusy(true); setData(null); setLive([]); setTools([]);
     const toolMap = new Map<string, Tool>();
     try {
+      const { data: sess } = await supabase.auth.getSession();
+      const github_token = sess.session?.provider_token || "";  // read-only source lane
       const res = await fetch("/api/scan", {
         method: "POST",
-        body: JSON.stringify({ url, repo, model, crawl, deep, business, keywords: kwList, competitors, goal, max_pages: 25 }),
+        body: JSON.stringify({ url, repo, model, crawl, deep, business, keywords: kwList, competitors, goal, github_token, max_pages: 25 }),
       });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();

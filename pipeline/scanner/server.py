@@ -18,6 +18,7 @@ from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
 from pipeline.scanner import dataforseo
 from pipeline.scanner.extra_checks import tech_rows, video_rows, internal_link_rows
+from pipeline.scanner import source_audit
 from pipeline.scanner.run import run_cycle
 
 STATIC = Path(__file__).parent / "static"
@@ -75,6 +76,8 @@ TOOLS = [
     ("Technical", "tech", None, lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
     ("Video", "video", None, lambda c: (video_rows(c.html), None, 0.0)),
     ("Internal links", "internal", None, lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
+    ("Source code", "source", "source",
+     lambda c: (source_audit.analyze_source(source_audit.fetch_repo_files(c.repo, c.github_token)), None, 0.0)),
     ("Site Health (DataForSEO)", "site", "crawl", lambda c: dataforseo.site_audit(c.domain, c.max_pages)),
     ("Rankings (DataForSEO)", "rankings", "deep", lambda c: dataforseo.rankings(c.domain, c.keywords)),
     ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
@@ -86,7 +89,8 @@ TOOLS = [
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                  crawl=False, max_pages=25, deep=False, keywords=None,
-                 competitors=None, business="", on_tool=None) -> dict:
+                 competitors=None, business="", on_tool=None,
+                 repo="", github_token="") -> dict:
     """Compose the audit by running each tool in TOOLS whose gate is on.
     `fetch(url)->(html,status,robots[,sitemap])`. `crux`: None | (metrics,status)
     | 'auto'. `log` collects a human trace; `on_tool(name,state,rows,status,cost)`
@@ -105,8 +109,12 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         url=url, domain=urlsplit(url).netloc or url, html=html, status=status,
         robots=fetched[2], sitemap=fetched[3] if len(fetched) > 3 else None,
         crux=crux, max_pages=max_pages, keywords=keywords or [], competitors=competitors or [],
-        brand=business or (urlsplit(url).netloc or url))
-    opts = {"crawl": crawl, "deep": deep}
+        brand=business or (urlsplit(url).netloc or url),
+        repo=repo, github_token=github_token)
+    # Two input lanes: the URL lane (always, when the page loaded) + the source
+    # lane (when a GitHub repo + read token are supplied). Both run when both given.
+    opts = {"crawl": crawl, "deep": deep,
+            "source": bool(repo and github_token and "/" in repo)}
 
     groups: dict[str, list] = {}
     cost = 0.0
@@ -239,7 +247,8 @@ class Handler(BaseHTTPRequestHandler):
             out = {"audit": build_report(url, log=log, crawl=crawl,
                                          max_pages=max_pages, deep=bool(req.get("deep")),
                                          on_tool=on_tool, keywords=profile["keywords"],
-                                         competitors=profile["competitors"], business=profile["business"])}
+                                         competitors=profile["competitors"], business=profile["business"],
+                                         repo=repo, github_token=(req.get("github_token") or ""))}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log, profile=profile)
             out["log"] = list(log)

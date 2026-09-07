@@ -44,3 +44,14 @@ def test_load_dotenv_sets_env_without_overwriting(tmp_path, monkeypatch):
     assert "CRUX_API_KEY" in loaded
     assert os.environ["CRUX_API_KEY"] == "abc123"
     assert os.environ["ALREADY_SET"] == "preexisting"  # never overwrites
+
+
+def test_bare_domain_is_normalized_to_https():
+    seen = {}
+    def fetch(u):
+        seen["u"] = u
+        return BAD, 200, "", ""
+    report = build_report("example.com/page/", fetch=fetch, crux=None)
+    assert seen["u"].startswith("https://example.com/")
+    https = next(r for r in report["tech"] if r["what"] == "HTTPS")
+    assert https["severity"] == "ok"  # no longer a false error

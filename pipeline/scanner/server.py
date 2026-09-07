@@ -35,11 +35,22 @@ def _default_fetch(url: str):
     return html, status, robots, sitemap
 
 
+def normalize_url(url: str) -> str:
+    """A bare domain (no scheme) becomes https:// — otherwise urlsplit gets an
+    empty netloc and robots/sitemap/CrUX/HTTPS all mis-read. Users paste bare
+    domains; this makes that just work."""
+    url = (url or "").strip()
+    if url and "://" not in url:
+        url = "https://" + url
+    return url
+
+
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
-    """Compose the audit. `fetch(url)->(html,status,robots)`. `crux` = None
-    (disabled), a (findings,status) tuple, or 'auto' (call CrUX if key set).
+    """Compose the audit. `fetch(url)->(html,status,robots[,sitemap])`. `crux` =
+    None (disabled), a (metrics,status) tuple, or 'auto' (call CrUX if key set).
     `log` (a list) collects a human-readable trace of what the scan did."""
     log = log if log is not None else []
+    url = normalize_url(url)
     fetched = fetch(url)
     html, status, robots = fetched[0], fetched[1], fetched[2]
     sitemap = fetched[3] if len(fetched) > 3 else None
@@ -123,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, "not found", "text/plain")
         n = int(self.headers.get("Content-Length", 0))
         req = json.loads(self.rfile.read(n) or b"{}")
-        url = (req.get("url") or "").strip()
+        url = normalize_url(req.get("url") or "")
         repo = (req.get("repo") or "").strip()
         model = (req.get("model") or "B").strip().upper()
         log: list[str] = []

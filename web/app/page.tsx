@@ -15,9 +15,9 @@ function Rows({ list }: { list: Row[] }) {
     <>
       {list.map((r, i) => (
         <div key={i} style={{ padding: ".5rem", borderLeft: `4px solid ${COLOR[r.severity] || "#ccc"}`, marginBottom: ".4rem" }}>
-          <b>{r.severity.toUpperCase()}</b> {r.what} {r.detail ? `(${r.detail})` : ""}
+          <b>{r.severity === "ok" ? "✓ PASS" : r.severity.toUpperCase()}</b> {r.what} {r.detail ? `(${r.detail})` : ""}
           <div>{r.why}</div>
-          <div><i>Fix:</i> {r.fix}</div>
+          {r.severity !== "ok" && <div><i>Fix:</i> {r.fix}</div>}
         </div>
       ))}
     </>
@@ -75,7 +75,10 @@ export default function Home() {
 
       {a && (
         <div>
-          <div style={{ fontSize: "2rem", fontWeight: 700, margin: "1rem 0" }}>Score {a.score}/100</div>
+          <div style={{ fontSize: "2rem", fontWeight: 700, margin: "1rem 0 0" }}>Score {a.score}/100</div>
+          <div style={{ color: "#555", marginBottom: "1rem" }}>
+            {a.counts.error || 0} errors · {a.counts.warn || 0} warnings · {a.counts.ok || 0} passing
+          </div>
           <h2>SEO</h2><Rows list={a.seo} />
           <h2>AEO (AI answer engines)</h2><Rows list={a.aeo} />
           <h2>Performance</h2><Rows list={a.perf} />

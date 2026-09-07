@@ -14,6 +14,16 @@ def test_seo_rows_flag_title_and_desc():
         assert r["what"] and r["why"] and r["fix"]
 
 
+def test_seo_rows_show_passes_too_nothing_hidden():
+    # BAD fails title/desc but passes many checks -> the passing ones appear green.
+    rows = seo_rows("https://x.com/p/", BAD, 200, {})
+    passes = [r for r in rows if r["severity"] == "ok"]
+    assert passes, "passing checks must be shown, not hidden"
+    # the full checklist is represented (every SEO check is present as pass or fail)
+    labels = {r["what"] for r in rows}
+    assert "Single main heading (H1)" in labels
+
+
 def test_aeo_flags_missing_robots():
     rows = aeo_rows(None, "<html></html>")
     assert any(r["code"] == "aeo.robots_missing" for r in rows)

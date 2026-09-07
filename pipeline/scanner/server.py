@@ -57,9 +57,12 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None) -> dict:
     seo = A.seo_rows(url, html, status, {})
     aeo = A.aeo_rows(robots, html)
     perf = A.perf_rows(crux)
+    all_rows = seo + aeo + perf
+    issues = sum(1 for r in all_rows if r["severity"] in ("error", "warn"))
+    passed = sum(1 for r in all_rows if r["severity"] == "ok")
     log.append(
-        f"Checked the page — found {len(seo)} search (SEO) issue(s) "
-        f"and {len(aeo)} AI-visibility (AEO) issue(s)."
+        f"Checked {len(all_rows)} things — {issues} need attention, {passed} passed. "
+        "Everything is listed below (green = good)."
     )
     return A.assemble(seo, aeo, perf)
 

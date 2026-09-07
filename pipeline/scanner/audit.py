@@ -31,25 +31,83 @@ def _row(code: str, detail: str) -> dict:
     }
 
 
+# The full universal on-page checklist: (label, codes-that-mean-it-failed,
+# pass-explanation). Every one runs on any URL with no config, so each is either
+# a failing finding or a green pass — nothing hidden.
+SEO_CHECKS = [
+    ("Page title", ["health.title_missing", "health.title_length"],
+     "Present and within Google's 30-60 character range."),
+    ("Meta description", ["health.desc_missing", "health.desc_length"],
+     "Present and within the 120-160 character range."),
+    ("Single main heading (H1)", ["health.h1_count"],
+     "Exactly one <h1> — a clear main topic."),
+    ("Canonical tag", ["health.canonical_mismatch"],
+     "Present and pointing at this page's own URL."),
+    ("Indexable (not noindexed)", ["health.noindex_present"],
+     "The page is allowed in search results."),
+    ("Social preview image", ["health.og_image_missing"],
+     "og:image present — shows a thumbnail when shared."),
+    ("LocalBusiness schema", ["health.schema_business_missing"],
+     "Structured data Google and AI can read the business from."),
+    ("Breadcrumb schema", ["health.schema_breadcrumb_missing"],
+     "BreadcrumbList structured data present."),
+    ("Image alt text", ["health.img_alt_missing"],
+     "Every content image has alt text."),
+    ("Content depth", ["health.thin_content"],
+     "Enough substantive copy to answer the intent."),
+]
+
+
+def _pass_row(label: str, why: str) -> dict:
+    return {"code": "", "what": label, "why": why, "fix": "passing",
+            "detail": "", "severity": "ok"}
+
+
 def seo_rows(url: str, html: str, status: int, cfg: dict) -> list[dict]:
-    """Run the universal on-page checks and turn each finding into a report row."""
+    """The full SEO checklist — every check, pass (green) or fail — so nothing is
+    hidden. A check that produced a finding shows the problem; every other check
+    shows as passing."""
     findings = measure.check_page(url, html, status, cfg)
-    return [_row(f.code, f.to_json().get("detail", "")) for f in findings]
+    by_code: dict[str, str] = {f.code: f.to_json().get("detail", "") for f in findings}
+    rows: list[dict] = []
+    for label, codes, pass_why in SEO_CHECKS:
+        hit = [c for c in codes if c in by_code]
+        if hit:
+            rows.extend(_row(c, by_code[c]) for c in hit)
+        else:
+            rows.append(_pass_row(label, pass_why))
+    return rows
 
 
 def aeo_rows(robots_text: str | None, html: str) -> list[dict]:
-    """AI-answer-engine readiness: citation crawlers allowed + LocalBusiness schema."""
+    """The full AEO checklist — AI citation crawlers + LocalBusiness schema —
+    each shown pass or fail, nothing hidden."""
     rows: list[dict] = []
+
+    # 1. robots.txt allows the AI citation crawlers
     if not robots_text or not robots_text.strip():
         rows.append(_row("aeo.robots_missing", "no robots.txt served"))
     else:
         groups = parse_groups(robots_text)
+        blocked = []
         for ua in DEFAULT_CITATION_UAS:
             rules, _matched = rules_for_ua(groups, ua)  # returns (rules, matched)
             if root_blocked(rules):
+                blocked.append(ua)
                 rows.append(_row("aeo.crawler_blocked", ua))
+        if not blocked:
+            rows.append(_pass_row(
+                "AI crawlers allowed",
+                "robots.txt lets every AI citation crawler (ChatGPT, Perplexity, "
+                "Google, Bing, Claude) read the site."))
+
+    # 2. LocalBusiness schema for entity extraction
     if '"@type":"LocalBusiness"' not in html.replace(" ", "").replace("'", '"'):
         rows.append(_row("health.schema_business_missing", "no LocalBusiness JSON-LD"))
+    else:
+        rows.append(_pass_row(
+            "LocalBusiness schema",
+            "AI engines can read the business's name, address and phone directly."))
     return rows
 
 

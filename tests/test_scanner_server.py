@@ -21,7 +21,7 @@ def test_build_report_populates_log():
     log: list[str] = []
     build_report("https://x.com/p/", fetch=fetch, crux=None, log=log)
     assert any("Opened the page" in ln for ln in log)
-    assert any("Checked the page" in ln for ln in log)
+    assert any("Checked" in ln and "passed" in ln for ln in log)
     # plain language, no raw byte counts or "HTTP 200" jargon
     assert not any("HTTP 200" in ln for ln in log)
 

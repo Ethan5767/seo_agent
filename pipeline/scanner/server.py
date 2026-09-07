@@ -26,6 +26,7 @@ from pipeline.scanner.onpage import onpage_deep_rows
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.schema_check import schema_rows
 from pipeline.scanner.validate import validate_rows
+from pipeline.scanner.content import content_rows
 from pipeline.scanner.run import run_cycle
 
 STATIC = Path(__file__).parent / "static"
@@ -85,6 +86,7 @@ TOOLS = [
     ("Trust (E-E-A-T)", "eeat", None, lambda c: (eeat_rows(c.html), None, 0.0)),
     ("Schema validation", "schema", None, lambda c: (schema_rows(c.html), None, 0.0)),
     ("Sitemap & hreflang", "validate", None, lambda c: (validate_rows(c.html, c.sitemap), None, 0.0)),
+    ("Content / info-gain", "content", None, lambda c: (content_rows(c.html), None, 0.0)),
     ("Video", "video", None, lambda c: (video_rows(c.html), None, 0.0)),
     ("Internal links", "internal", None, lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
     ("Source code", "source", "source",

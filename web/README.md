@@ -10,7 +10,9 @@ The front end for the URL-audit MVP. It is **just the face**: it POSTs to
 ```bash
 cd ~/seo_agent
 export CRUX_API_KEY=<your key>          # optional: real Core Web Vitals
-export ANTHROPIC_API_KEY=<your key>     # optional: Model B real fix (needs claude CLI)
+# Model B (real fix) writer = the `claude` CLI logged in to your Claude
+# subscription (Max/Pro). No ANTHROPIC_API_KEY needed — run `claude` once and
+# /login. Confirm with `which claude`.
 .venv/bin/wf-scan-web                    # serves http://127.0.0.1:8765
 ```
 

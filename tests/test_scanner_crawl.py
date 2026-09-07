@@ -51,3 +51,12 @@ def test_broken_link_is_an_error_and_orphan_is_a_warn():
     rows = {r["code"]: r for r in site_rows(crawl_site("https://s.com/", fetch, sitemap_text=SITEMAP))}
     assert rows["site.broken_internal_link"]["severity"] == "error"
     assert rows["site.orphan_page"]["severity"] == "warn"
+
+
+def test_capped_crawl_suppresses_orphan_false_positives():
+    # cap at 1 page: the crawl can't judge orphans -> info note, no warns
+    rows = site_rows(crawl_site("https://s.com/", fetch, sitemap_text=SITEMAP, max_pages=1))
+    codes = {r["code"] for r in rows}
+    assert "site.orphan_page" not in codes          # no false orphan warnings
+    assert "site.orphan_check" in codes             # honest "incomplete" note instead
+    assert next(r for r in rows if r["code"] == "site.orphan_check")["severity"] == "info"

@@ -167,13 +167,25 @@ def site_rows(crawl: dict) -> list[dict]:
                          detail=f"{by_url[target]['status']} — from {sources[0]}"))
 
     # Orphan pages: in the sitemap but never reached by following links.
-    orphans = sorted(u for u in crawl["sitemap_urls"]
-                     if u not in crawl["reachable"])
-    for u in orphans:
-        rows.append(_row("Orphan page", "warn",
-                         f"{u} is in the sitemap but no internal link points to it, so crawlers and users can't find it by navigating.",
-                         "Add an internal link to this page from a relevant page.",
-                         detail=u))
+    # ONLY trustworthy on a COMPLETE crawl. If the crawl was capped, "unreached"
+    # just means "we didn't get that far" — not orphaned — so reporting it would
+    # be a false positive (the common case on a big site). Same if links are
+    # JavaScript-rendered: our HTML crawler can't see them. So gate on capped,
+    # and word the real finding to admit the JS caveat.
+    orphans = sorted(u for u in crawl["sitemap_urls"] if u not in crawl["reachable"])
+    if crawl["capped"]:
+        rows.append(_row("Orphan check", "info",
+                         f"Only crawled {len(ok)} pages of a larger site, so we can't tell which sitemap "
+                         f"pages are truly unlinked ({len(orphans)} were unreached, but that's likely just "
+                         f"the crawl limit). Raise the page cap for a full orphan audit.",
+                         "raise the crawl page cap", detail=f"{len(orphans)} unreached"))
+    else:
+        for u in orphans:
+            rows.append(_row("Orphan page", "warn",
+                             f"{u} is in the sitemap but our crawl found no internal link to it. "
+                             f"(If it's linked only from a JavaScript menu, our crawler can't see that — verify manually.)",
+                             "Add an internal link to this page from a relevant page.",
+                             detail=u))
 
     return rows
 

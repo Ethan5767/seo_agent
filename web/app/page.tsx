@@ -32,15 +32,35 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [data, setData] = useState<ScanResult | null>(null);
 
+  const [live, setLive] = useState<string[]>([]);
+
   async function run() {
     setBusy(true);
     setData(null);
+    setLive([]);
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
         body: JSON.stringify({ url, repo, model, crawl, max_pages: 25 }),
       });
-      setData(await res.json());
+      const reader = res.body!.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      const lines: string[] = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n");
+        buf = parts.pop() || "";
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          const ev = JSON.parse(part);
+          if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
+          else if (ev.result) setData(ev.result);
+          else if (ev.error) setData({ error: ev.error, log: ev.log });
+        }
+      }
     } catch (e) {
       setData({ error: String(e) });
     } finally {
@@ -75,6 +95,15 @@ export default function Home() {
         style={{ padding: ".6rem 1.2rem", background: "#1a5", color: "#fff", border: 0, borderRadius: 6, cursor: "pointer" }}>
         {busy ? "Running… (a real fix can take 10-60s)" : "Run"}
       </button>
+
+      {busy && live.length > 0 && (
+        <div style={{ background: "#f4f7ff", border: "1px solid #cdd8ff", borderRadius: 6, padding: "1rem", margin: "1rem 0" }}>
+          <b>Scanning…</b>
+          <ul style={{ lineHeight: 1.7, margin: ".5rem 0 0" }}>
+            {live.map((ln, i) => <li key={i}>{ln}</li>)}
+          </ul>
+        </div>
+      )}
 
       {data?.error && <pre style={{ background: "#fee", padding: "1rem" }}>{data.error}</pre>}
 

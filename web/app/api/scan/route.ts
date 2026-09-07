@@ -12,11 +12,13 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
+      // @ts-expect-error - Node fetch streaming duplex flag
+      duplex: "half",
     });
-    const data = await res.text();
-    return new NextResponse(data, {
+    // Pass the ndjson stream straight through so the browser gets live events.
+    return new NextResponse(res.body, {
       status: res.status,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" },
     });
   } catch (e) {
     return NextResponse.json(

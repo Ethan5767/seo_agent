@@ -71,6 +71,11 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         if robots else
         "No robots.txt found — crawlers have no explicit instructions."
     )
+    log.append("Running on-page SEO checks…")
+    seo = A.seo_rows(url, html, status, {})
+    log.append("Running AI-visibility (AEO) checks…")
+    aeo = A.aeo_rows(robots, html)
+    log.append("Measuring speed (Core Web Vitals)…")
     if crux == "auto":
         if os.environ.get("CRUX_API_KEY"):
             crux = crux_metrics(urlsplit(url).netloc)
@@ -78,17 +83,18 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         else:
             crux = None
             log.append("Speed (Core Web Vitals) — skipped: no Google speed key set up yet.")
-    seo = A.seo_rows(url, html, status, {})
-    aeo = A.aeo_rows(robots, html)
     perf = A.perf_rows(crux)
+    log.append("Running technical checks…")
     tech = tech_rows(url, html, status, sitemap)
     log.append(
         f"Sitemap.xml -> {'found' if sitemap and sitemap.strip() else 'none found'}."
     )
     site: list[dict] = []
     if crawl:
+        log.append(f"Crawling the whole site (up to {max_pages} pages)…")
         c = crawl_site(url, page_fetch or _default_page_fetch,
-                       sitemap_text=sitemap, max_pages=max_pages)
+                       sitemap_text=sitemap, max_pages=max_pages,
+                       on_page=lambda n, total, u: log.append(f"  crawling {n}/{total}: {u}"))
         site = site_rows(c)
         n_ok = sum(1 for p in c["pages"] if p["status"] == 200)
         log.append(f"Crawled the whole site — {n_ok} page(s) walked"
@@ -120,6 +126,21 @@ def _human_crux(status: str) -> str:
     if "skipped" in s:
         return "skipped: no Google speed key set up yet."
     return status
+
+
+class Progress(list):
+    """A log list that also streams each line to a callback the moment it's
+    appended — so build_report/crawl progress reaches the browser live instead
+    of all at once when the request finishes."""
+
+    def __init__(self, cb=None):
+        super().__init__()
+        self._cb = cb
+
+    def append(self, item):
+        super().append(item)
+        if self._cb:
+            self._cb(item)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -158,26 +179,34 @@ class Handler(BaseHTTPRequestHandler):
             max_pages = max(1, min(int(req.get("max_pages") or 25), 100))
         except (TypeError, ValueError):
             max_pages = 25
-        log: list[str] = []
-        print(f"\n[scan] url={url!r} model={model} crawl={crawl} repo={repo or '-'}",
-              flush=True)
+
+        # Stream newline-delimited JSON: {"log": "..."} events live, then one
+        # {"result": {...}} (or {"error": "..."}). The browser renders each event
+        # as it arrives instead of waiting for the whole scan.
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        def emit(obj):
+            try:
+                self.wfile.write((json.dumps(obj, default=str) + "\n").encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        print(f"\n[scan] url={url!r} model={model} crawl={crawl} repo={repo or '-'}", flush=True)
+        log = Progress(cb=lambda ln: (emit({"log": ln}), print(f"   {ln}", flush=True)))
         try:
             out = {"audit": build_report(url, log=log, crawl=crawl, max_pages=max_pages)}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log)
+            out["log"] = list(log)
+            emit({"result": out})
+            print(f"[scan] done — score {out['audit']['score']}/100", flush=True)
         except Exception as exc:  # a failed scan is data, not a crash
-            log.append(f"ERROR {type(exc).__name__}: {exc}")
-            for ln in log:
-                print(f"   {ln}", flush=True)
-            print("[scan] FAILED", flush=True)
-            return self._send(200, json.dumps({"error": f"{type(exc).__name__}: {exc}", "log": log}))
-        out["log"] = log
-        # Live server-side log in the terminal — the request/response trace
-        # between the web UI and this Python backend.
-        for ln in log:
-            print(f"   {ln}", flush=True)
-        print(f"[scan] done — score {out['audit']['score']}/100", flush=True)
-        self._send(200, json.dumps(out, default=str))
+            emit({"error": f"{type(exc).__name__}: {exc}", "log": list(log)})
+            print(f"[scan] FAILED: {exc}", flush=True)
 
 
 def main() -> int:

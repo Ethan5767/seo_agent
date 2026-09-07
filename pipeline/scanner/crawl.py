@@ -67,14 +67,19 @@ def links_in(base_url: str, html: str) -> set[str]:
 
 
 def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
-               max_pages: int = 25) -> dict:
+               max_pages: int = 25, on_page=None) -> dict:
     """Walk the site from entry_url. `fetch(url)->(html,status)`.
+
+    `on_page(n, total, url)` is called before each page fetch, for live progress.
 
     Returns {pages, reachable, sitemap_urls, capped}: `pages` is a list of
     {url,status,title,desc,links}; `reachable` is the set of URLs found by
     following links from the entry (used for orphan detection); `sitemap_urls`
     is every <loc> in the sitemap; `capped` is True if the cap was hit.
     """
+    def _tick(url):
+        if on_page:
+            on_page(len(fetched) + 1, max_pages, url)
     entry = _norm(entry_url)
     sitemap_urls = {_norm(u) for u in _LOC.findall(sitemap_text or "")
                     if _host(u) == _host(entry)}
@@ -92,6 +97,7 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
         url = queue.pop(0)
         if url in fetched:
             continue
+        _tick(url)
         html, status = fetch(url)
         links = links_in(url, html) if status == 200 else set()
         fetched[url] = {"url": url, "status": status, "title": title_of(html),
@@ -109,6 +115,7 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
             break
         if url in fetched:
             continue
+        _tick(url)
         html, status = fetch(url)
         fetched[url] = {"url": url, "status": status, "title": title_of(html),
                         "desc": desc_of(html), "links": sorted(links_in(url, html) if status == 200 else set())}

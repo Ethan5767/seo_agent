@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from pipeline.audit import measure
 from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
+from pipeline.scanner import dataforseo
 from pipeline.scanner.crawl import crawl_site, site_rows
 from pipeline.scanner.extra_checks import tech_rows
 from pipeline.scanner.run import run_cycle
@@ -53,7 +54,7 @@ def normalize_url(url: str) -> str:
 
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
-                 crawl=False, page_fetch=None, max_pages=25) -> dict:
+                 crawl=False, page_fetch=None, max_pages=25, deep=False) -> dict:
     """Compose the audit. `fetch(url)->(html,status,robots[,sitemap])`. `crux` =
     None (disabled), a (metrics,status) tuple, or 'auto' (call CrUX if key set).
     `log` (a list) collects a human-readable trace of what the scan did."""
@@ -99,14 +100,19 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         n_ok = sum(1 for p in c["pages"] if p["status"] == 200)
         log.append(f"Crawled the whole site — {n_ok} page(s) walked"
                    + (" (page cap reached)." if c["capped"] else "."))
-    all_rows = seo + aeo + perf + tech + site
+    rankings: list[dict] = []
+    if deep:
+        log.append("Deep scan — DataForSEO: fetching the keywords you rank for (paid)…")
+        rankings, status = dataforseo.ranked_keywords(urlsplit(url).netloc or url)
+        log.append(f"DataForSEO ranked keywords — {status}")
+    all_rows = seo + aeo + perf + tech + site + rankings
     issues = sum(1 for r in all_rows if r["severity"] in ("error", "warn"))
     passed = sum(1 for r in all_rows if r["severity"] == "ok")
     log.append(
         f"Checked {len(all_rows)} things — {issues} need attention, {passed} passed. "
         "Everything is listed below (green = good)."
     )
-    return A.assemble(seo, aeo, perf, tech, site)
+    return A.assemble(seo, aeo, perf, tech, site, rankings)
 
 
 def _human_size(n: int) -> str:
@@ -198,7 +204,8 @@ class Handler(BaseHTTPRequestHandler):
         print(f"\n[scan] url={url!r} model={model} crawl={crawl} repo={repo or '-'}", flush=True)
         log = Progress(cb=lambda ln: (emit({"log": ln}), print(f"   {ln}", flush=True)))
         try:
-            out = {"audit": build_report(url, log=log, crawl=crawl, max_pages=max_pages)}
+            out = {"audit": build_report(url, log=log, crawl=crawl,
+                                         max_pages=max_pages, deep=bool(req.get("deep")))}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log)
             out["log"] = list(log)

@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
-type Audit = { seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; score: number; counts: Record<string, number> };
+type Audit = { seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; rankings: Row[]; score: number; counts: Record<string, number> };
 type Cycle =
   | { model: "A"; brief: string; worklist: unknown[] }
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
@@ -29,6 +29,7 @@ export default function Home() {
   const [repo, setRepo] = useState("");
   const [model, setModel] = useState("B");
   const [crawl, setCrawl] = useState(false);
+  const [deep, setDeep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [data, setData] = useState<ScanResult | null>(null);
 
@@ -41,7 +42,7 @@ export default function Home() {
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
-        body: JSON.stringify({ url, repo, model, crawl, max_pages: 25 }),
+        body: JSON.stringify({ url, repo, model, crawl, deep, max_pages: 25 }),
       });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();
@@ -91,6 +92,10 @@ export default function Home() {
         <input type="checkbox" checked={crawl} onChange={(e) => setCrawl(e.target.checked)} />{" "}
         Scan the whole site (crawl up to 25 pages — slower, finds orphans/broken links/duplicates)
       </label>
+      <label style={{ display: "block", margin: ".25rem 0" }}>
+        <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} />{" "}
+        Deep scan — rankings via DataForSEO (💰 paid, ~$0.01-0.05 per run)
+      </label>
       <button onClick={run} disabled={busy}
         style={{ padding: ".6rem 1.2rem", background: "#1a5", color: "#fff", border: 0, borderRadius: 6, cursor: "pointer" }}>
         {busy ? "Running… (a real fix can take 10-60s)" : "Run"}
@@ -127,6 +132,7 @@ export default function Home() {
           <h2>Performance</h2><Rows list={a.perf} />
           <h2>Technical</h2><Rows list={a.tech} />
           {a.site && a.site.length > 0 && <><h2>Whole site</h2><Rows list={a.site} /></>}
+          {a.rankings && a.rankings.length > 0 && <><h2>Rankings (DataForSEO)</h2><Rows list={a.rankings} /></>}
         </div>
       )}
 

@@ -28,7 +28,8 @@ $("run").onclick = async () => {
     <h2>AEO (AI answer engines)</h2>${rows(a.aeo)}
     <h2>Performance</h2>${rows(a.perf)}
     <h2>Technical</h2>${rows(a.tech || [])}
-    ${(a.site && a.site.length) ? `<h2>Whole site</h2>${rows(a.site)}` : ""}`;
+    ${(a.site && a.site.length) ? `<h2>Whole site</h2>${rows(a.site)}` : ""}
+    ${(a.rankings && a.rankings.length) ? `<h2>Rankings (DataForSEO)</h2>${rows(a.rankings)}` : ""}`;
 
   if (data.cycle) {
     const c = data.cycle;

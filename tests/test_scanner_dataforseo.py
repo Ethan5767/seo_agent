@@ -231,3 +231,16 @@ def test_historical_rank_trend_down_is_warn():
         {"year": 2025, "month": 1, "metrics": {"organic": {"count": 120}}},
         {"year": 2025, "month": 6, "metrics": {"organic": {"count": 90}}}]}]}]}
     assert parse_historical_rank(doc)[0]["severity"] == "warn"
+
+
+# ── Measure-completion: keyword difficulty ───────────────────────────────────
+from pipeline.scanner.dataforseo import parse_keyword_difficulty
+
+
+def test_keyword_difficulty_low_is_ok_high_is_info():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword": "easy term", "keyword_difficulty": 20},
+        {"keyword": "hard term", "keyword_difficulty": 80}]}]}]}
+    by = {r["what"]: r for r in parse_keyword_difficulty(doc)}
+    assert by['"easy term" — difficulty 20/100']["severity"] == "ok"
+    assert by['"hard term" — difficulty 80/100']["severity"] == "info"

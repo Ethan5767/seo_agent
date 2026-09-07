@@ -337,6 +337,7 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
     if keywords:
         r, _s, c = search_volume(keywords, call=call); rows += r; cost += c
         r, _s, c = keyword_ideas(keywords, call=call); rows += r; cost += c
+        r, _s, c = keyword_difficulty(keywords, call=call); rows += r; cost += c
     cost = round(cost, 4)
     return rows, f"keywords: {len(rows)} row(s) · ${cost:.4f}", cost
 
@@ -434,3 +435,29 @@ def historical_rank(domain: str, call=call) -> tuple:
     return _tool("/v3/dataforseo_labs/google/historical_rank_overview/live",
                  [{"target": domain, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
                  parse_historical_rank, call=call)
+
+
+# ── Keyword difficulty (Labs): how hard each term is to rank for ─────────────
+
+def parse_keyword_difficulty(doc: dict, top: int = 15) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        kw = it.get("keyword") or (it.get("keyword_data") or {}).get("keyword")
+        kd = it.get("keyword_difficulty")
+        if kd is None:
+            kd = (it.get("keyword_properties") or {}).get("keyword_difficulty")
+        if kw and isinstance(kd, (int, float)):
+            sev = "ok" if kd <= 30 else "warn" if kd <= 60 else "info"
+            rows.append({"code": "dfs.keyword_difficulty", "what": f'"{kw}" — difficulty {int(kd)}/100',
+                         "why": "How hard it is to rank for this term (0 easy, 100 brutal).",
+                         "fix": "target low-difficulty terms first for quick wins" if kd <= 30 else "hard — needs strong content + links",
+                         "severity": sev, "detail": f"KD {int(kd)}"})
+    return rows
+
+
+def keyword_difficulty(keywords: list, call=call) -> tuple:
+    if not keywords:
+        return [], "skipped: no keywords", 0.0
+    return _tool("/v3/dataforseo_labs/google/bulk_keyword_difficulty/live",
+                 [{"keywords": keywords, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 parse_keyword_difficulty, call=call)

@@ -22,8 +22,12 @@ def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict
             "why": why, "fix": fix, "detail": detail, "severity": severity}
 
 
-def analyze_source(files: dict) -> list[dict]:
-    """Report rows from the fetched repo files."""
+def analyze_source(files: dict, tree: list | None = None) -> list[dict]:
+    """Report rows from the fetched repo files. `tree` is the repo's full path
+    list (from fetch_repo_tree) — it powers cheap existence checks (route files,
+    llms.txt, middleware) without fetching each file. Defaults to the fetched
+    file paths so older callers still work."""
+    paths = set(tree if tree is not None else files)
     rows: list[dict] = []
     pkg_raw = files.get("package.json")
     deps: dict = {}
@@ -64,17 +68,49 @@ def analyze_source(files: dict) -> list[dict]:
                          "verify the site is server-rendered or statically generated",
                          detail=", ".join(sorted(deps)[:5])))
 
-    # robots.txt / sitemap.xml committed in the repo.
-    has_robots = any("robots.txt" in p and files.get(p) for p in files)
+    # Router — App Router (Next 13+) gives built-in metadata + route handlers.
+    if any(p.startswith("app/") or p.startswith("src/app/") for p in paths):
+        rows.append(_row("Source: router", "ok",
+                         "App Router (Next 13+) — built-in metadata API and robots/sitemap route handlers.",
+                         "keep it", detail="app router"))
+    elif any(p.startswith("pages/") or p.startswith("src/pages/") for p in paths):
+        rows.append(_row("Source: router", "info",
+                         "Pages Router — fine; metadata comes via next/head or _document.",
+                         "metadata is manual here — keep title/description per page", detail="pages router"))
+
+    # robots.txt — a static file, an app/robots route, or a pages route all count.
+    robots_route = any(p.split("/")[-1].startswith("robots.") and (p.startswith(("app/", "src/app/"))) for p in paths)
+    has_robots = any("robots.txt" in p and files.get(p) for p in files) \
+        or any(p.endswith("robots.txt") for p in paths) or robots_route
     rows.append(_row("Source: robots.txt", "ok" if has_robots else "warn",
-                     "robots.txt is committed in the repo." if has_robots
-                     else "No robots.txt in the repo — crawlers get no explicit instructions.",
-                     "keep it" if has_robots else "add public/robots.txt allowing the citation crawlers"))
-    has_sitemap = any("sitemap" in p and files.get(p) for p in files)
+                     "robots.txt is provided (static file or a route handler)." if has_robots
+                     else "No robots.txt anywhere in the repo — crawlers get no explicit instructions.",
+                     "keep it" if has_robots else "add public/robots.txt (or app/robots.ts) allowing the AI citation crawlers",
+                     detail="route" if robots_route and not any(p.endswith("robots.txt") for p in paths) else ""))
+
+    # sitemap.xml — static file, app/sitemap route, or next-sitemap generation.
+    sitemap_route = any(p.split("/")[-1].startswith("sitemap.") and p.startswith(("app/", "src/app/")) for p in paths)
+    next_sitemap = "next-sitemap" in deps or any("next-sitemap.config" in p for p in paths)
+    has_sitemap = any("sitemap" in p and files.get(p) for p in files) \
+        or any(p.endswith("sitemap.xml") for p in paths) or sitemap_route or next_sitemap
     rows.append(_row("Source: sitemap.xml", "ok" if has_sitemap else "warn",
-                     "sitemap.xml is committed in the repo." if has_sitemap
-                     else "No sitemap.xml in the repo (may be generated at build — verify on the live site).",
-                     "keep it" if has_sitemap else "add or generate a sitemap.xml"))
+                     "A sitemap is provided (static, a route handler, or next-sitemap)." if has_sitemap
+                     else "No sitemap in the repo and no generator configured.",
+                     "keep it" if has_sitemap else "add a sitemap.xml, an app/sitemap.ts, or the next-sitemap package",
+                     detail="next-sitemap" if next_sitemap and not sitemap_route else ("route" if sitemap_route else "")))
+
+    # llms.txt — the AEO signpost for AI answer engines (optional but a plus).
+    has_llms = any(p.endswith("llms.txt") for p in paths) or any("llms.txt" in p and files.get(p) for p in files)
+    rows.append(_row("Source: llms.txt", "ok" if has_llms else "info",
+                     "llms.txt is present — a curated signpost for AI answer engines." if has_llms
+                     else "No llms.txt — an emerging (optional) way to guide AI engines to your key pages.",
+                     "keep it" if has_llms else "consider adding public/llms.txt for AEO"))
+
+    # middleware — edge control over headers / redirects / i18n (a bonus signal).
+    if any(p in paths for p in ("middleware.ts", "middleware.js", "src/middleware.ts", "src/middleware.js")):
+        rows.append(_row("Source: middleware", "ok",
+                         "middleware present — can set security/caching headers, redirects and i18n at the edge.",
+                         "keep it"))
     return rows
 
 
@@ -93,13 +129,33 @@ def fetch_repo_files(repo: str, token: str, fetch=None) -> dict:
     return out
 
 
+def fetch_repo_tree(repo: str, token: str, fetch=None) -> list:
+    """Every blob (file) path in the repo, via one git/trees?recursive=1 call.
+    `repo` is `owner/name`; a local path returns []. `fetch(url, token) -> dict`
+    is injectable for tests. Tries `main` then `master`."""
+    if not repo or "/" not in repo or repo.startswith((".", "/", "~")):
+        return []
+    fetch = fetch or _gh_get_json
+    for branch in ("main", "master"):
+        doc = fetch(f"https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1", token)
+        if doc and doc.get("tree"):
+            return [it["path"] for it in doc["tree"] if it.get("type") == "blob" and it.get("path")]
+    return []
+
+
 def _gh_get(url: str, token: str):
+    doc = _gh_get_json(url, token)
+    if not doc:
+        return None
+    content = doc.get("content")
+    return base64.b64decode(content).decode("utf-8", "replace") if content else None
+
+
+def _gh_get_json(url: str, token: str):
     req = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
-            doc = json.loads(r.read().decode())
-        content = doc.get("content")
-        return base64.b64decode(content).decode("utf-8", "replace") if content else None
+            return json.loads(r.read().decode())
     except Exception:
         return None

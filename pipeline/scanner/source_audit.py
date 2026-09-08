@@ -111,6 +111,38 @@ def analyze_source(files: dict, tree: list | None = None) -> list[dict]:
         rows.append(_row("Source: middleware", "ok",
                          "middleware present — can set security/caching headers, redirects and i18n at the edge.",
                          "keep it"))
+
+    # next.config — parse the one that was fetched (string checks, not a JS parse).
+    cfg = next((files[p] for p in ("next.config.js", "next.config.mjs", "next.config.ts") if files.get(p)), None)
+    if cfg:
+        rows.extend(_next_config_rows(cfg))
+    return rows
+
+
+def _next_config_rows(cfg: str) -> list[dict]:
+    """SEO-relevant signals from next.config (string match, tolerant of format)."""
+    rows: list[dict] = []
+    if "i18n" in cfg:
+        rows.append(_row("Source: i18n", "ok",
+                         "i18n is configured — multi-language routing and hreflang readiness.",
+                         "keep locales in sync with your hreflang tags"))
+    has_headers = "headers(" in cfg or "headers :" in cfg or "headers:" in cfg
+    rows.append(_row("Source: HTTP headers", "ok" if has_headers else "warn",
+                     "Custom headers are configured — the place for security + cache-control headers." if has_headers
+                     else "No headers() in next.config — security and cache-control headers aren't set here.",
+                     "keep it" if has_headers else "add a headers() returning HSTS, X-Content-Type-Options and Cache-Control"))
+    if "redirects(" in cfg:
+        rows.append(_row("Source: redirects", "ok",
+                         "redirects() is configured — old URLs can 301 to their new home (preserves link equity).",
+                         "keep redirects current as URLs change"))
+    if "trailingSlash" in cfg:
+        rows.append(_row("Source: trailingSlash", "info",
+                         "trailingSlash is set — make sure canonical URLs and the sitemap match it.",
+                         "keep canonical + sitemap consistent with trailingSlash"))
+    if "images" in cfg:
+        rows.append(_row("Source: images", "ok",
+                         "next/image is configured — responsive, optimised images out of the box.",
+                         "keep using next/image for content images"))
     return rows
 
 

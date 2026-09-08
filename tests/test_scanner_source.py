@@ -42,6 +42,29 @@ def test_fetch_repo_tree_local_skipped():
     assert fetch_repo_tree("", "tok") == []
 
 
+def test_next_config_checks():
+    files = {"package.json": '{"dependencies":{"next":"14"}}',
+             "next.config.js": ("module.exports = { i18n: { locales: ['en','km'], defaultLocale: 'en' }, "
+                                 "async headers() { return [] }, async redirects() { return [] } }")}
+    by = {r["what"]: r for r in analyze_source(files, ["next.config.js", "package.json"])}
+    assert by["Source: i18n"]["severity"] == "ok"
+    assert by["Source: HTTP headers"]["severity"] == "ok"
+    assert by["Source: redirects"]["severity"] == "ok"
+
+
+def test_next_config_missing_headers_warn():
+    files = {"package.json": '{"dependencies":{"next":"14"}}', "next.config.js": "module.exports = {}"}
+    by = {r["what"]: r for r in analyze_source(files, ["next.config.js"])}
+    assert by["Source: HTTP headers"]["severity"] == "warn"
+    assert "Source: i18n" not in by  # only emitted when present
+
+
+def test_no_next_config_no_config_rows():
+    files = {"package.json": '{"dependencies":{"next":"14"}}'}
+    by = {r["what"]: r for r in analyze_source(files, ["package.json"])}
+    assert "Source: HTTP headers" not in by  # nothing to say without a config
+
+
 def test_next_is_ssr_ok():
     files = {"package.json": '{"dependencies":{"next":"14.0.0","react":"18"}}'}
     by = {r["what"]: r for r in analyze_source(files)}

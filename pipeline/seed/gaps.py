@@ -7,6 +7,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 REQUIRED = ("brand", "platform", "topic", "target_keyword", "angle", "url_target")
+# Optional fields carried through when present. `subreddit` is the target for a
+# reddit gap (e.g. "smallbusiness"); other platforms ignore it.
+OPTIONAL = ("subreddit",)
 
 
 @dataclass
@@ -17,6 +20,7 @@ class Gap:
     target_keyword: str
     angle: str
     url_target: str
+    subreddit: str = ""
 
 
 def parse_gaps(rows: list[dict]) -> tuple[list[Gap], list[dict]]:
@@ -28,5 +32,9 @@ def parse_gaps(rows: list[dict]) -> tuple[list[Gap], list[dict]]:
         if missing:
             dropped.append({**row, "_reason": f"missing/blank: {', '.join(missing)}"})
             continue
-        gaps.append(Gap(**{f: str(row[f]).strip() for f in REQUIRED}))
+        fields = {f: str(row[f]).strip() for f in REQUIRED}
+        for f in OPTIONAL:
+            if str(row.get(f, "")).strip():
+                fields[f] = str(row[f]).strip()
+        gaps.append(Gap(**fields))
     return gaps, dropped

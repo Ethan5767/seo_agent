@@ -7,12 +7,12 @@ from pipeline.seed.tiers import tier_of, GREEN, YELLOW, RED
 
 
 def test_green_platforms():
-    for p in ("medium", "devto", "hashnode", "tumblr", "blogger"):
+    for p in ("medium", "devto", "hashnode", "tumblr", "blogger", "reddit"):
         assert tier_of(p) == "green"
 
 
 def test_yellow_platforms():
-    for p in ("reddit", "quora"):
+    for p in ("quora",):
         assert tier_of(p) == "yellow"
 
 
@@ -22,7 +22,8 @@ def test_red_platform():
 
 def test_case_insensitive():
     assert tier_of("DevTo") == "green"
-    assert tier_of("Reddit") == "yellow"
+    assert tier_of("Reddit") == "green"
+    assert tier_of("Quora") == "yellow"
 
 
 def test_unknown_is_not_green():

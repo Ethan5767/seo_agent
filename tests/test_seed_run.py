@@ -20,12 +20,14 @@ def _draft(platform: str) -> Draft:
 
 
 def test_dispatch_routes_by_tier(tmp_path):
-    drafts = [_draft("devto"), _draft("reddit"), _draft("wikipedia"),
-              _draft("mastodon")]
+    # devto+reddit green (→ stub poster here), quora yellow, wikipedia red, mastodon unknown
+    drafts = [_draft("devto"), _draft("reddit"), _draft("quora"),
+              _draft("wikipedia"), _draft("mastodon")]
     results = dispatch(drafts, str(tmp_path / "drafts"))
     by_platform = {r.platform: r for r in results}
     assert by_platform["devto"].status == "posted"
-    assert by_platform["reddit"].status == "queued"
+    assert by_platform["reddit"].status == "posted"
+    assert by_platform["quora"].status == "queued"
     assert by_platform["wikipedia"].status == "skipped"
     assert by_platform["wikipedia"].detail == "never-auto"
     assert by_platform["mastodon"].status == "skipped"
@@ -45,8 +47,8 @@ def test_run_seed_end_to_end_offline(tmp_path):
         drafts_dir=str(tmp_path / "drafts"),
         runner=_fake_runner,
     )
-    # fixture has devto(green), reddit(yellow), wikipedia(red)
-    assert log["counts"]["posted"] == 1
+    # fixture: devto+reddit green (stub here), quora yellow, wikipedia red
+    assert log["counts"]["posted"] == 2
     assert log["counts"]["queued"] == 1
     assert log["counts"]["skipped"] == 1
     assert log["mode"] == "dry-run"
@@ -69,7 +71,7 @@ def test_run_seed_records_generation_failure_as_dropped(tmp_path):
     )
     assert log["counts"]["posted"] == 0
     # red (wikipedia) is skipped BEFORE generation, so it never calls the runner;
-    # only the two green/yellow gaps reach generation and fail.
-    assert log["counts"]["dropped"] == 2
+    # the three green/yellow gaps (devto, reddit, quora) reach generation and fail.
+    assert log["counts"]["dropped"] == 3
     assert log["counts"]["skipped"] == 1
     assert any("claude down" in d["_reason"] for d in log["dropped"])

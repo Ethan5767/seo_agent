@@ -51,3 +51,15 @@ def test_mixed_batch_keeps_good_drops_bad():
 def test_required_fields_frozen():
     assert REQUIRED == ("brand", "platform", "topic",
                         "target_keyword", "angle", "url_target")
+
+
+def test_optional_subreddit_carried_when_present():
+    row = {**GOOD, "platform": "reddit", "subreddit": "smallbusiness"}
+    gaps, dropped = parse_gaps([row])
+    assert dropped == []
+    assert gaps[0].subreddit == "smallbusiness"
+
+
+def test_subreddit_defaults_empty_when_absent():
+    gaps, _ = parse_gaps([GOOD])
+    assert gaps[0].subreddit == ""

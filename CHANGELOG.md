@@ -57,6 +57,24 @@ see `CLAUDE.md` (the sync contract).
   sends an explicit `User-Agent` (see `docs/BUG-LEDGER.md`; same latent risk noted
   for `providers._request`). +8 poster tests (31 seed-engine tests total).
 
+- **Reddit promoted to green + real Reddit auto-poster (`posters.post_reddit`).**
+  Operator opted into auto-posting Reddit for brand-mention reach, so `reddit`
+  moves from yellow to green (`quora` stays yellow). New `post_reddit`: OAuth2
+  script-app creds from env (`REDDIT_CLIENT_ID/SECRET/USERNAME/PASSWORD`, optional
+  `REDDIT_USER_AGENT`), loud skip on any missing; two injectable HTTP calls
+  (token then submit) so the suite stays offline; `build_reddit_submit` pure.
+  **Draft-first safety, adapted to Reddit having no draft concept:** `--live`
+  posts the self-post to the account's OWN profile (`u_<username>`), and only
+  `--publish` posts to the target subreddit — a new optional `subreddit` field on
+  the gap (required only for `--publish`). API `errors[]` and auth/HTTP failures
+  are all loud skips. `green_poster` gains a `reddit` branch; `Gap` gains optional
+  `subreddit` (the six required fields unchanged; `parse_gaps` carries optionals
+  when present). Reddit self-posts are LIVE on submit and fresh accounts risk
+  shadowban — the operator's accepted tradeoff. **Offline-verified (41
+  seed-engine tests green); live path UNTESTED — no Reddit credentials
+  available**, flagged per the same rule the DataForSEO/CrUX provider paths
+  follow (a path with no live run says so).
+
 - **Normalized persistence — store everything, queryable (`web/supabase-schema.sql`,
   `web/lib/db.ts`).** Two new tables beside `clients`/`scans`: `scan_tools`
   (one row per tool per scan — status, cost, error/warn/ok counts) and

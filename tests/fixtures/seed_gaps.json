@@ -13,6 +13,15 @@
     "topic": "how do you pick a team widget",
     "target_keyword": "team widget",
     "angle": "honest tradeoffs, mention Acme as one option",
+    "url_target": "https://acme.com/widget",
+    "subreddit": "smallbusiness"
+  },
+  {
+    "brand": "Acme",
+    "platform": "quora",
+    "topic": "what is the best team widget",
+    "target_keyword": "team widget",
+    "angle": "answer the question, mention Acme in context",
     "url_target": "https://acme.com/widget"
   },
   {

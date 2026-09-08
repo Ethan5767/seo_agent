@@ -8,10 +8,12 @@ identical-shape functions that replace stub_post — one per platform, env creds
 loud skip on missing creds, following pipeline/audit/providers.py."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
@@ -111,20 +113,119 @@ def post_devto(draft: Draft, published: bool = False, call=None) -> PostResult:
                       detail="published" if published else "draft (unpublished)")
 
 
+# ── Reddit — real green poster (operator opted into auto-posting) ─────────────
+#
+# Reddit is strict: OAuth2 script-app creds (client id/secret + account
+# user/pass), a proper User-Agent (a generic one is hard-blocked), and a target
+# subreddit. A self-post is LIVE immediately — Reddit has no draft — so the
+# safety gate is where it goes: draft-first (`publish=False`) posts to the
+# account's OWN profile (`u_<username>`), and only `publish=True` posts to the
+# real subreddit. Two HTTP calls (token, submit), both injectable for offline
+# tests. Shadowban risk on fresh accounts is real; that is the operator's call.
+
+REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
+REDDIT_SUBMIT_URL = "https://oauth.reddit.com/api/submit"
+_REDDIT_ENV = ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET",
+               "REDDIT_USERNAME", "REDDIT_PASSWORD")
+
+
+def build_reddit_submit(draft: Draft, sr: str) -> dict:
+    text = f"{draft.body}\n\n{draft.brand_mention}"
+    return {"sr": sr, "kind": "self", "title": draft.title,
+            "text": text, "api_type": "json"}
+
+
+def _reddit_token(cid: str, csec: str, user: str, pw: str, ua: str):
+    """(token, error). Never raises."""
+    basic = base64.b64encode(f"{cid}:{csec}".encode()).decode()
+    data = urllib.parse.urlencode(
+        {"grant_type": "password", "username": user, "password": pw}).encode()
+    req = urllib.request.Request(
+        REDDIT_TOKEN_URL, data=data, method="POST",
+        headers={"Authorization": f"Basic {basic}", "User-Agent": ua,
+                 "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            tok = json.loads(r.read().decode()).get("access_token")
+            return (tok, None) if tok else (None, "no access_token in reddit response")
+    except urllib.error.HTTPError as exc:
+        return None, f"HTTP {exc.code} from reddit token"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _http_submit_reddit(fields: dict, token: str, ua: str):
+    """(json, error). Never raises."""
+    data = urllib.parse.urlencode(fields).encode()
+    req = urllib.request.Request(
+        REDDIT_SUBMIT_URL, data=data, method="POST",
+        headers={"Authorization": f"bearer {token}", "User-Agent": ua,
+                 "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            return json.loads(r.read().decode()), None
+    except urllib.error.HTTPError as exc:
+        return None, f"HTTP {exc.code} from {REDDIT_SUBMIT_URL}"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def post_reddit(draft: Draft, publish: bool = False,
+                auth=None, submit=None) -> PostResult:
+    creds = {k: os.environ.get(k) for k in _REDDIT_ENV}
+    missing = [k for k, v in creds.items() if not v]
+    if missing:
+        return PostResult(platform="reddit", status="skipped",
+                          detail=f"missing env: {', '.join(missing)}")
+    user = creds["REDDIT_USERNAME"]
+    sub = (draft.gap.subreddit or "").strip()
+    if publish and not sub:
+        return PostResult(platform="reddit", status="skipped",
+                          detail="reddit --publish needs a subreddit on the gap")
+    target = sub if publish else f"u_{user}"   # draft-first: own profile
+    ua = os.environ.get("REDDIT_USER_AGENT") or f"seo_agent-seed/1.0 by /u/{user}"
+
+    auth = auth or _reddit_token
+    token, err = auth(creds["REDDIT_CLIENT_ID"], creds["REDDIT_CLIENT_SECRET"],
+                      user, creds["REDDIT_PASSWORD"], ua)
+    if err:
+        return PostResult(platform="reddit", status="skipped", detail=err)
+
+    submit = submit or _http_submit_reddit
+    resp, err = submit(build_reddit_submit(draft, target), token, ua)
+    if err:
+        return PostResult(platform="reddit", status="skipped", detail=err)
+    errors = (((resp or {}).get("json") or {}).get("errors")) or []
+    if errors:
+        return PostResult(platform="reddit", status="skipped",
+                          detail=f"reddit api errors: {errors}")
+    url = (((resp or {}).get("json") or {}).get("data") or {}).get("url")
+    return PostResult(platform="reddit", status="posted", url=url,
+                      detail=(f"posted to r/{sub}" if publish
+                              else f"draft: posted to profile u_{user}"))
+
+
 # ── green-tier router ────────────────────────────────────────────────────────
 #
 # Maps a green platform to its real poster; anything without one yet falls back
-# to the stub, so adding a platform is one dict entry. `green_poster(live, ...)`
+# to the stub, so adding a platform is one branch. `green_poster(live, ...)`
 # returns the callable dispatch() uses: the stub when not live (safe default),
 # the real routed poster when live.
 
-def green_poster(live: bool, publish: bool = False, devto_call=None):
+def green_poster(live: bool, publish: bool = False, devto_call=None,
+                 reddit_auth=None, reddit_submit=None):
     if not live:
         return stub_post
 
     def _route(draft: Draft) -> PostResult:
-        if draft.gap.platform == "devto":
+        p = draft.gap.platform
+        if p == "devto":
             return post_devto(draft, published=publish, call=devto_call)
+        if p == "reddit":
+            return post_reddit(draft, publish=publish,
+                               auth=reddit_auth, submit=reddit_submit)
         return stub_post(draft)  # no real poster for this platform yet
 
     return _route

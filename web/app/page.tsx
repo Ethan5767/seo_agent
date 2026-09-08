@@ -377,6 +377,22 @@ function Scanner() {
         </div>
       )}
 
+      {/* Error log — surface tools that failed so a missed data source is
+          noticed, not buried in the log. */}
+      {(() => {
+        const errs = tools.filter((t) => t.state === "done" &&
+          /error|HTTP\s*[45]\d\d|urlerror|failed|unreachable|blocked|not been used/i.test(t.status || ""));
+        if (!errs.length) return null;
+        return (
+          <div style={{ margin: "1rem 0", padding: ".8rem .9rem", background: "#fdeceb", border: "1px solid #f3b6b0", borderRadius: 10 }}>
+            <b style={{ color: "#c0392b" }}>⚠ {errs.length} tool{errs.length > 1 ? "s" : ""} errored — data missing for {errs.length > 1 ? "these" : "this"}</b>
+            <ul style={{ margin: ".4rem 0 0", paddingLeft: "1.1rem", color: "#7a2018", fontSize: 13, lineHeight: 1.5 }}>
+              {errs.map((t, i) => <li key={i}><b>{t.name}</b> — {t.status}</li>)}
+            </ul>
+          </div>
+        );
+      })()}
+
       {(a || tools.length > 0) && (() => {
         const runCost = (data?.audit?.cost) ?? tools.reduce((s, t) => s + (t.cost || 0), 0);
         const err = a ? (a.counts.error || 0) : tools.reduce((s, t) => s + sevCounts(t.rows).error, 0);

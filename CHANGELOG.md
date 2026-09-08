@@ -8,6 +8,13 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Error log — failed tools surfaced (`web/app/page.tsx`).** A tool that errors
+  (e.g. CrUX HTTP 403, a blocked API) used to be buried in the "what we did" log
+  and easy to miss. Now a red banner at the top of the results lists every errored
+  tool + its message ("⚠ N tools errored — data missing"), so a missing data
+  source is impossible to overlook. Detects error/HTTP-4xx-5xx/blocked/unreachable
+  statuses. (Tool statuses, incl. errors, are already persisted in `scan_tools`.)
+
 - **Affected-page URLs per finding (transparency, part 2).** DataForSEO Site Health
   findings now carry the **actual URLs** that failed each check (`onpage_audit.
   parse_onpage_checks` collects them, capped at 25), not just a count. The UI shows

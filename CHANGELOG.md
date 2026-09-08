@@ -8,6 +8,16 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Normalized persistence — store everything, queryable (`web/supabase-schema.sql`,
+  `web/lib/db.ts`).** Two new tables beside `clients`/`scans`: `scan_tools`
+  (one row per tool per scan — status, cost, error/warn/ok counts) and
+  `findings` (one row per individual issue — tool, code, what, severity, why,
+  fix, detail). RLS owner-only on both; indexes for a scan's children and for
+  `findings (user_id, code, created_at)` so the Plan/Monitor ratchet can track
+  the same finding over time. `saveScan` now inserts the scan, then bulk-inserts
+  its `scan_tools` and `findings` from the streamed tool events (the full audit
+  snapshot still lands on `scans.report`). tsc clean.
+
 - **Per-tool selection in Measure (checklist replaces the crawl/deep toggles).**
   `pipeline/scanner/server.py`: `TOOLS` is now a `Tool` namedtuple catalog
   (label/key/group/cost/cost_num/needs/run); `GET /tools` exposes it as the

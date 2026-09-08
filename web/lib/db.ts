@@ -26,21 +26,53 @@ export async function saveClient(p: ClientProfile): Promise<string | null> {
   return data.id;
 }
 
-/** Insert a scan row linked to a client. Best-effort — never blocks the UI. */
+type FindingRow = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
+type ToolEvent = { name: string; state: string; rows: FindingRow[]; status: string; cost: number };
+
+/** Insert a scan and its normalized children (scan_tools + findings).
+ *  Best-effort — never blocks the UI. Stores everything: the full report
+ *  snapshot on `scans.report`, one row per tool, one row per finding. */
 export async function saveScan(
   clientId: string,
   opts: { url: string; model: string; tools: string[] },
   audit: { score?: number; counts?: unknown } & Record<string, unknown>,
   log: string[],
+  toolEvents: ToolEvent[] = [],
 ): Promise<void> {
   const user_id = await uid();
   if (!user_id || !clientId) return;
-  const { error } = await supabase.from("scans").insert({
+
+  const { data, error } = await supabase.from("scans").insert({
     client_id: clientId, user_id,
     url: opts.url, model: opts.model, tools: opts.tools,
     score: audit?.score ?? null, counts: audit?.counts ?? {},
     cost: (audit as { cost?: number })?.cost ?? 0,
     report: audit ?? {}, log: log ?? [],
-  });
-  if (error) console.error("saveScan", error);
+  }).select("id").single();
+  if (error || !data) { console.error("saveScan", error); return; }
+  const scan_id = data.id;
+
+  const done = toolEvents.filter((t) => t.state === "done");
+  const count = (rows: FindingRow[], sev: string) => rows.filter((r) => r.severity === sev).length;
+
+  const toolRows = done.map((t) => ({
+    scan_id, user_id, tool: t.name, status: t.status || "", cost: t.cost || 0,
+    n_error: count(t.rows, "error"), n_warn: count(t.rows, "warn"), n_ok: count(t.rows, "ok"),
+  }));
+  if (toolRows.length) {
+    const { error: e2 } = await supabase.from("scan_tools").insert(toolRows);
+    if (e2) console.error("saveScan.scan_tools", e2);
+  }
+
+  const findingRows = done.flatMap((t) =>
+    (t.rows || []).map((r) => ({
+      scan_id, user_id, tool: t.name,
+      code: r.code || "", what: r.what || "", severity: r.severity || "",
+      why: r.why || "", fix: r.fix || "", detail: r.detail || "",
+    })),
+  );
+  if (findingRows.length) {
+    const { error: e3 } = await supabase.from("findings").insert(findingRows);
+    if (e3) console.error("saveScan.findings", e3);
+  }
 }

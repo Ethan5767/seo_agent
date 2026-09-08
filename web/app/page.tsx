@@ -129,7 +129,7 @@ function Scanner() {
           } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
           else if (ev.result) {
             setData(ev.result);
-            saveScan(clientId || "", { url, model, tools: [...selected] }, ev.result.audit || {}, ev.result.log || []);
+            saveScan(clientId || "", { url, model, tools: [...selected] }, ev.result.audit || {}, ev.result.log || [], [...toolMap.values()]);
           }
           else if (ev.error) setData({ error: ev.error, log: ev.log });
         }

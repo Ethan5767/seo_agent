@@ -2,13 +2,13 @@
 because it's Google's own engine, not our regex.
 
 PSI runs Lighthouse in Google's cloud and returns the full `lighthouseResult`
-over HTTP (free, ~25k/day with a key, works key-less at a low rate). We surface
-the four category scores (Performance / SEO / Accessibility / Best practices)
-plus the specific failing audits from the SEO, Accessibility and Best-practices
-categories.
+over HTTP (free, ~25k/day with a key). Each Lighthouse category is its own
+Measure tool (Performance / SEO / Accessibility / Best practices) so the operator
+can pick them individually — but they share ONE PSI call per scan, cached on the
+scan context, so four selected cards still cost one round-trip.
 
-`parse_lighthouse(doc)` is pure (canned PSI response in, rows out) and unit-
-tested offline; `run_lighthouse(url, call, key)` does the HTTP call with an
+`category_rows(doc, key, label)` is pure (canned PSI response in, rows out) and
+unit-tested offline; `get_psi`/`category_tool` do the cached HTTP call with an
 injectable caller.
 """
 from __future__ import annotations
@@ -22,9 +22,6 @@ import urllib.request
 PSI = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 CATEGORIES = [("performance", "Performance"), ("seo", "SEO"),
               ("accessibility", "Accessibility"), ("best-practices", "Best practices")]
-# Which categories' individual failing audits we list (perf audits are noisy and
-# CrUX already covers field speed, so we keep perf to its headline score only).
-DETAIL_CATS = ("seo", "accessibility", "best-practices")
 
 
 def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict:
@@ -32,58 +29,83 @@ def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict
             "why": why, "fix": fix, "detail": detail, "severity": severity}
 
 
-def parse_lighthouse(doc: dict) -> list[dict]:
+def _score_row(cat: dict, label: str) -> dict | None:
+    score = cat.get("score")
+    if score is None:
+        return None
+    pct = round(score * 100)
+    sev = "ok" if pct >= 90 else "warn" if pct >= 50 else "error"
+    return _row(f"Lighthouse: {label}", sev,
+                f"Google Lighthouse {label} score: {pct}/100.",
+                "keep it up" if sev == "ok" else f"raise the {label} score", detail=f"{pct}/100")
+
+
+def category_rows(doc: dict, cat_key: str, label: str) -> list[dict]:
+    """Rows for one Lighthouse category: the headline score, plus its failing
+    audits (perf keeps to the score only — its audit list is noisy and CrUX
+    already covers field speed)."""
     lr = (doc or {}).get("lighthouseResult") or {}
     cats = lr.get("categories") or {}
     audits = lr.get("audits") or {}
-    if not cats:
-        return [_row("Lighthouse", "info",
-                     "No Lighthouse result returned for this URL.",
-                     "check the URL is public and try again")]
+    cat = cats.get(cat_key)
+    if not cat:
+        return []
     rows: list[dict] = []
-
-    # Headline category scores (0-100).
-    for key, label in CATEGORIES:
-        cat = cats.get(key)
-        if not cat or cat.get("score") is None:
+    sr = _score_row(cat, label)
+    if sr:
+        rows.append(sr)
+    if cat_key == "performance":
+        return rows
+    for ref in cat.get("auditRefs") or []:
+        audit = audits.get(ref.get("id")) or {}
+        score = audit.get("score")
+        mode = audit.get("scoreDisplayMode")
+        if score is None or score >= 1 or mode in ("manual", "notApplicable", "informative"):
             continue
-        pct = round(cat["score"] * 100)
-        sev = "ok" if pct >= 90 else "warn" if pct >= 50 else "error"
-        rows.append(_row(f"Lighthouse: {label}", sev,
-                         f"Google Lighthouse {label} score: {pct}/100.",
-                         "keep it up" if sev == "ok" else f"raise the {label} score", detail=f"{pct}/100"))
-
-    # Specific failing audits from the SEO / a11y / best-practices categories.
-    seen = set()
-    for key in DETAIL_CATS:
-        cat = cats.get(key) or {}
-        for ref in (cat.get("auditRefs") or []):
-            aid = ref.get("id")
-            if not aid or aid in seen:
-                continue
-            audit = audits.get(aid) or {}
-            score = audit.get("score")
-            mode = audit.get("scoreDisplayMode")
-            # Skip passing (score>=1), informational, manual and N/A audits.
-            if score is None or score >= 1 or mode in ("manual", "notApplicable", "informative"):
-                continue
-            seen.add(aid)
-            title = audit.get("title") or aid
-            desc = (audit.get("description") or "").split("[Learn")[0].strip()
-            rows.append(_row(title, "error" if score == 0 else "warn",
-                             desc[:220] or "Lighthouse flagged this audit.",
-                             "see Lighthouse guidance", detail=key))
+        title = audit.get("title") or ref.get("id") or "audit"
+        desc = (audit.get("description") or "").split("[Learn")[0].strip()
+        rows.append(_row(title, "error" if score == 0 else "warn",
+                         desc[:220] or "Lighthouse flagged this audit.",
+                         "see Lighthouse guidance", detail=label))
     return rows
 
 
-def run_lighthouse(url: str, call=None, key: str = "") -> tuple:
-    """(rows, status, cost) — Lighthouse via PSI. Cost is $0 (free Google API)."""
-    call = call or _psi_call
-    key = key or os.environ.get("PAGESPEED_API_KEY") or os.environ.get("CRUX_API_KEY") or ""
-    doc, err = call(url, key)
+def parse_lighthouse(doc: dict) -> list[dict]:
+    """All four categories at once (used for a combined view / tests)."""
+    rows: list[dict] = []
+    for key, label in CATEGORIES:
+        rows.extend(category_rows(doc, key, label))
+    if not rows:
+        return [_row("Lighthouse", "info",
+                     "No Lighthouse result returned for this URL.",
+                     "check the URL is public and try again")]
+    return rows
+
+
+def _key() -> str:
+    return os.environ.get("PAGESPEED_API_KEY") or os.environ.get("CRUX_API_KEY") or ""
+
+
+def get_psi(ctx, call=None) -> tuple:
+    """(doc, err) — fetch PSI once per scan, cached on ctx so the four Lighthouse
+    tools share a single API call."""
+    cached = getattr(ctx, "_psi", None)
+    if cached is None:
+        call = call or _psi_call
+        cached = call(ctx.url, _key())
+        try:
+            ctx._psi = cached
+        except AttributeError:
+            pass
+    return cached
+
+
+def category_tool(ctx, cat_key: str, label: str, call=None) -> tuple:
+    """(rows, status, cost) — one Lighthouse category as a Measure tool. Cost $0."""
+    doc, err = get_psi(ctx, call)
     if err:
         return [], err, 0.0
-    return parse_lighthouse(doc), "ok (Google Lighthouse)", 0.0
+    return category_rows(doc, cat_key, label), "ok (Google Lighthouse)", 0.0
 
 
 def _psi_call(url: str, key: str) -> tuple:

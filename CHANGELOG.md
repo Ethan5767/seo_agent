@@ -37,8 +37,10 @@ see `CLAUDE.md` (the sync contract).
   Insights API (Lighthouse in Google's cloud — free, no local Chrome). Surfaces
   the four category scores (Performance / SEO / Accessibility / Best practices)
   plus the specific failing SEO / a11y / best-practices audits, parsed into our
-  row format. New "Lighthouse (Google)" tool + category. Pure parser + injectable
-  caller; 6 tests. **Needs the PageSpeed Insights API enabled** on the Google
+  row format. Split into **four selectable tools** under a "Lighthouse (Google)"
+  category — each category its own card — that **share one PSI call** per scan
+  (cached on the scan context, so four selected cards still cost one round-trip).
+  Pure parser + injectable caller; 7 tests. **Needs the PageSpeed Insights API enabled** on the Google
   Cloud project (the CrUX key returned 403 = API not enabled; keyless is
   rate-limited). Until then the card shows an honest "HTTP 403" skip, never faked
   data. Set `PAGESPEED_API_KEY` (or reuse `CRUX_API_KEY` once PSI is enabled).

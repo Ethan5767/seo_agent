@@ -1,5 +1,7 @@
 """Lighthouse / PageSpeed Insights parser — pure, offline (canned PSI response)."""
-from pipeline.scanner.lighthouse import parse_lighthouse, run_lighthouse
+from types import SimpleNamespace
+
+from pipeline.scanner.lighthouse import parse_lighthouse, category_rows, category_tool
 
 PSI = {"lighthouseResult": {
     "categories": {
@@ -48,11 +50,35 @@ def test_empty_result_is_honest_info():
     assert rows and rows[0]["severity"] == "info"
 
 
-def test_run_lighthouse_uses_injected_caller():
-    rows, status, cost = run_lighthouse("https://x.com", call=lambda u, k: (PSI, None))
+def test_category_tool_returns_one_category():
+    ctx = SimpleNamespace(url="https://x.com")
+    rows, status, cost = category_tool(ctx, "seo", "SEO", call=lambda u, k: (PSI, None))
     assert cost == 0.0 and any(r["what"] == "Lighthouse: SEO" for r in rows)
+    assert not any(r["what"] == "Lighthouse: Performance" for r in rows)  # only its own category
 
 
-def test_run_lighthouse_surfaces_error():
-    rows, status, cost = run_lighthouse("https://x.com", call=lambda u, k: (None, "HTTP 429 from PageSpeed Insights"))
+def test_four_categories_share_one_psi_call():
+    ctx = SimpleNamespace(url="https://x.com")
+    n = {"c": 0}
+
+    def fake(u, k):
+        n["c"] += 1
+        return (PSI, None)
+
+    category_tool(ctx, "seo", "SEO", call=fake)
+    category_tool(ctx, "performance", "Performance", call=fake)
+    category_tool(ctx, "accessibility", "Accessibility", call=fake)
+    assert n["c"] == 1  # fetched once, cached on ctx, reused by the others
+
+
+def test_category_tool_surfaces_error():
+    ctx = SimpleNamespace(url="https://x.com")
+    rows, status, cost = category_tool(ctx, "seo", "SEO", call=lambda u, k: (None, "HTTP 429 from PageSpeed Insights"))
     assert rows == [] and "429" in status
+
+
+def test_category_rows_scopes_audits():
+    # a11y category lists image-alt (its audit), not meta-description (an SEO audit)
+    whats = [r["what"] for r in category_rows(PSI, "accessibility", "Accessibility")]
+    assert "Image elements do not have [alt] attributes" in whats
+    assert "Document does not have a meta description" not in whats

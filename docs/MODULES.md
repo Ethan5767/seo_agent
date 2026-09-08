@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-09-07** · 6 packages, 51 modules, 5 workflows, 36 `wf-*` commands, 808 tests.
+**As of 2026-09-08** · 7 packages, 66 modules, 5 workflows, 37 `wf-*` commands, 887 tests (886 pass; 1 pre-existing `test_scanner_server` failure from the in-flight per-tool-selection work, unrelated to `pipeline/seed`).
 (Counted, not remembered: modules = `.py` under `pipeline/` excluding `__init__.py`;
 commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. Only the test
 count moved on 2026-08-10 — `--recommend` is a flag on an existing command, and
@@ -116,6 +116,18 @@ The backend behind `wf-scan-web`: paste a URL (+ optional repo, + Model A/B), ge
 | `config.py` | `ensure_config` — scaffolds a minimal `docs/client-config.yml` for a repo that has none (folds in the Onboard profile: business, keywords→seed_queries, competitors, goal). Existing config untouched. |
 | `run.py` | `run_cycle(repo, url, model)` — Model A brief / Model B fix→commit→diff→`automerge_gate.decide_pr`. |
 | `server.py` | `wf-scan-web` — `http.server`; `GET /`+`/static/*` (zero-dep fallback page), `POST /scan` streams ndjson (one `{tool}` card event per tool, then `{result}`). `build_report` runs a `TOOLS` descriptor table in a loop (adding a tool = one row); auto-loads `.env`; the same JSON the Next.js front end (`web/`) calls. |
+
+## `pipeline/seed` — the brand-mention seed engine (5)
+
+The complement to `scanner/mentions.py` (which *measures* where a brand is cited): given a `gaps.json` from the measure agent, it *creates* brand-mentioning topics — auto-posting to safe platforms, queuing strict ones for human approval, never Wikipedia. Same discipline as `providers.py`: one flat module per concern, pure parse/build functions with an injectable side-effecting caller, every skip loud. Generation runs on the operator's `claude` CLI subscription (no API key). MVP posts via a stub (no external accounts). CLI: `wf-seed --gaps gaps.json [--out-dir .] [--drafts-dir ./drafts] [--live]`. Design: `docs/superpowers/specs/2026-09-07-brand-seed-engine-design.md`.
+
+| Module | What it does |
+|---|---|
+| `tiers.py` | The safety rule as data. `GREEN` (medium/devto/hashnode/tumblr/blogger, auto-post) · `YELLOW` (reddit/quora, draft→approve) · `RED` (wikipedia, never) · `tier_of()` returns `green/yellow/red/unknown`. Unknown is NOT green on purpose — a typo or new platform must fall through to a loud skip, never to auto-posting. |
+| `gaps.py` | `Gap` dataclass + `parse_gaps(rows)` → `(gaps, dropped)`. Pure. A row missing/blank on any of the six required fields is dropped WITH a `_reason`, never silently — a silent drop would make a run look complete when it seeded fewer gaps than it was handed. |
+| `generate.py` | `Gap` → `Draft` via the `claude` CLI (`claude -p … --output-format json`) on the user's subscription. `build_prompt`/`parse_result` pure (parse survives bare and ```json-fenced output); the subprocess is injectable as `run` so the suite is offline. |
+| `posters.py` | `PostResult` + `slugify` + `write_draft_file` (real yellow action: writes `<platform>-<slug>.md` for human review) + `stub_post` (MVP green stand-in: NO HTTP, records what it *would* post so the log never claims a live post that did not happen). Real green posters replace the stub post-MVP, one per platform, env creds, loud skip. |
+| `run.py` | `wf-seed`. `dispatch(drafts, dir, poster)` routes by tier; `run_seed(...)` reads gaps.json → skips red/unknown before generation (no wasted claude call, no refusal) → drafts green/yellow → dispatches → writes `seed-log.json` (`mode`, `counts`, `results`, `dropped`). `--live` reserved until real posters land. |
 
 ## `.github/workflows` — the runtime (5)
 

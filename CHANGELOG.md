@@ -8,6 +8,32 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **`pipeline/seed` — the brand-mention seed engine (`wf-seed`).** The complement
+  to `scanner/mentions.py`: `mentions.py` *measures* where a brand is cited;
+  `seed` *creates* the missing mentions. Consumes a `gaps.json` from the measure
+  agent (`brand, platform, topic, target_keyword, angle, url_target`) and turns
+  each gap into a brand-mentioning topic. **Tiered by design:** green
+  (medium/devto/hashnode/tumblr/blogger) auto-posts, yellow (reddit/quora) is
+  drafted to `drafts/<platform>-<slug>.md` for human approval, red (wikipedia) is
+  never automated. Five modules mirroring `providers.py` discipline — flat, pure
+  parse/build fns with an injectable caller, every skip loud: `tiers.py`
+  (`tier_of` → green/yellow/red/unknown; unknown is NOT green so a typo can't
+  auto-post), `gaps.py` (`parse_gaps` drops malformed rows WITH a reason),
+  `generate.py` (draft via the `claude` CLI subscription — no API key, no
+  per-token cost; parse survives fenced JSON; subprocess injectable for offline
+  tests), `posters.py` (`stub_post` MVP green stand-in does NO HTTP and records
+  what it *would* post; `write_draft_file` is the real yellow action), `run.py`
+  (`dispatch` routes by tier, `run_seed` skips red/unknown BEFORE generation so
+  no claude call is wasted and the model's correct refusal to write a
+  promotional Wikipedia entry never surfaces as a spurious failure; writes
+  `seed-log.json`). MVP posts via stub — no external accounts, only the claude
+  subscription. `wf-seed --gaps gaps.json [--out-dir .] [--drafts-dir ./drafts]
+  [--live]`; `--live` reserved until real green posters replace the stub. 23 new
+  tests, all green; live CLI smoke on the fixture: `posted=1 queued=1 skipped=1
+  dropped=0`. Design + plan under `docs/superpowers/{specs,plans}/`.
+  Note: the full suite is `python -m pytest` (repo root on `sys.path` for the
+  `from tests import e2e_fixture` modules), not the `pytest` console script.
+
 - **Normalized persistence — store everything, queryable (`web/supabase-schema.sql`,
   `web/lib/db.ts`).** Two new tables beside `clients`/`scans`: `scan_tools`
   (one row per tool per scan — status, cost, error/warn/ok counts) and

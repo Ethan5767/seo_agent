@@ -58,6 +58,9 @@ wf-scan-web = "pipeline.scanner.server:main"
 
 # ── audit / setup ────────────────────────────────────────────────────────────
 wf-onboard = "pipeline.audit.onboard:main"
+# Brand seed engine — turns the measure agent's gaps.json into brand-mention
+# topics: green auto-post (stub in MVP), yellow drafts for approval, red skip.
+wf-seed = "pipeline.seed.run:main"
 wf-site-health = "pipeline.audit.measure:main"
 wf-site-plan = "pipeline.audit.plan:main"
 wf-site-remediate = "pipeline.audit.remediate:main"

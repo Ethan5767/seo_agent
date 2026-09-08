@@ -23,6 +23,7 @@ from pipeline.scanner import source_audit
 from pipeline.scanner import onpage_audit
 from pipeline.scanner import business_data
 from pipeline.scanner import mentions
+from pipeline.scanner import lighthouse
 from pipeline.scanner.onpage import onpage_deep_rows
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.schema_check import schema_rows
@@ -88,7 +89,7 @@ Tool = namedtuple("Tool", "label key category group cost cost_num needs run")
 
 # Display order of the functional sections.
 CATEGORIES = ["On-page", "Technical", "Content", "Trust & E-E-A-T",
-              "AEO (AI search)", "Performance", "Links",
+              "AEO (AI search)", "Performance", "Lighthouse (Google)", "Links",
               "Keywords & Rankings", "Local SEO", "Reputation", "Source code"]
 
 TOOLS = [
@@ -115,6 +116,8 @@ TOOLS = [
     Tool("AI citations (DataForSEO)", "ai", "AEO (AI search)", "dataforseo", "~$0.11", 0.11, None,
          lambda c: dataforseo.llm_mentions(c.brand, c.domain)),
     Tool("Performance (speed)", "perf", "Performance", "free", "free", 0.0, None, _perf_tool),
+    Tool("Lighthouse (Google)", "lighthouse", "Lighthouse (Google)", "free", "free", 0.0, None,
+         lambda c: lighthouse.run_lighthouse(c.url)),
     Tool("Internal links", "internal", "Links", "free", "free", 0.0, None,
          lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
     Tool("Backlinks (DataForSEO)", "backlinks", "Links", "dataforseo", "~$0.025", 0.025, None,

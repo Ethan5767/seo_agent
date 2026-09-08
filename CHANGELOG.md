@@ -32,6 +32,17 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Lighthouse (Google) as a Measure tool (`pipeline/scanner/lighthouse.py`).**
+  The audit we can trust because it's Google's own engine, via the PageSpeed
+  Insights API (Lighthouse in Google's cloud — free, no local Chrome). Surfaces
+  the four category scores (Performance / SEO / Accessibility / Best practices)
+  plus the specific failing SEO / a11y / best-practices audits, parsed into our
+  row format. New "Lighthouse (Google)" tool + category. Pure parser + injectable
+  caller; 6 tests. **Needs the PageSpeed Insights API enabled** on the Google
+  Cloud project (the CrUX key returned 403 = API not enabled; keyless is
+  rate-limited). Until then the card shows an honest "HTTP 403" skip, never faked
+  data. Set `PAGESPEED_API_KEY` (or reuse `CRUX_API_KEY` once PSI is enabled).
+
 - **Source-code lane built out (`pipeline/scanner/source_audit.py`).** From ~4
   checks to ~15, reading the connected GitHub repo read-only (free API) to judge
   code-level SEO/AEO the live HTML can't reveal — the thing Semrush never sees.

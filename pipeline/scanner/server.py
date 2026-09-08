@@ -145,10 +145,30 @@ TOOLS = [
 ]
 
 
+# Execution phases, in order. Cheap/instant first, paid last, source last —
+# so money (phase 3) is only spent after the free signal is in. This is the
+# EXECUTION order; `category` is the separate VISUAL grouping of results.
+PHASES = [(1, "Page & technical"), (2, "Google Lighthouse"),
+          (3, "Search data (paid)"), (4, "Source code")]
+_PHASE_LABEL = dict(PHASES)
+
+
+def phase_of(t: Tool) -> int:
+    """Which phase a tool runs in — derived from what it already is."""
+    if t.group == "source":
+        return 4
+    if t.group == "dataforseo":
+        return 3
+    if t.key.startswith("lh_"):
+        return 2
+    return 1
+
+
 def tool_catalog() -> list[dict]:
     """The tool list the frontend renders — single source of truth for the UI."""
     return [{"key": t.key, "label": t.label, "category": t.category,
-             "group": t.group, "cost": t.cost, "cost_num": t.cost_num} for t in TOOLS]
+             "group": t.group, "cost": t.cost, "cost_num": t.cost_num,
+             "phase": phase_of(t), "phase_label": _PHASE_LABEL[phase_of(t)]} for t in TOOLS]
 
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
@@ -180,22 +200,31 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     # The source lane runs only when a GitHub repo + read token are supplied.
     source_ok = bool(repo and github_token and "/" in repo)
 
+    def _wanted(t):
+        return (selected is None or t.key in selected) and not (t.needs == "repo" and not source_ok)
+
     groups: dict[str, list] = {}
     cost = 0.0
-    for t in TOOLS:
-        if selected is not None and t.key not in selected:
+    # Walk phases in order (cheap → paid → source); a phase with no selected
+    # tool is skipped silently, with no marker.
+    for pn, plabel in PHASES:
+        phase_tools = [t for t in TOOLS if phase_of(t) == pn and _wanted(t)]
+        if not phase_tools:
             continue
-        if t.needs == "repo" and not source_ok:
-            continue
+        marker = f"Phase {pn}/{len(PHASES)}: {plabel}"
+        log.append(f"— {marker} —")
         if on_tool:
-            on_tool(t.label, "running", [], "", 0.0)
-        rows, tool_status, tool_cost = t.run(ctx)
-        cost += tool_cost
-        groups[t.key] = rows
-        line = tool_status or _status_line(rows)
-        log.append(f"{t.label} — {line}")
-        if on_tool:
-            on_tool(t.label, "done", rows, line, tool_cost)
+            on_tool(marker, "phase", [], "", 0.0)
+        for t in phase_tools:
+            if on_tool:
+                on_tool(t.label, "running", [], "", 0.0)
+            rows, tool_status, tool_cost = t.run(ctx)
+            cost += tool_cost
+            groups[t.key] = rows
+            line = tool_status or _status_line(rows)
+            log.append(f"{t.label} — {line}")
+            if on_tool:
+                on_tool(t.label, "done", rows, line, tool_cost)
 
     all_rows = [r for rows in groups.values() for r in rows]
     log.append(f"Checked {len(all_rows)} things — {_status_line(all_rows)}. "

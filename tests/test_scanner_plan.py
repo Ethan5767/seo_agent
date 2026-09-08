@@ -48,3 +48,16 @@ def test_priority_is_stable_int():
     out = build_plan([f("a", "error"), f("b", "warn")], [])
     prios = [w["priority"] for w in out["worklist"]]
     assert prios == sorted(prios) and all(isinstance(p, int) for p in prios)
+
+
+def test_plan_endpoint_helper_shape():
+    from pipeline.scanner.server import handle_plan
+    out = handle_plan({"current": [f("a", "error")], "previous": []})
+    assert set(out) == {"worklist", "resolved", "counts"}
+    assert out["worklist"][0]["status"] == "NEW"
+
+
+def test_plan_endpoint_helper_defaults_bad_input():
+    from pipeline.scanner.server import handle_plan
+    out = handle_plan({})  # no lists → empty, no crash
+    assert out["worklist"] == [] and out["resolved"] == []

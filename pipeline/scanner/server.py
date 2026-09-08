@@ -24,6 +24,7 @@ from pipeline.scanner import onpage_audit
 from pipeline.scanner import business_data
 from pipeline.scanner import mentions
 from pipeline.scanner import youtube
+from pipeline.scanner.plan import build_plan
 from pipeline.scanner import lighthouse
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.schema_check import schema_rows
@@ -162,6 +163,15 @@ def phase_of(t: Tool) -> int:
     return 1
 
 
+def handle_plan(req: dict) -> dict:
+    """Plan-stage ratchet over two findings lists — pure, so it's unit-testable
+    without the HTTP layer. Bad/absent lists default to empty."""
+    cur = req.get("current")
+    prev = req.get("previous")
+    return build_plan(cur if isinstance(cur, list) else [],
+                      prev if isinstance(prev, list) else [])
+
+
 def tool_catalog() -> list[dict]:
     """The tool list the frontend renders — single source of truth for the UI."""
     return [{"key": t.key, "label": t.label, "category": t.category,
@@ -294,6 +304,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, "not found", "text/plain")
 
     def do_POST(self):
+        if self.path == "/plan":
+            n = int(self.headers.get("Content-Length", 0))
+            req = json.loads(self.rfile.read(n) or b"{}")
+            return self._send(200, json.dumps(handle_plan(req)))
         if self.path != "/scan":
             return self._send(404, "not found", "text/plain")
         n = int(self.headers.get("Content-Length", 0))

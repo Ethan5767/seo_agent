@@ -82,7 +82,7 @@ function Scanner() {
       const t: CatalogTool[] = d.tools || [];
       setCatalog(t);
       setSelected(new Set(t.map((x) => x.key)));  // all ticked
-    }).catch(() => {});
+    }).catch((e) => console.error("tool catalog fetch failed — is the backend running?", e));
   }, []);
   const [filter, setFilter] = useState<"all" | "error" | "warn" | "ok">("all");
   const [busy, setBusy] = useState(false);

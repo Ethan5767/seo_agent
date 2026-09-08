@@ -268,8 +268,16 @@ class Handler(BaseHTTPRequestHandler):
             "goal": (req.get("goal") or "").strip(),
         }
         # Selected tool keys — a list from the checklist, or absent → run all.
+        # An explicit empty list means "nothing selected" (a client error): a
+        # scan that runs zero tools must never report a clean score, so reject it.
         _tools = req.get("tools")
         selected = set(_tools) if isinstance(_tools, list) else None
+        if selected is not None and not selected:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.end_headers()
+            self.wfile.write((json.dumps({"error": "select at least one tool to run"}) + "\n").encode())
+            return
         try:
             max_pages = max(1, min(int(req.get("max_pages") or 25), 100))
         except (TypeError, ValueError):
@@ -290,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
-        print(f"\n[scan] url={url!r} model={model} tools={len(selected) if selected else 'all'} repo={repo or '-'}", flush=True)
+        print(f"\n[scan] url={url!r} model={model} tools={len(selected) if selected is not None else 'all'} repo={repo or '-'}", flush=True)
         log = Progress(cb=lambda ln: (emit({"log": ln}), print(f"   {ln}", flush=True)))
 
         def on_tool(name, state, rows, status, cost):

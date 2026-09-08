@@ -32,6 +32,12 @@ def test_source_tool_skipped_without_repo():
     assert _ran({"source"}) == []
 
 
+def test_empty_selection_runs_nothing():
+    # An explicit empty set runs zero tools (the /scan endpoint rejects this so
+    # a zero-tool run can never report a clean score — see do_POST guard).
+    assert _ran(set()) == []
+
+
 def test_catalog_shape():
     cat = server.tool_catalog()
     assert cat, "catalog should be non-empty"

@@ -6,6 +6,22 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **Per-tool selection in Measure (checklist replaces the crawl/deep toggles).**
+  `pipeline/scanner/server.py`: `TOOLS` is now a `Tool` namedtuple catalog
+  (label/key/group/cost/cost_num/needs/run); `GET /tools` exposes it as the
+  single source of truth; `build_report(selected=set|None)` runs only chosen
+  tools (None = all), source tool still gated on repo+token. `web/app/page.tsx`:
+  a grouped checklist (Free / DataForSEO paid / Source), all ticked by default,
+  per-tool cost + live running total, all/none selectors; results get a score
+  gauge, clickable error/warn/pass filters, per-card severity badges. `/scan`
+  **rejects an empty selection** so a zero-tool run can never report a clean
+  score (the "scanned nothing must never pass" rule). `scans` table gains a
+  `tools` jsonb column. New tests (5); full Python suite green; web `tsc` clean.
+  Migration for existing DBs: `alter table public.scans add column if not exists
+  tools jsonb not null default '[]'::jsonb;`
+
 ### Changed
 
 - **Deduped on-page checks against DataForSEO (DataForSEO-first rule).**

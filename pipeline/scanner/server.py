@@ -24,7 +24,6 @@ from pipeline.scanner import onpage_audit
 from pipeline.scanner import business_data
 from pipeline.scanner import mentions
 from pipeline.scanner import lighthouse
-from pipeline.scanner.onpage import onpage_deep_rows
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.schema_check import schema_rows
 from pipeline.scanner.validate import validate_rows
@@ -95,8 +94,6 @@ CATEGORIES = ["On-page", "Technical", "Content", "Trust & E-E-A-T",
 TOOLS = [
     Tool("On-page SEO", "seo", "On-page", "free", "free", 0.0, None,
          lambda c: (A.seo_rows(c.url, c.html, c.status, {}), None, 0.0)),
-    Tool("On-page (deep)", "onpage", "On-page", "free", "free", 0.0, None,
-         lambda c: (onpage_deep_rows(c.url, c.html, c.status), None, 0.0)),
     Tool("Site Health (DataForSEO)", "site", "On-page", "dataforseo", "~$0.006 (25 pages)", 0.006, None,
          lambda c: onpage_audit.site_audit_full(c.domain, c.max_pages)),
     Tool("Technical", "tech", "Technical", "free", "free", 0.0, None,

@@ -89,12 +89,15 @@ export async function lastTwoScansFindings(
   const { data: scans, error } = await supabase
     .from("scans").select("id, created_at")
     .eq("client_id", clientId).order("created_at", { ascending: false }).limit(2);
-  if (error || !scans?.length) return empty;
+  if (error) { console.error("lastTwoScansFindings.scans", error); return empty; }
+  if (!scans?.length) return empty;
 
   const findingsFor = async (scanId: string): Promise<FindingRow[]> => {
-    const { data } = await supabase
+    const { data, error: fErr } = await supabase
       .from("findings").select("code, what, why, fix, detail, severity, tool")
       .eq("scan_id", scanId);
+    // Surface a real read failure — a silent [] would fake a clean/all-NEW plan.
+    if (fErr) { console.error("lastTwoScansFindings.findings", fErr); throw fErr; }
     return (data as FindingRow[]) || [];
   };
   const current = await findingsFor(scans[0].id);

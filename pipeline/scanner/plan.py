@@ -37,21 +37,35 @@ def _priority(status: str, severity: str) -> int:
     return (2 - SEV_RANK.get(severity, 0)) * 10 + _STATUS_RANK.get(status, 2)
 
 
+def _by_code(rows: list[dict]) -> dict:
+    """Index findings by their stable code, keeping the worst severity if a code
+    repeats within one scan. Codeless rows are dropped — they can't be ratcheted
+    (nothing stable to match across scans)."""
+    by: dict = {}
+    for r in rows or []:
+        code = r.get("code")
+        if not code:
+            continue
+        if code not in by or SEV_RANK.get(r.get("severity"), 0) > SEV_RANK.get(by[code].get("severity"), 0):
+            by[code] = r
+    return by
+
+
 def build_plan(current: list[dict], previous: list[dict]) -> dict:
-    prev_by_code = {r.get("code"): r for r in (previous or []) if r.get("code")}
-    cur_codes = {r.get("code") for r in (current or [])}
+    cur_by_code = _by_code(current)
+    prev_by_code = _by_code(previous)
 
     worklist: list[dict] = []
-    for r in current or []:
+    for code, r in cur_by_code.items():
         if r.get("severity") not in _ACTIONABLE:
             continue
-        status = classify(r, prev_by_code.get(r.get("code")))
+        status = classify(r, prev_by_code.get(code))
         worklist.append({**r, "status": status,
                          "priority": _priority(status, r.get("severity"))})
 
     # RESOLVED = an actionable finding present last time, gone now.
-    resolved = [r for r in (previous or [])
-                if r.get("severity") in _ACTIONABLE and r.get("code") not in cur_codes]
+    resolved = [r for code, r in prev_by_code.items()
+                if r.get("severity") in _ACTIONABLE and code not in cur_by_code]
 
     worklist.sort(key=lambda w: (w["priority"], w.get("code", "")))
     for i, w in enumerate(worklist):

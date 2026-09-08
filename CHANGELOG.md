@@ -6,6 +6,20 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **Plan stage — the ratchet (`pipeline/scanner/plan.py`, `POST /plan`,
+  `web/app/page.tsx`).** Turns a client's stored `findings` into a prioritised
+  worklist by comparing the two most recent scans, matched on each finding's
+  stable `code`: **NEW** (appeared) · **PERSISTING** (still there) · **REGRESSION**
+  (severity worsened, e.g. warn→error) · **RESOLVED** (gone = a win). The worklist
+  is ordered error-first then new/regression-before-persisting; `ok`/`info` are
+  excluded. Pure `build_plan` (10 tests, incl. dedup-by-code + codeless-skip from
+  the thermo pass); `handle_plan` HTTP helper; a Plan screen that loads the last
+  two scans (`lastTwoScansFindings`) and renders the worklist + a Resolved-wins
+  section. Thermo fixes: dedup repeated codes to worst severity, drop codeless
+  rows, surface Supabase read errors instead of faking a clean plan.
+
 ### Changed
 
 - **Internal-links tool strengthened 2 → 9 checks (`pipeline/scanner/extra_checks.py`).**

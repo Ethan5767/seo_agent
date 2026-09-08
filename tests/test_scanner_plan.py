@@ -50,6 +50,18 @@ def test_priority_is_stable_int():
     assert prios == sorted(prios) and all(isinstance(p, int) for p in prios)
 
 
+def test_duplicate_code_deduped_to_worst():
+    out = build_plan([f("a", "warn"), f("a", "error")], [])
+    codes = [w["code"] for w in out["worklist"]]
+    assert codes.count("a") == 1               # not double-counted
+    assert out["worklist"][0]["severity"] == "error"  # worst severity kept
+
+
+def test_codeless_findings_excluded():
+    out = build_plan([f("", "error"), f("a", "error")], [])
+    assert [w["code"] for w in out["worklist"]] == ["a"]  # codeless can't ratchet
+
+
 def test_plan_endpoint_helper_shape():
     from pipeline.scanner.server import handle_plan
     out = handle_plan({"current": [f("a", "error")], "previous": []})

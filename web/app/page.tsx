@@ -8,16 +8,30 @@ import { supabase } from "../lib/supabase";
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
 type Audit = {
   seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; rankings: Row[]; keywords: Row[]; ai: Row[]; source: Row[];
-  score: number; counts: Record<string, number>;
+  score: number; counts: Record<string, number>; cost?: number;
 };
 type Cycle =
   | { model: "A"; brief: string; worklist: unknown[] }
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
 type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string; log?: string[] };
 type Tool = { name: string; state: string; rows: Row[]; status: string; cost: number };
+type CatalogTool = { key: string; label: string; group: string; cost: string; cost_num: number };
 
 const COLOR: Record<string, string> = { error: "#b00", warn: "#a60", info: "#999", ok: "#1a5" };
 const box = { padding: ".5rem", margin: ".25rem 0", width: "100%", boxSizing: "border-box" as const };
+
+// The tool groups, in display order — mirrors the backend `group` field.
+const GROUPS: { key: string; title: string; note: string }[] = [
+  { key: "free", title: "Free tools", note: "run on the page we already fetched — no cost" },
+  { key: "dataforseo", title: "DataForSEO (paid)", note: "live API data — costs per call" },
+  { key: "source", title: "Source code", note: "read-only, needs a connected GitHub repo" },
+];
+
+function sevCounts(rows: Row[]) {
+  const c = { error: 0, warn: 0, ok: 0 };
+  for (const r of rows) { if (r.severity === "error") c.error++; else if (r.severity === "warn") c.warn++; else if (r.severity === "ok") c.ok++; }
+  return c;
+}
 
 function Rows({ list }: { list?: Row[] }) {
   return (
@@ -58,15 +72,35 @@ function Scanner() {
     setKwInput("");
   }
   const [goal, setGoal] = useState("");
-  // Measure options
-  // DataForSEO tools are core Measure tools — run by default. Uncheck to skip
-  // the paid calls and run only the free always-on cards.
-  const [crawl, setCrawl] = useState(true);
-  const [deep, setDeep] = useState(true);
+  // Measure tool selection — the checklist. Catalog comes from the backend
+  // (/api/tools → Python /tools), so adding a tool there shows it here. All
+  // ticked by default; untick to skip a tool (and its cost).
+  const [catalog, setCatalog] = useState<CatalogTool[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    fetch("/api/tools").then((r) => r.json()).then((d) => {
+      const t: CatalogTool[] = d.tools || [];
+      setCatalog(t);
+      setSelected(new Set(t.map((x) => x.key)));  // all ticked
+    }).catch(() => {});
+  }, []);
+  const [filter, setFilter] = useState<"all" | "error" | "warn" | "ok">("all");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<string[]>([]);
   const [tools, setTools] = useState<Tool[]>([]);
   const [data, setData] = useState<ScanResult | null>(null);
+
+  function toggleTool(key: string) {
+    setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+  function setGroup(groupKey: string, on: boolean) {
+    setSelected((s) => {
+      const n = new Set(s);
+      for (const t of catalog) if (t.group === groupKey) { on ? n.add(t.key) : n.delete(t.key); }
+      return n;
+    });
+  }
+  const estCost = catalog.filter((t) => selected.has(t.key)).reduce((s, t) => s + (t.cost_num || 0), 0);
 
   async function run() {
     setBusy(true); setData(null); setLive([]); setTools([]);
@@ -76,7 +110,7 @@ function Scanner() {
       const github_token = sess.session?.provider_token || "";  // read-only source lane
       const res = await fetch("/api/scan", {
         method: "POST",
-        body: JSON.stringify({ url, repo, model, crawl, deep, business, keywords: kwList, competitors, goal, github_token, max_pages: 25 }),
+        body: JSON.stringify({ url, repo, model, tools: [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25 }),
       });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();
@@ -95,7 +129,7 @@ function Scanner() {
           } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
           else if (ev.result) {
             setData(ev.result);
-            saveScan(clientId || "", { url, model, crawl, deep }, ev.result.audit || {}, ev.result.log || []);
+            saveScan(clientId || "", { url, model, tools: [...selected] }, ev.result.audit || {}, ev.result.log || []);
           }
           else if (ev.error) setData({ error: ev.error, log: ev.log });
         }
@@ -185,46 +219,108 @@ function Scanner() {
         {goal && <>Goal: {goal}</>}
       </div>
 
-      <label style={{ display: "block", margin: ".25rem 0" }}>
-        <input type="checkbox" checked={crawl} onChange={(e) => setCrawl(e.target.checked)} />{" "}
-        Site audit — crawl the whole site via DataForSEO (JS-aware; finds broken links, orphans, duplicates · 💰 paid, ~$0.0003/page)
-      </label>
-      <label style={{ display: "block", margin: ".25rem 0" }}>
-        <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} />{" "}
-        Deep scan — rankings via DataForSEO (💰 paid, ~$0.01-0.05 per run)
-      </label>
-      <button onClick={run} disabled={busy}
-        style={{ padding: ".6rem 1.2rem", background: "#1a5", color: "#fff", border: 0, borderRadius: 6, cursor: "pointer" }}>
-        {busy ? "Measuring…" : "Run Measure"}
-      </button>
+      {/* ── Tool checklist — pick which Measure tools run ─────────────────── */}
+      <div style={{ border: "1px solid #ddd", borderRadius: 8, overflow: "hidden", margin: "1rem 0" }}>
+        <div style={{ background: "#eef2ff", padding: ".6rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <b>Tools to run</b>
+          <span style={{ fontSize: 13, color: "#555" }}>
+            <a onClick={() => setSelected(new Set(catalog.map((t) => t.key)))} style={{ color: "#1a5", cursor: "pointer" }}>all</a>
+            {" · "}
+            <a onClick={() => setSelected(new Set())} style={{ color: "#a00", cursor: "pointer" }}>none</a>
+          </span>
+        </div>
+        {GROUPS.filter((g) => catalog.some((t) => t.group === g.key)).map((g) => {
+          const groupTools = catalog.filter((t) => t.group === g.key);
+          const allOn = groupTools.every((t) => selected.has(t.key));
+          return (
+            <div key={g.key} style={{ borderTop: "1px solid #eee" }}>
+              <div style={{ padding: ".4rem .9rem", background: "#fafafa", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <label style={{ fontWeight: 600, cursor: "pointer" }}>
+                  <input type="checkbox" checked={allOn} onChange={(e) => setGroup(g.key, e.target.checked)} />{" "}
+                  {g.title} <span style={{ fontWeight: 400, color: "#888", fontSize: 12 }}>· {g.note}</span>
+                </label>
+              </div>
+              {groupTools.map((t) => (
+                <label key={t.key} style={{ display: "flex", justifyContent: "space-between", padding: ".3rem .9rem .3rem 1.8rem", cursor: "pointer" }}>
+                  <span><input type="checkbox" checked={selected.has(t.key)} onChange={() => toggleTool(t.key)} /> {t.label}</span>
+                  <span style={{ color: t.cost_num > 0 ? "#a60" : "#1a5", fontSize: 13 }}>{t.cost}</span>
+                </label>
+              ))}
+            </div>
+          );
+        })}
+        <div style={{ borderTop: "1px solid #eee", padding: ".55rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f7f7f7" }}>
+          <span style={{ color: "#555" }}>{selected.size} of {catalog.length} tools · est <b style={{ color: "#a60" }}>~${estCost.toFixed(4)}</b></span>
+          <button onClick={run} disabled={busy || selected.size === 0}
+            style={{ padding: ".55rem 1.3rem", background: busy || selected.size === 0 ? "#aaa" : "#1a5", color: "#fff", border: 0, borderRadius: 6, cursor: busy || selected.size === 0 ? "not-allowed" : "pointer" }}>
+            {busy ? "Measuring…" : `Run Measure (${selected.size})`}
+          </button>
+        </div>
+      </div>
 
       {data?.error && <pre style={{ background: "#fee", padding: "1rem" }}>{data.error}</pre>}
 
-      {(a || tools.length > 0) && (
-        <div style={{ margin: "1rem 0" }}>
-          {a && <span style={{ fontSize: "2rem", fontWeight: 700 }}>Score {a.score}/100</span>}
-          {a && <span style={{ color: "#555", marginLeft: "1rem" }}>
-            {a.counts.error || 0} errors · {a.counts.warn || 0} warnings · {a.counts.ok || 0} passing
-          </span>}
-          <div style={{ marginTop: ".25rem", color: "#a60", fontWeight: 600 }}>
-            Cost this run: ${((data?.audit?.cost) ?? tools.reduce((s, t) => s + (t.cost || 0), 0)).toFixed(4)}
+      {(a || tools.length > 0) && (() => {
+        const runCost = (data?.audit?.cost) ?? tools.reduce((s, t) => s + (t.cost || 0), 0);
+        const err = a ? (a.counts.error || 0) : tools.reduce((s, t) => s + sevCounts(t.rows).error, 0);
+        const wrn = a ? (a.counts.warn || 0) : tools.reduce((s, t) => s + sevCounts(t.rows).warn, 0);
+        const okc = a ? (a.counts.ok || 0) : tools.reduce((s, t) => s + sevCounts(t.rows).ok, 0);
+        const score = a?.score ?? 0;
+        const sColor = score >= 80 ? "#1a5" : score >= 50 ? "#a60" : "#b00";
+        const chip = (key: typeof filter, label: string, color: string) => (
+          <span onClick={() => setFilter(filter === key ? "all" : key)}
+            style={{ cursor: "pointer", padding: ".25rem .7rem", borderRadius: 14, fontWeight: 600, fontSize: 13,
+              border: `1.5px solid ${color}`, color: filter === key ? "#fff" : color, background: filter === key ? color : "#fff" }}>
+            {label}
+          </span>
+        );
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", flexWrap: "wrap", margin: "1.25rem 0", padding: "1rem", background: "#fafafa", border: "1px solid #eee", borderRadius: 10 }}>
+            {a && (
+              <div style={{ width: 84, height: 84, borderRadius: "50%", border: `6px solid ${sColor}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <span style={{ fontSize: "1.6rem", fontWeight: 800, color: sColor, lineHeight: 1 }}>{score}</span>
+                <span style={{ fontSize: 10, color: "#888" }}>/ 100</span>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+              {chip("error", `${err} errors`, "#b00")}
+              {chip("warn", `${wrn} warnings`, "#a60")}
+              {chip("ok", `${okc} passing`, "#1a5")}
+              {filter !== "all" && <span onClick={() => setFilter("all")} style={{ cursor: "pointer", fontSize: 13, color: "#666", alignSelf: "center" }}>clear filter ✕</span>}
+            </div>
+            <div style={{ marginLeft: "auto", textAlign: "right" }}>
+              <div style={{ color: "#a60", fontWeight: 700, fontSize: "1.1rem" }}>${runCost.toFixed(4)}</div>
+              <div style={{ fontSize: 12, color: "#888" }}>cost this run</div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {/* One card per tool — loads live, then fills with its result + cost. */}
-      {tools.map((t) => (
-        <div key={t.name} style={{ border: "1px solid #ddd", borderRadius: 8, margin: ".75rem 0", overflow: "hidden" }}>
-          <div style={{ background: "#f7f7f7", padding: ".6rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <b>{t.state === "running" ? "⏳" : "✓"} {t.name}</b>
-            <span style={{ color: "#666", fontSize: 13 }}>
-              {t.state === "running" ? "running…" : t.status}
-              {" · "}<span style={{ color: t.cost > 0 ? "#a60" : "#1a5" }}>{t.cost > 0 ? `$${t.cost.toFixed(4)}` : "free"}</span>
-            </span>
+      {/* One card per tool — loads live, then fills with its result + cost.
+          Filter chips above narrow the rows shown; a card with no matching
+          rows under an active filter is hidden. */}
+      {tools.map((t) => {
+        const cnt = sevCounts(t.rows);
+        const shown = filter === "all" ? t.rows : t.rows.filter((r) => r.severity === filter);
+        if (t.state === "done" && filter !== "all" && shown.length === 0) return null;
+        const badge = (n: number, color: string) => n > 0 ? (
+          <span style={{ background: color, color: "#fff", borderRadius: 10, padding: "0 .5rem", fontSize: 12, fontWeight: 700, marginLeft: ".3rem" }}>{n}</span>
+        ) : null;
+        return (
+          <div key={t.name} style={{ border: "1px solid #ddd", borderRadius: 8, margin: ".75rem 0", overflow: "hidden" }}>
+            <div style={{ background: "#f7f7f7", padding: ".6rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <b>{t.state === "running" ? "⏳" : "✓"} {t.name}
+                {t.state === "done" && <>{badge(cnt.error, "#b00")}{badge(cnt.warn, "#a60")}{badge(cnt.ok, "#1a5")}</>}
+              </b>
+              <span style={{ color: "#666", fontSize: 13 }}>
+                {t.state === "running" ? "running…" : t.status}
+                {" · "}<span style={{ color: t.cost > 0 ? "#a60" : "#1a5" }}>{t.cost > 0 ? `$${t.cost.toFixed(4)}` : "free"}</span>
+              </span>
+            </div>
+            {t.state === "done" && <div style={{ padding: ".5rem .9rem" }}><Rows list={shown} /></div>}
           </div>
-          {t.state === "done" && <div style={{ padding: ".5rem .9rem" }}><Rows list={t.rows} /></div>}
-        </div>
-      ))}
+        );
+      })}
 
       {data?.log && data.log.length > 0 && !busy && (
         <details style={{ margin: "1rem 0", color: "#555" }}>

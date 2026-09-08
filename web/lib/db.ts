@@ -29,7 +29,7 @@ export async function saveClient(p: ClientProfile): Promise<string | null> {
 /** Insert a scan row linked to a client. Best-effort — never blocks the UI. */
 export async function saveScan(
   clientId: string,
-  opts: { url: string; model: string; crawl: boolean; deep: boolean },
+  opts: { url: string; model: string; tools: string[] },
   audit: { score?: number; counts?: unknown } & Record<string, unknown>,
   log: string[],
 ): Promise<void> {
@@ -37,7 +37,7 @@ export async function saveScan(
   if (!user_id || !clientId) return;
   const { error } = await supabase.from("scans").insert({
     client_id: clientId, user_id,
-    url: opts.url, model: opts.model, crawl: opts.crawl, deep: opts.deep,
+    url: opts.url, model: opts.model, tools: opts.tools,
     score: audit?.score ?? null, counts: audit?.counts ?? {},
     cost: (audit as { cost?: number })?.cost ?? 0,
     report: audit ?? {}, log: log ?? [],

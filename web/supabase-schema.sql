@@ -27,8 +27,9 @@ create table if not exists public.scans (
   user_id     uuid not null references auth.users (id) on delete cascade,
   url         text not null,
   model       text not null default 'B',
-  crawl       boolean not null default false,
-  deep        boolean not null default false,
+  crawl       boolean not null default false,        -- legacy (pre tool-selection)
+  deep        boolean not null default false,        -- legacy (pre tool-selection)
+  tools       jsonb not null default '[]'::jsonb,     -- selected tool keys this run
   score       int,                                   -- 0-100 headline
   counts      jsonb not null default '{}'::jsonb,     -- {error,warn,info,ok}
   cost        numeric(10,4) not null default 0,       -- total $ this run

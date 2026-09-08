@@ -8,6 +8,18 @@ see `CLAUDE.md` (the sync contract).
 
 ### Changed
 
+- **DataForSEO live-verified end-to-end + hardened (`pipeline/scanner/dataforseo.py`,
+  `pipeline/scanner/server.py`).** First real run of all nine DataForSEO tools
+  against a live site (the CLAUDE.md sharp-edge #6 "never run live" path): all
+  returned real data — keywords 43 rows, rankings 18, GBP 4.8 stars, backlinks,
+  mentions, AI citations, trend. Two fixes from what the run surfaced: (1) `call()`
+  now **retries transient network/TLS failures** (URLError/timeout/OSError) with a
+  short backoff — a single flaky handshake during the multi-poll on-page crawl was
+  zeroing the whole Site Health card; HTTP and JSON errors are not retried. (2) the
+  per-tool cost estimates were far too low (AI $0.005 vs real $0.107, keywords
+  $0.03 vs $0.176) and misled the running total — corrected to observed live costs
+  (full paid run about $0.53). 3 new retry tests; suite green.
+
 - **Measure UI refined + grouped by function (`pipeline/scanner/server.py`,
   `web/app/page.tsx`).** Each tool now carries a `category` (On-page, Technical,
   Content, Trust & E-E-A-T, AEO, Performance, Links, Keywords & Rankings, Local

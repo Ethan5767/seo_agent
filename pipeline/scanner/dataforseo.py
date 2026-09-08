@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -28,10 +29,15 @@ def _auth() -> str | None:
     return "Basic " + base64.b64encode(f"{login}:{pw}".encode()).decode()
 
 
-def call(path: str, payload=None, timeout: int = 60) -> tuple:
+def call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=time.sleep) -> tuple:
     """(json, error). POST to DataForSEO with Basic auth (GET when payload is
     None — e.g. the on-page summary poll). Never raises — a provider that is down
-    or unauthorized is a skip, not a crash."""
+    or unauthorized is a skip, not a crash.
+
+    Transient network/TLS failures (URLError, timeouts, dropped sockets) are
+    retried with a short backoff — a single flaky handshake during the multi-poll
+    on-page crawl was zeroing the whole Site Health card. HTTP errors (auth / bad
+    request) and bad JSON are NOT retried; they won't fix themselves."""
     auth = _auth()
     if not auth:
         return None, "skipped: DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset"
@@ -40,13 +46,20 @@ def call(path: str, payload=None, timeout: int = 60) -> tuple:
         BASE + path, data=data,
         headers={"Content-Type": "application/json", "Authorization": auth},
         method="POST" if data is not None else "GET")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode()), None
-    except urllib.error.HTTPError as exc:
-        return None, f"HTTP {exc.code} from DataForSEO"
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-        return None, f"{type(exc).__name__}: {exc}"
+    last = "no attempt made"
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode()), None
+        except urllib.error.HTTPError as exc:
+            return None, f"HTTP {exc.code} from DataForSEO"
+        except json.JSONDecodeError as exc:
+            return None, f"{type(exc).__name__}: {exc}"
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last = f"{type(exc).__name__}: {exc}"
+            if attempt < retries - 1:
+                sleep(1.5 * (attempt + 1))
+    return None, last
 
 
 def result_items(doc: dict) -> list:

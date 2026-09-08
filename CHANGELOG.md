@@ -32,6 +32,19 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Source-code lane built out (`pipeline/scanner/source_audit.py`).** From ~4
+  checks to ~15, reading the connected GitHub repo read-only (free API) to judge
+  code-level SEO/AEO the live HTML can't reveal — the thing Semrush never sees.
+  `fetch_repo_tree()` lists every path in one `git/trees` call so existence
+  checks (App vs Pages router, robots/sitemap route handlers, `llms.txt`,
+  `middleware`, `next-sitemap`) cost nothing extra; a bounded set of key files is
+  fetched for parsing. `_next_config_rows` reads i18n/hreflang readiness,
+  security+cache `headers()`, `redirects()`, `trailingSlash`, `next/image`.
+  `_metadata_rows` reads the App Router root layout: `metadataBase`, default
+  metadata, Open Graph/Twitter, `next/font`; plus an analytics-dep check.
+  Comments are stripped before matching so a commented-out `// metadataBase`
+  can't fake a pass. 13 new tests; full suite green.
+
 - **`pipeline/seed` — the brand-mention seed engine (`wf-seed`).** The complement
   to `scanner/mentions.py`: `mentions.py` *measures* where a brand is cited;
   `seed` *creates* the missing mentions. Consumes a `gaps.json` from the measure

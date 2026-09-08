@@ -65,6 +65,41 @@ def test_no_next_config_no_config_rows():
     assert "Source: HTTP headers" not in by  # nothing to say without a config
 
 
+def test_metadata_checks():
+    layout = ("export const metadata = { metadataBase: new URL('https://x.com'), "
+              "title: 'Home', description: 'd', openGraph: { title: 'Home' } }\n"
+              "import { Inter } from 'next/font/google'")
+    files = {"package.json": '{"dependencies":{"next":"14","@vercel/analytics":"1"}}',
+             "app/layout.tsx": layout}
+    by = {r["what"]: r for r in analyze_source(files, ["app/layout.tsx", "package.json"])}
+    assert by["Source: metadataBase"]["severity"] == "ok"
+    assert by["Source: default metadata"]["severity"] == "ok"
+    assert by["Source: social tags"]["severity"] == "ok"
+    assert by["Source: fonts"]["severity"] == "ok"
+    assert by["Source: analytics"]["severity"] == "ok"
+
+
+def test_commented_out_config_is_not_a_false_pass():
+    files = {"package.json": '{"dependencies":{"next":"14"}}',
+             "next.config.js": "module.exports = { /* i18n: { locales: [] }, */ } // async headers(){}",
+             "app/layout.tsx": ("// export const metadata = { metadataBase: new URL('https://x') }\n"
+                                "export default function L() { return null }")}
+    by = {r["what"]: r for r in analyze_source(files, ["next.config.js", "app/layout.tsx"])}
+    assert by["Source: HTTP headers"]["severity"] == "warn"   # headers() only in a comment
+    assert "Source: i18n" not in by                            # i18n commented out
+    assert by["Source: metadataBase"]["severity"] == "warn"    # metadataBase commented out
+    assert by["Source: default metadata"]["severity"] == "warn"
+
+
+def test_metadata_missing_warn():
+    files = {"package.json": '{"dependencies":{"next":"14"}}',
+             "app/layout.tsx": "export default function Layout() { return null }"}
+    by = {r["what"]: r for r in analyze_source(files, ["app/layout.tsx"])}
+    assert by["Source: metadataBase"]["severity"] == "warn"
+    assert by["Source: default metadata"]["severity"] == "warn"
+    assert "Source: analytics" not in by  # no analytics dep
+
+
 def test_next_is_ssr_ok():
     files = {"package.json": '{"dependencies":{"next":"14.0.0","react":"18"}}'}
     by = {r["what"]: r for r in analyze_source(files)}

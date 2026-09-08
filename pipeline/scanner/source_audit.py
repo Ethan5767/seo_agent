@@ -11,10 +11,32 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import urllib.request
 
+# Strip // line and /* */ block comments so a commented-out `// metadataBase`
+# or `// images` can't produce a false "pass". Not a full JS parse — good enough
+# to keep the string-match checks honest against disabled config.
+# The (?<!:) guard keeps `https://` in a URL from being mistaken for a comment.
+_COMMENT = re.compile(r"/\*.*?\*/|(?<!:)//[^\n]*", re.DOTALL)
+
+
+def _strip_comments(text: str) -> str:
+    return _COMMENT.sub("", text or "")
+
+
+def _has_file(paths, files: dict, name: str) -> bool:
+    """A file ending in `name` exists in the tree, or was fetched with content."""
+    return any(p.endswith(name) for p in paths) or any(p.endswith(name) and files.get(p) for p in files)
+
+_LAYOUTS = ["app/layout.tsx", "app/layout.jsx", "app/layout.js",
+            "src/app/layout.tsx", "src/app/layout.jsx", "src/app/layout.js"]
+
 _FILES = ["package.json", "next.config.js", "next.config.mjs", "next.config.ts",
-          "public/robots.txt", "public/sitemap.xml", "robots.txt"]
+          "public/robots.txt", "public/sitemap.xml", "robots.txt"] + _LAYOUTS
+
+_ANALYTICS = ("@vercel/analytics", "react-ga", "react-ga4", "@next/third-parties",
+              "gtag", "google-analytics", "posthog-js", "@segment/analytics-next")
 
 
 def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict:
@@ -80,8 +102,7 @@ def analyze_source(files: dict, tree: list | None = None) -> list[dict]:
 
     # robots.txt — a static file, an app/robots route, or a pages route all count.
     robots_route = any(p.split("/")[-1].startswith("robots.") and (p.startswith(("app/", "src/app/"))) for p in paths)
-    has_robots = any("robots.txt" in p and files.get(p) for p in files) \
-        or any(p.endswith("robots.txt") for p in paths) or robots_route
+    has_robots = _has_file(paths, files, "robots.txt") or robots_route
     rows.append(_row("Source: robots.txt", "ok" if has_robots else "warn",
                      "robots.txt is provided (static file or a route handler)." if has_robots
                      else "No robots.txt anywhere in the repo — crawlers get no explicit instructions.",
@@ -91,8 +112,7 @@ def analyze_source(files: dict, tree: list | None = None) -> list[dict]:
     # sitemap.xml — static file, app/sitemap route, or next-sitemap generation.
     sitemap_route = any(p.split("/")[-1].startswith("sitemap.") and p.startswith(("app/", "src/app/")) for p in paths)
     next_sitemap = "next-sitemap" in deps or any("next-sitemap.config" in p for p in paths)
-    has_sitemap = any("sitemap" in p and files.get(p) for p in files) \
-        or any(p.endswith("sitemap.xml") for p in paths) or sitemap_route or next_sitemap
+    has_sitemap = _has_file(paths, files, "sitemap.xml") or sitemap_route or next_sitemap
     rows.append(_row("Source: sitemap.xml", "ok" if has_sitemap else "warn",
                      "A sitemap is provided (static, a route handler, or next-sitemap)." if has_sitemap
                      else "No sitemap in the repo and no generator configured.",
@@ -100,7 +120,7 @@ def analyze_source(files: dict, tree: list | None = None) -> list[dict]:
                      detail="next-sitemap" if next_sitemap and not sitemap_route else ("route" if sitemap_route else "")))
 
     # llms.txt — the AEO signpost for AI answer engines (optional but a plus).
-    has_llms = any(p.endswith("llms.txt") for p in paths) or any("llms.txt" in p and files.get(p) for p in files)
+    has_llms = _has_file(paths, files, "llms.txt")
     rows.append(_row("Source: llms.txt", "ok" if has_llms else "info",
                      "llms.txt is present — a curated signpost for AI answer engines." if has_llms
                      else "No llms.txt — an emerging (optional) way to guide AI engines to your key pages.",
@@ -116,11 +136,48 @@ def analyze_source(files: dict, tree: list | None = None) -> list[dict]:
     cfg = next((files[p] for p in ("next.config.js", "next.config.mjs", "next.config.ts") if files.get(p)), None)
     if cfg:
         rows.extend(_next_config_rows(cfg))
+
+    # Root-layout metadata (App Router) — the code-level SEO/OG setup.
+    layout = next((files[p] for p in _LAYOUTS if files.get(p)), None)
+    if layout:
+        rows.extend(_metadata_rows(layout))
+
+    # Analytics — measurement is wired in (from deps).
+    if any(a in deps for a in _ANALYTICS):
+        rows.append(_row("Source: analytics", "ok",
+                         "Analytics is wired in — you can measure what the SEO work moves.",
+                         "keep it"))
+    return rows
+
+
+def _metadata_rows(layout: str) -> list[dict]:
+    """SEO/OG signals from the App Router root layout (string match)."""
+    layout = _strip_comments(layout)
+    rows: list[dict] = []
+    has_base = "metadataBase" in layout
+    rows.append(_row("Source: metadataBase", "ok" if has_base else "warn",
+                     "metadataBase is set — canonical and Open Graph URLs resolve to absolute." if has_base
+                     else "No metadataBase in the root layout — OG/canonical URLs can end up relative and ignored.",
+                     "keep it" if has_base else "set metadataBase: new URL(siteUrl) in the root layout"))
+    has_meta = "export const metadata" in layout or "generateMetadata" in layout
+    rows.append(_row("Source: default metadata", "ok" if has_meta else "warn",
+                     "A default metadata export sets title/description site-wide." if has_meta
+                     else "No metadata export in the root layout — pages inherit no default title/description.",
+                     "keep it" if has_meta else "export const metadata with a default title + description template"))
+    if "openGraph" in layout or "twitter" in layout:
+        rows.append(_row("Source: social tags", "ok",
+                         "Open Graph / Twitter card metadata is defined — rich link previews.",
+                         "keep it"))
+    if "next/font" in layout:
+        rows.append(_row("Source: fonts", "ok",
+                         "next/font — self-hosted, layout-shift-free fonts (helps CLS + speed).",
+                         "keep it"))
     return rows
 
 
 def _next_config_rows(cfg: str) -> list[dict]:
     """SEO-relevant signals from next.config (string match, tolerant of format)."""
+    cfg = _strip_comments(cfg)
     rows: list[dict] = []
     if "i18n" in cfg:
         rows.append(_row("Source: i18n", "ok",

@@ -130,7 +130,9 @@ TOOLS = [
     Tool("Web mentions (DataForSEO)", "mentions", "Reputation", "dataforseo", "~$0.03", 0.03, None,
          lambda c: mentions.brand_mentions(c.brand)),
     Tool("Source code", "source", "Source code", "source", "free (needs repo)", 0.0, "repo",
-         lambda c: (source_audit.analyze_source(source_audit.fetch_repo_files(c.repo, c.github_token)), None, 0.0)),
+         lambda c: (source_audit.analyze_source(
+             source_audit.fetch_repo_files(c.repo, c.github_token),
+             source_audit.fetch_repo_tree(c.repo, c.github_token)), None, 0.0)),
 ]
 
 

@@ -114,7 +114,38 @@ def aeo_rows(robots_text: str | None, html: str) -> list[dict]:
     # 3. Answer-first structure (the genuine gap DataForSEO has no tool for):
     # can an AI engine lift a clean Q&A/answer from the page?
     rows.append(_answer_structure_row(html))
+    # 4. GEO signals — concrete data/quotes/tables are the evidence-based levers
+    # that measurably raise AI-citation odds (specific facts beat vague claims).
+    rows.extend(_geo_rows(html))
     return rows
+
+
+_STAT_RE = re.compile(r"\d+(?:\.\d+)?\s?%|\$\s?\d[\d,]*|\b\d{4}\b|\b\d[\d,]{3,}\b")
+_CITE_RE = re.compile(r"<blockquote|<cite\b|according to|\bstudy\b|\bresearch\b|\bsurvey\b|source:", re.IGNORECASE)
+
+
+def _geo_rows(html: str) -> list[dict]:
+    """Answer-engine readiness: pages rich in concrete data, cited sources and
+    structured tables get cited by AI engines far more than vague prose."""
+    h = html or ""
+    text = re.sub(r"<[^>]+>", " ", h)
+    stats = len(_STAT_RE.findall(text))
+    has_cite = _CITE_RE.search(h) is not None
+    has_table = "<table" in h.lower() and "<td" in h.lower()
+    return [
+        {"code": "aeo.statistics", "what": "Statistics and data",
+         "why": "Concrete figures (counts, %, years, prices) are the single biggest lever for being cited by AI answer engines — they favour specific data over vague claims.",
+         "fix": "add real numbers to key statements (e.g. \"served 12,450 patients in 2023\")",
+         "severity": "ok" if stats >= 3 else "warn", "detail": f"{stats} data point(s)"},
+        {"code": "aeo.citations", "what": "Quotes and citations",
+         "why": "Quoted experts, cited studies and \"according to\" phrasing raise trust and AI-citation odds.",
+         "fix": "quote experts/studies and cite the source for key claims",
+         "severity": "ok" if has_cite else "info", "detail": ""},
+        {"code": "aeo.data_tables", "what": "Data tables",
+         "why": "Semantic tables let AI engines lift facts (specs, prices, comparisons) cleanly.",
+         "fix": "put comparable facts in a <table> instead of prose",
+         "severity": "ok" if has_table else "info", "detail": ""},
+    ]
 
 
 _INTERROGATIVE_H = re.compile(r"<h[23][^>]*>[^<]*\?\s*</h[23]>", re.IGNORECASE)

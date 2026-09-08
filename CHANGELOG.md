@@ -8,6 +8,14 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **AEO strengthened 3 → 6 checks with GEO signals (`pipeline/scanner/audit.py`).**
+  Added the evidence-based AI-citation levers (not the dead hype): **Statistics
+  and data** (concrete figures — the single biggest citation lever; warns under 3
+  data points), **Quotes and citations** (blockquote/cite/"according to"/study),
+  **Data tables** (semantic `<table>` for extractable facts). Deliberately did NOT
+  add llms.txt/FAQ-schema (flagged as dead). Our differentiator — DataForSEO has
+  no tool for answer-engine readiness. 2 tests.
+
 - **Free multi-page crawl (`pipeline/scanner/multipage.py`, `build_report`,
   `web/app/page.tsx`).** The free lane can now audit multiple pages, not just the
   one URL: `discover_pages` picks homepage + same-origin sitemap/nav URLs (capped,

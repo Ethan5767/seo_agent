@@ -96,3 +96,22 @@ def test_answer_structure_passes_with_faq_schema():
     rows = aeo_rows("User-agent: *\nAllow: /\n", html)
     by = {r["what"]: r for r in rows}
     assert by["Answer-first structure"]["severity"] == "ok"
+
+
+# ── GEO / answer-readiness: the evidence-based AI-citation levers ─────────────
+def test_aeo_geo_signals_present():
+    rich = ('<html><body>We served 12,450 patients in 2023, a 38% increase. '
+            '<blockquote>According to the WHO study, ...</blockquote>'
+            '<table><tr><td>2023</td><td>45%</td></tr></table></body></html>')
+    by = {r["what"]: r for r in aeo_rows("User-agent: *\nAllow: /\n", rich)}
+    assert by["Statistics and data"]["severity"] == "ok"
+    assert by["Quotes and citations"]["severity"] == "ok"
+    assert by["Data tables"]["severity"] == "ok"
+
+
+def test_aeo_geo_signals_absent():
+    plain = "<html><body><p>We are a great hospital with good care and friendly staff.</p></body></html>"
+    by = {r["what"]: r for r in aeo_rows("User-agent: *\nAllow: /\n", plain)}
+    assert by["Statistics and data"]["severity"] == "warn"   # no concrete figures
+    assert by["Quotes and citations"]["severity"] == "info"
+    assert by["Data tables"]["severity"] == "info"

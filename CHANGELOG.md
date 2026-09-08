@@ -8,6 +8,16 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Per-finding provenance + stage docs (transparency).** Every finding row in the
+  UI now shows **where it came from** — `source: DataForSEO / Google Lighthouse /
+  Your source code / Google CrUX / Live page analysis · <code>` — decoded from the
+  finding's `code` prefix, so a result is never a black box (`web/app/page.tsx`,
+  `sourceOf`). New `docs/SCANNER-STAGES.md` documents Onboard → Measure (all 4
+  phases, every tool + its exact data source + that a URL scan fetches only the
+  one page) → Plan, plus the code-prefix source legend.
+
+### Added
+
 - **Plan stage — the ratchet (`pipeline/scanner/plan.py`, `POST /plan`,
   `web/app/page.tsx`).** Turns a client's stored `findings` into a prioritised
   worklist by comparing the two most recent scans, matched on each finding's

@@ -43,6 +43,18 @@ function sevCounts(rows: Row[]) {
   return c;
 }
 
+// Where a finding came from — decoded from its code prefix. Shown on every row
+// so a result is never a black box (proof it was measured, not invented).
+function sourceOf(code: string): string {
+  const c = code || "";
+  if (c.startsWith("dfs.") || c.startsWith("health.")) return "DataForSEO — live data";
+  if (c.startsWith("lh.")) return "Google Lighthouse";
+  if (c.startsWith("src.")) return "Your source code (repo)";
+  if (c.startsWith("crux") || c.includes("perf")) return "Google CrUX — real users";
+  if (c.startsWith("video")) return "Page HTML + YouTube API";
+  return "Live page analysis";
+}
+
 function Rows({ list }: { list?: Row[] }) {
   return (
     <>
@@ -63,6 +75,9 @@ function Rows({ list }: { list?: Row[] }) {
                   <span style={{ color: s.fg, fontWeight: 600 }}>Fix:</span> <span style={{ color: T.ink }}>{r.fix}</span>
                 </div>
               )}
+              <div style={{ fontSize: 11, color: T.faint, marginTop: 3 }}>
+                source: {sourceOf(r.code)}{r.code ? <> · <code style={{ fontFamily: "monospace" }}>{r.code}</code></> : null}
+              </div>
             </div>
           </div>
         );

@@ -59,8 +59,10 @@ function Scanner() {
   }
   const [goal, setGoal] = useState("");
   // Measure options
-  const [crawl, setCrawl] = useState(false);
-  const [deep, setDeep] = useState(false);
+  // DataForSEO tools are core Measure tools — run by default. Uncheck to skip
+  // the paid calls and run only the free always-on cards.
+  const [crawl, setCrawl] = useState(true);
+  const [deep, setDeep] = useState(true);
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<string[]>([]);
   const [tools, setTools] = useState<Tool[]>([]);

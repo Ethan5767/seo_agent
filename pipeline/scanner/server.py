@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -77,36 +78,69 @@ def _perf_tool(c) -> tuple:
 # Adding a tool = append one row here — the orchestrator loop never changes.
 # `run(ctx) -> (rows, status|None, cost)`. Free tools cost 0.0; DataForSEO tools
 # return the exact cost from their response.
+# One catalog row per Measure tool. `group` drives the UI grouping (free /
+# dataforseo / source), `cost`/`cost_num` power the per-tool label + running
+# total, `needs` is a precondition ("repo" = needs a GitHub repo+token), and
+# `run(ctx) -> (rows, status, cost)` is the tool itself. Add a tool = one row;
+# it shows up in /tools and the checklist automatically.
+Tool = namedtuple("Tool", "label key group cost cost_num needs run")
+
 TOOLS = [
-    ("On-page SEO", "seo", None, lambda c: (A.seo_rows(c.url, c.html, c.status, {}), None, 0.0)),
-    ("AI visibility (AEO)", "aeo", None, lambda c: (A.aeo_rows(c.robots, c.html), None, 0.0)),
-    ("Performance (speed)", "perf", None, _perf_tool),
-    ("Technical", "tech", None, lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
-    ("On-page (deep)", "onpage", None, lambda c: (onpage_deep_rows(c.url, c.html, c.status), None, 0.0)),
-    ("Trust (E-E-A-T)", "eeat", None, lambda c: (eeat_rows(c.html), None, 0.0)),
-    ("Schema validation", "schema", None, lambda c: (schema_rows(c.html), None, 0.0)),
-    ("Sitemap & hreflang", "validate", None, lambda c: (validate_rows(c.html, c.sitemap), None, 0.0)),
-    ("Content / info-gain", "content", None, lambda c: (content_rows(c.html), None, 0.0)),
-    ("Video", "video", None, lambda c: (video_rows(c.html), None, 0.0)),
-    ("Internal links", "internal", None, lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
-    ("Source code", "source", "source",
-     lambda c: (source_audit.analyze_source(source_audit.fetch_repo_files(c.repo, c.github_token)), None, 0.0)),
-    ("Site Health (DataForSEO)", "site", "crawl", lambda c: onpage_audit.site_audit_full(c.domain, c.max_pages)),
-    ("Rankings (DataForSEO)", "rankings", "deep", lambda c: dataforseo.rankings(c.domain, c.keywords)),
-    ("Keywords (DataForSEO)", "keywords", "deep", lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
-    ("AI citations (DataForSEO)", "ai", "deep", lambda c: dataforseo.llm_mentions(c.brand, c.domain)),
-    ("Backlinks (DataForSEO)", "backlinks", "deep", lambda c: dataforseo.backlinks(c.domain)),
-    ("Local / GBP (DataForSEO)", "gbp", "deep", lambda c: business_data.gbp_local(c.brand)),
-    ("Web mentions (DataForSEO)", "mentions", "deep", lambda c: mentions.brand_mentions(c.brand)),
-    ("Rankings trend (DataForSEO)", "rank_trend", "deep", lambda c: dataforseo.historical_rank(c.domain)),
+    Tool("On-page SEO", "seo", "free", "free", 0.0, None,
+         lambda c: (A.seo_rows(c.url, c.html, c.status, {}), None, 0.0)),
+    Tool("AI visibility (AEO)", "aeo", "free", "free", 0.0, None,
+         lambda c: (A.aeo_rows(c.robots, c.html), None, 0.0)),
+    Tool("Performance (speed)", "perf", "free", "free", 0.0, None, _perf_tool),
+    Tool("Technical", "tech", "free", "free", 0.0, None,
+         lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
+    Tool("On-page (deep)", "onpage", "free", "free", 0.0, None,
+         lambda c: (onpage_deep_rows(c.url, c.html, c.status), None, 0.0)),
+    Tool("Trust (E-E-A-T)", "eeat", "free", "free", 0.0, None,
+         lambda c: (eeat_rows(c.html), None, 0.0)),
+    Tool("Schema validation", "schema", "free", "free", 0.0, None,
+         lambda c: (schema_rows(c.html), None, 0.0)),
+    Tool("Sitemap & hreflang", "validate", "free", "free", 0.0, None,
+         lambda c: (validate_rows(c.html, c.sitemap), None, 0.0)),
+    Tool("Content / info-gain", "content", "free", "free", 0.0, None,
+         lambda c: (content_rows(c.html), None, 0.0)),
+    Tool("Video", "video", "free", "free", 0.0, None,
+         lambda c: (video_rows(c.html), None, 0.0)),
+    Tool("Internal links", "internal", "free", "free", 0.0, None,
+         lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
+    Tool("Source code", "source", "source", "free (needs repo)", 0.0, "repo",
+         lambda c: (source_audit.analyze_source(source_audit.fetch_repo_files(c.repo, c.github_token)), None, 0.0)),
+    Tool("Site Health (DataForSEO)", "site", "dataforseo", "~$0.006 (25 pages)", 0.006, None,
+         lambda c: onpage_audit.site_audit_full(c.domain, c.max_pages)),
+    Tool("Rankings (DataForSEO)", "rankings", "dataforseo", "~$0.02", 0.02, None,
+         lambda c: dataforseo.rankings(c.domain, c.keywords)),
+    Tool("Keywords (DataForSEO)", "keywords", "dataforseo", "~$0.03", 0.03, None,
+         lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
+    Tool("AI citations (DataForSEO)", "ai", "dataforseo", "~$0.005", 0.005, None,
+         lambda c: dataforseo.llm_mentions(c.brand, c.domain)),
+    Tool("Backlinks (DataForSEO)", "backlinks", "dataforseo", "~$0.02", 0.02, None,
+         lambda c: dataforseo.backlinks(c.domain)),
+    Tool("Local / GBP (DataForSEO)", "gbp", "dataforseo", "~$0.002", 0.002, None,
+         lambda c: business_data.gbp_local(c.brand)),
+    Tool("Web mentions (DataForSEO)", "mentions", "dataforseo", "~$0.003", 0.003, None,
+         lambda c: mentions.brand_mentions(c.brand)),
+    Tool("Rankings trend (DataForSEO)", "rank_trend", "dataforseo", "~$0.01", 0.01, None,
+         lambda c: dataforseo.historical_rank(c.domain)),
 ]
 
 
+def tool_catalog() -> list[dict]:
+    """The tool list the frontend renders — single source of truth for the UI."""
+    return [{"key": t.key, "label": t.label, "group": t.group,
+             "cost": t.cost, "cost_num": t.cost_num} for t in TOOLS]
+
+
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
-                 crawl=False, max_pages=25, deep=False, keywords=None,
+                 max_pages=25, keywords=None, selected=None,
                  competitors=None, business="", on_tool=None,
                  repo="", github_token="") -> dict:
-    """Compose the audit by running each tool in TOOLS whose gate is on.
+    """Compose the audit by running each selected tool in TOOLS.
+    `selected`: a set of tool keys to run, or None = run all. A tool with
+    `needs="repo"` is skipped when no repo/token is supplied.
     `fetch(url)->(html,status,robots[,sitemap])`. `crux`: None | (metrics,status)
     | 'auto'. `log` collects a human trace; `on_tool(name,state,rows,status,cost)`
     fires per tool (running → done) so the UI shows a card per tool.
@@ -126,25 +160,25 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         crux=crux, max_pages=max_pages, keywords=keywords or [], competitors=competitors or [],
         brand=business or (urlsplit(url).netloc or url),
         repo=repo, github_token=github_token)
-    # Two input lanes: the URL lane (always, when the page loaded) + the source
-    # lane (when a GitHub repo + read token are supplied). Both run when both given.
-    opts = {"crawl": crawl, "deep": deep,
-            "source": bool(repo and github_token and "/" in repo)}
+    # The source lane runs only when a GitHub repo + read token are supplied.
+    source_ok = bool(repo and github_token and "/" in repo)
 
     groups: dict[str, list] = {}
     cost = 0.0
-    for name, key, gate, run in TOOLS:
-        if gate and not opts.get(gate):
+    for t in TOOLS:
+        if selected is not None and t.key not in selected:
+            continue
+        if t.needs == "repo" and not source_ok:
             continue
         if on_tool:
-            on_tool(name, "running", [], "", 0.0)
-        rows, tool_status, tool_cost = run(ctx)
+            on_tool(t.label, "running", [], "", 0.0)
+        rows, tool_status, tool_cost = t.run(ctx)
         cost += tool_cost
-        groups[key] = rows
+        groups[t.key] = rows
         line = tool_status or _status_line(rows)
-        log.append(f"{name} — {line}")
+        log.append(f"{t.label} — {line}")
         if on_tool:
-            on_tool(name, "done", rows, line, tool_cost)
+            on_tool(t.label, "done", rows, line, tool_cost)
 
     all_rows = [r for rows in groups.values() for r in rows]
     log.append(f"Checked {len(all_rows)} things — {_status_line(all_rows)}. "
@@ -201,6 +235,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path == "/tools":
+            return self._send(200, json.dumps({"tools": tool_catalog()}))
         path = "index.html" if self.path in ("/", "") else self.path.lstrip("/")
         if path.startswith("static/"):
             path = path[len("static/"):]
@@ -231,7 +267,9 @@ class Handler(BaseHTTPRequestHandler):
             "competitors": _list(req.get("competitors")),
             "goal": (req.get("goal") or "").strip(),
         }
-        crawl = bool(req.get("crawl"))
+        # Selected tool keys — a list from the checklist, or absent → run all.
+        _tools = req.get("tools")
+        selected = set(_tools) if isinstance(_tools, list) else None
         try:
             max_pages = max(1, min(int(req.get("max_pages") or 25), 100))
         except (TypeError, ValueError):
@@ -252,15 +290,15 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
-        print(f"\n[scan] url={url!r} model={model} crawl={crawl} repo={repo or '-'}", flush=True)
+        print(f"\n[scan] url={url!r} model={model} tools={len(selected) if selected else 'all'} repo={repo or '-'}", flush=True)
         log = Progress(cb=lambda ln: (emit({"log": ln}), print(f"   {ln}", flush=True)))
 
         def on_tool(name, state, rows, status, cost):
             emit({"tool": name, "state": state, "rows": rows, "status": status, "cost": cost})
 
         try:
-            out = {"audit": build_report(url, log=log, crawl=crawl,
-                                         max_pages=max_pages, deep=bool(req.get("deep")),
+            out = {"audit": build_report(url, log=log, selected=selected,
+                                         max_pages=max_pages,
                                          on_tool=on_tool, keywords=profile["keywords"],
                                          competitors=profile["competitors"], business=profile["business"],
                                          repo=repo, github_token=(req.get("github_token") or ""))}

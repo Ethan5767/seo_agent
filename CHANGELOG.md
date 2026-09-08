@@ -6,6 +6,25 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed
+
+- **Deduped on-page checks against DataForSEO (DataForSEO-first rule).**
+  `pipeline/scanner/onpage_audit.py`: `CHECKS` had 3 duplicate dict keys —
+  `no_image_title` (defined twice, second silently shadowed the first),
+  `frame` (twice), and `meta_refresh_redirect`/`has_meta_refresh_redirect`
+  (two keys → same "Meta refresh redirect" label, so it emitted twice). Removed
+  the redundant entries; `has_meta_refresh_redirect` was never a real DataForSEO
+  flag so no detection lost. 55 → **54** unique on-page flags.
+  `pipeline/scanner/onpage.py`: `onpage_deep_rows` re-implemented 10 checks
+  DataForSEO's on-page crawl already covers (Charset, Doctype, Mixed content =
+  `https_to_http_links`, Render-blocking scripts, Deprecated HTML, Subheadings
+  H2, Meta refresh, Placeholder text, Flash, Legacy meta keywords). Removed them;
+  the card now carries only the ~18 gaps DataForSEO can't see on a single fetched
+  page (multiple title/desc/canonical tags, target=_blank safety, image
+  dimensions/CLS, DOM weight, link volume, hreflang, semantic `<main>`, URL
+  hygiene, heading order, iframe/inline-style weight, empty links,
+  apple-touch-icon). Tests updated; full suite 859 passed.
+
 ### Added
 
 - **Scanner Measure rebuilt on DataForSEO (`pipeline/scanner/dataforseo.py`).**

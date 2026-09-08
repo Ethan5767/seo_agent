@@ -55,7 +55,7 @@ Mirrors `pipeline/audit/providers.py` conventions exactly:
 | File | Responsibility | Purity |
 |------|----------------|--------|
 | `pipeline/seed/gaps.py` | Parse `gaps.json` → `list[Gap]`. Validate required fields, drop+log malformed. | Pure |
-| `pipeline/seed/generate.py` | `Gap` → `Draft` (title, body, brand mention, target link). Uses Claude API. `build_prompt(gap)` is pure; the API call is the only side effect. | Pure prompt build |
+| `pipeline/seed/generate.py` | `Gap` → `Draft` (title, body, brand mention, target link). Generation via **`claude` CLI headless** (`claude -p <prompt> --output-format json`) on the user's Claude subscription — no API key, no per-token cost. `build_prompt(gap)` is pure; parsing `.result` is pure; the subprocess call is the only side effect. | Pure prompt build + parse |
 | `pipeline/seed/posters.py` | One fn per green platform: `post_medium`, `post_devto`, `post_hashnode`, `post_tumblr`, `post_blogger`. Each: read env creds → loud skip if absent → build request → POST → return `PostResult`. `build_*_payload(draft)` pure. | Pure payload build |
 | `pipeline/seed/tiers.py` | Tier map + `tier_of(platform)`. Plain data. | Pure |
 | `pipeline/seed/run.py` | Orchestrate: parse → generate → dispatch by tier → write `seed-log.json` + yellow `drafts/`. `--dry-run` default. | Side effects |
@@ -94,7 +94,7 @@ gaps.json
    │ gaps.parse()            (pure, drops+logs malformed)
    ▼
 list[Gap]
-   │ generate.draft()        (build_prompt pure; Claude call)
+   │ generate.draft()        (build_prompt pure; claude CLI subprocess)
    ▼
 list[Draft]
    │ run.dispatch()  ── tier_of(platform)
@@ -110,7 +110,8 @@ seed-log.json   { run_ts, results: [PostResult...], counts }
 - Malformed gap (missing field) → dropped, logged to `seed-log.json.dropped`,
   run continues.
 - Missing platform creds → `PostResult(status="skipped", detail="no DEVTO_API_KEY")`.
-- LLM failure for a gap → skip that gap, log, continue (one bad draft ≠ dead run).
+- `claude` CLI failure/non-zero exit for a gap → skip that gap, log, continue
+  (one bad draft ≠ dead run).
 - Platform API non-2xx → `PostResult(status="skipped", detail="devto 422: <msg>")`.
   Never silently drop.
 - `--dry-run` (default): generate + write drafts/log, **no live POST**. Live
@@ -126,8 +127,11 @@ seed-log.json   { run_ts, results: [PostResult...], counts }
 
 ## Environment (new)
 
+Draft generation uses the `claude` CLI on the user's subscription — **no API key
+required**. Platform tokens are only needed once real green posters replace the
+stub (post-MVP), and each is optional (absence → loud skip).
+
 ```
-ANTHROPIC_API_KEY     Claude API (draft generation)
 DEVTO_API_KEY         Dev.to
 MEDIUM_TOKEN          Medium integration token
 HASHNODE_TOKEN        Hashnode PAT
@@ -138,8 +142,8 @@ Each optional; absence → loud skip for that platform only.
 
 ## MVP (v1) — core engine, no external platform accounts
 
-Build the pipeline end-to-end with a **stub poster**, so the only external
-dependency is `ANTHROPIC_API_KEY`:
+Build the pipeline end-to-end with a **stub poster**. Generation runs on the
+`claude` CLI subscription, so the MVP needs **no paid credentials at all**:
 
 ```
 gaps.json → generate (Claude) → dispatch by tier → seed-log.json
@@ -149,7 +153,7 @@ gaps.json → generate (Claude) → dispatch by tier → seed-log.json
 ```
 
 This proves gaps parsing, draft generation, tiering, dispatch, and logging with
-zero platform signup. Real green posters (Dev.to first — free API key, cleanest)
+zero platform signup and zero API cost. Real green posters (Dev.to first — free API key, cleanest)
 are added afterward as identical-shape fns that replace the stub one platform at
 a time. Free platform APIs only (Dev.to / Hashnode / Tumblr / Blogger); paid or
 locked APIs (Medium) deferred/swapped.

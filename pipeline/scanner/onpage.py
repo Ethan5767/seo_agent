@@ -1,10 +1,15 @@
-"""Deep on-page checks — Semrush-style technical audit on the fetched HTML.
+"""Deep on-page checks — the gaps DataForSEO's on-page crawl does NOT cover.
 
-Everything here is free, synchronous, and pure (HTML in, rows out), so it runs
-on the one page we already fetched with no extra request. These are the checks
-NOT already covered by seo_rows / tech_rows — charset, doctype, mixed content,
-link safety, render-blocking, CLS-risk images, DOM weight, hreflang, etc. —
-adding Semrush-audit breadth without another vendor.
+DataForSEO's on-page audit (Site Health card) is the source of truth for
+everything it crawls: charset, doctype, render-blocking, deprecated tags, H2s,
+meta-refresh, placeholder/lorem, flash, mixed-content (https->http), meta
+keywords. Per the DataForSEO-first rule we do NOT re-implement those.
+
+What stays here is only what DataForSEO's crawl can't see on the one page we
+already fetched: multiple title/description/canonical tags, target=_blank
+safety, CLS-risk image dimensions, DOM weight, link volume, hreflang, semantic
+<main>, URL hygiene, heading order, iframe/inline-style weight, empty links,
+apple-touch-icon. Free, synchronous, pure (HTML in, rows out).
 """
 from __future__ import annotations
 
@@ -23,36 +28,16 @@ def _ok(what, why):
 def onpage_deep_rows(url: str, html: str, status: int) -> list[dict]:
     h = html or ""
     low = h.lower()
-    https = url.lower().startswith("https://")
     rows: list[dict] = []
 
-    # Charset
-    rows.append(_ok("Charset", "A <meta charset> is declared.") if re.search(r"<meta[^>]*charset", low)
-                else _row("Charset", "warn", "No <meta charset> — browsers may mis-render special characters.",
-                          'Add <meta charset="utf-8"> as the first <head> tag.'))
-
-    # Doctype
-    rows.append(_ok("Doctype", "A <!DOCTYPE html> is present (standards mode).") if low.lstrip().startswith("<!doctype")
-                else _row("Doctype", "warn", "Missing <!DOCTYPE html> — can trigger quirks-mode rendering.",
-                          "Add <!DOCTYPE html> at the very top."))
-
-    # Single <title> / single meta description
+    # Single <title> / single meta description (multiple on ONE page — DataForSEO
+    # only flags duplicates ACROSS pages, not two tags on the same page).
     if len(re.findall(r"<title[\s>]", low)) > 1:
         rows.append(_row("Single title", "warn", "More than one <title> tag — search engines pick one unpredictably.",
                          "Keep exactly one <title>."))
     if len(re.findall(r'<meta[^>]*name=["\']description["\']', low)) > 1:
         rows.append(_row("Single meta description", "warn", "Multiple meta description tags — conflicting snippets.",
                          "Keep exactly one meta description."))
-
-    # Mixed content (http resources on an https page)
-    if https:
-        mixed = re.findall(r'(?:src|href)=["\']http://[^"\']+', low)
-        if mixed:
-            rows.append(_row("Mixed content", "error",
-                             f"{len(mixed)} resource(s) loaded over http:// on an https page — browsers block/flag them.",
-                             "Serve every asset over https.", detail=f"{len(mixed)} http asset(s)"))
-        else:
-            rows.append(_ok("Mixed content", "All resources load over https."))
 
     # target=_blank without rel=noopener (security + tab-nabbing)
     blanks = re.findall(r"<a\b[^>]*target=[\"']_blank[\"'][^>]*>", low)
@@ -61,17 +46,6 @@ def onpage_deep_rows(url: str, html: str, status: int) -> list[dict]:
         rows.append(_row("External link safety", "warn",
                          f"{len(unsafe)} target=_blank link(s) without rel=noopener — a security/perf risk.",
                          'Add rel="noopener" to target=_blank links.', detail=f"{len(unsafe)}"))
-
-    # Render-blocking scripts in <head> (no async/defer)
-    head = re.search(r"<head[^>]*>(.*?)</head>", h, re.DOTALL | re.IGNORECASE)
-    if head:
-        head_scripts = re.findall(r"<script\b[^>]*\bsrc=[^>]*>", head.group(1), re.IGNORECASE)
-        blocking = [s for s in head_scripts if "async" not in s.lower() and "defer" not in s.lower()]
-        if blocking:
-            rows.append(_row("Render-blocking scripts", "warn",
-                             f"{len(blocking)} script(s) in <head> without async/defer — they delay first paint.",
-                             "Add async or defer, or move scripts to the end of <body>.",
-                             detail=f"{len(blocking)}"))
 
     # Images without width/height (layout shift / CLS)
     imgs = re.findall(r"<img\b[^>]*>", low)
@@ -84,13 +58,6 @@ def onpage_deep_rows(url: str, html: str, status: int) -> list[dict]:
                              detail=f"{len(no_dims)} of {len(imgs)}"))
         else:
             rows.append(_ok("Image dimensions", "All images declare width/height (no layout shift)."))
-
-    # Deprecated tags
-    dep = [t for t in ("center", "font", "marquee", "blink") if re.search(rf"<{t}\b", low)]
-    if dep:
-        rows.append(_row("Deprecated HTML", "warn",
-                         f"Deprecated tag(s): {', '.join(dep)} — obsolete and bad for accessibility.",
-                         "Replace with CSS/semantic HTML.", detail=", ".join(dep)))
 
     # DOM weight
     elements = len(re.findall(r"<[a-zA-Z]", h))
@@ -134,26 +101,14 @@ def onpage_deep_rows(url: str, html: str, status: int) -> list[dict]:
                          "use a clean path where possible"))
 
     # ── Headings ─────────────────────────────────────────────────────────────
-    if not re.search(r"<h2\b", low):
-        rows.append(_row("Subheadings (H2)", "warn", "No H2 subheadings — weaker structure and skimmability.",
-                         "break content with descriptive H2s"))
     if re.search(r"<h1", low) and re.search(r"<h3", low) and not re.search(r"<h2", low):
         rows.append(_row("Heading order", "warn", "Heading levels skip (H1 → H3 with no H2) — confuses structure/readers.",
                          "don't skip heading levels"))
 
-    # ── Misc technical ───────────────────────────────────────────────────────
-    if re.search(r'http-equiv=["\']?refresh', low):
-        rows.append(_row("Meta refresh", "warn", "A <meta refresh> redirect — bad for SEO and accessibility.",
-                         "use a server-side 301 redirect instead"))
+    # ── Misc technical (single-page only — DataForSEO owns site-wide) ─────────
     if len(re.findall(r'rel=["\']canonical', low)) > 1:
         rows.append(_row("Single canonical", "warn", "Multiple canonical tags — conflicting signals to Google.",
                          "keep exactly one canonical"))
-    if "lorem ipsum" in low:
-        rows.append(_row("Placeholder text", "error", "'lorem ipsum' placeholder text is live on the page.",
-                         "replace it with real content"))
-    if re.search(r"\.swf\b|application/x-shockwave", low):
-        rows.append(_row("Flash", "warn", "Flash content — obsolete and unsupported by browsers.",
-                         "replace with HTML5"))
     iframes = len(re.findall(r"<iframe\b", low))
     if iframes > 3:
         rows.append(_row("Iframe count", "warn", f"{iframes} iframes — heavy and often slow/insecure.",
@@ -166,9 +121,6 @@ def onpage_deep_rows(url: str, html: str, status: int) -> list[dict]:
     if empties:
         rows.append(_row("Empty links", "warn", f"{empties} empty / '#' link(s) — dead anchors waste crawl + confuse users.",
                          "give links a real destination", detail=f"{empties}"))
-    if re.search(r'name=["\']keywords["\']', low):
-        rows.append(_row("Legacy meta keywords", "info", "A <meta keywords> tag is present — ignored by Google since 2009 (harmless).",
-                         "safe to remove"))
     if not re.search(r'rel=["\'][^"\']*apple-touch-icon', low):
         rows.append(_row("Apple touch icon", "info", "No apple-touch-icon — the home-screen icon on iOS falls back to a screenshot.",
                          "add <link rel=apple-touch-icon>"))

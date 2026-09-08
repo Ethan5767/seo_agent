@@ -1,11 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
 import { AuthGate } from "./auth";
-import { saveClient, saveScan } from "../lib/db";
+import { saveClient, saveScan, lastTwoScansFindings } from "../lib/db";
 import { listRepos } from "../lib/github";
 import { supabase } from "../lib/supabase";
 
-type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
+type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string };
 type Audit = {
   seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; rankings: Row[]; keywords: Row[]; ai: Row[]; source: Row[];
   score: number; counts: Record<string, number>; cost?: number;
@@ -16,6 +16,9 @@ type Cycle =
 type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string; log?: string[] };
 type Tool = { name: string; state: string; rows: Row[]; status: string; cost: number };
 type CatalogTool = { key: string; label: string; category: string; group: string; cost: string; cost_num: number };
+type PlanItem = Row & { status: string; priority: number };
+type PlanResult = { worklist: PlanItem[]; resolved: Row[]; counts: Record<string, number> };
+const STATUS_COLOR: Record<string, string> = { NEW: "#b00", REGRESSION: "#7a1fa2", PERSISTING: "#a86710" };
 
 // ── Design tokens (product register: restrained, one accent, semantic states) ─
 const T = {
@@ -111,6 +114,25 @@ function Scanner() {
   const [phaseLine, setPhaseLine] = useState("");
   const [tools, setTools] = useState<Tool[]>([]);
   const [data, setData] = useState<ScanResult | null>(null);
+  const [plan, setPlan] = useState<PlanResult | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+
+  async function runPlan() {
+    if (!clientId) return;
+    setPlanBusy(true); setPlan(null);
+    try {
+      const { current, previous } = await lastTwoScansFindings(clientId);
+      const res = await fetch("/api/plan", {
+        method: "POST",
+        body: JSON.stringify({ current, previous }),
+      });
+      setPlan(await res.json());
+    } catch (e) {
+      console.error("runPlan", e);
+    } finally {
+      setPlanBusy(false);
+    }
+  }
 
   function toggleTool(key: string) {
     setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
@@ -384,6 +406,44 @@ function Scanner() {
           </section>
         );
       })}
+
+      {/* ── Plan stage — ratchet the stored findings into a worklist ──────── */}
+      {(tools.length > 0 || plan) && !busy && (
+        <div style={{ margin: "1.5rem 0", padding: "1rem", border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <b style={{ color: T.ink }}>Plan — what to fix first</b>
+            <button onClick={runPlan} disabled={planBusy || !clientId}
+              style={{ padding: ".5rem 1.1rem", background: planBusy || !clientId ? "#b7bdc4" : T.accent, color: "#fff", border: 0, borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: planBusy || !clientId ? "not-allowed" : "pointer" }}>
+              {planBusy ? "Building…" : "Build plan"}
+            </button>
+          </div>
+          {plan && (
+            <div style={{ marginTop: ".8rem" }}>
+              <div style={{ fontSize: 13, color: T.muted, marginBottom: ".6rem" }}>
+                {plan.counts.NEW || 0} new · {plan.counts.REGRESSION || 0} regressions · {plan.counts.PERSISTING || 0} persisting · <span style={{ color: T.accent }}>{plan.counts.RESOLVED || 0} resolved ✓</span>
+              </div>
+              {plan.worklist.length === 0 && <div style={{ color: T.muted }}>No open issues to fix — clean scan.</div>}
+              {plan.worklist.map((w, i) => (
+                <div key={i} style={{ display: "flex", gap: ".6rem", padding: ".5rem .6rem", borderRadius: 8, background: T.bg, marginBottom: ".35rem", border: `1px solid ${T.line}` }}>
+                  <span style={{ flexShrink: 0, width: 22, textAlign: "right", color: T.faint, fontWeight: 700 }}>{w.priority}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: STATUS_COLOR[w.status] || T.muted, borderRadius: 6, padding: "1px .4rem", marginRight: ".4rem" }}>{w.status}</span>
+                    <b style={{ color: T.ink }}>{w.what}</b>
+                    {w.tool && <span style={{ color: T.faint, fontSize: 12 }}> · {w.tool}</span>}
+                    <div style={{ fontSize: 13, marginTop: 1 }}><span style={{ color: SEV[w.severity]?.fg, fontWeight: 600 }}>Fix:</span> {w.fix}</div>
+                  </div>
+                </div>
+              ))}
+              {plan.resolved.length > 0 && (
+                <details style={{ marginTop: ".6rem", color: T.accent }}>
+                  <summary>{plan.resolved.length} resolved since last scan (wins)</summary>
+                  <ul style={{ lineHeight: 1.7, color: T.muted }}>{plan.resolved.map((r, i) => <li key={i}>{r.what}</li>)}</ul>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {data?.log && data.log.length > 0 && !busy && (
         <details style={{ margin: "1rem 0", color: "#555" }}>

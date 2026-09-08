@@ -26,7 +26,7 @@ export async function saveClient(p: ClientProfile): Promise<string | null> {
   return data.id;
 }
 
-type FindingRow = { code: string; what: string; why: string; fix: string; detail: string; severity: string };
+export type FindingRow = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string };
 type ToolEvent = { name: string; state: string; rows: FindingRow[]; status: string; cost: number };
 
 /** Insert a scan and its normalized children (scan_tools + findings).
@@ -77,4 +77,27 @@ export async function saveScan(
     const { error: e3 } = await supabase.from("findings").insert(findingRows);
     if (e3) console.error("saveScan.findings", e3);
   }
+}
+
+/** The findings from a client's two most recent scans — {current, previous} —
+ *  for the Plan-stage ratchet. `previous` is [] when only one scan exists. */
+export async function lastTwoScansFindings(
+  clientId: string,
+): Promise<{ current: FindingRow[]; previous: FindingRow[]; currentScanId?: string }> {
+  const empty = { current: [], previous: [] };
+  if (!clientId) return empty;
+  const { data: scans, error } = await supabase
+    .from("scans").select("id, created_at")
+    .eq("client_id", clientId).order("created_at", { ascending: false }).limit(2);
+  if (error || !scans?.length) return empty;
+
+  const findingsFor = async (scanId: string): Promise<FindingRow[]> => {
+    const { data } = await supabase
+      .from("findings").select("code, what, why, fix, detail, severity, tool")
+      .eq("scan_id", scanId);
+    return (data as FindingRow[]) || [];
+  };
+  const current = await findingsFor(scans[0].id);
+  const previous = scans[1] ? await findingsFor(scans[1].id) : [];
+  return { current, previous, currentScanId: scans[0].id };
 }

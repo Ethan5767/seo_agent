@@ -34,6 +34,17 @@ see `CLAUDE.md` (the sync contract).
   Note: the full suite is `python -m pytest` (repo root on `sys.path` for the
   `from tests import e2e_fixture` modules), not the `pytest` console script.
 
+- **First real green poster: Dev.to (`posters.post_devto` + `green_poster` router).**
+  `--live` now actually posts to Dev.to (`build_devto_payload` pure, HTTP call
+  injectable, env `DEVTO_API_KEY`, loud skip without it); anything green without a
+  real poster yet still falls back to the stub, so adding a platform is one branch
+  in `green_poster`. **Draft-first safety:** `--live` posts an *unpublished* Dev.to
+  draft to verify; `--publish` is required to go public. Verified live end-to-end:
+  `posted=1`, real draft URL in `seed-log.json`. Fixed B-042 in the process —
+  Dev.to's Cloudflare 403s the default `Python-urllib` UA, so `_http_post_devto`
+  sends an explicit `User-Agent` (see `docs/BUG-LEDGER.md`; same latent risk noted
+  for `providers._request`). +8 poster tests (31 seed-engine tests total).
+
 - **Normalized persistence — store everything, queryable (`web/supabase-schema.sql`,
   `web/lib/db.ts`).** Two new tables beside `clients`/`scans`: `scan_tools`
   (one row per tool per scan — status, cost, error/warn/ok counts) and

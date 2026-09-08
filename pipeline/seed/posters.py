@@ -8,8 +8,11 @@ identical-shape functions that replace stub_post — one per platform, env creds
 loud skip on missing creds, following pipeline/audit/providers.py."""
 from __future__ import annotations
 
+import json
 import os
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 
 from pipeline.seed.generate import Draft
@@ -50,3 +53,78 @@ def stub_post(draft: Draft) -> PostResult:
         url=None,
         detail=f"stub: would POST to {draft.gap.platform}: {draft.title}",
     )
+
+
+# ── Dev.to — the first real green poster ─────────────────────────────────────
+#
+# One function, env creds only, loud skip on a missing key — the providers.py
+# discipline. build_devto_payload is pure (testable); the HTTP call is injectable
+# as `call` so the suite never touches the network. Draft-first: `published`
+# defaults to False, so a live run creates an UNPUBLISHED Dev.to draft the
+# operator verifies before anything goes public.
+
+DEVTO_ENDPOINT = "https://dev.to/api/articles"
+
+
+def build_devto_payload(draft: Draft, published: bool = False) -> dict:
+    return {"article": {
+        "title": draft.title,
+        "body_markdown": draft.body,
+        "published": published,
+        "canonical_url": draft.gap.url_target,
+    }}
+
+
+def _http_post_devto(payload: dict, key: str):
+    """(json, error). Never raises: a platform that is down is a skip, not a crash."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        DEVTO_ENDPOINT, data=data, method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "api-key": key,
+            # Dev.to sits behind Cloudflare, which 403s the default
+            # "Python-urllib/x" UA as a bot. A real UA is required to POST.
+            "User-Agent": "seo_agent-seed/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            return json.loads(r.read().decode()), None
+    except urllib.error.HTTPError as exc:
+        return None, f"HTTP {exc.code} from {DEVTO_ENDPOINT}"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def post_devto(draft: Draft, published: bool = False, call=None) -> PostResult:
+    key = os.environ.get("DEVTO_API_KEY")
+    if not key:
+        return PostResult(platform="devto", status="skipped",
+                          detail="no DEVTO_API_KEY")
+    call = call or _http_post_devto
+    resp, err = call(build_devto_payload(draft, published), key)
+    if err:
+        return PostResult(platform="devto", status="skipped", detail=err)
+    return PostResult(platform="devto", status="posted",
+                      url=(resp or {}).get("url"),
+                      detail="published" if published else "draft (unpublished)")
+
+
+# ── green-tier router ────────────────────────────────────────────────────────
+#
+# Maps a green platform to its real poster; anything without one yet falls back
+# to the stub, so adding a platform is one dict entry. `green_poster(live, ...)`
+# returns the callable dispatch() uses: the stub when not live (safe default),
+# the real routed poster when live.
+
+def green_poster(live: bool, publish: bool = False, devto_call=None):
+    if not live:
+        return stub_post
+
+    def _route(draft: Draft) -> PostResult:
+        if draft.gap.platform == "devto":
+            return post_devto(draft, published=publish, call=devto_call)
+        return stub_post(draft)  # no real poster for this platform yet
+
+    return _route

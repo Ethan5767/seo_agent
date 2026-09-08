@@ -15,7 +15,7 @@ from dataclasses import asdict
 
 from pipeline.seed.gaps import parse_gaps
 from pipeline.seed.generate import draft
-from pipeline.seed.posters import PostResult, stub_post, write_draft_file
+from pipeline.seed.posters import PostResult, green_poster, stub_post, write_draft_file
 from pipeline.seed.tiers import tier_of
 
 
@@ -38,7 +38,8 @@ def dispatch(drafts, drafts_dir: str, poster=None) -> list[PostResult]:
 
 
 def run_seed(gaps_path: str, out_dir: str, drafts_dir: str,
-             runner=None, poster=None, live: bool = False) -> dict:
+             runner=None, poster=None, live: bool = False,
+             publish: bool = False) -> dict:
     with open(gaps_path, encoding="utf-8") as fh:
         rows = json.load(fh)
     gaps, dropped = parse_gaps(rows)
@@ -69,6 +70,7 @@ def run_seed(gaps_path: str, out_dir: str, drafts_dir: str,
             dropped.append({"platform": g.platform, "topic": g.topic,
                             "_reason": f"generation failed: {e}"})
 
+    poster = poster or green_poster(live=live, publish=publish)
     results = pre_skipped + dispatch(drafts, drafts_dir, poster=poster)
 
     counts = {
@@ -97,10 +99,15 @@ def main() -> int:
     ap.add_argument("--drafts-dir", default="",
                     help="where yellow-tier drafts go (default <out-dir>/drafts)")
     ap.add_argument("--live", action="store_true",
-                    help="reserved: use real green posters (MVP: stub only)")
+                    help="use real green posters (needs platform creds in env); "
+                         "without it, green is the stub")
+    ap.add_argument("--publish", action="store_true",
+                    help="with --live, publish immediately; default posts an "
+                         "unpublished draft to verify first")
     args = ap.parse_args()
     drafts_dir = args.drafts_dir or os.path.join(args.out_dir, "drafts")
-    log = run_seed(args.gaps, args.out_dir, drafts_dir, live=args.live)
+    log = run_seed(args.gaps, args.out_dir, drafts_dir,
+                   live=args.live, publish=args.publish)
     c = log["counts"]
     print(f"seed [{log['mode']}]: posted={c['posted']} queued={c['queued']} "
           f"skipped={c['skipped']} dropped={c['dropped']}")

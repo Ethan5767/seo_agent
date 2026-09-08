@@ -108,6 +108,7 @@ function Scanner() {
   const [filter, setFilter] = useState<"all" | "error" | "warn" | "ok">("all");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<string[]>([]);
+  const [phaseLine, setPhaseLine] = useState("");
   const [tools, setTools] = useState<Tool[]>([]);
   const [data, setData] = useState<ScanResult | null>(null);
 
@@ -124,7 +125,7 @@ function Scanner() {
   const estCost = catalog.filter((t) => selected.has(t.key)).reduce((s, t) => s + (t.cost_num || 0), 0);
 
   async function run() {
-    setBusy(true); setData(null); setLive([]); setTools([]);
+    setBusy(true); setData(null); setLive([]); setTools([]); setPhaseLine("");
     const toolMap = new Map<string, Tool>();
     try {
       const { data: sess } = await supabase.auth.getSession();
@@ -144,7 +145,9 @@ function Scanner() {
         for (const part of parts) {
           if (!part.trim()) continue;
           const ev = JSON.parse(part);
-          if (ev.tool) {
+          if (ev.state === "phase") {
+            setPhaseLine(ev.tool);  // a phase marker, not a tool card
+          } else if (ev.tool) {
             toolMap.set(ev.tool, { name: ev.tool, state: ev.state, rows: ev.rows || [], status: ev.status || "", cost: ev.cost || 0 });
             setTools([...toolMap.values()]);
           } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
@@ -158,7 +161,7 @@ function Scanner() {
     } catch (e) {
       setData({ error: String(e) });
     } finally {
-      setBusy(false);
+      setBusy(false); setPhaseLine("");
     }
   }
 
@@ -319,6 +322,15 @@ function Scanner() {
       </div>
 
       {data?.error && <pre style={{ background: "#fee", padding: "1rem" }}>{data.error}</pre>}
+
+      {busy && phaseLine && (
+        <div style={{ display: "flex", alignItems: "center", gap: ".6rem", margin: "1rem 0", padding: ".7rem .9rem",
+          background: "#eef2ff", border: `1px solid ${T.line}`, borderRadius: 10, color: T.ink, fontWeight: 600 }}>
+          <span aria-hidden style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid #b7c3ff", borderTopColor: T.accent, animation: "spin 0.8s linear infinite" }} />
+          {phaseLine}…
+          <style>{"@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){*{animation:none!important}}"}</style>
+        </div>
+      )}
 
       {(a || tools.length > 0) && (() => {
         const runCost = (data?.audit?.cost) ?? tools.reduce((s, t) => s + (t.cost || 0), 0);

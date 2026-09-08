@@ -45,6 +45,22 @@ def test_call_gives_up_after_retries(monkeypatch):
     assert n["c"] == 3
 
 
+def test_call_retries_5xx(monkeypatch):
+    _creds(monkeypatch)
+    n = {"c": 0}
+
+    def flaky(req, timeout=0):
+        n["c"] += 1
+        if n["c"] < 2:
+            raise urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None)
+        return _Resp()
+
+    monkeypatch.setattr(d.urllib.request, "urlopen", flaky)
+    doc, err = d.call("/x", sleep=lambda _s: None)
+    assert err is None and doc == {"ok": 1}
+    assert n["c"] == 2  # 503 retried, then succeeded
+
+
 def test_call_does_not_retry_http_error(monkeypatch):
     _creds(monkeypatch)
     n = {"c": 0}

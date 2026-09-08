@@ -93,10 +93,7 @@ def get_psi(ctx, call=None) -> tuple:
     if cached is None:
         call = call or _psi_call
         cached = call(ctx.url, _key())
-        try:
-            ctx._psi = cached
-        except AttributeError:
-            pass
+        ctx._psi = cached  # ctx is the scan's SimpleNamespace — always writable
     return cached
 
 

@@ -17,8 +17,11 @@ import urllib.request
 # Strip // line and /* */ block comments so a commented-out `// metadataBase`
 # or `// images` can't produce a false "pass". Not a full JS parse — good enough
 # to keep the string-match checks honest against disabled config.
-# The (?<!:) guard keeps `https://` in a URL from being mistaken for a comment.
-_COMMENT = re.compile(r"/\*.*?\*/|(?<!:)//[^\n]*", re.DOTALL)
+# Strip block comments, and line comments only when the `//` isn't glued to a
+# URL/string/word: the lookbehind rejects `:` (https://), `/` (already //),
+# a quote (a "//cdn" string) and a word char (a//b), so protocol-relative URLs
+# and CDN hosts survive while real `x = 1 // note` comments are removed.
+_COMMENT = re.compile(r"""/\*.*?\*/|(?<![:/\w'"])//[^\n]*""", re.DOTALL)
 
 
 def _strip_comments(text: str) -> str:

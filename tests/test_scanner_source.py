@@ -91,6 +91,15 @@ def test_commented_out_config_is_not_a_false_pass():
     assert by["Source: default metadata"]["severity"] == "warn"
 
 
+def test_protocol_relative_url_not_eaten_as_comment():
+    # a //cdn host must not be stripped as a comment and swallow the config after it
+    files = {"package.json": '{"dependencies":{"next":"14"}}',
+             "next.config.js": "module.exports = { images: { domains: ['//cdn.x.com'] }, async headers() { return [] } }"}
+    by = {r["what"]: r for r in analyze_source(files, ["next.config.js"])}
+    assert by["Source: HTTP headers"]["severity"] == "ok"   # headers() after the // url still detected
+    assert by["Source: images"]["severity"] == "ok"
+
+
 def test_metadata_missing_warn():
     files = {"package.json": '{"dependencies":{"next":"14"}}',
              "app/layout.tsx": "export default function Layout() { return null }"}

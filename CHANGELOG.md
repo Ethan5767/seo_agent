@@ -8,6 +8,20 @@ see `CLAUDE.md` (the sync contract).
 
 ### Changed
 
+- **Phased tool execution (`pipeline/scanner/server.py`, `web/app/page.tsx`).**
+  Measure no longer runs 24 tools in a flat catalog order. `build_report` now
+  walks four ordered phases — **1 Page & technical (free) → 2 Google Lighthouse →
+  3 Search data (paid) → 4 Source code** — so money is only spent after the free
+  signal is in. `phase_of(tool)` is derived (group + `lh_` prefix), no per-tool
+  field; `/tools` exposes `phase`/`phase_label`. A `state="phase"` marker streams
+  before each phase; the UI shows a live "Phase 2 of 4…" progress line (guarded
+  so markers never become tool cards). Category (result grouping) and phase
+  (execution order) stay separate concepts. Thermo-review fixes shipped with it:
+  DataForSEO `call()` now **retries transient 5xx** (4xx still fails fast); the
+  source-audit comment stripper no longer eats protocol-relative `//cdn` URLs;
+  `source_ok` matches `fetch_repo_files`' guard (a local path skips cleanly);
+  Lighthouse PSI cache-set no longer swallows errors. 6 new tests.
+
 - **DataForSEO live-verified end-to-end + hardened (`pipeline/scanner/dataforseo.py`,
   `pipeline/scanner/server.py`).** First real run of all nine DataForSEO tools
   against a live site (the CLAUDE.md sharp-edge #6 "never run live" path): all

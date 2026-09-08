@@ -52,7 +52,13 @@ def call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=tim
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read().decode()), None
         except urllib.error.HTTPError as exc:
-            return None, f"HTTP {exc.code} from DataForSEO"
+            # 5xx is transient (DataForSEO hiccup) — retry; 4xx (auth/bad
+            # request) won't fix itself, so return immediately.
+            last = f"HTTP {exc.code} from DataForSEO"
+            if exc.code >= 500 and attempt < retries - 1:
+                sleep(1.5 * (attempt + 1))
+                continue
+            return None, last
         except json.JSONDecodeError as exc:
             return None, f"{type(exc).__name__}: {exc}"
         except (urllib.error.URLError, TimeoutError, OSError) as exc:

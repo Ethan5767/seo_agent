@@ -197,8 +197,10 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         crux=crux, max_pages=max_pages, keywords=keywords or [], competitors=competitors or [],
         brand=business or (urlsplit(url).netloc or url),
         repo=repo, github_token=github_token)
-    # The source lane runs only when a GitHub repo + read token are supplied.
-    source_ok = bool(repo and github_token and "/" in repo)
+    # The source lane runs only for an owner/name GitHub repo + read token —
+    # same guard as fetch_repo_files, so a local path skips instead of running
+    # the tool to an empty result.
+    source_ok = bool(repo and github_token and "/" in repo and not repo.startswith((".", "/", "~")))
 
     def _wanted(t):
         return (selected is None or t.key in selected) and not (t.needs == "repo" and not source_ok)

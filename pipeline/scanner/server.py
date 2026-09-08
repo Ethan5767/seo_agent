@@ -78,60 +78,66 @@ def _perf_tool(c) -> tuple:
 # Adding a tool = append one row here — the orchestrator loop never changes.
 # `run(ctx) -> (rows, status|None, cost)`. Free tools cost 0.0; DataForSEO tools
 # return the exact cost from their response.
-# One catalog row per Measure tool. `group` drives the UI grouping (free /
-# dataforseo / source), `cost`/`cost_num` power the per-tool label + running
-# total, `needs` is a precondition ("repo" = needs a GitHub repo+token), and
-# `run(ctx) -> (rows, status, cost)` is the tool itself. Add a tool = one row;
-# it shows up in /tools and the checklist automatically.
-Tool = namedtuple("Tool", "label key group cost cost_num needs run")
+# One catalog row per Measure tool. `category` is the functional section the UI
+# groups by (On-page, Technical, …); `group` is free/dataforseo/source (drives
+# the paid badge + source precondition); `cost`/`cost_num` power the per-tool
+# label + running total; `needs` is a precondition ("repo" = GitHub repo+token);
+# `run(ctx) -> (rows, status, cost)` is the tool. Add a tool = one row; it shows
+# up in /tools, the checklist and the results automatically.
+Tool = namedtuple("Tool", "label key category group cost cost_num needs run")
+
+# Display order of the functional sections.
+CATEGORIES = ["On-page", "Technical", "Content", "Trust & E-E-A-T",
+              "AEO (AI search)", "Performance", "Links",
+              "Keywords & Rankings", "Local SEO", "Reputation", "Source code"]
 
 TOOLS = [
-    Tool("On-page SEO", "seo", "free", "free", 0.0, None,
+    Tool("On-page SEO", "seo", "On-page", "free", "free", 0.0, None,
          lambda c: (A.seo_rows(c.url, c.html, c.status, {}), None, 0.0)),
-    Tool("AI visibility (AEO)", "aeo", "free", "free", 0.0, None,
-         lambda c: (A.aeo_rows(c.robots, c.html), None, 0.0)),
-    Tool("Performance (speed)", "perf", "free", "free", 0.0, None, _perf_tool),
-    Tool("Technical", "tech", "free", "free", 0.0, None,
-         lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
-    Tool("On-page (deep)", "onpage", "free", "free", 0.0, None,
+    Tool("On-page (deep)", "onpage", "On-page", "free", "free", 0.0, None,
          lambda c: (onpage_deep_rows(c.url, c.html, c.status), None, 0.0)),
-    Tool("Trust (E-E-A-T)", "eeat", "free", "free", 0.0, None,
-         lambda c: (eeat_rows(c.html), None, 0.0)),
-    Tool("Schema validation", "schema", "free", "free", 0.0, None,
-         lambda c: (schema_rows(c.html), None, 0.0)),
-    Tool("Sitemap & hreflang", "validate", "free", "free", 0.0, None,
-         lambda c: (validate_rows(c.html, c.sitemap), None, 0.0)),
-    Tool("Content / info-gain", "content", "free", "free", 0.0, None,
-         lambda c: (content_rows(c.html), None, 0.0)),
-    Tool("Video", "video", "free", "free", 0.0, None,
-         lambda c: (video_rows(c.html), None, 0.0)),
-    Tool("Internal links", "internal", "free", "free", 0.0, None,
-         lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
-    Tool("Source code", "source", "source", "free (needs repo)", 0.0, "repo",
-         lambda c: (source_audit.analyze_source(source_audit.fetch_repo_files(c.repo, c.github_token)), None, 0.0)),
-    Tool("Site Health (DataForSEO)", "site", "dataforseo", "~$0.006 (25 pages)", 0.006, None,
+    Tool("Site Health (DataForSEO)", "site", "On-page", "dataforseo", "~$0.006 (25 pages)", 0.006, None,
          lambda c: onpage_audit.site_audit_full(c.domain, c.max_pages)),
-    Tool("Rankings (DataForSEO)", "rankings", "dataforseo", "~$0.02", 0.02, None,
-         lambda c: dataforseo.rankings(c.domain, c.keywords)),
-    Tool("Keywords (DataForSEO)", "keywords", "dataforseo", "~$0.03", 0.03, None,
-         lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
-    Tool("AI citations (DataForSEO)", "ai", "dataforseo", "~$0.005", 0.005, None,
+    Tool("Technical", "tech", "Technical", "free", "free", 0.0, None,
+         lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
+    Tool("Schema validation", "schema", "Technical", "free", "free", 0.0, None,
+         lambda c: (schema_rows(c.html), None, 0.0)),
+    Tool("Sitemap & hreflang", "validate", "Technical", "free", "free", 0.0, None,
+         lambda c: (validate_rows(c.html, c.sitemap), None, 0.0)),
+    Tool("Content / info-gain", "content", "Content", "free", "free", 0.0, None,
+         lambda c: (content_rows(c.html), None, 0.0)),
+    Tool("Video", "video", "Content", "free", "free", 0.0, None,
+         lambda c: (video_rows(c.html), None, 0.0)),
+    Tool("Trust (E-E-A-T)", "eeat", "Trust & E-E-A-T", "free", "free", 0.0, None,
+         lambda c: (eeat_rows(c.html), None, 0.0)),
+    Tool("AI visibility (AEO)", "aeo", "AEO (AI search)", "free", "free", 0.0, None,
+         lambda c: (A.aeo_rows(c.robots, c.html), None, 0.0)),
+    Tool("AI citations (DataForSEO)", "ai", "AEO (AI search)", "dataforseo", "~$0.005", 0.005, None,
          lambda c: dataforseo.llm_mentions(c.brand, c.domain)),
-    Tool("Backlinks (DataForSEO)", "backlinks", "dataforseo", "~$0.02", 0.02, None,
+    Tool("Performance (speed)", "perf", "Performance", "free", "free", 0.0, None, _perf_tool),
+    Tool("Internal links", "internal", "Links", "free", "free", 0.0, None,
+         lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
+    Tool("Backlinks (DataForSEO)", "backlinks", "Links", "dataforseo", "~$0.02", 0.02, None,
          lambda c: dataforseo.backlinks(c.domain)),
-    Tool("Local / GBP (DataForSEO)", "gbp", "dataforseo", "~$0.002", 0.002, None,
-         lambda c: business_data.gbp_local(c.brand)),
-    Tool("Web mentions (DataForSEO)", "mentions", "dataforseo", "~$0.003", 0.003, None,
-         lambda c: mentions.brand_mentions(c.brand)),
-    Tool("Rankings trend (DataForSEO)", "rank_trend", "dataforseo", "~$0.01", 0.01, None,
+    Tool("Keywords (DataForSEO)", "keywords", "Keywords & Rankings", "dataforseo", "~$0.03", 0.03, None,
+         lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
+    Tool("Rankings (DataForSEO)", "rankings", "Keywords & Rankings", "dataforseo", "~$0.02", 0.02, None,
+         lambda c: dataforseo.rankings(c.domain, c.keywords)),
+    Tool("Rankings trend (DataForSEO)", "rank_trend", "Keywords & Rankings", "dataforseo", "~$0.01", 0.01, None,
          lambda c: dataforseo.historical_rank(c.domain)),
+    Tool("Local / GBP (DataForSEO)", "gbp", "Local SEO", "dataforseo", "~$0.002", 0.002, None,
+         lambda c: business_data.gbp_local(c.brand)),
+    Tool("Web mentions (DataForSEO)", "mentions", "Reputation", "dataforseo", "~$0.003", 0.003, None,
+         lambda c: mentions.brand_mentions(c.brand)),
+    Tool("Source code", "source", "Source code", "source", "free (needs repo)", 0.0, "repo",
+         lambda c: (source_audit.analyze_source(source_audit.fetch_repo_files(c.repo, c.github_token)), None, 0.0)),
 ]
 
 
 def tool_catalog() -> list[dict]:
     """The tool list the frontend renders — single source of truth for the UI."""
-    return [{"key": t.key, "label": t.label, "group": t.group,
-             "cost": t.cost, "cost_num": t.cost_num} for t in TOOLS]
+    return [{"key": t.key, "label": t.label, "category": t.category,
+             "group": t.group, "cost": t.cost, "cost_num": t.cost_num} for t in TOOLS]
 
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,

@@ -6,6 +6,18 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed
+
+- **Measure UI refined + grouped by function (`pipeline/scanner/server.py`,
+  `web/app/page.tsx`).** Each tool now carries a `category` (On-page, Technical,
+  Content, Trust & E-E-A-T, AEO, Performance, Links, Keywords & Rankings, Local
+  SEO, Reputation, Source code); `/tools` exposes it. The checklist and the
+  results are both grouped into those sections instead of one flat list.
+  Visual pass via the impeccable design skill (product register): design tokens,
+  system-font stack, a conic score gauge, pill filter chips; finding rows moved
+  off the banned side-stripe border onto tinted rows with a leading severity
+  icon; caption contrast bumped to >=4.5:1. tsc clean; Python suite green.
+
 ### Added
 
 - **`pipeline/seed` — the brand-mention seed engine (`wf-seed`).** The complement

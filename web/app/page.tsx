@@ -15,34 +15,55 @@ type Cycle =
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
 type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string; log?: string[] };
 type Tool = { name: string; state: string; rows: Row[]; status: string; cost: number };
-type CatalogTool = { key: string; label: string; group: string; cost: string; cost_num: number };
+type CatalogTool = { key: string; label: string; category: string; group: string; cost: string; cost_num: number };
 
-const COLOR: Record<string, string> = { error: "#b00", warn: "#a60", info: "#999", ok: "#1a5" };
-const box = { padding: ".5rem", margin: ".25rem 0", width: "100%", boxSizing: "border-box" as const };
-
-// The tool groups, in display order — mirrors the backend `group` field.
-const GROUPS: { key: string; title: string; note: string }[] = [
-  { key: "free", title: "Free tools", note: "run on the page we already fetched — no cost" },
-  { key: "dataforseo", title: "DataForSEO (paid)", note: "live API data — costs per call" },
-  { key: "source", title: "Source code", note: "read-only, needs a connected GitHub repo" },
-];
+// ── Design tokens (product register: restrained, one accent, semantic states) ─
+const T = {
+  ink: "#161a1d", muted: "#5b6570", faint: "#6e7883", line: "#e5e8ec",
+  bg: "#ffffff", panel: "#f6f8fa", accent: "#0e8a4c", accentInk: "#0a6d3c",
+};
+// Severity: leading-icon + tinted row (no side-stripe borders — banned).
+const SEV: Record<string, { fg: string; bg: string; icon: string; label: string }> = {
+  error: { fg: "#c0392b", bg: "#fdeceb", icon: "✕", label: "Error" },
+  warn: { fg: "#a86710", bg: "#fbf3e4", icon: "!", label: "Warning" },
+  info: { fg: "#2e6fb0", bg: "#eaf1f9", icon: "i", label: "Info" },
+  ok: { fg: "#1e8a4c", bg: "#eaf6ef", icon: "✓", label: "Pass" },
+};
+const font = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+const linkBtn = (color: string) => ({ background: "none", border: 0, color, cursor: "pointer", font, fontSize: 13, padding: 0, fontWeight: 600 });
+const box = { padding: ".55rem .65rem", margin: ".3rem 0 0", width: "100%", boxSizing: "border-box" as const,
+  border: `1px solid ${T.line}`, borderRadius: 8, font, fontSize: 14 };
 
 function sevCounts(rows: Row[]) {
-  const c = { error: 0, warn: 0, ok: 0 };
-  for (const r of rows) { if (r.severity === "error") c.error++; else if (r.severity === "warn") c.warn++; else if (r.severity === "ok") c.ok++; }
+  const c = { error: 0, warn: 0, info: 0, ok: 0 };
+  for (const r of rows) { if (r.severity in c) (c as Record<string, number>)[r.severity]++; }
   return c;
 }
 
 function Rows({ list }: { list?: Row[] }) {
   return (
     <>
-      {(list || []).map((r, i) => (
-        <div key={i} style={{ padding: ".5rem", borderLeft: `4px solid ${COLOR[r.severity] || "#ccc"}`, marginBottom: ".4rem" }}>
-          <b>{r.severity === "ok" ? "✓ PASS" : r.severity.toUpperCase()}</b> {r.what} {r.detail ? `(${r.detail})` : ""}
-          <div>{r.why}</div>
-          {r.severity !== "ok" && <div><i>Fix:</i> {r.fix}</div>}
-        </div>
-      ))}
+      {(list || []).map((r, i) => {
+        const s = SEV[r.severity] || SEV.info;
+        return (
+          <div key={i} style={{ display: "flex", gap: ".6rem", padding: ".55rem .7rem", borderRadius: 8,
+            background: s.bg, marginBottom: ".35rem", alignItems: "flex-start" }}>
+            <span aria-hidden style={{ flexShrink: 0, width: 20, height: 20, borderRadius: "50%", background: s.fg,
+              color: "#fff", fontSize: 12, fontWeight: 700, display: "grid", placeItems: "center", marginTop: 1 }}>{s.icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: T.ink }}>
+                <b>{r.what}</b>{r.detail ? <span style={{ color: T.muted }}> · {r.detail}</span> : null}
+              </div>
+              <div style={{ color: T.muted, fontSize: 13, marginTop: 1 }}>{r.why}</div>
+              {r.severity !== "ok" && r.fix && (
+                <div style={{ fontSize: 13, marginTop: 2 }}>
+                  <span style={{ color: s.fg, fontWeight: 600 }}>Fix:</span> <span style={{ color: T.ink }}>{r.fix}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </>
   );
 }
@@ -93,10 +114,10 @@ function Scanner() {
   function toggleTool(key: string) {
     setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
   }
-  function setGroup(groupKey: string, on: boolean) {
+  function setGroup(groupTools: CatalogTool[], on: boolean) {
     setSelected((s) => {
       const n = new Set(s);
-      for (const t of catalog) if (t.group === groupKey) { on ? n.add(t.key) : n.delete(t.key); }
+      for (const t of groupTools) { if (on) n.add(t.key); else n.delete(t.key); }
       return n;
     });
   }
@@ -207,6 +228,35 @@ function Scanner() {
 
   // ── Stage 2: Measure ─────────────────────────────────────────────────────────
   const a = data?.audit; const c = data?.cycle;
+  // Functional sections, in catalog order (backend groups tools by category).
+  const cats = [...new Set(catalog.map((t) => t.category))];
+  const labelToCat = new Map(catalog.map((t) => [t.label, t.category]));
+  const catOf = (label: string) => labelToCat.get(label) || "Other";
+
+  // One result card per tool; returns null when a filter hides all its rows.
+  const badge = (n: number, sv: { fg: string }) => n > 0 ? (
+    <span style={{ background: sv.fg, color: "#fff", borderRadius: 10, padding: "0 .45rem", fontSize: 11, fontWeight: 700, marginLeft: ".3rem" }}>{n}</span>
+  ) : null;
+  function renderCard(t: Tool) {
+    const cnt = sevCounts(t.rows);
+    const shown = filter === "all" ? t.rows : t.rows.filter((r) => r.severity === filter);
+    if (t.state === "done" && filter !== "all" && shown.length === 0) return null;
+    return (
+      <div key={t.name} style={{ border: `1px solid ${T.line}`, borderRadius: 10, marginBottom: ".6rem", overflow: "hidden", background: T.bg }}>
+        <div style={{ background: T.panel, padding: ".6rem .85rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: ".5rem" }}>
+          <span style={{ fontWeight: 600, color: T.ink, display: "flex", alignItems: "center" }}>
+            <span aria-hidden style={{ marginRight: ".45rem" }}>{t.state === "running" ? "◌" : "✓"}</span>{t.name}
+            {t.state === "done" && <>{badge(cnt.error, SEV.error)}{badge(cnt.warn, SEV.warn)}{badge(cnt.ok, SEV.ok)}</>}
+          </span>
+          <span style={{ color: T.muted, fontSize: 12.5, whiteSpace: "nowrap" }}>
+            {t.state === "running" ? "running…" : t.status}
+            {" · "}<span style={{ color: t.cost > 0 ? "#a86710" : T.accent, fontWeight: 600 }}>{t.cost > 0 ? `$${t.cost.toFixed(4)}` : "free"}</span>
+          </span>
+        </div>
+        {t.state === "done" && <div style={{ padding: ".55rem .7rem" }}><Rows list={shown} /></div>}
+      </div>
+    );
+  }
   return (
     <main>
       <h1>SEO / AEO Pipeline</h1>
@@ -219,40 +269,50 @@ function Scanner() {
         {goal && <>Goal: {goal}</>}
       </div>
 
-      {/* ── Tool checklist — pick which Measure tools run ─────────────────── */}
-      <div style={{ border: "1px solid #ddd", borderRadius: 8, overflow: "hidden", margin: "1rem 0" }}>
-        <div style={{ background: "#eef2ff", padding: ".6rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <b>Tools to run</b>
-          <span style={{ fontSize: 13, color: "#555" }}>
-            <a onClick={() => setSelected(new Set(catalog.map((t) => t.key)))} style={{ color: "#1a5", cursor: "pointer" }}>all</a>
-            {" · "}
-            <a onClick={() => setSelected(new Set())} style={{ color: "#a00", cursor: "pointer" }}>none</a>
+      {/* ── Tool checklist — pick which Measure tools run, grouped by section ─ */}
+      <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, overflow: "hidden", margin: "1rem 0", background: T.bg }}>
+        <div style={{ background: T.panel, padding: ".7rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.line}` }}>
+          <b style={{ color: T.ink }}>Tools to run</b>
+          <span style={{ fontSize: 13, color: T.muted }}>
+            <button onClick={() => setSelected(new Set(catalog.map((t) => t.key)))} style={linkBtn(T.accentInk)}>Select all</button>
+            <span style={{ color: T.line }}> · </span>
+            <button onClick={() => setSelected(new Set())} style={linkBtn(T.muted)}>Clear</button>
           </span>
         </div>
-        {GROUPS.filter((g) => catalog.some((t) => t.group === g.key)).map((g) => {
-          const groupTools = catalog.filter((t) => t.group === g.key);
-          const allOn = groupTools.every((t) => selected.has(t.key));
+        {cats.map((cat) => {
+          const catTools = catalog.filter((t) => t.category === cat);
+          const allOn = catTools.every((t) => selected.has(t.key));
+          const someOn = catTools.some((t) => selected.has(t.key));
+          const paid = catTools.reduce((s, t) => s + (selected.has(t.key) ? t.cost_num : 0), 0);
           return (
-            <div key={g.key} style={{ borderTop: "1px solid #eee" }}>
-              <div style={{ padding: ".4rem .9rem", background: "#fafafa", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <label style={{ fontWeight: 600, cursor: "pointer" }}>
-                  <input type="checkbox" checked={allOn} onChange={(e) => setGroup(g.key, e.target.checked)} />{" "}
-                  {g.title} <span style={{ fontWeight: 400, color: "#888", fontSize: 12 }}>· {g.note}</span>
+            <div key={cat} style={{ borderBottom: `1px solid ${T.line}` }}>
+              <div style={{ padding: ".5rem .9rem", background: "#fbfcfd", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <label style={{ fontWeight: 600, cursor: "pointer", color: T.ink, display: "flex", alignItems: "center", gap: ".5rem" }}>
+                  <input type="checkbox" checked={allOn} ref={(el) => { if (el) el.indeterminate = someOn && !allOn; }}
+                    onChange={(e) => setGroup(catTools, e.target.checked)} />
+                  {cat}
                 </label>
+                {paid > 0 && <span style={{ fontSize: 12, color: "#a86710" }}>${paid.toFixed(4)}</span>}
               </div>
-              {groupTools.map((t) => (
-                <label key={t.key} style={{ display: "flex", justifyContent: "space-between", padding: ".3rem .9rem .3rem 1.8rem", cursor: "pointer" }}>
-                  <span><input type="checkbox" checked={selected.has(t.key)} onChange={() => toggleTool(t.key)} /> {t.label}</span>
-                  <span style={{ color: t.cost_num > 0 ? "#a60" : "#1a5", fontSize: 13 }}>{t.cost}</span>
+              {catTools.map((t) => (
+                <label key={t.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: ".5rem",
+                  padding: ".38rem .9rem .38rem 2.1rem", cursor: "pointer", transition: "background .15s ease",
+                  background: selected.has(t.key) ? "#f4faf6" : "transparent" }}>
+                  <span style={{ color: T.ink, fontSize: 14 }}>
+                    <input type="checkbox" checked={selected.has(t.key)} onChange={() => toggleTool(t.key)} /> {t.label}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
+                    color: t.cost_num > 0 ? "#a86710" : T.accent }}>{t.cost_num > 0 ? t.cost : "Free"}</span>
                 </label>
               ))}
             </div>
           );
         })}
-        <div style={{ borderTop: "1px solid #eee", padding: ".55rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f7f7f7" }}>
-          <span style={{ color: "#555" }}>{selected.size} of {catalog.length} tools · est <b style={{ color: "#a60" }}>~${estCost.toFixed(4)}</b></span>
+        <div style={{ padding: ".7rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center", background: T.panel }}>
+          <span style={{ color: T.muted, fontSize: 14 }}>{selected.size} of {catalog.length} tools · est <b style={{ color: "#a86710" }}>~${estCost.toFixed(4)}</b></span>
           <button onClick={run} disabled={busy || selected.size === 0}
-            style={{ padding: ".55rem 1.3rem", background: busy || selected.size === 0 ? "#aaa" : "#1a5", color: "#fff", border: 0, borderRadius: 6, cursor: busy || selected.size === 0 ? "not-allowed" : "pointer" }}>
+            style={{ padding: ".6rem 1.4rem", background: busy || selected.size === 0 ? "#b7bdc4" : T.accent, color: "#fff", border: 0,
+              borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: busy || selected.size === 0 ? "not-allowed" : "pointer", transition: "background .15s ease" }}>
             {busy ? "Measuring…" : `Run Measure (${selected.size})`}
           </button>
         </div>
@@ -266,59 +326,50 @@ function Scanner() {
         const wrn = a ? (a.counts.warn || 0) : tools.reduce((s, t) => s + sevCounts(t.rows).warn, 0);
         const okc = a ? (a.counts.ok || 0) : tools.reduce((s, t) => s + sevCounts(t.rows).ok, 0);
         const score = a?.score ?? 0;
-        const sColor = score >= 80 ? "#1a5" : score >= 50 ? "#a60" : "#b00";
-        const chip = (key: typeof filter, label: string, color: string) => (
-          <span onClick={() => setFilter(filter === key ? "all" : key)}
-            style={{ cursor: "pointer", padding: ".25rem .7rem", borderRadius: 14, fontWeight: 600, fontSize: 13,
-              border: `1.5px solid ${color}`, color: filter === key ? "#fff" : color, background: filter === key ? color : "#fff" }}>
+        const sColor = score >= 80 ? SEV.ok.fg : score >= 50 ? SEV.warn.fg : SEV.error.fg;
+        const chip = (key: typeof filter, label: string, sv: { fg: string }) => (
+          <button onClick={() => setFilter(filter === key ? "all" : key)}
+            style={{ cursor: "pointer", padding: ".32rem .8rem", borderRadius: 20, fontWeight: 600, fontSize: 13, font,
+              border: `1.5px solid ${sv.fg}`, color: filter === key ? "#fff" : sv.fg, background: filter === key ? sv.fg : T.bg,
+              transition: "background .15s ease, color .15s ease" }}>
             {label}
-          </span>
+          </button>
         );
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", flexWrap: "wrap", margin: "1.25rem 0", padding: "1rem", background: "#fafafa", border: "1px solid #eee", borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", flexWrap: "wrap", margin: "1.25rem 0", padding: "1rem 1.15rem", background: T.panel, border: `1px solid ${T.line}`, borderRadius: 12 }}>
             {a && (
-              <div style={{ width: 84, height: 84, borderRadius: "50%", border: `6px solid ${sColor}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ fontSize: "1.6rem", fontWeight: 800, color: sColor, lineHeight: 1 }}>{score}</span>
-                <span style={{ fontSize: 10, color: "#888" }}>/ 100</span>
+              <div style={{ width: 82, height: 82, borderRadius: "50%", display: "grid", placeItems: "center", flexShrink: 0,
+                background: `conic-gradient(${sColor} ${score * 3.6}deg, ${T.line} 0deg)` }}>
+                <div style={{ width: 64, height: 64, borderRadius: "50%", background: T.bg, display: "grid", placeItems: "center" }}>
+                  <span style={{ fontSize: "1.5rem", fontWeight: 800, color: sColor, lineHeight: 1 }}>{score}</span>
+                </div>
               </div>
             )}
-            <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
-              {chip("error", `${err} errors`, "#b00")}
-              {chip("warn", `${wrn} warnings`, "#a60")}
-              {chip("ok", `${okc} passing`, "#1a5")}
-              {filter !== "all" && <span onClick={() => setFilter("all")} style={{ cursor: "pointer", fontSize: 13, color: "#666", alignSelf: "center" }}>clear filter ✕</span>}
+            <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", alignItems: "center" }}>
+              {chip("error", `${err} errors`, SEV.error)}
+              {chip("warn", `${wrn} warnings`, SEV.warn)}
+              {chip("ok", `${okc} passing`, SEV.ok)}
+              {filter !== "all" && <button onClick={() => setFilter("all")} style={linkBtn(T.muted)}>clear ✕</button>}
             </div>
             <div style={{ marginLeft: "auto", textAlign: "right" }}>
-              <div style={{ color: "#a60", fontWeight: 700, fontSize: "1.1rem" }}>${runCost.toFixed(4)}</div>
-              <div style={{ fontSize: 12, color: "#888" }}>cost this run</div>
+              <div style={{ color: "#a86710", fontWeight: 700, fontSize: "1.15rem" }}>${runCost.toFixed(4)}</div>
+              <div style={{ fontSize: 12, color: T.faint }}>cost this run</div>
             </div>
           </div>
         );
       })()}
 
-      {/* One card per tool — loads live, then fills with its result + cost.
-          Filter chips above narrow the rows shown; a card with no matching
-          rows under an active filter is hidden. */}
-      {tools.map((t) => {
-        const cnt = sevCounts(t.rows);
-        const shown = filter === "all" ? t.rows : t.rows.filter((r) => r.severity === filter);
-        if (t.state === "done" && filter !== "all" && shown.length === 0) return null;
-        const badge = (n: number, color: string) => n > 0 ? (
-          <span style={{ background: color, color: "#fff", borderRadius: 10, padding: "0 .5rem", fontSize: 12, fontWeight: 700, marginLeft: ".3rem" }}>{n}</span>
-        ) : null;
+      {/* Results grouped by functional section — each tool card loads live,
+          then fills with its result + cost. The filter chips narrow rows; a
+          section with no matching cards is hidden. */}
+      {cats.map((cat) => {
+        const cards = tools.filter((t) => catOf(t.name) === cat).map(renderCard).filter(Boolean);
+        if (!cards.length) return null;
         return (
-          <div key={t.name} style={{ border: "1px solid #ddd", borderRadius: 8, margin: ".75rem 0", overflow: "hidden" }}>
-            <div style={{ background: "#f7f7f7", padding: ".6rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <b>{t.state === "running" ? "⏳" : "✓"} {t.name}
-                {t.state === "done" && <>{badge(cnt.error, "#b00")}{badge(cnt.warn, "#a60")}{badge(cnt.ok, "#1a5")}</>}
-              </b>
-              <span style={{ color: "#666", fontSize: 13 }}>
-                {t.state === "running" ? "running…" : t.status}
-                {" · "}<span style={{ color: t.cost > 0 ? "#a60" : "#1a5" }}>{t.cost > 0 ? `$${t.cost.toFixed(4)}` : "free"}</span>
-              </span>
-            </div>
-            {t.state === "done" && <div style={{ padding: ".5rem .9rem" }}><Rows list={shown} /></div>}
-          </div>
+          <section key={cat} style={{ margin: "1.4rem 0 .3rem" }}>
+            <h3 style={{ font, fontSize: 12, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: T.faint, margin: "0 0 .55rem" }}>{cat}</h3>
+            {cards}
+          </section>
         );
       })}
 

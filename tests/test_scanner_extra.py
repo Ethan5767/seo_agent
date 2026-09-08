@@ -74,3 +74,39 @@ def test_no_internal_links_warns():
     html = '<a href="https://external.com/">out</a>'
     by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
     assert by["Internal links"]["severity"] == "warn"
+
+
+def test_nofollow_internal_flagged():
+    html = '<main><a href="/a/" rel="nofollow">Great services page</a><a href="/b/">About our team</a></main>'
+    by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
+    assert by["Nofollow internal links"]["severity"] == "warn"
+
+
+def test_links_only_in_nav_warn_contextual():
+    html = '<nav><a href="/a/">Home page</a><a href="/b/">Services page</a></nav><main><p>no links</p></main>'
+    by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
+    assert by["Contextual links"]["severity"] == "warn"  # links only in nav, none in main content
+
+
+def test_in_content_links_pass_contextual():
+    html = '<nav><a href="/a/">Nav item</a></nav><main><a href="/b/">In-content link about roofing</a></main>'
+    by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
+    assert by["Contextual links"]["severity"] == "ok"
+
+
+def test_over_optimized_anchor_flagged():
+    links = "".join('<a href="/p%d/">best roofing houston</a>' % i for i in range(7))
+    by = {r["what"]: r for r in internal_link_rows("https://s.com/", "<main>" + links + "</main>")}
+    assert by["Anchor over-optimization"]["severity"] == "warn"
+
+
+def test_external_authority_leak():
+    html = '<a href="/in/">Internal page</a>' + "".join('<a href="https://x%d.com/">ext</a>' % i for i in range(3))
+    by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
+    assert by["Outbound links"]["severity"] == "warn"  # 3 external > 1 internal
+
+
+def test_image_link_without_alt():
+    html = '<main><a href="/gallery/"><img src="/x.jpg"></a></main>'
+    by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
+    assert by["Image link context"]["severity"] == "warn"

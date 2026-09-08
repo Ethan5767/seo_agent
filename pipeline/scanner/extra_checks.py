@@ -162,35 +162,121 @@ def video_rows(html: str) -> list[dict]:
 
 # ── Internal link structure (SOP Measure) — page-level anchor quality ────────
 
-_A_TAG = re.compile(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
+_A_FULL = re.compile(r'<a\b([^>]*)>(.*?)</a>', re.IGNORECASE | re.DOTALL)
+_HREF = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
+_REL = re.compile(r'rel=["\']([^"\']*)["\']', re.IGNORECASE)
+_MAIN = re.compile(r'<(main|article)\b[^>]*>.*?</\1>', re.IGNORECASE | re.DOTALL)
+_IMG = re.compile(r'<img\b[^>]*>', re.IGNORECASE)
+_IMG_ALT = re.compile(r'\balt=["\'][^"\']+["\']', re.IGNORECASE)  # non-empty alt
 _GENERIC_ANCHORS = {"click here", "read more", "here", "learn more", "more",
-                    "this", "read", "link", "click", "see more"}
+                    "this", "read", "link", "click", "see more", "go", "next", "continue"}
 
 
 def internal_link_rows(url: str, html: str) -> list[dict]:
-    """Internal-link count + anchor-text quality. Descriptive anchors pass
-    keyword context; 'click here' / naked URLs waste it."""
+    """Page-level internal-link health: count, anchor quality, whether links sit
+    in the main content vs boilerplate nav, nofollow waste, exact-match
+    over-optimisation, outbound-authority leak and image-link context. Site-wide
+    structure (orphans, broken links) is DataForSEO Site Health's job — this is
+    the single-page view."""
+    html = html or ""
     host = urlsplit(url).netloc
-    internal, generic = 0, []
-    for href, raw in _A_TAG.findall(html or ""):
-        href = href.strip()
+    here = (urlsplit(url).path or "/").rstrip("/") or "/"
+    content_spans = [(m.start(), m.end()) for m in _MAIN.finditer(html)]
+
+    def in_content(pos):
+        return any(s <= pos <= e for s, e in content_spans)
+
+    internal = external = nofollow = self_ref = in_content_n = img_no_alt = 0
+    generic, descriptive, exact = [], 0, {}
+    for m in _A_FULL.finditer(html):
+        attrs, inner = m.group(1), m.group(2)
+        href_m = _HREF.search(attrs)
+        if not href_m:
+            continue
+        href = href_m.group(1).strip()
         if href.startswith(("mailto:", "tel:", "#", "javascript:", "data:")):
             continue
         is_internal = href.startswith("/") or (host and host in href) or not href.startswith("http")
         if not is_internal:
+            external += 1
             continue
         internal += 1
-        text = re.sub(r"<[^>]+>", "", raw).strip().lower()
-        if not text or text in _GENERIC_ANCHORS or text.startswith("http"):
-            generic.append(text or "(empty)")
-    rows = [_row("Internal links", "ok" if internal else "warn",
-                 f"{internal} internal link(s) on this page — they spread ranking authority and guide crawlers."
-                 if internal else "No internal links on this page — it's a dead end for crawlers and authority.",
-                 "passing" if internal else "add contextual links to related pages",
-                 detail=f"{internal} links")]
+        if in_content(m.start()):
+            in_content_n += 1
+        rel = (_REL.search(attrs).group(1).lower() if _REL.search(attrs) else "")
+        if "nofollow" in rel:
+            nofollow += 1
+        if (urlsplit(href).path or "/").rstrip("/") == here or href in ("/", "", here):
+            self_ref += 1
+        text = re.sub(r"<[^>]+>", "", inner).strip().lower()
+        if not text:
+            imgs = _IMG.findall(inner)
+            if imgs and not any(_IMG_ALT.search(i) for i in imgs):
+                img_no_alt += 1
+            generic.append("(image)" if imgs else "(empty)")
+        elif text in _GENERIC_ANCHORS or text.startswith("http"):
+            generic.append(text)
+        else:
+            if len(text.split()) >= 2:
+                descriptive += 1
+            exact[text] = exact.get(text, 0) + 1
+
+    rows = []
+    # 1. count — dead end, healthy, or bloated
+    if not internal:
+        rows.append(_row("Internal links", "warn",
+                         "No internal links on this page — a dead end for crawlers and authority.",
+                         "add contextual links to related pages", detail="0 links"))
+    else:
+        too_many = internal > 150
+        rows.append(_row("Internal links", "warn" if too_many else "ok",
+                         f"{internal} internal link(s) — excessive linking dilutes authority per link." if too_many
+                         else f"{internal} internal link(s) — they spread ranking authority and guide crawlers.",
+                         "trim to the meaningful links" if too_many else "passing", detail=f"{internal} links"))
+    # 2. anchor text quality
     if generic:
         rows.append(_row("Anchor text quality", "warn",
-                         f"{len(generic)} non-descriptive anchor(s) (click here / read more / naked URL) — they carry no keyword signal.",
-                         "use descriptive anchor text naming the target page's topic",
-                         detail=f"{len(generic)} weak"))
+                         f"{len(generic)} non-descriptive anchor(s) (click here / empty / image / naked URL) — they carry no keyword signal.",
+                         "use descriptive anchor text naming the target page's topic", detail=f"{len(generic)} weak"))
+    # 3. contextual (in-content) links vs boilerplate — only when a main/article exists
+    if content_spans and internal:
+        rows.append(_row("Contextual links", "ok" if in_content_n else "warn",
+                         f"{in_content_n} internal link(s) sit inside the main content — contextual links carry more weight than nav." if in_content_n
+                         else "Every internal link is in nav/footer boilerplate — none in the main content.",
+                         "passing" if in_content_n else "add in-content links from the body copy to related pages",
+                         detail=f"{in_content_n} in content"))
+    # 4. descriptive ratio
+    if internal >= 5:
+        ratio = descriptive / internal
+        if ratio < 0.5:
+            rows.append(_row("Descriptive anchors", "warn",
+                             f"Only {round(ratio * 100)}% of internal links use descriptive (multi-word) anchors.",
+                             "write anchors that name the target page's topic", detail=f"{round(ratio * 100)}%"))
+    # 5. exact-match over-optimisation
+    spammy = [(t, n) for t, n in exact.items() if n >= 6]
+    if spammy:
+        t, n = max(spammy, key=lambda x: x[1])
+        rows.append(_row("Anchor over-optimization", "warn",
+                         f'The exact anchor "{t}" is repeated {n} times — looks manipulative to Google.',
+                         "vary anchor text naturally", detail=f'"{t}" ×{n}'))
+    # 6. nofollow on internal links
+    if nofollow:
+        rows.append(_row("Nofollow internal links", "warn",
+                         f"{nofollow} internal link(s) are rel=nofollow — that wastes crawl budget and blocks authority flow.",
+                         "remove nofollow from internal links", detail=f"{nofollow} nofollow"))
+    # 7. self-referencing
+    if self_ref >= 3:
+        rows.append(_row("Self-referencing links", "info",
+                         f"{self_ref} link(s) point back to this same page — redundant, minor crawl waste.",
+                         "link to other pages instead", detail=f"{self_ref}"))
+    # 8. outbound authority leak
+    if internal and external > internal:
+        rows.append(_row("Outbound links", "warn",
+                         f"{external} external vs {internal} internal link(s) — more links leave the site than stay, leaking authority.",
+                         "add more internal links or trim external ones", detail=f"{external} ext / {internal} int"))
+    # 9. image-link context
+    if img_no_alt:
+        rows.append(_row("Image link context", "warn",
+                         f"{img_no_alt} image link(s) have no alt/anchor text — Google gets no context for where they go.",
+                         "add descriptive alt text to linked images", detail=f"{img_no_alt}"))
     return rows

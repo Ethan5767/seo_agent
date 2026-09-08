@@ -8,6 +8,16 @@ see `CLAUDE.md` (the sync contract).
 
 ### Changed
 
+- **Internal-links tool strengthened 2 → 9 checks (`pipeline/scanner/extra_checks.py`).**
+  Was just count + generic-anchor. Now, all from the single fetched page (site-wide
+  orphans/broken stay DataForSEO Site Health's job): link count with a too-many
+  ceiling; anchor-text quality; **contextual links** (are internal links inside
+  `<main>`/`<article>` or only in nav/footer boilerplate); descriptive-anchor
+  ratio; **exact-match over-optimisation** (same anchor repeated ≥6×); **nofollow
+  on internal links** (wasted authority); self-referencing links; **outbound
+  authority leak** (more external than internal); image-link context (linked
+  `<img>` with no alt). 7 new tests.
+
 - **Phased tool execution (`pipeline/scanner/server.py`, `web/app/page.tsx`).**
   Measure no longer runs 24 tools in a flat catalog order. `build_report` now
   walks four ordered phases — **1 Page & technical (free) → 2 Google Lighthouse →

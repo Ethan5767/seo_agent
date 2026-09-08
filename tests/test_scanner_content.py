@@ -18,3 +18,17 @@ def test_rich_page_passes():
     assert by["Content depth"]["severity"] == "ok"
     assert by["Original data"]["severity"] == "ok"        # has a table
     assert by["Comprehensiveness"]["severity"] == "ok"    # 3 H2s
+
+
+def test_freshness_and_scannable_present():
+    fresh = ('<html><body><time datetime="2024-01-01">Jan 2024</time>'
+             '<ul><li>a</li><li>b</li></ul>' + ("word " * 400) + "</body></html>")
+    by = {r["what"]: r for r in content_rows(fresh)}
+    assert by["Freshness"]["severity"] == "ok"
+    assert by["Scannable structure"]["severity"] == "ok"
+
+
+def test_freshness_and_scannable_absent():
+    by = {r["what"]: r for r in content_rows("<html><body>" + ("word " * 400) + "</body></html>")}
+    assert by["Freshness"]["severity"] == "info"
+    assert by["Scannable structure"]["severity"] == "info"

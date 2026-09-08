@@ -55,4 +55,26 @@ def content_rows(html: str) -> list[dict]:
     elif h2 == 0:
         rows.append(_row("Comprehensiveness", "warn", "No subheadings — likely narrow coverage of the topic.",
                          "break the topic into sections that answer related questions"))
+
+    # Freshness — a visible date/updated marker; fresh content ranks and gets
+    # cited more, and its absence makes a page look stale to readers and AI.
+    if _FRESH_RE.search(html or ""):
+        rows.append(_row("Freshness", "ok", "A visible date / updated marker is present.", "passing"))
+    else:
+        rows.append(_row("Freshness", "info", "No visible published/updated date — readers and AI can't tell how current this is.",
+                         "show a published or last-updated date"))
+
+    # Scannable structure — bullet/numbered lists are easy for readers to skim
+    # and for AI engines to lift as steps/points.
+    if re.search(r"<(ul|ol)\b", low) and "<li" in low:
+        rows.append(_row("Scannable structure", "ok", "Uses lists — scannable and easy for AI to extract as points/steps.", "passing"))
+    else:
+        rows.append(_row("Scannable structure", "info", "No lists — long prose is harder to skim and to lift as bullet points.",
+                         "use bullet/numbered lists for steps, features or comparisons"))
     return rows
+
+
+_FRESH_RE = re.compile(
+    r"<time\b|datetime=|updated|last[\s-]?modified|\b20[12]\d[-/]\d{2}[-/]\d{2}\b"
+    r"|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+20[12]\d\b",
+    re.IGNORECASE)

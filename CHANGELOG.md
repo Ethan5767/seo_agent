@@ -8,6 +8,13 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Content strengthened 3 -> 5 (`pipeline/scanner/content.py`).** Two more
+  info-gain signals DataForSEO doesn't cover: **Freshness** (a visible
+  published/updated date — stale-looking pages lose rank + AI citations) and
+  **Scannable structure** (bullet/numbered lists — skimmable and easy for AI to
+  lift as points/steps). 2 tests.
+
+
 - **AEO strengthened 3 → 6 checks with GEO signals (`pipeline/scanner/audit.py`).**
   Added the evidence-based AI-citation levers (not the dead hype): **Statistics
   and data** (concrete figures — the single biggest citation lever; warns under 3

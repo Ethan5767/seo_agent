@@ -56,6 +56,13 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **YouTube Data v3 video metadata (`pipeline/scanner/youtube.py`).** The Video
+  tool now pulls the six core params (thumbnail, title, description, upload date,
+  duration, URL) for embedded YouTube videos via the YouTube Data API, on top of
+  the existing VideoObject-schema check — so a video with thin/empty metadata is
+  flagged (weak video SEO/AEO), not just missing schema. Pure `parse_videos` +
+  injectable caller; honest skip when no key/quota. 6 tests. Live-verified.
+
 - **Lighthouse (Google) as a Measure tool (`pipeline/scanner/lighthouse.py`).**
   The audit we can trust because it's Google's own engine, via the PageSpeed
   Insights API (Lighthouse in Google's cloud — free, no local Chrome). Surfaces

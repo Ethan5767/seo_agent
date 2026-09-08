@@ -18,11 +18,12 @@ from pipeline.audit import measure
 from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
 from pipeline.scanner import dataforseo
-from pipeline.scanner.extra_checks import tech_rows, video_rows, internal_link_rows
+from pipeline.scanner.extra_checks import tech_rows, internal_link_rows
 from pipeline.scanner import source_audit
 from pipeline.scanner import onpage_audit
 from pipeline.scanner import business_data
 from pipeline.scanner import mentions
+from pipeline.scanner import youtube
 from pipeline.scanner import lighthouse
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.schema_check import schema_rows
@@ -105,7 +106,7 @@ TOOLS = [
     Tool("Content / info-gain", "content", "Content", "free", "free", 0.0, None,
          lambda c: (content_rows(c.html), None, 0.0)),
     Tool("Video", "video", "Content", "free", "free", 0.0, None,
-         lambda c: (video_rows(c.html), None, 0.0)),
+         lambda c: youtube.video_rows_full(c.html, key=os.environ.get("YOUTUBE_API_KEY", ""))),
     Tool("Trust (E-E-A-T)", "eeat", "Trust & E-E-A-T", "free", "free", 0.0, None,
          lambda c: (eeat_rows(c.html), None, 0.0)),
     Tool("AI visibility (AEO)", "aeo", "AEO (AI search)", "free", "free", 0.0, None,

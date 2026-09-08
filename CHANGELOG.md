@@ -16,7 +16,10 @@ see `CLAUDE.md` (the sync contract).
   `findings (user_id, code, created_at)` so the Plan/Monitor ratchet can track
   the same finding over time. `saveScan` now inserts the scan, then bulk-inserts
   its `scan_tools` and `findings` from the streamed tool events (the full audit
-  snapshot still lands on `scans.report`). tsc clean.
+  snapshot still lands on `scans.report`). `scan_tools` also keeps each tool's
+  **complete result rows** in a `result` jsonb (plus an `n_info` count), so every
+  tool's full output is stored per-tool — three ways over: `scans.report` (all
+  together), `scan_tools.result` (per tool), `findings` (per row). tsc clean.
 
 - **Per-tool selection in Measure (checklist replaces the crawl/deep toggles).**
   `pipeline/scanner/server.py`: `TOOLS` is now a `Tool` namedtuple catalog

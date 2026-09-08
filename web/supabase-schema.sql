@@ -48,7 +48,9 @@ create table if not exists public.scan_tools (
   cost        numeric(10,4) not null default 0,        -- $ this tool cost
   n_error     int not null default 0,
   n_warn      int not null default 0,
+  n_info      int not null default 0,
   n_ok        int not null default 0,
+  result      jsonb not null default '[]'::jsonb,      -- this tool's full rows (complete result)
   created_at  timestamptz not null default now()
 );
 

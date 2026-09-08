@@ -57,7 +57,9 @@ export async function saveScan(
 
   const toolRows = done.map((t) => ({
     scan_id, user_id, tool: t.name, status: t.status || "", cost: t.cost || 0,
-    n_error: count(t.rows, "error"), n_warn: count(t.rows, "warn"), n_ok: count(t.rows, "ok"),
+    n_error: count(t.rows, "error"), n_warn: count(t.rows, "warn"),
+    n_info: count(t.rows, "info"), n_ok: count(t.rows, "ok"),
+    result: t.rows || [],   // the tool's complete result, kept per-tool
   }));
   if (toolRows.length) {
     const { error: e2 } = await supabase.from("scan_tools").insert(toolRows);

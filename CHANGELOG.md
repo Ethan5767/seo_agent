@@ -8,6 +8,13 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Affected-page URLs per finding (transparency, part 2).** DataForSEO Site Health
+  findings now carry the **actual URLs** that failed each check (`onpage_audit.
+  parse_onpage_checks` collects them, capped at 25), not just a count. The UI shows
+  an expandable "Show N affected pages" list of clickable URLs per finding — so you
+  can see exactly *which* pages, not just "3 pages". Degrades cleanly when the crawl
+  response has no per-page URL. 2 tests.
+
 - **Per-finding provenance + stage docs (transparency).** Every finding row in the
   UI now shows **where it came from** — `source: DataForSEO / Google Lighthouse /
   Your source code / Google CrUX / Live page analysis · <code>` — decoded from the

@@ -18,6 +18,20 @@ def test_parse_flags_problems_and_counts_pages():
     assert by["SEO-friendly URLs"]["severity"] == "ok"
 
 
+def test_flagged_rows_carry_affected_page_urls():
+    pages = [
+        {"url": "https://x.com/a", "checks": {"no_title": True}},
+        {"url": "https://x.com/b", "checks": {"no_title": True}},
+    ]
+    by = {r["what"]: r for r in parse_onpage_checks(pages)}
+    assert by["Missing title"]["pages"] == ["https://x.com/a", "https://x.com/b"]
+
+
+def test_missing_url_degrades_to_empty_pages():
+    by = {r["what"]: r for r in parse_onpage_checks([{"checks": {"no_title": True}}])}
+    assert by["Missing title"]["pages"] == []  # no url key → still works, just no list
+
+
 def test_clean_pages_no_problem_rows():
     pages = [{"checks": {"is_https": True, "seo_friendly_url": True, "no_title": False}}]
     rows = parse_onpage_checks(pages)

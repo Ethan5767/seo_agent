@@ -5,7 +5,7 @@ import { saveClient, saveScan, lastTwoScansFindings } from "../lib/db";
 import { listRepos } from "../lib/github";
 import { supabase } from "../lib/supabase";
 
-type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string };
+type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string; pages?: string[] };
 type Audit = {
   seo: Row[]; aeo: Row[]; perf: Row[]; tech: Row[]; site: Row[]; rankings: Row[]; keywords: Row[]; ai: Row[]; source: Row[];
   score: number; counts: Record<string, number>; cost?: number;
@@ -74,6 +74,14 @@ function Rows({ list }: { list?: Row[] }) {
                 <div style={{ fontSize: 13, marginTop: 2 }}>
                   <span style={{ color: s.fg, fontWeight: 600 }}>Fix:</span> <span style={{ color: T.ink }}>{r.fix}</span>
                 </div>
+              )}
+              {r.pages && r.pages.length > 0 && (
+                <details style={{ fontSize: 12, marginTop: 3 }}>
+                  <summary style={{ cursor: "pointer", color: s.fg }}>Show {r.pages.length} affected page{r.pages.length > 1 ? "s" : ""}</summary>
+                  <ul style={{ margin: ".3rem 0 0", paddingLeft: "1.1rem", color: T.muted }}>
+                    {r.pages.map((u, j) => <li key={j}><a href={u} target="_blank" rel="noopener" style={{ color: T.accentInk }}>{u}</a></li>)}
+                  </ul>
+                </details>
               )}
               <div style={{ fontSize: 11, color: T.faint, marginTop: 3 }}>
                 source: {sourceOf(r.code)}{r.code ? <> · <code style={{ fontFamily: "monospace" }}>{r.code}</code></> : null}

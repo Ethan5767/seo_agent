@@ -81,18 +81,22 @@ def parse_onpage_checks(pages: list) -> list[dict]:
     with the count of pages affected."""
     counts: dict[str, int] = {}
     ok_flags: dict[str, int] = {}
+    affected: dict[str, list] = {}   # flag -> the actual URLs that failed it
     total = 0
     for p in pages:
         checks = (p or {}).get("checks") or {}
         if not checks:
             continue
         total += 1
+        url = (p or {}).get("url") or (p or {}).get("resource") or ""
         for flag, val in checks.items():
             if flag not in CHECKS:
                 continue
             _l, _w, _f, _sev, bad_when = CHECKS[flag]
             if bool(val) == bad_when and bad_when:
                 counts[flag] = counts.get(flag, 0) + 1
+                if url:
+                    affected.setdefault(flag, []).append(url)
             elif not bad_when:
                 ok_flags[flag] = ok_flags.get(flag, 0) + (1 if val else 0)
     rows = []
@@ -101,7 +105,8 @@ def parse_onpage_checks(pages: list) -> list[dict]:
             n = counts.get(flag, 0)
             if n:
                 rows.append({"code": f"dfs.op.{flag}", "what": label, "why": why,
-                             "fix": fix, "severity": sev, "detail": f"{n} page(s)"})
+                             "fix": fix, "severity": sev, "detail": f"{n} page(s)",
+                             "pages": affected.get(flag, [])[:25]})
         else:
             # good-signal flag: pass row when all crawled pages have it
             if total and ok_flags.get(flag, 0) == total:

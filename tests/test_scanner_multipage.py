@@ -42,6 +42,33 @@ def test_merge_by_code_collects_failing_pages():
     assert by["seo.title"]["detail"] == "2 page(s)"
 
 
+def test_build_report_crawls_and_attributes_pages():
+    from pipeline.scanner import server
+    # 3 pages; /b + /c have no <title> (title missing), homepage has one.
+    pages = {
+        "https://x.com/": '<html><head><title>Home</title></head><body><main><h1>H</h1></main></body></html>',
+        "https://x.com/b": '<html><head></head><body><h1>B</h1></body></html>',
+        "https://x.com/c": '<html><head></head><body><h1>C</h1></body></html>',
+    }
+    sitemap = "<urlset><url><loc>https://x.com/b</loc></url><url><loc>https://x.com/c</loc></url></urlset>"
+
+    def fake_fetch(u):
+        return (pages.get(u, ""), 200, "", sitemap)
+
+    rep = server.build_report("https://x.com/", fetch=fake_fetch, crux=None,
+                              selected={"seo"}, crawl_pages=3)
+    title = next(r for r in rep["seo"] if r["code"] == "health.title_missing")
+    assert set(title["pages"]) == {"https://x.com/b", "https://x.com/c"}  # exact pages
+
+
+def test_build_report_single_page_unchanged():
+    from pipeline.scanner import server
+    fake = lambda u: ('<html><head></head><body></body></html>', 200, "", "")
+    rep = server.build_report("https://x.com/", fetch=fake, crux=None, selected={"seo"}, crawl_pages=1)
+    # single-page: rows have no cross-page `pages` attribution
+    assert all("pages" not in r for r in rep["seo"])
+
+
 def test_merge_all_ok_stays_single_ok_no_pages():
     per_page = [
         ("https://x.com/a", [{"code": "tech.https", "what": "HTTPS", "why": "w", "fix": "f", "severity": "ok"}]),

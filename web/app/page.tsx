@@ -132,6 +132,7 @@ function Scanner() {
     }).catch((e) => console.error("tool catalog fetch failed — is the backend running?", e));
   }, []);
   const [filter, setFilter] = useState<"all" | "error" | "warn" | "ok">("all");
+  const [crawlPages, setCrawlPages] = useState(1);  // free multi-page crawl depth (1 = homepage only)
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<string[]>([]);
   const [phaseLine, setPhaseLine] = useState("");
@@ -177,7 +178,7 @@ function Scanner() {
       const github_token = sess.session?.provider_token || "";  // read-only source lane
       const res = await fetch("/api/scan", {
         method: "POST",
-        body: JSON.stringify({ url, repo, model, tools: [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25 }),
+        body: JSON.stringify({ url, repo, model, tools: [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25, crawl_pages: crawlPages }),
       });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();
@@ -356,6 +357,18 @@ function Scanner() {
             </div>
           );
         })}
+        <div style={{ padding: ".55rem .9rem", borderTop: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: ".5rem", fontSize: 13, color: T.muted }}>
+          <label>Free crawl depth:{" "}
+            <select value={crawlPages} onChange={(e) => setCrawlPages(Number(e.target.value))}
+              style={{ font, fontSize: 13, padding: ".2rem .4rem", borderRadius: 6, border: `1px solid ${T.line}` }}>
+              <option value={1}>this page only</option>
+              <option value={5}>5 pages</option>
+              <option value={10}>10 pages</option>
+              <option value={25}>25 pages</option>
+            </select>
+          </label>
+          <span style={{ color: T.faint }}>runs the free page checks on N pages from the sitemap (still free)</span>
+        </div>
         <div style={{ padding: ".7rem .9rem", display: "flex", justifyContent: "space-between", alignItems: "center", background: T.panel }}>
           <span style={{ color: T.muted, fontSize: 14 }}>{selected.size} of {catalog.length} tools · est <b style={{ color: "#a86710" }}>~${estCost.toFixed(4)}</b></span>
           <button onClick={run} disabled={busy || selected.size === 0}

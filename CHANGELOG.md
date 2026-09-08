@@ -8,6 +8,17 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Free multi-page crawl (`pipeline/scanner/multipage.py`, `build_report`,
+  `web/app/page.tsx`).** The free lane can now audit multiple pages, not just the
+  one URL: `discover_pages` picks homepage + same-origin sitemap/nav URLs (capped,
+  dedup, off-origin dropped); per-page HTML tools (seo, schema, content, video,
+  eeat, internal) run on every crawled page and `merge_by_code` folds them into
+  one row per check with the **failing-page URLs** attached (worst severity wins).
+  Opt-in via a "Free crawl depth" selector (this page / 5 / 10 / 25); default 1 =
+  unchanged single-page. No orphan inference (that caused false results before).
+  Thermo fix: `tech`/`aeo` excluded from per-page (they read site-level
+  robots/sitemap that isn't swapped per page). 7 tests; offline suite green.
+
 - **Error log — failed tools surfaced (`web/app/page.tsx`).** A tool that errors
   (e.g. CrUX HTTP 403, a blocked API) used to be buried in the "what we did" log
   and easy to miss. Now a red banner at the top of the results lists every errored

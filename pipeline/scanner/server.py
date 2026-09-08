@@ -6,6 +6,7 @@ so it is unit-testable with no network.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 from collections import namedtuple
@@ -25,6 +26,7 @@ from pipeline.scanner import business_data
 from pipeline.scanner import mentions
 from pipeline.scanner import youtube
 from pipeline.scanner.plan import build_plan
+from pipeline.scanner.multipage import discover_pages, merge_by_code
 from pipeline.scanner import lighthouse
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.schema_check import schema_rows
@@ -163,6 +165,15 @@ def phase_of(t: Tool) -> int:
     return 1
 
 
+# Pure per-page HTML tools — when a multi-page crawl is on, these run on every
+# crawled page and merge by code. They must read ONLY per-page data (url/html/
+# status). `tech` (reads site-level sitemap) and `aeo` (reads site-level robots)
+# are deliberately excluded: those origin files aren't swapped per page, so
+# running them per-page would repeat the homepage's robots/sitemap on every page.
+# Everything else (CrUX, Lighthouse, DataForSEO, source, validate) runs once.
+PER_PAGE = {"seo", "schema", "content", "video", "eeat", "internal"}
+
+
 def handle_plan(req: dict) -> dict:
     """Plan-stage ratchet over two findings lists — pure, so it's unit-testable
     without the HTTP layer. Bad/absent lists default to empty."""
@@ -182,7 +193,7 @@ def tool_catalog() -> list[dict]:
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                  max_pages=25, keywords=None, selected=None,
                  competitors=None, business="", on_tool=None,
-                 repo="", github_token="") -> dict:
+                 repo="", github_token="", crawl_pages=1) -> dict:
     """Compose the audit by running each selected tool in TOOLS.
     `selected`: a set of tool keys to run, or None = run all. A tool with
     `needs="repo"` is skipped when no repo/token is supplied.
@@ -213,6 +224,29 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     def _wanted(t):
         return (selected is None or t.key in selected) and not (t.needs == "repo" and not source_ok)
 
+    # Free multi-page crawl: homepage + same-origin sitemap/nav URLs. Per-page
+    # tools run on each; everything else runs once on the homepage.
+    extra_pages: list = []
+    if crawl_pages > 1:
+        for pu in discover_pages(url, ctx.sitemap or "", html, limit=crawl_pages)[1:]:
+            pf = fetch(pu)
+            extra_pages.append((pu, pf[0], pf[1]))
+        if extra_pages:
+            log.append(f"Crawled {len(extra_pages) + 1} pages for the free checks.")
+
+    def _run_tool(t):
+        """Run one tool — across all crawled pages (merged) if it's per-page and
+        a crawl is on, else once on the homepage."""
+        if t.key in PER_PAGE and extra_pages:
+            per = [(url, t.run(ctx)[0])]
+            for pu, phtml, pstatus in extra_pages:
+                pctx = copy.copy(ctx)
+                pctx.url, pctx.html, pctx.status = pu, phtml, pstatus
+                per.append((pu, t.run(pctx)[0]))
+            merged = merge_by_code(per)
+            return merged, f"{len(per)} pages checked", 0.0
+        return t.run(ctx)
+
     groups: dict[str, list] = {}
     cost = 0.0
     # Walk phases in order (cheap → paid → source); a phase with no selected
@@ -228,7 +262,7 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         for t in phase_tools:
             if on_tool:
                 on_tool(t.label, "running", [], "", 0.0)
-            rows, tool_status, tool_cost = t.run(ctx)
+            rows, tool_status, tool_cost = _run_tool(t)
             cost += tool_cost
             groups[t.key] = rows
             line = tool_status or _status_line(rows)
@@ -342,6 +376,10 @@ class Handler(BaseHTTPRequestHandler):
             max_pages = max(1, min(int(req.get("max_pages") or 25), 100))
         except (TypeError, ValueError):
             max_pages = 25
+        try:
+            crawl_pages = max(1, min(int(req.get("crawl_pages") or 1), 25))
+        except (TypeError, ValueError):
+            crawl_pages = 1
 
         # Stream newline-delimited JSON: {"log": "..."} events live, then one
         # {"result": {...}} (or {"error": "..."}). The browser renders each event
@@ -369,7 +407,8 @@ class Handler(BaseHTTPRequestHandler):
                                          max_pages=max_pages,
                                          on_tool=on_tool, keywords=profile["keywords"],
                                          competitors=profile["competitors"], business=profile["business"],
-                                         repo=repo, github_token=(req.get("github_token") or ""))}
+                                         repo=repo, github_token=(req.get("github_token") or ""),
+                                         crawl_pages=crawl_pages)}
             if repo:
                 out["cycle"] = run_cycle(Path(repo), url, model, log=log, profile=profile)
             out["log"] = list(log)

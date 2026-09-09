@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-08-10** · 5 packages, 40 modules, 5 workflows, 34 `wf-*` commands, 669 tests.
+**As of 2026-08-10** · 5 packages, 40 modules, 5 workflows, 34 `wf-*` commands · **720 tests** (recounted 2026-09-09, `pytest --collect-only -q`; the other five counts still carry the 2026-08-10 date and have not been re-verified).
 (Counted, not remembered: modules = `.py` under `pipeline/` excluding `__init__.py`;
 commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. Only the test
 count moved on 2026-08-10 — `--recommend` is a flag on an existing command, and

@@ -42,7 +42,7 @@
 #     contents: read
 #   jobs:
 #     health:
-#       uses: Ethan5767/seo_agent/.github/workflows/seo-health.reusable.yml@v3.1.3
+#       uses: Ethan5767/seo_agent/.github/workflows/seo-health.reusable.yml@v3.1.4
 #       with:
 #         domain: "example.com"
 #         critical_pages: "/ /services/ /contact/"
@@ -133,7 +133,7 @@ env:
   # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha
   # (see "Resolve pipeline ref"). Advanced at every tag-cut; self-consistent
   # because the stamp lives IN the versioned file.
-  PIPELINE_REF: "v3.1.3"
+  PIPELINE_REF: "v3.1.4"
   PIPELINE_REPO: "Ethan5767/seo_agent"
 
 jobs:
@@ -249,10 +249,16 @@ jobs:
             size=$(printf '%s' "$body" | wc -c | tr -d ' ')
             [ "$code" = "200" ] || { echo "::error::MONITORING $url -> HTTP $code"; fail=1; continue; }
             [ "$size" -ge 5000 ] || { echo "::error::MONITORING $url only ${size}B (blank shell?)"; fail=1; }
-            printf '%s' "$body" | grep -qi '<title'              || { echo "::error::MONITORING $url missing <title>"; fail=1; }
-            printf '%s' "$body" | grep -qi '<h1'                 || { echo "::error::MONITORING $url missing <h1>"; fail=1; }
-            printf '%s' "$body" | grep -qi 'rel="canonical"'     || { echo "::error::MONITORING $url missing canonical"; fail=1; }
-            printf '%s' "$body" | grep -qi 'application/ld+json' || { echo "::error::MONITORING $url missing JSON-LD schema"; fail=1; }
+            # HERE-STRINGS, NOT PIPES. `printf ... | grep -q` is a false-failure
+            # generator under the `set -o pipefail` above: grep -q exits at the
+            # first match, printf dies of SIGPIPE (141), pipefail hands that 141
+            # back as the pipeline's status, and a page that HAS the tag reports
+            # missing. It is racy on body size, so a different subset of routes
+            # false-failed every night. See B-043.
+            grep -qi '<title'              <<<"$body" || { echo "::error::MONITORING $url missing <title>"; fail=1; }
+            grep -qi '<h1'                 <<<"$body" || { echo "::error::MONITORING $url missing <h1>"; fail=1; }
+            grep -qi 'rel="canonical"'     <<<"$body" || { echo "::error::MONITORING $url missing canonical"; fail=1; }
+            grep -qi 'application/ld+json' <<<"$body" || { echo "::error::MONITORING $url missing JSON-LD schema"; fail=1; }
             echo "MONITORING OK  $url  (HTTP $code, ${size}B)"
           done
 

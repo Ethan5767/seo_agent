@@ -31,6 +31,35 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`seo-health` reported missing `<title>`/`<h1>`/canonical/JSON-LD on pages
+  that had all four, every night, for a week — B-043.** The four tag
+  assertions ran as `printf '%s' "$body" | grep -qi PAT` under the step's
+  `set -uo pipefail`. `grep -q` exits at the first match, the writer then
+  dies of SIGPIPE (bash reports `printf: write error: Broken pipe`), and
+  pipefail hands that non-zero back as the *pipeline's* status — so the
+  `|| { ... fail=1; }` guard fires precisely when the tag IS present. Racy on
+  body size, which is why a different subset of routes failed each night and
+  the pattern read as a flaky site rather than a broken check. Fixed by
+  dropping the pipe: `grep -qi PAT <<<"$body"`. Reproduced against lee's real
+  page bodies on bash 5 (the runner's shell; macOS bash 3.2 does not exhibit
+  it, which is why local testing never caught it):
+
+      $ docker run --rm -v "$PWD:/w" bash:5 bash /w/repro.sh
+      OLD false-fail: /w/about-us.html <title
+      OLD false-fail: /w/about-us.html <h1
+      OLD false-fail: /w/about-us.html rel="canonical"
+      OLD false-fail: /w/about-us.html application/ld+json
+      OLD false-fail: /w/product.html <title
+      OLD false-fail: /w/product.html <h1
+      OLD false-fail: /w/product.html rel="canonical"
+      OLD false-fail: /w/product.html application/ld+json
+      RESULT old=8 new=0
+
+  The same eight are what run 34253833350 on `lee-wave/lee-series-web`
+  reported. `tests/test_no_sigpipe_grep.py` is the guard: it fails on any
+  `| grep -q` inside a workflow that sets `pipefail`, and was confirmed red
+  against the pre-fix file before being confirmed green against the fix.
+
 - **CrUX queried the literal config domain instead of the host Chrome
   actually recorded traffic against — B-041.** Proven live 2026-08-14: bare
   `wikipedia.org` had no CrUX record, `en.wikipedia.org` (the real serving

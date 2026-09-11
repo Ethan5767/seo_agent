@@ -108,14 +108,43 @@ test("the empty remediation table explains why it is empty", () => {
 });
 
 test("all_checks renders through the shared table", () => {
+  // Bound the region by the NEXT sub-tab marker, never by a byte count: a
+  // character-offset window asserts formatting, so one line added above the
+  // table would turn this red with no defect present.
   const start = DASHBOARD.indexOf('auditSubTab === "all_checks"');
   assert.notEqual(start, -1, "the all_checks block is missing");
-  const block = DASHBOARD.slice(start, start + 4000);
-  assert.ok(block.includes("<ReportTable"), "all_checks must use ReportTable");
-  assert.ok(block.includes("<ReportStats"), "all_checks must show the count strip");
+  const end = DASHBOARD.indexOf('auditSubTab === "progress"', start);
+  assert.notEqual(end, -1, "the progress sub-tab marker that bounds all_checks is missing");
+  const block = DASHBOARD.slice(start, end);
+
+  assert.ok(/<ReportTable\b/.test(block), "all_checks must render ReportTable");
+  assert.ok(/<ReportStats\b/.test(block), "all_checks must render ReportStats");
+  assert.ok(
+    /view=\{CHECKS_VIEW\}/.test(block),
+    "all_checks must pass CHECKS_VIEW as the view",
+  );
   assert.equal(
     /const isErr = r\.severity === "error"/.test(block),
     false,
     "bespoke severity row markup must be gone",
+  );
+});
+
+test("a filtered-to-empty all_checks table does not claim there is no data", () => {
+  const start = DASHBOARD.indexOf('auditSubTab === "all_checks"');
+  const end = DASHBOARD.indexOf('auditSubTab === "progress"', start);
+  const block = DASHBOARD.slice(start, end);
+
+  // Rows filtered to nothing is not the same as nothing measured. Handing
+  // ReportTable an empty array renders "No data here yet" plus a button that
+  // starts a scan the operator pays for.
+  assert.ok(
+    /filteredChecks\.length === 0 && allCategoryRows\.length > 0/.test(block),
+    "all_checks must distinguish a filtered-empty table from an unscanned site",
+  );
+  assert.ok(
+    /setAuditCategoryFilter\("all"\)/.test(block) &&
+      /setAuditSeverityFilter\("all"\)/.test(block),
+    "the filtered-empty state must offer a way to clear the filter",
   );
 });

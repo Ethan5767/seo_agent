@@ -6,6 +6,24 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A filtered-to-empty `all_checks` table no longer claims the site was never
+  scanned, or offers a paid scan as the way out.** `ReportTable` renders its
+  "No data here yet" empty state whenever `rows.length === 0`, with no
+  knowledge of why — and the rows the `all_checks` sub-tab hands it are
+  already filtered by the category pill and the severity button. Selecting a
+  zero-count category, or "Passed Only" on a site with no `ok` rows, therefore
+  rendered "No data here yet" plus a "Run an audit" button wired to
+  `onTriggerScan`, which starts a scan the operator pays for. Wrong twice: the
+  data exists, and the offered remedy costs money. When
+  `filteredChecks.length === 0` but `allCategoryRows.length > 0` the sub-tab
+  now renders its own "No Diagnostic Checks Match This Filter" state, naming
+  how many checks did run and offering a Clear Filters button, instead of
+  handing `ReportTable` an empty array. `ReportTable`'s own empty state is
+  unchanged — it remains correct for the genuinely-unscanned case. Guarded by
+  `web/tests/measure.test.mjs`.
+
 ### Removed
 
 - **Fabricated recovery figures removed from the Measure screen's `progress`

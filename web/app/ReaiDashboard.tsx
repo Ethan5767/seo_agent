@@ -7235,13 +7235,55 @@ export function ReaiDashboard({
 
                     {/* Was ~90 lines of bespoke rows and its own search box. */}
                     <ReportStats rows={filteredChecks as any} />
-                    <ReportTable
-                      view={CHECKS_VIEW}
-                      rows={filteredChecks as any}
-                      onRunAudit={() => {
-                        if (onTriggerScan && currentDomain) onTriggerScan(currentDomain);
-                      }}
-                    />
+                    {filteredChecks.length === 0 && allCategoryRows.length > 0 ? (
+                      // Data exists; the filter hid it. ReportTable's empty state
+                      // would say "no data" and offer a paid scan as the way out.
+                      <div
+                        style={{
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--radius-md)",
+                          background: "var(--surface-2)",
+                          padding: "var(--space-5)",
+                          textAlign: "center",
+                        }}
+                      >
+                        <div style={{ fontSize: 13, color: "var(--ink-body)", fontWeight: 600 }}>
+                          No Diagnostic Checks Match This Filter
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: "var(--space-1)" }}>
+                          {allCategoryRows.length} check{allCategoryRows.length === 1 ? "" : "s"} ran on this
+                          site. None of them match the selected category and severity.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuditCategoryFilter("all");
+                            setAuditSeverityFilter("all");
+                          }}
+                          style={{
+                            marginTop: "var(--space-3)",
+                            background: "var(--surface)",
+                            color: "var(--ink-body)",
+                            border: "1px solid var(--border-strong)",
+                            borderRadius: "var(--radius-sm)",
+                            padding: "var(--space-2) var(--space-4)",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Clear Filters
+                        </button>
+                      </div>
+                    ) : (
+                      <ReportTable
+                        view={CHECKS_VIEW}
+                        rows={filteredChecks as any}
+                        onRunAudit={() => {
+                          if (onTriggerScan && currentDomain) onTriggerScan(currentDomain);
+                        }}
+                      />
+                    )}
                   </div>
                 );
               })()}

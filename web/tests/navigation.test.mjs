@@ -273,29 +273,47 @@ test("Language System: Standardized vocabulary enforced across dashboard compone
   }
 });
 
-test("Component Decomposition: Modular dashboard directory structure is complete", () => {
+test("Component Decomposition: every dashboard component is actually rendered", () => {
+  // This used to assert a list of filenames existed. A file existing proves
+  // nothing: six of the components it required rendered nowhere at all, while
+  // the CHANGELOG claimed decomposition had shipped. Asserting that each is
+  // rendered is the property that was actually wanted.
   const compDir = path.join(webDir, "components", "dashboard");
-  const requiredComponents = [
-    "Sidebar.tsx",
-    "Overview.tsx",
-    "PriorityActions.tsx",
-    "SeoFoundations.tsx",
-    "AiSearchVisibility.tsx",
-    "FixReview.tsx",
-    "Reports.tsx",
-    "ToolDirectory.tsx",
-    "ProjectJourney.tsx",
-    "GoogleServicesHub.tsx",
-    "LocalBusinessManager.tsx",
-    "AuditHeroBar.tsx",
-    "types.ts",
-    "index.ts",
-  ];
+  const sources = [
+    fs.readFileSync(path.join(webDir, "app", "ReaiDashboard.tsx"), "utf-8"),
+    fs.readFileSync(path.join(webDir, "app", "ScannerApp.tsx"), "utf-8"),
+    ...fs
+      .readdirSync(compDir)
+      .filter((f) => f.endsWith(".tsx"))
+      .map((f) => fs.readFileSync(path.join(compDir, f), "utf-8")),
+  ].join("\n");
 
-  for (const comp of requiredComponents) {
-    const p = path.join(compDir, comp);
-    assert.ok(fs.existsSync(p), `Required dashboard component ${comp} does not exist`);
-  }
+  // A component file is one exporting a component named after the file.
+  // `primitives.tsx` is a module of shared icons imported by name, not a
+  // component, so it is not expected to appear as `<primitives`.
+  const components = fs
+    .readdirSync(compDir)
+    .filter((f) => f.endsWith(".tsx"))
+    .map((f) => f.replace(/\.tsx$/, ""))
+    .filter((c) => {
+      const src = fs.readFileSync(path.join(compDir, `${c}.tsx`), "utf-8");
+      return new RegExp(`export (function|const) ${c}\\b`).test(src);
+    });
+
+  assert.ok(components.length > 0, "no dashboard components found");
+
+  const dead = components.filter((c) => {
+    // Count renders outside the component's own file.
+    const own = fs.readFileSync(path.join(compDir, `${c}.tsx`), "utf-8");
+    const elsewhere = sources.split(own).join("");
+    return !elsewhere.includes(`<${c}`);
+  });
+
+  assert.deepEqual(
+    dead,
+    [],
+    `these components are rendered nowhere - wire them or delete them: ${dead.join(", ")}`
+  );
 });
 
 test("Google Services Hub: Unified single connect and secondary account options exist", () => {
@@ -336,13 +354,29 @@ test("Privacy & Trust: Personal email address is absent across web codebase", ()
   scanDir(webDir);
 });
 
-test("Tools Directory: Catalog remains populated and accessible", () => {
-  const catalogPath = path.join(webDir, "app", "toolsCatalogData.ts");
-  assert.ok(fs.existsSync(catalogPath), "toolsCatalogData.ts must exist");
-  const content = fs.readFileSync(catalogPath, "utf-8");
-  assert.ok(content.includes("ALL_PLATFORM_TOOLS"), "ALL_PLATFORM_TOOLS export must exist");
-  assert.ok(content.includes("Technical"), "Catalog must include Technical SEO tools");
-  assert.ok(content.includes("AEO & AI"), "Catalog must include AI tools");
+test("Tools Directory: the catalog comes from the scanner, not a fixture", () => {
+  // `app/toolsCatalogData.ts` declared 160 tools in its header, held 148
+  // entries, and was transcribed from a document. No entry carried a key, a
+  // cost, or anything the scanner would recognise, so nothing in it could be
+  // run and nothing said which of the 23 real tools it corresponded to.
+  const fixture = path.join(webDir, "app", "toolsCatalogData.ts");
+  assert.ok(!fs.existsSync(fixture), "the fabricated tool catalog must not return");
+
+  const dashboard = fs.readFileSync(path.join(webDir, "app", "ReaiDashboard.tsx"), "utf-8");
+  assert.ok(
+    !dashboard.includes("ALL_PLATFORM_TOOLS"),
+    "the dashboard must not read the fabricated catalog"
+  );
+  assert.ok(
+    dashboard.includes("fetchTools"),
+    "the directory must read the scanner's own catalog via /api/tools"
+  );
+
+  // The real module exists and is the single source.
+  const lib = path.join(webDir, "lib", "toolCatalog.ts");
+  assert.ok(fs.existsSync(lib), "lib/toolCatalog.ts must exist");
+  const libSrc = fs.readFileSync(lib, "utf-8");
+  assert.ok(libSrc.includes("/api/tools"), "the catalog must be fetched from /api/tools");
 });
 
 test("Local Business Manager: Comprehensive Google profile and maps management is present", () => {

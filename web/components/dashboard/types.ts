@@ -1,5 +1,4 @@
 import type { ClientWithStats, ScanRow, RemediationRow } from "@/lib/db";
-import type { CatalogToolItem } from "@/app/toolsCatalogData";
 
 export type ReaiTab =
   | "Overview"

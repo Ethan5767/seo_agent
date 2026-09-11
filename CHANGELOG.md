@@ -6,6 +6,39 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Removed
+
+- **The fabricated 160-tool catalog (`web/app/toolsCatalogData.ts`, deleted).**
+  Its header declared "160 Specialized Tools", it held 148 entries, and it was
+  transcribed from a document ("Sourced from Measure_Checks.docx"). No entry
+  carried a tool key, a cost, or anything the scanner would recognise, so
+  nothing in it could be run and nothing said which of the real tools it
+  corresponded to. The UI rendered it with a count badge, so the product
+  advertised 160 tools to an operator while owning 23.
+
+  The directory now reads the scanner's own catalog over `GET /api/tools`
+  (`web/lib/toolCatalog.ts`, 8 tests): **23 tools running 115 individual
+  checks across 12 categories**, every one of which executes. Each card shows
+  the checks that tool really runs and what it costs, and the category pills
+  are derived from the scanner's categories rather than a hardcoded list that
+  named "Competitive" and "Remediation" - categories the scanner has never had.
+
+  115 checks is worth claiming precisely because it is true.
+
+- **Six dead components deleted** (~1,900 lines): `Sidebar.tsx`,
+  `ToolDirectory.tsx`, `AiSearchVisibility.tsx`, `FixReview.tsx`,
+  `Reports.tsx`, `SeoFoundations.tsx`. All six rendered nowhere while the
+  CHANGELOG claimed the dashboard had been decomposed into them.
+
+### Changed
+
+- **The decomposition test now asserts components are rendered, not that files
+  exist.** It listed twelve filenames and passed while half of them rendered
+  nowhere - which is how the dead components survived a release. It now walks
+  `components/dashboard/`, finds each file exporting a component named after
+  it, and fails naming any that nothing renders.
+
+
 ### Added
 
 - **The AEO tool now distinguishes citation crawlers from training crawlers

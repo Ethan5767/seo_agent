@@ -3,7 +3,14 @@
 import React, { useState, useMemo, useEffect, useCallback, type ReactNode } from "react";
 import Link from "next/link";
 import type { ClientWithStats, ScanRow, RemediationRow } from "../lib/db";
-import { ALL_PLATFORM_TOOLS, type CatalogToolItem } from "./toolsCatalogData";
+import {
+  fetchTools,
+  summarize,
+  categoriesOf,
+  filterTools,
+  costLabel,
+  type ScannerTool,
+} from "../lib/toolCatalog";
 import { ProjectJourney } from "@/components/dashboard/ProjectJourney";
 import { PriorityActions } from "@/components/dashboard/PriorityActions";
 import type { PriorityItem } from "@/components/dashboard/types";
@@ -3181,23 +3188,27 @@ export function ReaiDashboard({
   }, [selectedOnPageUrl]);
 
   // Filtered tools catalog for 156-engine directory
-  const filteredCatalogTools = useMemo(() => {
-    return ALL_PLATFORM_TOOLS.filter((tool) => {
-      if (toolCatalogCategory !== "All" && tool.category !== toolCatalogCategory) {
-        return false;
-      }
-      if (toolCatalogQuery.trim()) {
-        const q = toolCatalogQuery.toLowerCase();
-        return (
-          tool.name.toLowerCase().includes(q) ||
-          tool.desc.toLowerCase().includes(q) ||
-          tool.category.toLowerCase().includes(q) ||
-          tool.engine.toLowerCase().includes(q)
-        );
-      }
-      return true;
+  // The real catalog, from the scanner itself (GET /api/tools -> the Python
+  // catalog in pipeline/scanner/server.py). This replaced a 148-entry file
+  // whose header claimed 160 tools and which was transcribed from a document:
+  // no entry carried a key, a cost, or anything the scanner would recognise.
+  const [scannerTools, setScannerTools] = useState<ScannerTool[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchTools().then((t) => {
+      if (!cancelled) setScannerTools(t);
     });
-  }, [toolCatalogCategory, toolCatalogQuery]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const catalogSummary = useMemo(() => summarize(scannerTools), [scannerTools]);
+  const catalogCategories = useMemo(() => categoriesOf(scannerTools), [scannerTools]);
+  const filteredCatalogTools = useMemo(
+    () => filterTools(scannerTools, toolCatalogCategory, toolCatalogQuery),
+    [scannerTools, toolCatalogCategory, toolCatalogQuery],
+  );
 
   // Real issues extracted from scan report for the active client
   const allIssues = useMemo(() => {
@@ -10092,22 +10103,23 @@ Sitemap: https://${currentDomain}/sitemap.xml
                     />
                   </div>
                   <span style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>
-                    {filteredCatalogTools.length} of {ALL_PLATFORM_TOOLS.length} tools
+                    {filteredCatalogTools.length} of {catalogSummary.tools} tools · {catalogSummary.checks} checks
                   </span>
                 </div>
 
                 {/* Category Filter Pills */}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", borderTop: "1px solid #edf0f4", paddingTop: 10 }}>
                   {[
-                    { id: "All", label: "All Engines", count: ALL_PLATFORM_TOOLS.length },
-                    { id: "Competitive", label: "Competitive", count: ALL_PLATFORM_TOOLS.filter((t) => t.category === "Competitive").length },
-                    { id: "Keywords", label: "Keywords & SERP", count: ALL_PLATFORM_TOOLS.filter((t) => t.category === "Keywords").length },
-                    { id: "Backlinks", label: "Link Building", count: ALL_PLATFORM_TOOLS.filter((t) => t.category === "Backlinks").length },
-                    { id: "Technical", label: "Technical & Crawl", count: ALL_PLATFORM_TOOLS.filter((t) => t.category === "Technical").length },
-                    { id: "Trust & EEAT", label: "Trust & E-E-A-T", count: ALL_PLATFORM_TOOLS.filter((t) => t.category === "Trust & EEAT").length },
-                    { id: "AEO & AI", label: "AEO & AI Search", count: ALL_PLATFORM_TOOLS.filter((t) => t.category === "AEO & AI").length },
-                    { id: "Local & Reputation", label: "Local & GBP", count: ALL_PLATFORM_TOOLS.filter((t) => t.category === "Local & Reputation").length },
-                    { id: "Remediation", label: "Auto-Fix", count: ALL_PLATFORM_TOOLS.filter((t) => t.category === "Remediation").length },
+                    // Derived from the scanner's own categories, so a pill
+                    // cannot name a category no tool belongs to. The old list
+                    // was hardcoded and included "Competitive" and
+                    // "Remediation", which the scanner has never had.
+                    { id: "All", label: "All", count: catalogSummary.tools },
+                    ...catalogCategories.map((c) => ({
+                      id: c,
+                      label: c,
+                      count: scannerTools.filter((t) => t.category === c).length,
+                    })),
                   ].map((cat) => {
                     const isSelected = toolCatalogCategory === cat.id;
                     return (
@@ -10141,84 +10153,79 @@ Sitemap: https://${currentDomain}/sitemap.xml
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
                 {filteredCatalogTools.map((tool) => (
                   <div
-                    key={tool.id}
+                    key={tool.key}
                     style={{
-                      background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0",
-                      padding: "12px 14px", display: "flex", flexDirection: "column",
+                      background: "var(--surface)",
+                      borderRadius: "var(--radius-md)",
+                      border: "1px solid var(--border)",
+                      padding: "var(--space-3) var(--space-4)",
+                      display: "flex",
+                      flexDirection: "column",
                       justifyContent: "space-between",
+                      gap: "var(--space-3)",
                     }}
                   >
                     <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-2)" }}>
                         <span style={{
                           fontSize: 12, fontWeight: 700, textTransform: "uppercase",
-                          padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em",
-                          background: tool.engine === "DataForSEO" ? "#eff6ff" : tool.engine === "Claude AI" ? "#fdf4ff" : tool.engine === "AEO Engine" ? "#ecfdf5" : "#f1f5f9",
-                          color: tool.engine === "DataForSEO" ? "#2563eb" : tool.engine === "Claude AI" ? "#c026d3" : tool.engine === "AEO Engine" ? "#047857" : "#475569",
-                          border: "1px solid",
-                          borderColor: tool.engine === "DataForSEO" ? "#bfdbfe" : tool.engine === "Claude AI" ? "#f5d0fe" : tool.engine === "AEO Engine" ? "#a7f3d0" : "#e2e8f0",
+                          padding: "2px 6px", borderRadius: "var(--radius-xs)", letterSpacing: "0.03em",
+                          background: "var(--surface-3)", color: "var(--ink-muted)",
+                          border: "1px solid var(--border)",
                         }}>
-                          {tool.engine}
+                          {tool.category}
                         </span>
-
+                        {/* What it costs to run, from the scanner's own catalog.
+                            The old badge showed an invented severity. */}
                         <span style={{
-                          fontSize: 12, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
-                          background: tool.severity === "critical" ? "#fef2f2" : tool.severity === "warning" ? "#fffbeb" : "#f8fafc",
-                          color: tool.severity === "critical" ? "#b91c1c" : tool.severity === "warning" ? "#b45309" : "var(--ink-muted)",
-                          border: "1px solid",
-                          borderColor: tool.severity === "critical" ? "#fecaca" : tool.severity === "warning" ? "#fde68a" : "#e2e8f0",
-                          textTransform: "uppercase",
+                          fontSize: 12, fontWeight: 600, padding: "1px 6px",
+                          borderRadius: "var(--radius-xs)", whiteSpace: "nowrap",
+                          background: tool.group === "dataforseo" ? "var(--warn-tint)" : "var(--ok-tint)",
+                          color: tool.group === "dataforseo" ? "var(--warn)" : "var(--ok)",
+                          border: `1px solid ${tool.group === "dataforseo" ? "var(--warn-border)" : "var(--ok-border)"}`,
                         }}>
-                          {tool.severity}
+                          {costLabel(tool)}
                         </span>
                       </div>
 
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", marginBottom: 4 }}>
-                        {tool.name}
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", marginBottom: "var(--space-1)" }}>
+                        {tool.label}
                       </div>
 
-                      <p style={{ margin: 0, fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.4 }}>
-                        {tool.desc}
+                      {/* The checks this tool really runs, named. The old card
+                          showed a marketing description of a tool that did not
+                          exist. */}
+                      <p style={{ margin: 0, fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.45 }}>
+                        {tool.checks.length} check{tool.checks.length === 1 ? "" : "s"}: {tool.checks.slice(0, 4).join(", ")}
+                        {tool.checks.length > 4 ? `, +${tool.checks.length - 4} more` : ""}
                       </p>
                     </div>
 
-                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #f1f4f8", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "var(--ok)", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-                        <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#10b981" }} />
-                        Active
+                    <div style={{ paddingTop: "var(--space-2)", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-2)" }}>
+                      <span style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 500 }}>
+                        Phase {tool.phase} · {tool.phase_label}
                       </span>
-
-                      <div style={{ display: "flex", gap: 5 }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onTriggerScan) {
-                              onTriggerScan(currentDomain);
-                              setShowScanDrawer(true);
-                            }
-                          }}
-                          style={{
-                            background: "#4f46e5", color: "#ffffff", border: 0,
-                            borderRadius: 5, padding: "4px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                            display: "flex", alignItems: "center", gap: 3,
-                          }}
-                        >
-                          <span>⚡</span> Run
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveTab(tool.targetTab as any);
-                            if (tool.subTab) setAuditSubTab(tool.subTab as any);
-                          }}
-                          style={{
-                            background: "#f8fafc", color: "#475569", border: "1px solid #e2e8f0",
-                            borderRadius: 5, padding: "4px 8px", fontSize: 12, fontWeight: 500, cursor: "pointer",
-                          }}
-                        >
-                          View →
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        disabled={!currentDomain}
+                        title={currentDomain ? undefined : "Select a project first"}
+                        onClick={() => {
+                          if (onTriggerScan && currentDomain) {
+                            onTriggerScan(currentDomain);
+                            setShowScanDrawer(true);
+                          }
+                        }}
+                        style={{
+                          background: currentDomain ? "var(--accent)" : "var(--border-strong)",
+                          color: currentDomain ? "#ffffff" : "var(--ink-muted)",
+                          border: 0, borderRadius: "var(--radius-sm)",
+                          padding: "var(--space-1) var(--space-3)", minHeight: 30,
+                          fontSize: 12, fontWeight: 600,
+                          cursor: currentDomain ? "pointer" : "not-allowed",
+                        }}
+                      >
+                        Run scan
+                      </button>
                     </div>
                   </div>
                 ))}

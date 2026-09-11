@@ -93,8 +93,16 @@ test("no fabricated crawl-to-crawl recovery figures render", () => {
 });
 
 test("the empty remediation table explains why it is empty", () => {
+  // Check that the component conditionally renders based on issueDiffAudit.length === 0,
+  // which guards both the empty state and the actual table. If someone deletes the
+  // empty-state JSX but leaves the comment string, this assertion catches it.
   assert.ok(
-    DASHBOARD.includes("No data here yet"),
-    "the Historical Issue Diff & Remediation Audit Log table needs an empty state when issueDiffAudit is empty",
+    /issueDiffAudit\.length\s*===\s*0\s*\?\s*\(\s*[\s\S]*?No data here yet/.test(DASHBOARD),
+    "must render empty state with 'No data here yet' when issueDiffAudit is empty (check the ternary conditional)",
+  );
+  // Also verify the table rendering branch exists in the same ternary.
+  assert.ok(
+    /issueDiffAudit\.length\s*===\s*0\s*\?[\s\S]*?:\s*\([\s\S]*?\.map\(\s*\(\s*diff/.test(DASHBOARD),
+    "must have a table rendering branch that maps over issueDiffAudit items",
   );
 });

@@ -8,7 +8,7 @@ import { ProjectJourney } from "@/components/dashboard/ProjectJourney";
 import { PriorityActions } from "@/components/dashboard/PriorityActions";
 import type { PriorityItem } from "@/components/dashboard/types";
 import { derivePriorities } from "../lib/priorities";
-import { viewById, rowsForView, ALL_FINDINGS_VIEW } from "../lib/reportViews";
+import { viewById, rowsForView, ALL_FINDINGS_VIEW, CHECKS_VIEW } from "../lib/reportViews";
 import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
@@ -2595,6 +2595,93 @@ export const ROUTE_TO_TAB: Record<string, ReaiTab> = {
   "/tools": "All Tools Directory",
 };
 
+/**
+ * The filter bar above the All Checks table.
+ *
+ * Category grouping and severity are real filters the shared ReportTable does
+ * not provide, so they stay when the rest of that sub-tab moves onto the
+ * shared table. They live here rather than inline so the sub-tab reads as
+ * filter, count strip, table.
+ */
+export type CheckSeverityFilter = "all" | "error" | "warn" | "ok";
+
+export function ChecksFilterBar({
+  categories,
+  rows,
+  category,
+  onCategory,
+  severity,
+  onSeverity,
+}: {
+  categories: Array<{ key: string; label: string }>;
+  rows: Array<{ catKey?: string }>;
+  category: string;
+  onCategory: (key: string) => void;
+  severity: CheckSeverityFilter;
+  onSeverity: (sev: CheckSeverityFilter) => void;
+}) {
+  return (
+    <>
+      {/* Category filter chips */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, borderBottom: "1px solid var(--surface-3)", paddingBottom: 12 }}>
+        {categories.map((cat) => {
+          // The count is a count of the rows themselves, never an estimate.
+          const count = cat.key === "all"
+            ? rows.length
+            : rows.filter((r) => r.catKey === cat.key).length;
+          const isSelected = category === cat.key;
+          return (
+            <button
+              key={cat.key}
+              type="button"
+              onClick={() => onCategory(cat.key)}
+              style={{
+                background: isSelected ? "var(--ink-body)" : "var(--surface-2)",
+                color: isSelected ? "var(--surface)" : "var(--ink-muted)",
+                border: "1px solid", borderColor: isSelected ? "var(--ink-body)" : "var(--border)",
+                borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: isSelected ? 700 : 500,
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span>{cat.label}</span>
+              <span style={{
+                fontSize: 12, padding: "1px 5px", borderRadius: 10,
+                background: isSelected ? "rgba(255,255,255,0.2)" : "var(--border)",
+                color: isSelected ? "var(--surface)" : "var(--ink-muted)",
+              }}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Severity quick filters */}
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["all", "error", "warn", "ok"] as const).map((sev) => (
+            <button
+              key={sev}
+              type="button"
+              onClick={() => onSeverity(sev)}
+              style={{
+                background: severity === sev ? "var(--border)" : "transparent",
+                border: "1px solid", borderColor: severity === sev ? "var(--border-strong)" : "var(--border)",
+                borderRadius: 4, padding: "3px 8px", fontSize: 12, fontWeight: 600,
+                color: sev === "error" ? "var(--bad)" : sev === "warn" ? "var(--warn)" : sev === "ok" ? "var(--ok)" : "var(--ink-muted)",
+                cursor: "pointer", textTransform: "capitalize",
+              }}
+            >
+              {sev === "all" ? "All Severities" : sev === "ok" ? "Passed Only" : `${sev}s`}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function ReaiDashboard({
   clients,
   selectedClient,
@@ -2699,7 +2786,6 @@ export function ReaiDashboard({
   }, []);
   const [auditSubTab, setAuditSubTab] = useState<"summary" | "all_checks" | "progress" | "remediation">("summary");
   const [auditCategoryFilter, setAuditCategoryFilter] = useState<string>("all");
-  const [auditSearchQuery, setAuditSearchQuery] = useState<string>("");
   const [auditSeverityFilter, setAuditSeverityFilter] = useState<"all" | "error" | "warn" | "ok">("all");
   const [dryRunActive, setDryRunActive] = useState<boolean>(false);
   const [applyConfirmed, setApplyConfirmed] = useState<boolean>(false);
@@ -7100,29 +7186,12 @@ export function ReaiDashboard({
                   rows.forEach((r) => allCategoryRows.push({ ...r, catKey: ck }));
                 });
 
-                if (allCategoryRows.length === 0) {
-                  const defaultChecks: any[] = [
-                    // Was 19 hardcoded rows that rendered as passed checks,
-                    // asserting TLS, HSTS, mixed-content and AI-crawler posture
-                    // that nothing measured. Real passes come from the scanner:
-                    // audit.py emits an "ok" severity row for every check that
-                    // passes, so a measured pass already reaches this screen.
-                  ];
-                  defaultChecks.forEach((d) => allCategoryRows.push(d));
-                }
+                // An empty report stays empty. A real pass is an "ok" row from
+                // audit.py; the 19 hardcoded ones that were here measured nothing.
 
                 const filteredChecks = allCategoryRows.filter((r) => {
                   if (auditCategoryFilter !== "all" && r.catKey !== auditCategoryFilter) return false;
                   if (auditSeverityFilter !== "all" && r.severity !== auditSeverityFilter) return false;
-                  if (auditSearchQuery.trim()) {
-                    const q = auditSearchQuery.toLowerCase();
-                    return (
-                      (r.what && r.what.toLowerCase().includes(q)) ||
-                      (r.why && r.why.toLowerCase().includes(q)) ||
-                      (r.fix && r.fix.toLowerCase().includes(q)) ||
-                      (r.code && r.code.toLowerCase().includes(q))
-                    );
-                  }
                   return true;
                 });
 
@@ -7134,34 +7203,10 @@ export function ReaiDashboard({
                           Complete Technical Checks & Graded Rules
                         </h4>
                         <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                          Granular pass/fail verification across all 6 technical pillars for <b>{currentDomain}</b>
+                          Every check that ran on <b>{currentDomain}</b>, passes included.
                         </div>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ position: "relative" }}>
-                          <input
-                            type="text"
-                            value={auditSearchQuery}
-                            onChange={(e) => setAuditSearchQuery(e.target.value)}
-                            placeholder="Filter checks or rules..."
-                            style={{
-                              border: "1px solid var(--border-strong)", borderRadius: 6, padding: "5px 10px",
-                              fontSize: 12, width: 200, outline: "none",
-                            }}
-                          />
-                          {auditSearchQuery && (
-                            <button
-                              type="button"
-                              onClick={() => setAuditSearchQuery("")}
-                              style={{
-                                position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
-                                background: "none", border: 0, color: "var(--ink-muted)", cursor: "pointer", fontSize: 12,
-                              }}
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
                         <button
                           type="button"
                           onClick={() => {
@@ -7179,142 +7224,24 @@ export function ReaiDashboard({
                       </div>
                     </div>
 
-                    {/* Category Filter Chips */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, borderBottom: "1px solid var(--surface-3)", paddingBottom: 12 }}>
-                      {categoryList.map((cat) => {
-                        const count = cat.key === "all"
-                          ? allCategoryRows.length
-                          : allCategoryRows.filter((r) => r.catKey === cat.key).length;
-                        const isSelected = auditCategoryFilter === cat.key;
-                        return (
-                          <button
-                            key={cat.key}
-                            type="button"
-                            onClick={() => setAuditCategoryFilter(cat.key)}
-                            style={{
-                              background: isSelected ? "var(--ink-body)" : "var(--surface-2)",
-                              color: isSelected ? "var(--surface)" : "#475569",
-                              border: "1px solid", borderColor: isSelected ? "var(--ink-body)" : "var(--border)",
-                              borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: isSelected ? 700 : 500,
-                              cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
-                              transition: "all 0.15s ease",
-                            }}
-                          >
-                            <span>{cat.label}</span>
-                            <span style={{
-                              fontSize: 12, padding: "1px 5px", borderRadius: 10,
-                              background: isSelected ? "rgba(255,255,255,0.2)" : "var(--border)",
-                              color: isSelected ? "var(--surface)" : "var(--ink-muted)",
-                            }}>
-                              {count}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <ChecksFilterBar
+                      categories={categoryList}
+                      rows={allCategoryRows}
+                      category={auditCategoryFilter}
+                      onCategory={setAuditCategoryFilter}
+                      severity={auditSeverityFilter}
+                      onSeverity={setAuditSeverityFilter}
+                    />
 
-                    {/* Severity quick filters */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                      <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                        Showing <b>{filteredChecks.length}</b> of {allCategoryRows.length} diagnostic checks
-                      </div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        {(["all", "error", "warn", "ok"] as const).map((sev) => (
-                          <button
-                            key={sev}
-                            type="button"
-                            onClick={() => setAuditSeverityFilter(sev)}
-                            style={{
-                              background: auditSeverityFilter === sev ? "var(--border)" : "transparent",
-                              border: "1px solid", borderColor: auditSeverityFilter === sev ? "var(--border-strong)" : "var(--border)",
-                              borderRadius: 4, padding: "3px 8px", fontSize: 12, fontWeight: 600,
-                              color: sev === "error" ? "#b91c1c" : sev === "warn" ? "#b45309" : sev === "ok" ? "#047857" : "#475569",
-                              cursor: "pointer", textTransform: "capitalize",
-                            }}
-                          >
-                            {sev === "all" ? "All Severities" : sev === "ok" ? "Passed Only" : `${sev}s`}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Filtered Checks List */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {filteredChecks.map((r, i) => {
-                        const isErr = r.severity === "error";
-                        const isWarn = r.severity === "warn";
-                        const isPass = r.severity === "ok";
-                        return (
-                          <div
-                            key={i}
-                            style={{
-                              display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-                              padding: "10px 14px", borderRadius: 8,
-                              background: isErr ? "var(--bad-tint)" : isWarn ? "var(--warn-tint)" : "var(--surface-2)",
-                              border: "1px solid",
-                              borderColor: isErr ? "var(--bad-border)" : isWarn ? "var(--warn-border)" : "#edf0f4",
-                              fontSize: 12,
-                            }}
-                          >
-                            <div style={{ flex: 1, paddingRight: 16 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                                <span style={{
-                                  fontSize: 12, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
-                                  background: "#e0e7ff", color: "#4338ca", textTransform: "uppercase",
-                                }}>
-                                  {r.catKey}
-                                </span>
-                                <b style={{ color: "var(--ink-body)", fontSize: 12.5 }}>{r.what}</b>
-                                {r.code && <span style={{ fontSize: 12, color: "var(--ink-muted)", fontFamily: "monospace" }}>[{r.code}]</span>}
-                              </div>
-                              <div style={{ color: "var(--ink-muted)", fontSize: 12, lineHeight: 1.4 }}>{r.why}</div>
-                              {r.fix && !isPass && (
-                                <div style={{
-                                  marginTop: 6, padding: "6px 10px", borderRadius: 6,
-                                  background: isErr ? "#fee2e2" : "#fef3c7",
-                                  border: `1px solid ${isErr ? "#fca5a5" : "#fcd34d"}`,
-                                  color: isErr ? "#991b1b" : "#92400e", fontSize: 12,
-                                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                                }}>
-                                  <div>
-                                    <b>Recommended Fix:</b> {r.fix}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveTab("Auto-Fix Engine");
-                                      if (planState && !planState.plan?.worklist) planState.runPlan();
-                                    }}
-                                    style={{
-                                      background: "var(--accent)", color: "#fff", border: 0, borderRadius: 4,
-                                      padding: "3px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                                      whiteSpace: "nowrap", marginLeft: 10, display: "inline-flex", alignItems: "center", gap: 4,
-                                    }}
-                                  >
-                                    <IconTerminal size={11} /> Fix in Repo
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                            <span style={{
-                              fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: 4,
-                              background: isPass ? "var(--ok-tint)" : isWarn ? "var(--warn-tint)" : "var(--bad-tint)",
-                              color: isPass ? "#047857" : isWarn ? "#b45309" : "#b91c1c",
-                              border: "1px solid",
-                              borderColor: isPass ? "var(--ok-border)" : isWarn ? "var(--warn-border)" : "var(--bad-border)",
-                              flexShrink: 0,
-                            }}>
-                              {isPass ? "✓ PASSED" : r.severity.toUpperCase()}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {filteredChecks.length === 0 && (
-                        <div style={{ padding: "30px 0", textAlign: "center", color: "var(--ink-muted)", fontSize: 12.5 }}>
-                          No diagnostic checks matching your selected filter and query.
-                        </div>
-                      )}
-                    </div>
+                    {/* Was ~90 lines of bespoke rows and its own search box. */}
+                    <ReportStats rows={filteredChecks as any} />
+                    <ReportTable
+                      view={CHECKS_VIEW}
+                      rows={filteredChecks as any}
+                      onRunAudit={() => {
+                        if (onTriggerScan && currentDomain) onTriggerScan(currentDomain);
+                      }}
+                    />
                   </div>
                 );
               })()}

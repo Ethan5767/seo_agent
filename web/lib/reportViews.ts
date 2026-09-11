@@ -277,6 +277,23 @@ export const ALL_FINDINGS_VIEW: ReportView = {
   emptyHint: "Run an audit to populate this. The on-page, technical and AI checks are free.",
 };
 
+/**
+ * The "All Checks" sub-tab: every row the scan produced, passes included.
+ *
+ * Distinct from ALL_FINDINGS_VIEW, which shows only problems. This one keeps
+ * "ok" rows so an operator can see what was checked and passed, which is the
+ * whole point of the sub-tab. Like ALL_FINDINGS_VIEW it is not in
+ * REPORT_VIEWS: it claims no codes and has no nav entry of its own.
+ */
+export const CHECKS_VIEW: ReportView = {
+  id: "all-checks",
+  label: "All Checks",
+  codes: [],
+  blurb: "Every check that ran on this scan, passes included.",
+  columns: FINDING_COLUMNS,
+  emptyHint: "Run an audit to populate this. The on-page, technical and AI checks are free.",
+};
+
 export function viewById(id: string): ReportView | undefined {
   return REPORT_VIEWS.find((v) => v.id === id);
 }

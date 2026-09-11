@@ -106,3 +106,16 @@ test("the empty remediation table explains why it is empty", () => {
     "must have a table rendering branch that maps over issueDiffAudit items",
   );
 });
+
+test("all_checks renders through the shared table", () => {
+  const start = DASHBOARD.indexOf('auditSubTab === "all_checks"');
+  assert.notEqual(start, -1, "the all_checks block is missing");
+  const block = DASHBOARD.slice(start, start + 4000);
+  assert.ok(block.includes("<ReportTable"), "all_checks must use ReportTable");
+  assert.ok(block.includes("<ReportStats"), "all_checks must show the count strip");
+  assert.equal(
+    /const isErr = r\.severity === "error"/.test(block),
+    false,
+    "bespoke severity row markup must be gone",
+  );
+});

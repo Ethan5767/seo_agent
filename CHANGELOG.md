@@ -67,6 +67,32 @@ see `CLAUDE.md` (the sync contract).
 
 ### Changed
 
+- **The Measure screen's `all_checks` sub-tab now renders through the shared
+  report table (`web/app/ReaiDashboard.tsx`, `web/lib/reportViews.ts`).** It
+  carried its own search box (`auditSearchQuery`) and ~90 lines of bespoke row
+  markup with `isErr`/`isWarn`/`isPass` branches — the second findings table in
+  the product, and the one without sort or pagination. It now uses
+  `ReportStats` + `ReportTable` against a new `CHECKS_VIEW`, which is
+  `ALL_FINDINGS_VIEW`'s sibling: no codes, no nav entry, and it keeps "ok" rows
+  so passes stay visible. The category pills and the severity quick filters are
+  a real grouping the shared table does not provide, so they stay, moved into
+  `ChecksFilterBar` beside the dashboard's other local components. Two figures
+  that asserted measurement went with the bespoke markup: the "Showing N of M
+  diagnostic checks" strip (`ReportStats` counts the rows themselves) and a
+  blurb reading "Granular pass/fail verification across all 6 technical
+  pillars", which named six pillars over a list of eight. Dead code for the 19
+  removed hardcoded rows was deleted; the comment recording why they went
+  stays. Guarded by `web/tests/measure.test.mjs` (7 tests).
+
+  ```
+  $ cd web && node --test tests/*.test.mjs
+  ℹ tests 85
+  ℹ pass 85
+  ℹ fail 0
+  $ npx tsc --noEmit
+  TypeScript: No errors found
+  ```
+
 - **SEO section expanded to match a competitor's depth, backed by real data
   (`web/lib/reportViews.ts`).** The SEO drawer had 4 entries where Semrush's has
   18. The scanner already emits **25 distinct row codes** on every run, but they

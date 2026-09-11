@@ -7327,61 +7327,13 @@ export function ReaiDashboard({
                   // empty list is the honest answer.
                 ];
 
-                const issueDiffAudit = [
-                  {
-                    code: "meta.title_missing",
-                    category: "SEO Architecture",
-                    baseline: "3 Pages Missing Title",
-                    current: "✓ All 25 Pages Optimized",
-                    impact: "Critical Blocker",
-                    fixAction: "Auto-injected Next.js 14 Metadata API in app/layout.tsx & page.tsx",
-                    status: "Resolved",
-                  },
-                  {
-                    code: "schema.missing",
-                    category: "Structured Data",
-                    baseline: "0 Valid Schemas Detected",
-                    current: "✓ Hospital & Physician JSON-LD",
-                    impact: "High Impact",
-                    fixAction: "Deployed Schema.org JSON-LD with geo-coordinates and phone hotline",
-                    status: "Resolved",
-                  },
-                  {
-                    code: "tech.canonical_chain",
-                    category: "Crawl & Indexing",
-                    baseline: "2 Circular 301 Chains",
-                    current: "✓ Zero Canonical Loops",
-                    impact: "Critical Blocker",
-                    fixAction: "Normalized trailing slashes and self-referencing canonicals",
-                    status: "Resolved",
-                  },
-                  {
-                    code: "aeo.llms_txt_missing",
-                    category: "AEO & LLM Search",
-                    baseline: "404 Not Found (/llms.txt)",
-                    current: "✓ 200 OK (Knowledge Graph)",
-                    impact: "High Impact",
-                    fixAction: "Generated markdown knowledge graph for Perplexity and ChatGPT crawlers",
-                    status: "Resolved",
-                  },
-                  {
-                    code: "content.tfidf_entity_gap",
-                    category: "Content Depth",
-                    baseline: "-710 Word Count Deficit",
-                    current: "✓ Medical Entities Injected",
-                    impact: "Medium Impact",
-                    fixAction: "",
-                    status: "Resolved",
-                  },
-                  {
-                    code: "perf.cls_cumulative_shift",
-                    category: "Core Web Vitals",
-                    baseline: "CLS 0.18 (Poor)",
-                    current: "✓ CLS 0.02 (Good - CrUX)",
-                    impact: "Google Ranking Factor",
-                    fixAction: "Added explicit width/height attributes to responsive hero banners",
-                    status: "Resolved",
-                  },
+                const issueDiffAudit: any[] = [
+                  // Was six entries, every one status: "Resolved", describing
+                  // fixes that never ran (including "Auto-injected Next.js 14
+                  // Metadata API in app/layout.tsx & page.tsx"). Real applied
+                  // fixes live in the cycle's changelog.json, written by
+                  // wf-site-remediate; this screen does not read it yet, so it
+                  // shows nothing rather than a convincing fake.
                 ];
 
                 return (

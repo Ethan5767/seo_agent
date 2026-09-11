@@ -16,6 +16,13 @@ see `CLAUDE.md` (the sync contract).
   emits an "ok" row for every check that passes. Guarded by
   `web/tests/measure.test.mjs`.
 
+- **Six fabricated "Resolved" remediations removed from the Measure screen.**
+  The `progress` sub-tab rendered invented fix records, one claiming
+  "Auto-injected Next.js 14 Metadata API in app/layout.tsx & page.tsx". No
+  such fix ran. Applied fixes are recorded in the cycle's `changelog.json` by
+  `wf-site-remediate`; this screen does not read it yet, so it now shows
+  nothing. Guarded by `web/tests/measure.test.mjs`.
+
 - **All remaining hardcoded data in the dashboard.** Following the earlier pass,
   a second sweep removed every fabricated figure. Counted over
   `web/app/ReaiDashboard.tsx` and `web/components`:

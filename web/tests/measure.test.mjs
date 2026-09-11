@@ -50,3 +50,25 @@ test("check rows are built only from the report", () => {
     "an inline check-row literal is present; rows must be derived from the report",
   );
 });
+
+test("no remediation is reported as applied without evidence", () => {
+  const fixtures = [
+    "Auto-injected Next.js 14 Metadata API",
+    "All 25 Pages Optimized",
+    "3 Pages Missing Title",
+  ];
+  for (const f of fixtures) {
+    assert.ok(
+      !DASHBOARD.includes(f),
+      `'${f}' claims a fix was applied that never ran`,
+    );
+  }
+});
+
+test("the progress sub-tab derives its entries, with no inline literal", () => {
+  assert.equal(
+    /const issueDiffAudit = \[\s*\{/.test(DASHBOARD),
+    false,
+    "issueDiffAudit must not be an inline literal of invented remediations",
+  );
+});

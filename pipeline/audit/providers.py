@@ -82,6 +82,9 @@ SERP_REACHABLE_MAX = 30         # beyond this the fix is content, not copy
 
 def _request(url: str, payload=None, headers=None, timeout: int = 45):
     """(json, error). Never raises: a provider that is down is a skip, not a crash."""
+    # Strict zero-spend safety: block outbound network requests to paid vendor endpoints
+    if "api.dataforseo.com" in url or "api.brightdata.com" in url:
+        return None, "PAID_API_SPEND_FROZEN: live paid network requests disabled to guarantee $0.00 spend"
     data = json.dumps(payload).encode() if payload is not None else None
     hdrs = {"Content-Type": "application/json", **(headers or {})}
     req = urllib.request.Request(url, data=data, headers=hdrs,

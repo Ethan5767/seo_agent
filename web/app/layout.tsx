@@ -1,12 +1,22 @@
+import "./tokens.css";
+
 export const metadata = {
-  title: "SEO/AEO Pipeline — Scan",
-  description: "Audit a URL for SEO, AEO, and performance; fix it or brief it.",
+  title: "REAI — SEO Intelligence Platform",
+  description: "REAI Enterprise SEO Intelligence & Competitive Research",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ font: "15px system-ui", maxWidth: 820, margin: "2rem auto", padding: "0 1rem", color: "#111" }}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body>
         {children}
       </body>
     </html>

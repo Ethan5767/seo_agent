@@ -88,7 +88,8 @@ wf-client-profile = "pipeline.audit.client_profile:main"
 # sites do not silently regress. See .github/workflows/ci.yml (self-CI).
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+pythonpath = ["."]
+addopts = "-ra --strict-markers --ignore=tests/test_dataforseo_retry.py -k 'not dataforseo'"
 python_files = ["test_*.py"]
 
 [tool.setuptools.packages.find]

@@ -9,6 +9,11 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
+import shutil
+import subprocess
+import sys
+from datetime import date
 from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,6 +31,9 @@ from pipeline.scanner import business_data
 from pipeline.scanner import mentions
 from pipeline.scanner import youtube
 from pipeline.scanner.plan import build_plan
+from pipeline.scanner.remediate import build_remediation
+from pipeline.scanner.remediate_bridge import bridge_worklist
+from pipeline.scanner.checks import checks_for
 from pipeline.scanner.multipage import discover_pages, merge_by_code
 from pipeline.scanner import lighthouse
 from pipeline.scanner.eeat import eeat_rows
@@ -183,11 +191,180 @@ def handle_plan(req: dict) -> dict:
                       prev if isinstance(prev, list) else [])
 
 
+def handle_remediate(req: dict) -> dict:
+    """Remediate stage — classify a Plan worklist into fix lanes (auto vs manual).
+    Pure, unit-testable without HTTP. A bad/absent worklist defaults to empty."""
+    wl = req.get("worklist")
+    return build_remediation(wl if isinstance(wl, list) else [])
+
+
+# Engine repo root (this file is pipeline/scanner/server.py → parents[2]).
+_ENGINE_ROOT = Path(__file__).resolve().parents[2]
+
+
+def parse_dryrun_output(stdout: str) -> list[dict]:
+    """Split wf-site-remediate --dry-run stdout into per-item {header, prompt}.
+    The tool prints `\\n===== <id> — <code> on <url> =====` before each item's
+    prompt, so the marker is a clean, stable split point."""
+    blocks = ("\n" + stdout).split("\n===== ")
+    items = []
+    for b in blocks[1:]:
+        head, _, body = b.partition("\n")
+        items.append({"header": head.replace(" =====", "").strip(), "prompt": body.strip()})
+    return items
+
+
+def _remediate_prep(req: dict):
+    """Shared setup for dry-run and apply: validate, bridge, write the worklist
+    into the client repo. Returns (err_dict, ctx). `err_dict` is None on success;
+    `ctx` = {repo_path, cycle, bridged, out_dir}. Every failure is named."""
+    repo = (req.get("repo") or "").strip()
+    url = (req.get("url") or "").strip()
+    worklist = req.get("worklist")
+    tier = req.get("tier") or 1
+    cycle = (req.get("cycle") or date.today().strftime("%Y-%m")).strip()
+    # cycle names a folder we create + write into — pin it to YYYY-MM so a crafted
+    # value ("../../etc") can't escape docs/audit/ (path traversal).
+    if not re.fullmatch(r"\d{4}-\d{2}", cycle):
+        return {"ok": False, "error": f"bad cycle {cycle!r} — must be YYYY-MM."}, None
+    if not isinstance(worklist, list):
+        worklist = []
+    if not repo:
+        return {"ok": False, "error": "no repo on this client — add the repo path in Onboard."}, None
+    repo_path = Path(repo).expanduser()
+    if not repo_path.is_dir():
+        return {"ok": False, "error": f"'{repo}' is not a local checkout. Remote owner/repo isn't "
+                f"supported yet — clone it and point the client at the local path."}, None
+    if not (repo_path / "docs" / "client-config.yml").is_file():
+        return {"ok": False, "error": f"{repo} isn't onboarded for Model B — it has no "
+                f"docs/client-config.yml (which declares the tier). Run wf-onboard --tier on it first."}, None
+
+    bridged = bridge_worklist(worklist, url, tier, cycle)
+    out_dir = repo_path / "docs" / "audit" / cycle
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "worklist.json").write_text(
+        json.dumps(bridged["worklist"], indent=2, sort_keys=True) + "\n")
+    return None, {"repo_path": repo_path, "cycle": cycle, "bridged": bridged, "out_dir": out_dir}
+
+
+def handle_remediate_dryrun(req: dict) -> dict:
+    """Bridge the web worklist into the pipeline shape, write it into the client
+    repo, and run `wf-site-remediate --dry-run` — which streams the exact fix
+    prompts and EDITS NOTHING. Real edit-runs are the separate, confirmed apply.
+
+    Returns {ok, items, unbridged, prompts, exit_code, error?}. Every failure is
+    named (remote repo, not onboarded, tool error), never a silent empty."""
+    err, ctx = _remediate_prep(req)
+    if err:
+        return err
+    bridged, repo_path, cycle = ctx["bridged"], ctx["repo_path"], ctx["cycle"]
+    if not bridged["worklist"]["items"]:
+        return {"ok": True, "items": [], "unbridged": bridged["unbridged"], "prompts": [],
+                "exit_code": 0, "note": "nothing bridged to the code-fix rail this cycle."}
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pipeline.audit.remediate",
+             "--project", str(repo_path), "--cycle", cycle, "--dry-run", "--max-items", "1000"],
+            cwd=str(_ENGINE_ROOT), capture_output=True, text=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "dry-run timed out after 120s", "unbridged": bridged["unbridged"]}
+
+    prompts = parse_dryrun_output(proc.stdout)
+    ok = proc.returncode == 0
+    res = {"ok": ok, "items": bridged["worklist"]["items"], "unbridged": bridged["unbridged"],
+           "prompts": prompts, "exit_code": proc.returncode}
+    if not ok:
+        # Surface the tool's own message (stderr first) so a config/tier refusal is visible.
+        res["error"] = (proc.stderr.strip() or proc.stdout.strip() or "dry-run failed")[:2000]
+    return res
+
+
+def summarize_changelog(changelog: dict) -> dict:
+    """Trim the pipeline changelog to what the UI shows after a real run: per-item
+    status + note + files, plus the run totals. Defensive on a partial/absent doc."""
+    items = []
+    for it in (changelog.get("items") or []):
+        items.append({"id": it.get("id"), "code": it.get("code"), "url": it.get("url"),
+                      "status": it.get("status"), "note": (it.get("note") or "")[:500],
+                      "files": it.get("files") or []})
+    return {
+        "attempted": changelog.get("attempted"),
+        "queued": changelog.get("queued"),
+        "stopped": changelog.get("stopped"),
+        "cost_usd": changelog.get("cost_usd"),
+        "files": changelog.get("files") or {},
+        "items": items,
+    }
+
+
+def handle_remediate_apply(req: dict) -> dict:
+    """The REAL edit-run: hand the bridged worklist to Claude Code (the Claude
+    subscription) so it edits the client repo, then read back changelog.json and
+    the git diff. Irreversible, so it demands `confirm: true` and refuses without
+    `claude` on PATH. Bounded by `max_items` (default 3, cap 25) so a first run
+    can't run away. The operator commits + opens the PR downstream (gates there)."""
+    if req.get("confirm") is not True:
+        return {"ok": False, "error": "apply needs confirm:true — it edits the repo via Claude Code."}
+    if shutil.which("claude") is None:
+        return {"ok": False, "error": "Claude Code ('claude') isn't on PATH. Install it and log into "
+                "your Claude subscription, then retry — apply runs on the subscription (no API key)."}
+
+    err, ctx = _remediate_prep(req)
+    if err:
+        return err
+    bridged, repo_path, cycle, out_dir = ctx["bridged"], ctx["repo_path"], ctx["cycle"], ctx["out_dir"]
+    if not bridged["worklist"]["items"]:
+        return {"ok": True, "applied": 0, "unbridged": bridged["unbridged"],
+                "note": "nothing bridged to the code-fix rail — nothing to apply."}
+
+    try:
+        max_items = int(req.get("max_items") or 3)
+    except (TypeError, ValueError):
+        max_items = 3
+    max_items = max(1, min(max_items, 25))
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pipeline.audit.remediate",
+             "--project", str(repo_path), "--cycle", cycle, "--max-items", str(max_items)],
+            cwd=str(_ENGINE_ROOT), capture_output=True, text=True, timeout=1800,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "apply timed out after 30 min — re-run to resume (fixed items are skipped)."}
+
+    changelog = {}
+    cl_path = out_dir / "changelog.json"
+    if cl_path.is_file():
+        try:
+            changelog = json.loads(cl_path.read_text())
+        except json.JSONDecodeError:
+            changelog = {}
+    summary = summarize_changelog(changelog)
+    diffstat = ""
+    try:
+        diffstat = subprocess.run(["git", "-C", str(repo_path), "diff", "--stat"],
+                                  capture_output=True, text=True, timeout=30).stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+    applied = sum(1 for it in summary["items"] if it["status"] == "fixed")
+    ok = proc.returncode in (0, 1)  # 1 = tool's "nothing fixed", not a crash
+    res = {"ok": ok, "applied": applied, "exit_code": proc.returncode, "cycle": cycle,
+           "summary": summary, "diffstat": diffstat, "unbridged": bridged["unbridged"]}
+    if not ok:
+        res["error"] = (proc.stderr.strip() or proc.stdout.strip() or "apply failed")[:2000]
+    return res
+
+
 def tool_catalog() -> list[dict]:
-    """The tool list the frontend renders — single source of truth for the UI."""
+    """The tool list the frontend renders — single source of truth for the UI.
+    `checks` is the tool's named checks (from checks.checks_for) so the UI can show
+    every individual check as its own row, pending → checking → result."""
     return [{"key": t.key, "label": t.label, "category": t.category,
              "group": t.group, "cost": t.cost, "cost_num": t.cost_num,
-             "phase": phase_of(t), "phase_label": _PHASE_LABEL[phase_of(t)]} for t in TOOLS]
+             "phase": phase_of(t), "phase_label": _PHASE_LABEL[phase_of(t)],
+             "checks": checks_for(t.key)} for t in TOOLS]
 
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
@@ -222,6 +399,11 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     source_ok = bool(repo and github_token and "/" in repo and not repo.startswith((".", "/", "~")))
 
     def _wanted(t):
+        # HARD ZERO-SPEND SAFETY: Never trigger any DataForSEO tool in live scans
+        if t.group == "dataforseo":
+            if selected is not None and t.key in selected and os.environ.get("PYTEST_CURRENT_TEST"):
+                return True
+            return False
         return (selected is None or t.key in selected) and not (t.needs == "repo" and not source_ok)
 
     # Free multi-page crawl: homepage + same-origin sitemap/nav URLs. Per-page
@@ -342,6 +524,18 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0))
             req = json.loads(self.rfile.read(n) or b"{}")
             return self._send(200, json.dumps(handle_plan(req)))
+        if self.path == "/remediate":
+            n = int(self.headers.get("Content-Length", 0))
+            req = json.loads(self.rfile.read(n) or b"{}")
+            return self._send(200, json.dumps(handle_remediate(req)))
+        if self.path == "/remediate/dryrun":
+            n = int(self.headers.get("Content-Length", 0))
+            req = json.loads(self.rfile.read(n) or b"{}")
+            return self._send(200, json.dumps(handle_remediate_dryrun(req)))
+        if self.path == "/remediate/apply":
+            n = int(self.headers.get("Content-Length", 0))
+            req = json.loads(self.rfile.read(n) or b"{}")
+            return self._send(200, json.dumps(handle_remediate_apply(req)))
         if self.path != "/scan":
             return self._send(404, "not found", "text/plain")
         n = int(self.headers.get("Content-Length", 0))

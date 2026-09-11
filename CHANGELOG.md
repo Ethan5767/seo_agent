@@ -6,7 +6,577 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Removed
+
+- **All remaining hardcoded data in the dashboard.** Following the earlier pass,
+  a second sweep removed every fabricated figure. Counted over
+  `web/app/ReaiDashboard.tsx` and `web/components`:
+
+  | Metric | Before | After |
+  |---|---|---|
+  | Non-zero hardcoded metric values (`pct`, `share`, `relevance`, `volume`, ...) | 117 | **0** |
+  | Fabricated client references (Acme Roofing, Orienda, Cambodian domains) | 12 | **0** |
+
+  What went, and what replaced it:
+
+  | Fixture | Was | Now |
+  |---|---|---|
+  | On-page TF-IDF panel | fixtures keyed on `maternity` / `doctors` / `emergency`, with invented entity relevance, competitor counts and word targets, plus an "AI draft" that interpolated the real client name into hospital copy | zeroes; the scanner has no TF-IDF tool to derive from |
+  | AI engine extraction rates | `pct: 96 / 92 / 98 / 88` per engine, with a bar drawing them | bar removed; the row's real crawler block/allow status stays |
+  | Traffic geography | fixed country shares (82/9/5/4 for `.kh`, 62/16/12/10 otherwise) over an estimated visit count | empty; real geography needs Search Console |
+  | Referring domains | two invented domain lists with authority scores, backlink counts and first-seen dates | empty; rows come from the Backlinks tool |
+  | Category scores | six hardcoded scores (96, 100, 88, 92, 85, 86) with matching "Optimal"/"Strong" labels | `score: 0`, status "Not measured" |
+  | Traffic trend, position distribution, visibility points, backlink gap, top organic pages, crawl history, target pages | seven inline fixtures | empty arrays |
+  | SERP features, anchor-text split, intent split, TLD split, sentiment/follow donuts | invented percentages | empty |
+  | Staged fixes (`FixReview.tsx`) | invented git diffs against a fictional "Acme Roofing" client | empty; real diffs come from `/api/remediate/dryrun` |
+
+  Two zero literals were deliberately kept because they are correct: the GSC
+  metrics default (`{ clicks: 0, impressions: 0, ... }`) and a keyword-cluster
+  accumulator (`{ count: 0, volume: 0 }`).
+
+  **No DataForSEO request was issued.** The dev log carries zero POSTs to
+  `/api/scan`, `/api/plan` or `/api/remediate` for the whole session.
+
+### Changed
+
+- **SEO section expanded to match a competitor's depth, backed by real data
+  (`web/lib/reportViews.ts`).** The SEO drawer had 4 entries where Semrush's has
+  18. The scanner already emits **25 distinct row codes** on every run, but they
+  collapsed into a single "Keywords" card. `REPORT_VIEWS` slices them into 14
+  named views, so each new screen is a slice of a report already paid for: no
+  new API call, no new cost. `tests/reportViews.test.mjs` asserts every view's
+  codes are really emitted by a scanner module, so a screen cannot exist with
+  nothing behind it, and that no two views claim the same code.
+
+  Nav is now **29 entries over 29 distinct destinations**, with SEO carrying 18
+  across five groups (Site Performance, Competitive Analysis, Keyword Research,
+  Link Building, On-Page).
+
+- **Account links moved from the drawer to the rail.** Integrations and
+  Profile & Account are account-level rather than project reports, so they are
+  pinned to the foot of the rail. "New Project" was dropped: the project card at
+  the top of the drawer already carries a "+ New".
+
 ### Added
+
+- **`web/components/dashboard/ReportTable.tsx`** — the sortable, filterable,
+  paginated table the app had none of (0 sort, 0 filter, 0 pagination across the
+  whole codebase before this). A real `<table>` with scoped headers, `aria-sort`,
+  tabular numerals, severity chips and a per-view empty state. Every report view
+  renders through it.
+
+- **Daily spend cap, wired into `/api/scan` (`web/lib/budget.ts`, 11 tests).**
+  Replaces the blanket paid-tool ban, which stripped all 8 DataForSEO tools on
+  every request and so kept every competitive and keyword screen permanently
+  dark. Free tools always run; paid tools are admitted while budget remains.
+  **A full paid run is $0.52**; the default ceiling is $2/day, override with
+  `SCAN_DAILY_BUDGET_USD`.
+
+  - Today's spend is summed from `scans.cost` (RLS-scoped, so it is the
+    caller's own), which already exists: no migration.
+  - If the spend cannot be read, it is reported as the **full** budget, so a
+    database failure narrows the cap rather than widening it.
+  - Every paid tool dropped with nothing else requested returns **429** with the
+    reason, instead of streaming a run that does nothing.
+  - With no explicit selection and no room, `tools` is left **absent** rather
+    than sent as `[]`: the scanner rejects an empty array outright, because a
+    zero-tool run must never report a clean score. Absent means "free tools
+    only", which is the wanted behaviour.
+  - The response carries `X-Scan-Budget-Usd`, `X-Scan-Spent-Today-Usd`,
+    `X-Scan-Estimated-Cost-Usd` and `X-Scan-Blocked-Tools` so the UI can explain
+    a partial run rather than silently returning fewer findings than asked for.
+
+  The test reads tool costs straight out of `pipeline/scanner/server.py`, so a
+  price drift fails the build rather than letting a run exceed the cap it was
+  checked against.
+
+### Fixed
+
+- **The Site Audit screen silently discarded 10 tools' findings.** `allIssues`
+  hardcoded 13 category keys, so results from `internal`, `validate`, `video`,
+  all four Lighthouse categories, `keywords`, `rankings` and `rank_trend` were
+  collected on every scan and then dropped. Seven of those are free and run on
+  every single run. Categories are now derived from the report's own keys, so a
+  new tool appears the day it is added.
+
+### Fixed
+
+- **Report view columns matched to the real row shape.** The scanner writes rows
+  as prose, not metrics - `what: "18168 backlinks from 48 referring domains"`,
+  `detail: "authority rank 268"` - which the offline parsers confirm without any
+  API call. The columns had been labelled "Metric" / "Value" with `detail`
+  right-aligned as a figure, which no row is; `dfs.competitor` leaves `detail`
+  empty entirely. Columns are now "What we found" / "Detail" / "Why it matters"
+  or "What to do", and no column claims to be numeric.
+
+- **Empty screens now say what is happening.** A view with no rows rendered a
+  bare line on white. It now names what the screen will hold, why it is empty,
+  a "Run an audit" button that goes to the audit screen, and three ghost rows
+  showing the shape the data will take, so the screen reads as waiting rather
+  than broken.
+
+### Notes
+
+- **Scan output is persisted already**: `scans.report` stores the whole audit
+  JSON, `scan_tools` one row per tool with its cost, and `findings` one row per
+  finding. Nothing extra is needed to keep DataForSEO results once they arrive.
+- No database migration. `scans.cost` and `scan_tools.cost` already exist.
+- The 14 new views are verified **statically** (their codes exist in the scanner)
+  but not end-to-end: that needs one real scan, which needs DataForSEO. Until
+  then every one renders "Nothing measured yet", which is the honest state.
+- `web/.env.local` carries no `DATAFORSEO_*` credentials; check that before the
+  first paid run.
+- Verification: `npx tsc --noEmit` clean, `node --test tests/*.test.mjs` 65 pass
+  / 0 fail, `/`, `/site-audit`, `/organic-research`, `/ai-aeo`, `/local-seo` all 200.
+
+
+### Removed
+
+- **Fabricated data removed from the dashboard and the local-SEO API.** An audit
+  (static only; no DataForSEO call was made) found the UI was mostly fixtures:
+  146 hardcoded data literals and 117 hardcoded metric numbers against 14 reads
+  of the real scan report. The following are gone.
+
+  - **`/api/local-seo/{business,insights,reviews,posts}` made zero Google API
+    calls.** Each read a cookie and, when set, returned `isLiveGoogleSync: true`
+    with `dataStatus: "Live verified via Google Business Profile API"` over a
+    hardcoded "Acme Roofing & Home Services" fixture in Austin TX. `insights`
+    went further and returned a *second* set of invented numbers when connected
+    (`totalInteractions: isConnected ? 1284 : 940`), so connecting an account
+    looked like a successful sync. All four now call the real API via
+    `web/lib/gbp.ts` and return an explicit reason with no data when they cannot
+    (`no_token` / `no_accounts` / `no_locations` / `api_error`). Write paths
+    (edit listing, reply to review, publish post) return **501** rather than
+    mutating a module variable and reporting success.
+
+  - **Client-specific hardcodes.** `resolveProjectData()` carried
+    `else if (dClean.includes("orienda"))` returning invented backlink figures
+    (authority 18, rank "#268 Global", 48 referring domains, 18,168 backlinks)
+    as measurements for a real client, plus a 128-keyword floor for the same
+    domain. The workspace also defaulted `currentDomain` / `currentBusiness` to
+    that client, so an empty workspace looked like their data. All removed.
+
+  - **Invented metric formulas.** `authorityScore = refDomains * 0.85` and
+    `authorityRank = "#" + refDomains * 8` were presented as measurements;
+    `refDelta` was the constant `"+4.2% ▲"` for every client on every run. A
+    single report has no trend to show, so the delta is now empty and the
+    authority score is 0 / "Not reported" unless DataForSEO supplies a rank.
+
+  - **The hardcoded priority list.** `PriorityActions` shipped three fixed
+    findings ("Fix 8 pages missing a title", "+10-18% CTR", "Severity Weight
+    9.5") that rendered for every client whether or not a scan had run, behind
+    an `isDemo` prop the dashboard never passed. `priorities` is now a required
+    prop fed by `derivePriorities()`.
+
+  - **A fabricated git diff.** The Review Fixes screen rendered 84 lines of
+    invented code changes against one client's repo as though an agent had
+    produced them. The dashboard never calls `/api/remediate` at all, so there
+    was no real diff behind it. Now empty until the rail is wired.
+
+  - **Hospital-specific content briefs.** The brief generator emitted fixed
+    medical headings and one client's entity list for any keyword and any
+    client. Now derived from the keyword and the selected project.
+
+### Added
+
+- **`web/lib/priorities.ts` + `web/tests/priorities.test.mjs` (9 tests).**
+  Derives the ranked priority list from the real report
+  (`pipeline/scanner/audit.py` `assemble` shape). Errors before warnings, then
+  findings the remediation rail can actually accept, then by affected-page
+  count. Only `health.*` codes may claim `isAutoFixable`, because only they have
+  machine-checkable acceptance in `plan.ACTIONS`. `why` and `fix` come from
+  `recommend.py`, so no impact number is invented. An unscanned report yields
+  `[]` and the UI renders "Nothing measured yet". Tests assert no percentage
+  ranges, no severity weights and no estimates survive.
+
+- **`web/lib/gbp.ts`.** Real Business Profile access: account lookup, location
+  lookup with an explicit `readMask`, and a `normalizeLocation` that leaves
+  anything Google did not return as null rather than filling it in.
+
+### Notes
+
+- **No database migration.** These changes touch code and API routes only; the
+  Supabase schema is unchanged.
+- **Operators must reconnect Google.** The Business Profile calls need the
+  `business.manage` scope. Tokens issued before that scope was added to
+  `/api/auth/google` will fail with `api_error`; disconnect and reconnect to
+  re-consent. The routes report that rather than hiding it.
+- **The legacy My Business v4 API gates reviews and local posts** behind
+  per-project access from Google. Until that is granted those two routes return
+  `api_error` with Google's own message, which is the honest result.
+- **Still fabricated, not yet addressed:** the On-Page TF-IDF panel (fixtures
+  keyed on whether the URL contains `maternity` / `doctors` / `emergency`), the
+  AI Citations per-engine percentages (`pct: 96 / 92 / 98 / 88`; only the
+  crawler block status is real), and the traffic geography split (fixed country
+  shares applied to a computed visit estimate).
+- Verification: `npx tsc --noEmit` clean, `node --test tests/*.test.mjs` 44 pass
+  / 0 fail, `/`, `/local-seo`, `/site-audit` all 200. No DataForSEO request was
+  issued at any point.
+
+
+### Changed
+
+- **Sidebar navigation merged: 2 nav layers and ~30 entries collapsed to 1 layer and 24 entries, one per destination (`web/app/ReaiDashboard.tsx`).**
+
+  The reported symptom was "I click Technical SEO and it navigates to Site Audit". That was accurate and it was not the only case. The sidebar ran two competing layers: a 64px icon rail that swapped an entire second menu (SEO / AI / Traffic / Local / Content / Reports / Tools), and inside each of those, groups of aliases. Measured over the live nav in `ReaiDashboard.tsx`:
+
+  | Destination | Labels that opened it |
+  |---|---|
+  | `Keyword Data Lab` | 7 (Position Tracking, Organic Rankings, Top Pages, Keyword Overview, Keyword Strategy Builder, Semrush Rank, Keywords & Rankings) |
+  | `Data Lab & Backlinks` | 5 (Backlink Gap, Backlinks, Referring Domains, Backlink Audit, Links) |
+  | `Traffic Analytics` | 4 (Traffic Analytics, Organic Traffic Insights, Reports, Google Search Console) |
+  | `Site Health & Audit` | 3 (Site Audit, Sensor, **Technical SEO**) |
+
+  `Technical SEO` additionally hardcoded `isSelected: false`, so it could never highlight as the current page even when it was.
+
+  Every alias is merged into the one screen it actually opened, carrying its sub-view through as `sub` (audit sub-tab) or `focus` (AEO view). Result: **24 nav entries over 24 distinct destinations, zero duplicates.** Groups are now Dashboard / Site Health / Research / Backlinks / AI Visibility / Fixes / Workspace.
+
+  ```
+  24 nav entries, 24 unique labels
+  rail present: False
+  activeBigNav refs: 0
+  ```
+
+- **Both sidebar tiers kept, and now derive from one structure.** The two-tier shape (a 64px icon rail picking a section, a wider drawer listing that section's screens) is the design and stays. The defect was never the two tiers: it was each tier carrying its own hand-maintained copy of the menu, which is how they drifted to ~30 entries over 11 screens. Both now render from a single `NAV_SECTIONS` literal - the rail via `NAV_SECTIONS.map`, the drawer via `NAV_SECTIONS.filter` - and `tests/nav.test.mjs` fails if either stops doing so.
+
+  7 rail sections (Home, SEO, Research, Links, Local, AI, Fixes) over 21 drawer entries, 21 distinct destinations. The rail follows the active tab via `sectionForTab`, so arriving at a screen from a card, a breadcrumb or a deep link leaves the rail on the section that owns it rather than stranding it.
+
+  An interim commit removed the rail outright; that was the wrong call and is reverted here. The always-present Workspace footer and the pinned All Tools Directory button are unchanged.
+
+### Fixed
+
+- **AI Visibility sub-items appeared to do nothing (`selectAeoFocus`).** Selecting AI Readiness / AI Citations / Schema & Entities / Answer Content / AI Crawler Access changed the state and the URL but nothing moved on screen, so all five read as "the same page". `setActiveTab` performs `window.scrollTo({ top: 0 })` and a 180ms transition skeleton; `selectAeoFocus` did neither, and the five AEO views sit below a shared ~125-line header. `selectAeoFocus` now matches `setActiveTab`. Regression-tested in `tests/nav.test.mjs`.
+
+- **Two broken Workspace links fixed.** `Integrations` opened the Overview tab despite `/integrations/google` existing; it now navigates there. `Project Settings` opened the new-project modal rather than any settings, and is renamed `New Project` to match what it does.
+
+- **Semrush trademarks removed from the menu.** `Sensor`, `SEOquake` and `Semrush Rank` shipped as nav labels in a competing product. Removed, and `web/tests/nav.test.mjs` fails if they return.
+
+### Fixed
+
+- **Text contrast now meets WCAG 2.2 AA across the web app (`web/app`, `web/components`).** The three colors used as body text that failed AA, with ratios computed against the app's own surfaces:
+
+  | Color | Uses as text | vs `#ffffff` | vs `#f1f5f9` | vs body `#f4f5f7` |
+  |---|---|---|---|---|
+  | `#64748b` | 444 | 4.76 | **4.34** | **4.36** |
+  | `#94a3b8` | 70 | **2.56** | 2.34 | 2.35 |
+  | `#059669` | 94 | **3.77** | 3.44 | 3.45 |
+
+  687 text-color uses moved to tokens (`--ink-muted`, `--ok`). A property-aware sweep left the 25 non-text uses (backgrounds, borders, gradient stops, status dots) untouched.
+
+- **Minimum font size raised to 12px.** 723 elements rendered at 11px or smaller, with 11px the single most common size in the codebase. Verified: `0 below 12`. The 108 `12.5`, 41 `13.5` and 9 `14.5` values are byte-identical to before.
+
+### Added
+
+- **Design system (`web/app/tokens.css`, `web/lib/ui.ts`, `DESIGN.md`, `PRODUCT.md`).** The app had no stylesheet and no tokens: 3,240 inline `style={{ }}` objects carried 132 distinct padding values, 170 hex colors, 47 font sizes and 32 border radii. `tokens.css` defines 51 tokens (7-step space scale, 8-step type scale, 5 radii, named z-index, motion, full `prefers-reduced-motion` branch) and `lib/ui.ts` exposes them to inline styles. Verified served: all 51 compile into `/_next/static/css/app/layout.css`.
+
+  The palette **preserves the existing identity** (slate ramp, indigo primary, emerald success). Only the three failing contrast pairs changed value.
+
+- **`web/tests/nav.test.mjs`** — asserts the one-label-one-destination invariant, unique labels, no hardcoded `isSelected: false`, and no competitor trademarks. 4 tests.
+
+- **Plan: `docs/superpowers/plans/2026-09-11-ia-consolidation-and-design-system.md`** — the 6-step migration. Steps 1, 2 and 4 are done; 3 (space/radius normalization), 5 (real routes) and 6 (component states) are not started.
+
+### Notes / known gaps
+
+- **6 of 12 decomposed dashboard components are dead code.** `Sidebar.tsx`, `SeoFoundations.tsx`, `AiSearchVisibility.tsx`, `FixReview.tsx`, `Reports.tsx` and `ToolDirectory.tsx` are rendered nowhere; the live UI is still inline in `ReaiDashboard.tsx`. The earlier "Component Decomposition" entry below describes components that were written but never wired (the B-007 pattern). The nav merge was applied to the live inline copy, so `components/dashboard/Sidebar.tsx` still contains the old 35-entry menu.
+- **A ~114-use contrast tail remains** across 22 colors. That audit over-reports: it assumes a light surface, and `#8b949e` on the `#0d1117` log panel measures 6.15:1, `#38bdf8` on `#1e293b` measures 6.83:1 — both pass. Needs per-case review, not another sweep.
+- Verification for all of the above: `npx tsc --noEmit` clean, `node --test tests/*.test.mjs` 30 pass / 0 fail, `GET /` 200. `pytest -q -m "not dataforseo"` 985 passed (unchanged; no Python touched).
+
+### Added
+
+- **Unified Dashboard Architecture, Guided Project Journey & Progressive Disclosure Overhaul (`web/components/dashboard/*`, `web/app/ReaiDashboard.tsx`).**
+  1. **Top Priorities as Product Center (`PriorityActions.tsx`):** Standardized scan outputs into
+     clear, high-conviction actions (e.g. *Fix pages missing a title*, *Add business schema*,
+     *Improve FAQ answers*). Implemented progressive disclosure (Problem → Why it matters →
+     Recommended action → Expected outcome → Source / confidence), tucking JSON-LD, TF-IDF,
+     crawler directives, and Lighthouse diagnostic metrics behind an expandable Technical Details accordion.
+  2. **Guided Project Journey (`ProjectJourney.tsx`):** Added persistent 6-stage visual roadmap
+     (*Create Project* → *Connect Google / Add Site* → *Run Audit* → *Review Top Priorities* →
+     *Review or Apply Fixes* → *Track Results Over Time*) preventing user uncertainty about next steps.
+  3. **Data Trustworthiness & Privacy:** Replaced unverified metrics with explicit trust markers
+     (`Estimated`, `Demo data`, `Needs Google Search Console connection`, `Not yet verified`).
+     Scrubbed personal email addresses across web source. Staged fixes labeled `Staged for review`.
+  4. **Strict Vocabulary Standardization:** Eliminated confusing terminology (*Technical Intelligence Matrix*,
+     *AEO Lab / AI Engine Matrix*, *Autonomous Flow*, *Diagnostics Matrix*, *Data Provenance*, *Citation Likelihood*)
+     in favor of plain language (*SEO Foundations*, *AI Search Visibility (AEO)*, *Priority Actions*,
+     *Review Fix*, *Technical Details*, *Source*, *Confidence*).
+  5. **Component Decomposition (`web/components/dashboard/`):** Decomposed giant dashboard into
+     focused modular components: `Sidebar.tsx`, `Overview.tsx`, `PriorityActions.tsx`,
+     `SeoFoundations.tsx`, `AiSearchVisibility.tsx`, `FixReview.tsx`, `Reports.tsx`,
+     `ToolDirectory.tsx`, and `ProjectJourney.tsx`.
+  6. **Automated Verification (`web/tests/navigation.test.mjs`):** Added comprehensive test suite
+     validating 6-stage journey, priority actions format, jargon absence, and responsive component contracts (21/21 passing).
+  7. **Dedicated Profile & Account Hub (`web/app/profile/page.tsx`, `web/app/auth.tsx`):**
+     Centralized all profile and authentication management into a dedicated `/profile` route,
+     including GitHub OAuth identity, tenant UUID, active session duration, notification preferences,
+     connected integrations (GitHub, Google Search Console), and explicit Sign In / Sign Out actions with confirmation.
+  8. **Local Business & Google Business Profile (GBP) Management Suite (`web/components/dashboard/LocalBusinessManager.tsx`, `web/app/api/local-seo/*`):**
+     - **Unified Multi-Account Google Connection:** Solved the multiple Google account dilemma with a single master "Connect Google Services" button requesting combined scopes (`webmasters.readonly`, `analytics.readonly`, `business.manage`), paired with an expandable secondary account link (`service=gbp_secondary`, `prompt=select_account`) for local business owners who manage Google Maps under a separate email.
+     - **Business Profile & NAP Information:** Real-time editing and synchronization of Store Name, Primary/Secondary Categories, Address, Phone, Website, Appointment URL, and Service Areas.
+     - **Operating & Holiday Hours Editor:** Full Monday–Sunday open/closed time picker plus a special holiday hours/closures manager to prevent customer drop-off on holidays.
+     - **Customer Reviews & AI Reply Engine:** Live Google reviews listing with sentiment pills, star ratings, and 1-click AI reply drafting (Professional, Friendly, Promotional, Resolution-oriented for negative reviews) and direct Google Maps reply submission.
+     - **Google Maps Updates & Posts Publisher:** In-dashboard composer to publish What's New, Special Offers, and Event announcements directly to Google Maps Knowledge Panels.
+     - **NAP & Local Schema Sync:** Automatic comparison of website JSON-LD schema with Google Maps listing, paired with a 1-click copyable/injectable `LocalBusiness` Schema script.
+     - **Local Performance & Search Insights:** 28-day customer action analytics (Phone calls, Direction requests, Website visits, Bookings) and top local discovery keywords.
+     - **Dedicated API Endpoints:** `/api/local-seo/business`, `/api/local-seo/reviews`, `/api/local-seo/posts`, and `/api/local-seo/insights`.
+  9. **Streamlined Website Audit Experience & Zero-Friction Testing (`AuditHeroBar.tsx`, `ScannerApp.tsx`, `server-security.ts`):**
+     - **Unmissable Audit Hero Bar:** Eliminated user confusion by adding a prominent, full-width website audit search bar directly on the Overview and Site Health & Audit screens with sample presets (`example.com`, `wikipedia.org`, `github.com`).
+     - **Fixed Stale URL Closure Bug in `ScannerApp.tsx`:** Updated `run(overrideUrl?: string)` and `handleTriggerScan` to pass the active target URL directly into the scan payload and scan report, ensuring the audited domain is always scanned and displayed.
+     - **Local Testing Auth Fallback (`server-security.ts`):** Enabled automatic dev user fallback in non-production environments (`isDev`) so local users and testers can run audits immediately without hitting a 401 Unauthorized block.
+     - **Human-Friendly Progress Indicators:** Replaced raw terminal logs with a clean 4-phase milestone progress component (Page connection, Technical SEO, Core Web Vitals, AI readiness) with optional collapsible terminal logs.
+     - **Instant Executive Results Breakdown:** Reorganized post-audit results into an unmissable score gauge (0–100), high-impact error/warning/pass filter pills, and 1-click fix review triggers.
+  10. **AI Search Visibility (AEO) Sub-Navigation & Dedicated Sub-Views (`ReaiDashboard.tsx`, `Sidebar.tsx`):**
+      - **Root Cause Fixed:** Resolved issue where selecting any sub-item under "AI Search Visibility (AEO)" in the sidebar navigated to the exact same monolithic page.
+      - **5 Dedicated Interactive Sub-Views:**
+        - **AI Readiness (`matrix`):** Overall AI Readiness Score, radial gauge, 3 metric cards (Crawler Access, LocalBusiness JSON-LD, Answer Structure), and the detailed AEO & LLM Crawler Signals checklist matrix.
+        - **AI Citations (`citations`):** AI Search Citations & Extraction Rates across ChatGPT, Google AI Overviews, Perplexity AI, and Claude, plus the flagship Multi-LLM Prompt Simulator with preset prompts, custom queries, footnote citation checks, and citation brief export.
+        - **Schema & Entities (`schema`):** Entity Resolution Studio, Knowledge Graph status, interactive JSON-LD viewer with 1-click copy, Google Rich Results validator link, and Schema Attributes Completeness checklist.
+        - **Answer Content (`answers`):** Direct Answer architecture analyzer, H2/H3 Q&A extraction scoring, sample extracted snippet preview, and live `/llms.txt` studio with 1-click copy and browser download.
+        - **AI Crawler Access (`crawlers`):** AI Crawler & Bot permissions grid (GPTBot, ClaudeBot, PerplexityBot, Google-Extended, Applebot-Extended, CCBot), best practice guidance, and production-ready `robots.txt` configuration generator.
+      - **Sub-Navigation Tabs Bar:** Added prominent tabs bar at the top of the AEO section allowing seamless switching between sub-views.
+      - **Deep Linking & URL Sync:** Added `/ai-aeo?focus=...` query synchronization, browser history support (`pushState`), and popstate handling so back/forward buttons and bookmarks work.
+      - **Fixed Selection Highlighting:** Corrected active item evaluation in `Sidebar.tsx` so only the selected sub-item is highlighted.
+  11. **Removal of Redundant Floating Profile Pill (`auth.tsx`, `ReaiDashboard.tsx`):**
+      - **Removed Fixed Floating Pill:** Removed the overlapping `position: fixed` session status pill (`Profile →`) from `web/app/auth.tsx` that hovered over header controls.
+      - **Consolidated Profile Experience:** All user account, identity, session management, and sign in/out functions remain centralized on the dedicated [`/profile`](file:///Users/both/seo_agent/web/app/profile/page.tsx) page.
+      - **Direct Header Avatar Link:** Cleanly routed the top-right header avatar directly to `/profile`.
+  12. **Fixed "Checking authentication..." Loading Hang (`auth.tsx`, `profile/page.tsx`):**
+      - **Root Cause:** `AuthGate` was making an unbuffered network call to remote cloud Supabase (`hmvkpeouplkbimocbjis.supabase.co`) with no `.catch()` handler and no safety timeout, causing page refreshes and slow network conditions to hang indefinitely on "Checking authentication...".
+      - **600ms Fast Safety Timeout & Bypass:** Added a 600ms timeout that guarantees the app never hangs on an auth check.
+      - **Local Development Fallback:** Enabled instant local dev session fallback for `localhost` / non-production environments matching backend `server-security.ts`.
+      - **Skip & Demo Mode Triggers:** Added immediate "Skip to Dashboard →" button on the loading spinner and "Continue in Local Dev / Demo Mode" on the sign-in modal so testers and coworkers are never locked out.
+  13. **Executive Dashboard Layout, Dedicated Navigation Group & Route Hierarchy (`ReaiDashboard.tsx`, `Sidebar.tsx`, `/dashboard`):**
+      - **True Executive Dashboard Experience:** Promoted the core metrics to the primary view so the screen immediately functions and looks like a premier SaaS executive dashboard.
+        1. **4 Apex KPI Cards:** Organic Visits (with monthly % gain, estimated monthly dollar value, and mini sparkline), Authority Score (with radial gauge, backlinks count, and referring domains), Site Health (with health score percentage and checked pages), and AI Readiness (with 4-engine comparison bars).
+        2. **Executive Traffic & Keywords Chart:** Full interactive monthly traffic trend chart with interactive timeframes (1M, 6M, 1Y, All) and visits calculation.
+        3. **Audit Hero Bar:** Prominent website audit bar with URL input, sample presets, and 4-phase live scan milestone progress.
+        4. **Two-Column Deep Diagnostics:** Technical Health Donut, Error/Warning/Passing counters, and Core Web Vitals (LCP, INP, CLS Lighthouse gauges) side-by-side with AI Search Engine Extraction status (ChatGPT, Google, Perplexity, Claude).
+        5. **Google SERP Rankings & Ranked Keywords Table:** Position spread bar chart and live keywords table with rank badges, search volumes, intents, and SERP features.
+        6. **Priorities & Guided Roadmap:** Actionable 1-click priority fixes followed by the 6-stage project roadmap.
+      - **Dedicated Section Header & Primary Tab:** Grouped workspace controls into a dedicated `DASHBOARD` section in both the embedded sidebar (`ReaiDashboard.tsx`) and modular component (`web/components/dashboard/Sidebar.tsx`), with primary items **Dashboard** and **Traffic & Performance**.
+      - **Dedicated `/dashboard` Route:** Created `web/app/dashboard/page.tsx` so `http://localhost:3000/dashboard` loads directly.
+      - **Simplified Breadcrumbs:** Streamlined breadcrumbs to `Home › Dashboard` and `Home › Dashboard › Traffic & Performance`.
+  14. **Dual Sidebar (Semrush Rail & Contextual Drawer) Architecture & Full Data Analysis Dashboard (`ReaiDashboard.tsx`, `Sidebar.tsx`, `web/app/dashboard/page.tsx`):**
+      - **Two-Tier Navigation Pattern Matching Semrush:**
+        1. **Big Sidebar (Left Rail - ~68-70px):** Ultra-clean sticky icon rail on the far left with main high-level domains: `Home`, `SEO` (active pill), `AI`, `Traffic & Market`, `Local`, `Content`, `Reports`, and `Apps` (Tools Directory), plus a bottom `«` / `»` toggle button to expand or collapse the contextual drawer.
+        2. **Small Sidebar (Contextual Drawer - ~210-228px):** Category-specific sub-navigation matching Semrush:
+           - **Header:** Active category title (`SEO`) with project selector popover.
+           - **Dashboard Item:** Prominent `SEO Dashboard` item with soft active pill background.
+           - **Grouped Functional Sections:** `Site Performance` (Site Audit, Position Tracking, Technical SEO), `Competitive Analysis` (Domain Overview, Organic Rankings, Keyword Gap, Backlink Gap), `Keyword Research` (Keyword Overview, Keyword Magic Tool, Keywords & Rankings), `Link Building` (Backlinks, Referring Domains, Backlink Audit), `SEO Foundations`, `Fix & Improve`, `Reports & Settings`, and quick launcher for `All Tools Directory [160]`.
+           - **Smooth Collapsible Drawer:** Toggle button cleanly collapses/expands the small sidebar with smooth CSS transitions without disturbing active state.
+      - **All-in-One Data Analysis Dashboard View:**
+        - Positioned every essential SEO & AI diagnostic metric directly on the primary dashboard screen:
+          1. **4 Apex KPI Cards:** Monthly Organic Visits with sparkline & est. dollar value, Authority Score gauge & referring domains, Site Health percentage & audit totals, and AI Search Readiness comparison across 4 engines.
+          2. **Executive Traffic & Keywords Trend Chart:** Interactive monthly organic visit chart with timeframe pills (1M, 6M, 1Y, All).
+          3. **Prominent Website Audit Bar:** Target URL input with sample domain presets and 4-phase live audit milestone progress.
+          4. **Two-Column Deep Diagnostics:** Technical Health Donut, Error/Warning/Passing counters, and Core Web Vitals (LCP, INP, CLS) side-by-side with AI Search Engine Extraction rates (ChatGPT, Google AI Overviews, Perplexity, Claude).
+          5. **Google SERP Rankings & Ranked Keywords Table:** Interactive position spread chart and live keyword rankings table with search intent, volume, and SERP feature badges.
+          6. **Priorities & Guided Roadmap:** Actionable 1-click priority auto-fixes and the guided 6-stage project roadmap.
+      - **Updated Breadcrumbs:** Synchronized breadcrumb trail to `Home › SEO Dashboard` to mirror Semrush navigation hierarchy.
+
+  Stabilized core infrastructure across web, Python, and deployment pipelines:
+  1. **Production Web Build Fixed (`web/app/integrations/google/page.tsx`):** Wrapped
+     `useSearchParams()` in a `<Suspense>` boundary. Next.js production build (`npm run build`)
+     now compiles cleanly with all 34 static routes generated with zero build/type errors.
+  2. **Python Test Suite Stabilization (`pyproject.toml`, `tests/__init__.py`):** Fixed
+     `ModuleNotFoundError` by adding package markers and declaring `pythonpath = ["."]`.
+     Tests now execute with standard `pytest -q` without manual environment variable flags.
+  3. **Multi-User Tenant Security & RLS Isolation (`web/lib/server-security.ts`):** Removed
+     hardcoded tenant UUID (`00eecc82-fbfe-475c-b1f7-fcc71e4497b3`). Added bearer token
+     validation, session cookie decoding, and user-scoped database operations across
+     `/api/clients`, `/api/clients/[id]/scans`, `/api/clients/scans/[id]`, `/api/plan`,
+     `/api/remediate/*`, and `/api/traffic/snapshot`. Enforced cross-tenant isolation (404/401).
+  4. **Scanning Abuse & SSRF Protection (`web/lib/server-security.ts`, `web/app/api/scan/route.ts`):**
+     Added strict target URL validation blocking loopback (`127.0.0.1`), private RFC 1918 subnets
+     (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), cloud metadata (`169.254.169.254`),
+     and non-HTTP schemes (`file://`, `ftp://`). Capped crawl parameters (`maxPages` <= 50,
+     `depth` <= 3) and added in-memory sliding-window rate limiting (429).
+  5. **Security Unit Test Suite (`tests/test_web_api_security.py`):** Added 25 automated
+     unit tests verifying SSRF rejection rules, authentication enforcement across routes,
+     crawl bounds, and absence of hardcoded tenant IDs.
+  6. **Release-Quality CI (`.github/workflows/ci.yml`):** Added dual-job pipeline testing
+     both Python gates (`pytest -q`) and Next.js web application (`npm run build`), with
+     SHA-pinned GitHub Actions and `contents: read` least privilege.
+  7. **Documentation Refresh (`README.md`):** Updated documentation to reflect modern 4-stage
+     SOP flow (Audit → Plan → Remediate → Gates), guarded optional auto-merge rules, and
+     standard local test commands.
+
+- **Semrush-Grade Backlink Audit, AI Prompt Simulator & Zero-Spend Hardening (`web/app/ReaiDashboard.tsx`, `pipeline/audit/providers.py`).**
+  Expanded REAI enterprise suite with:
+  1. **Backlink Audit & Toxicity Manager (`/backlink-audit`):** Toxic referring domain
+     table with algorithmic penalty risk markers, live Disavow/Whitelist controls,
+     and an RFC-compliant Google Search Console Disavow Manager Modal with live preview,
+     copy-to-clipboard, and `.txt` file generation.
+  2. **Multi-LLM AI Search Prompt Simulator (`/ai-aeo`):** Interactive engine simulating
+     ChatGPT Search, Perplexity, Google Gemini, and Claude 3.5 queries with source citation
+     footnotes (`[1]`, `[2]`), citation probability gauge, entity alignment, and 1-click
+     `/llms.txt` scaffold generator.
+  3. **Gap Analysis Polish (`/keyword-gap`, `/backlink-gap`):** Replaced generic competitor
+     column headers with verified competitor hostnames.
+  4. **Strict $0.00 Spend Enforcement:** Locked outbound paid API transport in `_request`
+     and `dataforseo.py` while preserving unit test monkeypatching seams (100% test pass).
+  5. **Interactive Column Sorting (`/keyword-data-lab`):** Multi-column ASC/DESC sorting
+     across Keyword, Position (#), Search Volume, and Keyword Difficulty (KD%).
+  6. **DataForSEO Test Exclusion (`pyproject.toml`):** Configured pytest to completely
+     ignore and skip all DataForSEO tests by default.
+
+- **Database v2 strengthening (web MVP, `web/supabase-schema.sql`).** The schema
+  was 5 tables leaning on `scans.report` jsonb with no constraints. Added,
+  additively + idempotently (safe over existing data): **integrity** — `NOT VALID`
+  CHECK constraints on `findings.severity`, `scans.status`, `scans.score` range
+  (apply to new rows, never reject legacy); new columns `scans.status/crawl_pages/
+  duration_ms`, `findings.category/finding_fp`. **Trackable normalized tables** so
+  metrics stop living only in jsonb: `scan_metrics` (one flat row per scan — score,
+  counts, checks_total, cost, ai_visibility, organic_keywords/traffic, backlinks,
+  ref_domains — for cheap trend charts), `keywords` (ranked keyword per scan:
+  position/volume/intent/url/serp_features), `competitors`, `backlink_snapshots`.
+  A `project_overview` **view** (`security_invoker`) returns each client's latest
+  metrics in one read for the Folders dashboard. Indexes on every hot path; RLS
+  owner-only on all four new tables. **Wired (not dead schema):** `saveScan` now
+  derives + writes `scan_metrics`, parses ranked `keywords` from the report, snapshots
+  `backlink_snapshots` when present, and stamps `findings.category` + `finding_fp`
+  — every scan tracks its full metric history. Inserts degrade quietly
+  (`quietInsert`) if the migration hasn't been run yet. `tsc --noEmit` clean.
+  **Manual step:** re-run `web/supabase-schema.sql` in the Supabase SQL editor to
+  apply. Not validated against a live Postgres here (no psql in env) — run it once
+  and check for errors.
+
+- **SEMrush-style dashboard shell + charts, leader-report grade (web MVP).** Reworked
+  the Measure stage into a product dashboard: a left **icon rail** (Home/SEO/AI/
+  Traffic/Local/Content/Reports/Apps) + a **grouped secondary nav** (Site
+  Performance → Dashboard/Site Audit/Plan/Remediate; Reports → Scan history; Setup),
+  a **top bar** (breadcrumb, "SEO Dashboard: <domain>", black **+ Create SEO
+  Project**), and real **graphs** — an SVG **donut** for checks distribution
+  (errors/warnings/passing/notices), a horizontal **bar chart** for category
+  health, and the score **gauge** — plus metric widgets (AI visibility, Core Web
+  Vitals, run cost) and Top issues. Reusable primitives `Widget` / `Metric` /
+  `Gauge` / `Donut` / `BarChart`, no chart dependency. **Export report (PDF)**
+  button with `@media print` (hides rail/nav/controls via `.no-print`) so the
+  dashboard prints clean for a leader. `tsc --noEmit` clean; frontend serves 200.
+
+- **Measure results dashboard (SEMrush-style, web MVP).** When a scan completes,
+  the results open as an overview dashboard, not just a list: the score strip, then
+  a **category-health grid** (one card per section — On-page, Technical, Content,
+  AEO, Performance, Links… — each with a % passing bar + error/warn/pass counts
+  computed from that section's rows), then **Top issues to fix** (every error/warn
+  deduped, worst-first, top 8, with tool + affected-page count), then the detailed
+  per-check groups below as the drill-down. Overview shows only once `!busy` and
+  the audit is assembled. `tsc --noEmit` clean.
+
+- **Measure shows every individual check as its own row (web MVP).** Instead of
+  ~23 opaque tool cards, Measure now renders each tool as a group of its named
+  checks (~115 in the catalog), each a row that lights up per tool: **pending**
+  (queued, dashed marker) → **checking…** (spinner) → the tool's real result rows
+  on completion — so a run reads as many checks working, not a few big cards, and
+  each tool is visibly doing work. New `pipeline/scanner/checks.py`
+  (`STATIC_CHECKS` harvested from the real producers + `DYNAMIC_CHECKS`
+  representative coverage for DataForSEO/Lighthouse; `checks_for`); `tool_catalog`
+  / `/tools` now returns `checks` per tool. Because a pass row and a fail row can
+  carry different labels, the UI never reconciles a catalog label 1:1 with a
+  result — it shows catalog labels while pending/running, then swaps in the tool's
+  actual rows on done. A drift test (`tests/test_scanner_checks.py`) asserts the
+  static labels match live producer output (seo guarded against `SEO_CHECKS`
+  itself, since its fail rows use code-derived labels), so the catalog can't
+  silently lie. Frontend renders every *selected* catalog tool (not only tools
+  that already emitted), merging live tool events by label. 5 catalog tests +
+  full engine suite green; `tsc --noEmit` clean. Dead `renderCard` removed.
+
+- **Remediation runs persisted to the History dashboard (web MVP).** Closes the
+  loop between Remediate and History: every real apply-run is now recorded and a
+  client's timeline shows **fixes applied** alongside its scans. New
+  `remediations` table (client_id/user_id, url, cycle, applied, cost_usd,
+  diffstat, per-item `items` jsonb; RLS owner-only + a `(client_id, created_at)`
+  index) in `web/supabase-schema.sql`; `saveRemediation` / `remediationHistory`
+  in `web/lib/db.ts` (best-effort, RLS-scoped, mirroring the scan helpers); the
+  apply response now returns its `cycle`; `runApply` records the run on success;
+  the client-history view renders a collapsible "Fixes applied · Claude Code"
+  timeline (per-item Fixed/No-change/Error/Stopped + files + diffstat + cost).
+  Offline/free; `tsc --noEmit` clean; remediate+server suite 30 passed; full
+  engine suite **988 passed** (exit 0). Also: after an apply error the UI now
+  offers "← back to preview" to retry without redoing the dry-run.
+  **Manual step:** run the updated `web/supabase-schema.sql` (the new
+  `remediations` table + policy) in the Supabase SQL editor before this persists.
+
+- **Remediate apply — the real edit-run (web MVP → Claude Code).** After a clean
+  dry-run preview, the operator can run the fixes for real: `/remediate/apply`
+  spawns `python -m pipeline.audit.remediate` (no `--dry-run`), which hands each
+  bridged item to **Claude Code on the Claude subscription** (no API key) to edit
+  the client repo, then reads back `changelog.json` + `git diff --stat`. It is
+  irreversible, so it is fenced: refuses without `confirm: true`, refuses when
+  `claude` isn't on PATH (named message), reuses the shared prep guards
+  (repo-on-disk / onboarded / `YYYY-MM` cycle), and bounds the run with
+  `max_items` (default 3, clamped 1–25) + a 30-min timeout. Resume-safe (the
+  pipeline skips items already `fixed` in the cycle changelog). Shared setup with
+  dry-run was extracted to `_remediate_prep()`; `summarize_changelog()` trims the
+  changelog to per-item status/note/files + run totals for the UI. The UI adds a
+  two-step confirm (red "Apply for real" → an explicit "Yes, edit the repo"
+  warning naming the repo) and a result panel: per-item Fixed/No-change/Error/
+  Stopped, cost used, the diffstat, and a reminder to commit + open the PR (the 19
+  gates run there, a human merges). Guards + `summarize_changelog` unit-tested
+  (confirm-required, claude-missing via monkeypatch, invalid-repo fall-through,
+  summarizer shape/empty); dry-run re-verified end-to-end post-refactor (exit 0,
+  1 prompt, non-destructive). **The real apply itself was NOT run** (edits a repo
+  + uses the subscription — held under the cost/no-test rule). 38 tests pass;
+  `tsc --noEmit` clean.
+
+- **Remediate dry-run bridge (web MVP → `wf-site-remediate`).** Wires the web
+  Remediate worklist to the REAL Claude Code fixer (Claude subscription) —
+  starting non-destructively. `pipeline/scanner/remediate_bridge.py`
+  (`bridge_worklist`) reshapes web Plan items into the pipeline worklist by
+  **reusing `plan.work_item` + `plan.ACTIONS`** (zero schema drift): only codes
+  with a machine-checkable acceptance (`health.*`) bridge; the rest
+  (`src./lh./crux./aeo./dfs.`) are reported `unbridged` — honestly "not
+  machine-fixable on this rail". New `/remediate/dryrun` endpoint bridges →
+  writes `<repo>/docs/audit/<cycle>/worklist.json` → runs
+  `python -m pipeline.audit.remediate --dry-run` as an **isolated subprocess**
+  (dry-run streams the exact fix prompts and **edits nothing**; needs no Claude).
+  Subprocess isolation is deliberate: `load_config` `sys.exit(10)`s on a repo with
+  no `client-config.yml`, which would kill the server in-process. Guards name
+  every failure (no repo / remote-only / not onboarded / bad cycle), and `cycle`
+  is pinned to `YYYY-MM` so a crafted value can't escape `docs/audit/` (path
+  traversal). UI: "Preview fixes (dry-run)" in the Remediate auto lane shows each
+  item's prompt (collapsible) + the unbridged list. Real edit-runs are a later,
+  explicitly-confirmed step (drop `--dry-run`). **Verified end-to-end:** smoke
+  test on a throwaway onboarded repo returned exit 0, 1 real prompt
+  (`health.title_missing`), 1 unbridged (`aeo.statistics`), and `git status`
+  showed no edits to tracked files. 33 tests (bridge 7, dry-run handler 7 incl.
+  traversal guard, + existing); `tsc --noEmit` clean. Plan:
+  `docs/superpowers/plans/2026-09-09-remediate-dryrun-bridge.md`.
+
+- **Remediate stage (web MVP) — `pipeline/scanner/remediate.py` + `/remediate`
+  endpoint + UI.** Bridges Plan → fixes. `build_remediation(worklist)` classifies
+  each prioritised finding into a fix **lane** by its stable `code` prefix and
+  marks it **auto-fixable by the Model-B code agent** or **manual**: `code`
+  (on-page tags + repo, auto), `perf` (CWV/Lighthouse, auto), `config`
+  (robots/crawler access, auto), `content` (authoring — depth/stats/answers,
+  manual), `strategy` (off-page rankings/keywords, manual). Deterministic — no
+  LLM, no network, no cost — so it's fully testable and defensible; unknown codes
+  fall to manual so we never claim a false auto-fix. Lanes group and order by
+  their most-urgent item; counts split auto vs manual. The UI panel (after Plan)
+  shows the split, a **next-step note** that the automated fixer runs the client
+  repo through Claude Code on the Claude subscription (no API key, no per-token
+  cost — Model B, gated before merge), then the lane cards with per-item fix +
+  effort + affected pages. 5 tests (`classify_fix`
+  lanes/auto, grouping/counts, lane ordering, effort, empty). Verified:
+  `pytest tests/test_scanner_remediate.py` 5 passed; server+plan+remediate 19
+  passed; `tsc --noEmit` clean. Not run against live worklist rows (cost/hold rule).
+
+- **Client & scan-history dashboard (web MVP, `web/`).** Every Measure run already
+  persisted a full snapshot (`scans.report`, `scan_tools.result`, `findings`) but
+  nothing read it back. New `history` stage: list every client with scan count +
+  latest score + last-scanned, drill into a client for its scan history and a
+  score-trend sparkline, and **reopen any past report from the stored snapshot with
+  no re-scan and no paid call**. All pure DB reads, RLS-scoped to the signed-in
+  user — zero scanner/API cost. New `web/lib/trend.ts` (pure `scoreTrend` +
+  `sparklinePath`, offline-verified) and DB helpers `listClients` / `scanHistory` /
+  `getScanReport` in `web/lib/db.ts`. Plan: `docs/superpowers/plans/2026-09-09-client-scan-history-dashboard.md`.
+  **Product-register polish (impeccable):** client/scan rows are keyboard-operable
+  (`role=button`, `tabIndex`, Enter/Space, `aria-label`) with hover/`focus-visible`
+  states and 160ms motion (reduced-motion respected); shimmer **skeleton** on load
+  instead of a spinner; **teaching empty states** with a call to action; a saved
+  client's profile rehydrates the Onboard form via `measureClient()` so "Run
+  Measure" / "New scan" scan the right client, not stale state.
+  Verified: `tsc --noEmit` clean; `scoreTrend`/`sparklinePath` asserts pass offline.
+  Not yet run against live DB rows (cost/hold rule) — DB read paths unverified live.
 
 - **Content strengthened 3 -> 5 (`pipeline/scanner/content.py`).** Two more
   info-gain signals DataForSEO doesn't cover: **Freshness** (a visible

@@ -89,3 +89,12 @@ client.png
 *.png
 
 graphify-out/cache/
+
+# Next.js / TypeScript build artifacts
+web/tsconfig.tsbuildinfo
+web/.next/
+
+# Local client checkouts. Model A: a client repo is that client's own
+# source of truth, including its docs/client-config.yml and tier. They must
+# never be committed into the engine repo.
+BothGG/

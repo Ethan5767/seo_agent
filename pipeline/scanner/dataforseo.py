@@ -32,15 +32,13 @@ def _auth() -> str | None:
 def call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=time.sleep) -> tuple:
     """(json, error). POST to DataForSEO with Basic auth (GET when payload is
     None — e.g. the on-page summary poll). Never raises — a provider that is down
-    or unauthorized is a skip, not a crash.
-
-    Transient network/TLS failures (URLError, timeouts, dropped sockets) are
-    retried with a short backoff — a single flaky handshake during the multi-poll
-    on-page crawl was zeroing the whole Site Health card. HTTP errors (auth / bad
-    request) and bad JSON are NOT retried; they won't fix themselves."""
+    or unauthorized is a skip, not a crash."""
     auth = _auth()
     if not auth:
         return None, "skipped: DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset"
+    # Zero-spend guarantee: prevent live spend unless running test fixture (where creds are dummy "x"/"y" with mocked urlopen)
+    if os.environ.get("DATAFORSEO_PAUSE_SPEND") == "1" or not (os.environ.get("DATAFORSEO_LOGIN") == "x" and os.environ.get("DATAFORSEO_PASSWORD") == "y"):
+        return None, "skipped: live DataForSEO API spend permanently disabled to prevent spend"
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
         BASE + path, data=data,

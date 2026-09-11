@@ -7101,26 +7101,12 @@ export function ReaiDashboard({
                 });
 
                 if (allCategoryRows.length === 0) {
-                  const defaultChecks: Array<{ catKey: string; what: string; why: string; fix: string; severity: string; code: string }> = [
-                    { catKey: "seo", what: "Robots.txt Crawl Directives", why: "Public pages allow Googlebot and Bingbot indexing without unintentional disallows.", fix: "Directives verified", severity: "ok", code: "ROBOTS_TXT_VALID" },
-                    { catKey: "seo", what: "XML Sitemap Hierarchy & Format", why: `Valid XML sitemap reachable for ${currentDomain} with lastmod timestamps.`, fix: "Valid sitemap index", severity: "ok", code: "SITEMAP_INDEX_OK" },
-                    { catKey: "seo", what: "Self-Referencing Canonical Tags", why: "Canonical link tags prevent duplicate URL parameters and session tracking splits.", fix: "Canonical present", severity: "ok", code: "CANONICAL_ENFORCED" },
-                    { catKey: "seo", what: "HTTP 4xx Dead Link Check", why: "Zero broken internal navigation or footer links found across site tree.", fix: "0 dead links", severity: "ok", code: "NO_404_DETECTED" },
-                    { catKey: "tech", what: "HTTPS SSL/TLS 256-Bit Certificate", why: "Strong TLS 1.3 protocol active with valid CA root authorization.", fix: "Secure encryption", severity: "ok", code: "SSL_TLS_VALID" },
-                    { catKey: "tech", what: "Zero Mixed Active Content", why: "All stylesheets, scripts, fonts, and assets load strictly over HTTPS protocol.", fix: "No mixed assets", severity: "ok", code: "MIXED_CONTENT_CLEAN" },
-                    { catKey: "tech", what: "HTTP Strict Transport Security (HSTS)", why: "Browser-level security header enforces automatic encryption on all subdomains.", fix: "HSTS active", severity: "ok", code: "HSTS_CONFIGURED" },
-                    { catKey: "perf", what: "Largest Contentful Paint (LCP)", why: `LCP measured at ${projectMetrics.onPageSeoData.coreWebVitals.lcp.val} (${projectMetrics.onPageSeoData.coreWebVitals.lcp.status}). Benchmark: < 2.5s.`, fix: "Serve hero banner in modern WebP with fetchpriority=high", severity: projectMetrics.onPageSeoData.coreWebVitals.lcp.status === "Good" ? "ok" : "warn", code: "CORE_WEB_VITAL_LCP" },
-                    { catKey: "perf", what: "Interaction to Next Paint (INP)", why: `INP benchmark measured at ${projectMetrics.onPageSeoData.coreWebVitals.inp.val} (${projectMetrics.onPageSeoData.coreWebVitals.inp.status}). Benchmark: < 200ms.`, fix: "Main-thread execution within responsiveness thresholds", severity: "ok", code: "CORE_WEB_VITAL_INP" },
-                    { catKey: "perf", what: "Cumulative Layout Shift (CLS)", why: `CLS shift score is ${projectMetrics.onPageSeoData.coreWebVitals.cls.val} (${projectMetrics.onPageSeoData.coreWebVitals.cls.status}). Benchmark: < 0.10.`, fix: "Explicit width/height reserved on dynamic media containers", severity: "ok", code: "CORE_WEB_VITAL_CLS" },
-                    { catKey: "aeo", what: "LLM Web Crawler Permissions", why: "GPTBot, ClaudeBot, and PerplexityBot are permitted for AI citations.", fix: "AI crawlers enabled", severity: "ok", code: "AEO_LLM_BOTS_OK" },
-                    { catKey: "aeo", what: "Direct-Answer Entity Extraction", why: `Entity definitions for ${currentBusiness} appear in leading 100 words of service pages.`, fix: "Concise summary blocks present", severity: "ok", code: "AEO_ENTITY_EXTRACT" },
-                    { catKey: "schema", what: "LocalBusiness / MedicalOrganization Schema", why: "JSON-LD structured data provides schema.org entity graph coordinates.", fix: "Validate postalAddress and geo", severity: "ok", code: "SCHEMA_LOCAL_BIZ" },
-                    { catKey: "schema", what: "BreadcrumbList JSON-LD Trails", why: "Enables multi-tiered breadcrumb links in Google search result cards.", fix: "Breadcrumb schema present", severity: "ok", code: "SCHEMA_BREADCRUMBS" },
-                    { catKey: "site", what: "Internal Architecture Click Depth", why: "All primary departments and booking pages accessible within 3 clicks of root.", fix: "Optimal hierarchy", severity: "ok", code: "SITE_CLICK_DEPTH" },
-                    { catKey: "site", what: "Zero Orphan Page Detection", why: "All published HTML pages link to parent silo or primary navigation.", fix: "No unlinked pages", severity: "ok", code: "NO_ORPHAN_PAGES" },
-                    { catKey: "content", what: "Title Tag Length & Branding", why: `Title tags stay within 55-60 character limits with '${currentBusiness}' brand suffix.`, fix: "Length optimal", severity: "ok", code: "TITLE_OPTIMAL" },
-                    { catKey: "content", what: "Meta Description Call to Action", why: "Meta descriptions contain intent keywords and phone/consultation booking triggers.", fix: "Call to action embedded", severity: "ok", code: "META_DESC_CTA" },
-                    { catKey: "eeat", what: "Medical Specialist Credentials & Licensing", why: "Verified practitioner directory with licensing accreditations prominently displayed.", fix: "High trust rating", severity: "ok", code: "EEAT_CREDENTIALS" },
+                  const defaultChecks: any[] = [
+                    // Was 19 hardcoded rows that rendered as passed checks,
+                    // asserting TLS, HSTS, mixed-content and AI-crawler posture
+                    // that nothing measured. Real passes come from the scanner:
+                    // audit.py emits an "ok" severity row for every check that
+                    // passes, so a measured pass already reaches this screen.
                   ];
                   defaultChecks.forEach((d) => allCategoryRows.push(d));
                 }

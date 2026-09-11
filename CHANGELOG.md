@@ -8,6 +8,14 @@ see `CLAUDE.md` (the sync contract).
 
 ### Removed
 
+- **19 hardcoded "passing" checks removed from the Measure screen.** The
+  `all_checks` sub-tab injected inline rows that rendered as passed checks,
+  asserting TLS, HSTS, mixed-content and AI-crawler posture that nothing had
+  measured. A green security check nobody ran is the most damaging invented
+  data in this product. Real passes already arrive from the scanner, which
+  emits an "ok" row for every check that passes. Guarded by
+  `web/tests/measure.test.mjs`.
+
 - **All remaining hardcoded data in the dashboard.** Following the earlier pass,
   a second sweep removed every fabricated figure. Counted over
   `web/app/ReaiDashboard.tsx` and `web/components`:

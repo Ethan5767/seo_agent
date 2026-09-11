@@ -72,3 +72,29 @@ test("the progress sub-tab derives its entries, with no inline literal", () => {
     "issueDiffAudit must not be an inline literal of invented remediations",
   );
 });
+
+test("no fabricated crawl-to-crawl recovery figures render", () => {
+  const fixtures = [
+    "+26% Health Recovery",
+    "Crawl-to-Crawl Recovery Delta",
+    "+26 pts",
+    "68% → 94% Grade A",
+    "-24 Errors",
+    "100% Critical Errs Resolved",
+    "-14 Warnings",
+    "78% Reduction",
+  ];
+  for (const f of fixtures) {
+    assert.ok(
+      !DASHBOARD.includes(f),
+      `'${f}' asserts a recovery outcome nothing measured`,
+    );
+  }
+});
+
+test("the empty remediation table explains why it is empty", () => {
+  assert.ok(
+    DASHBOARD.includes("No data here yet"),
+    "the Historical Issue Diff & Remediation Audit Log table needs an empty state when issueDiffAudit is empty",
+  );
+});

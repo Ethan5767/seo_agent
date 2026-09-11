@@ -8,6 +8,19 @@ see `CLAUDE.md` (the sync contract).
 
 ### Removed
 
+- **Fabricated recovery figures removed from the Measure screen's `progress`
+  sub-tab.** A "+26% Health Recovery" badge and a "Crawl-to-Crawl Recovery
+  Delta" panel (health-score lift, blocker errors fixed, warnings resolved,
+  pages audited — all hardcoded) asserted remediation outcomes nothing
+  measured, and now actively contradicted the emptied `issueDiffAudit` table
+  beneath them. Both are removed; a real delta requires diffing two rows in
+  the `scans` table, which this screen does not read yet. The now-empty
+  "Historical Issue Diff & Remediation Audit Log" table also got an empty
+  state (matching `web/components/dashboard/ReportTable.tsx`'s "No data here
+  yet" pattern) explaining that applied fixes live in the cycle's
+  `changelog.json`, written by `wf-site-remediate`, which this screen does
+  not read yet either. Guarded by `web/tests/measure.test.mjs`.
+
 - **19 hardcoded "passing" checks removed from the Measure screen.** The
   `all_checks` sub-tab injected inline rows that rendered as passed checks,
   asserting TLS, HSTS, mixed-content and AI-crawler posture that nothing had

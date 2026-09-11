@@ -7348,9 +7348,10 @@ export function ReaiDashboard({
                           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--ink-body)" }}>
                             Crawl History & Health Recovery Timeline
                           </h4>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 7px", borderRadius: 4 }}>
-                            +26% Health Recovery
-                          </span>
+                          {/* Was a hardcoded "+26%
+                              Health Recovery" badge. A real lift
+                              requires two scans in the `scans` table to diff; this screen
+                              does not read scan history yet, so no badge renders. */}
                         </div>
                         <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>
                           Tracking audit progression and error resolution across crawl checkpoints for <b>{currentBusiness}</b>
@@ -7442,86 +7443,112 @@ export function ReaiDashboard({
                       ))}
                     </div>
 
-                    {/* 4 Comparison Delta Metrics */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
-                      <h4 style={{ margin: "0 0 12px", fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)", textTransform: "uppercase" }}>
-                        Crawl-to-Crawl Recovery Delta
-                      </h4>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-                        <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px" }}>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Health Score Lift</div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--ok)", marginTop: 2 }}>+26 pts</div>
-                          <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 2 }}>68% → 94% Grade A</div>
-                        </div>
-
-                        <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px" }}>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Blocker Errors Fixed</div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--ok)", marginTop: 2 }}>-24 Errors</div>
-                          <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 2 }}>100% Critical Errs Resolved</div>
-                        </div>
-
-                        <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px" }}>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Warnings Resolved</div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--ok)", marginTop: 2 }}>-14 Warnings</div>
-                          <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 2 }}>78% Reduction</div>
-                        </div>
-
-                        <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px" }}>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Pages Audited</div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--accent)", marginTop: 2 }}>25 Pages</div>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Expanded Crawl Depth</div>
-                        </div>
-                      </div>
-                    </div>
+                    {/* Was a "Crawl-to-Crawl
+                        Recovery Delta" panel with four hardcoded cards: a health
+                        score lift ("+26
+                        pts", "68% → 94%
+                        Grade A"), errors fixed ("-24
+                        Errors", "100% Critical Errs
+                        Resolved"), warnings resolved ("-14
+                        Warnings", "78%
+                        Reduction"), and a pages-audited count. A real delta
+                        requires diffing two rows in the `scans` table, which this
+                        screen does not read yet, so the panel is removed rather
+                        than showing invented figures. */}
 
                     {/* Historical Issue Diff Table */}
                     <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                       <h4 style={{ margin: "0 0 12px", fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)", textTransform: "uppercase" }}>
                         Historical Issue Diff & Remediation Audit Log
                       </h4>
-                      <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-                        <div style={{ overflowX: "auto" }}>
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" }}>
-                            <thead>
-                              <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase" }}>
-                                <th style={{ padding: "10px 14px", fontWeight: 700 }}>Diagnostic Code & Category</th>
-                                <th style={{ padding: "10px 14px", fontWeight: 700 }}>Initial Baseline Crawl</th>
-                                <th style={{ padding: "10px 14px", fontWeight: 700 }}>Current Audit</th>
-                                <th style={{ padding: "10px 14px", fontWeight: 700 }}>Autonomous Claude Code Remediation</th>
-                                <th style={{ padding: "10px 14px", fontWeight: 700, textAlign: "right" }}>Status</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {issueDiffAudit.map((diff, i) => (
-                                <tr key={diff.code} style={{ borderBottom: i === issueDiffAudit.length - 1 ? "none" : "1px solid var(--surface-3)" }}>
-                                  <td style={{ padding: "11px 14px" }}>
-                                    <div style={{ fontWeight: 700, color: "var(--ink-body)", fontFamily: "monospace" }}>{diff.code}</div>
-                                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>{diff.category}</div>
-                                  </td>
-                                  <td style={{ padding: "11px 14px" }}>
-                                    <span style={{ fontSize: 12, fontWeight: 600, color: "#b91c1c", background: "var(--bad-tint)", padding: "2px 7px", borderRadius: 4 }}>
-                                      {diff.baseline}
-                                    </span>
-                                  </td>
-                                  <td style={{ padding: "11px 14px" }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "var(--ok-tint)", padding: "2px 7px", borderRadius: 4 }}>
-                                      {diff.current}
-                                    </span>
-                                  </td>
-                                  <td style={{ padding: "11px 14px", color: "#334155", maxWidth: 320 }}>
-                                    {diff.fixAction}
-                                  </td>
-                                  <td style={{ padding: "11px 14px", textAlign: "right" }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "3px 8px", borderRadius: 4 }}>
-                                      ✓ {diff.status.toUpperCase()}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                      {issueDiffAudit.length === 0 ? (
+                        // Empty state, matching the pattern in
+                        // components/dashboard/ReportTable.tsx ("No data here yet"):
+                        // a heading, why it's empty, and where real data comes from.
+                        // Applied fixes are recorded in the cycle's changelog.json by
+                        // wf-site-remediate; this screen does not read it yet.
+                        <div
+                          style={{
+                            border: "1px solid var(--border)",
+                            borderRadius: "var(--radius-md)",
+                            background: "var(--surface)",
+                            padding: "var(--space-5) var(--space-4)",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>
+                            No data here yet
+                          </div>
+                          <p
+                            style={{
+                              fontSize: 13,
+                              color: "var(--ink-muted)",
+                              margin: "var(--space-2) auto 0",
+                              maxWidth: "54ch",
+                              lineHeight: 1.55,
+                            }}
+                          >
+                            No remediation has been recorded against a baseline crawl for{" "}
+                            <b>{currentBusiness}</b> yet.
+                          </p>
+                          <p
+                            style={{
+                              fontSize: 13,
+                              color: "var(--ink-muted)",
+                              margin: "var(--space-2) auto 0",
+                              maxWidth: "54ch",
+                            }}
+                          >
+                            Applied fixes are written to the cycle&apos;s changelog.json by
+                            wf-site-remediate; once this screen reads it, resolved issues
+                            will appear here automatically.
+                          </p>
                         </div>
-                      </div>
+                      ) : (
+                        <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                          <div style={{ overflowX: "auto" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" }}>
+                              <thead>
+                                <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase" }}>
+                                  <th style={{ padding: "10px 14px", fontWeight: 700 }}>Diagnostic Code & Category</th>
+                                  <th style={{ padding: "10px 14px", fontWeight: 700 }}>Initial Baseline Crawl</th>
+                                  <th style={{ padding: "10px 14px", fontWeight: 700 }}>Current Audit</th>
+                                  <th style={{ padding: "10px 14px", fontWeight: 700 }}>Autonomous Claude Code Remediation</th>
+                                  <th style={{ padding: "10px 14px", fontWeight: 700, textAlign: "right" }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {issueDiffAudit.map((diff, i) => (
+                                  <tr key={diff.code} style={{ borderBottom: i === issueDiffAudit.length - 1 ? "none" : "1px solid var(--surface-3)" }}>
+                                    <td style={{ padding: "11px 14px" }}>
+                                      <div style={{ fontWeight: 700, color: "var(--ink-body)", fontFamily: "monospace" }}>{diff.code}</div>
+                                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>{diff.category}</div>
+                                    </td>
+                                    <td style={{ padding: "11px 14px" }}>
+                                      <span style={{ fontSize: 12, fontWeight: 600, color: "#b91c1c", background: "var(--bad-tint)", padding: "2px 7px", borderRadius: 4 }}>
+                                        {diff.baseline}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: "11px 14px" }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "var(--ok-tint)", padding: "2px 7px", borderRadius: 4 }}>
+                                        {diff.current}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: "11px 14px", color: "#334155", maxWidth: 320 }}>
+                                      {diff.fixAction}
+                                    </td>
+                                    <td style={{ padding: "11px 14px", textAlign: "right" }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "3px 8px", borderRadius: 4 }}>
+                                        ✓ {diff.status.toUpperCase()}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

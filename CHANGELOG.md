@@ -6,6 +6,27 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed
+
+- **Measure screen extracted to `web/components/dashboard/MeasureScreen.tsx`.**
+  `ReaiDashboard.tsx` was 13,437 lines against an `AGENTS.md` Rule 1 ceiling of
+  1,000. The Measure screen is ~780 self-contained lines with a clear
+  boundary, so it is the first extraction. A move, not a rewrite: rendering is
+  unchanged. `ReaiDashboard.tsx` 13,437 -> 12,624 lines; `MeasureScreen.tsx`
+  is 809. The block's local `ChecksFilterBar` (and its `CheckSeverityFilter`
+  type) moved with it. Four presentational primitives the block shares with
+  the rest of the dashboard — `IconTerminal`, `MiniRadialGauge`,
+  `SiteHealthDonut`, `CrawledPagesBar` — moved verbatim to
+  `web/components/dashboard/primitives.tsx` so the new component can import
+  them without a cycle back into `ReaiDashboard.tsx`. Everything the block
+  referenced and did not define is now a narrowly-typed prop on
+  `MeasureScreenProps`. Verified: `npx tsc --noEmit` clean,
+  `node --test tests/*.test.mjs` 88 pass / 0 fail, `/site-audit` serves 200,
+  and the moved JSX is byte-identical to the original modulo indentation and
+  three prop renames (`setAuditSubTab` -> `onSubTabChange`, `onTriggerScan` ->
+  `onRunAudit`, `projectMetrics.onPageSeoData.coreWebVitals` ->
+  `coreWebVitals`).
+
 ### Fixed
 
 - **A filtered-to-empty `all_checks` table no longer claims the site was never

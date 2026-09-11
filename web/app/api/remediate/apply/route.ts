@@ -33,9 +33,20 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       body,
     });
+    // The backend streams newline-delimited JSON: {"log": "..."} per line as
+    // Claude writes it, then one {"result": {...}}. Pass it through unbuffered
+    // so the browser can render progress. It used to be declared
+    // "application/json", which told the client to wait for a complete document
+    // — an apply can run for half an hour, so the operator saw a dead screen
+    // and could not tell a working run from a hung one.
     return new NextResponse(res.body, {
       status: res.status,
-      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
+      headers: {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+        // Stops a proxy buffering the stream back into one response.
+        "X-Accel-Buffering": "no",
+      },
     });
   } catch (e) {
     return NextResponse.json(

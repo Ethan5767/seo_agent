@@ -6,6 +6,33 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/remediate/apply` streams instead of going dark for half an hour
+  (`pipeline/scanner/server.py`, `web/app/api/remediate/apply/route.ts`,
+  `web/app/ScannerApp.tsx`).** The handler used
+  `subprocess.run(capture_output=True, timeout=1800)`: it buffered the entire
+  run and returned one JSON at the end. `remediate.py` already streamed
+  Claude's output line by line and this handler threw it away, so an operator
+  clicking Apply watched a dead screen for up to thirty minutes with no way to
+  tell a working run from a hung one. `/scan` had solved the same problem with
+  `Popen` + `flush()` per event.
+
+  `stream_remediate_apply` is now a generator yielding `{"log": line}` per line
+  and exactly one terminal `{"result": {...}}`; the HTTP handler writes
+  newline-delimited JSON and flushes each event; the Next route passes the
+  stream through as `application/x-ndjson` (it had declared
+  `application/json`, which tells a client to wait for a complete document);
+  and `ScannerApp` reads it incrementally rather than calling `res.json()`,
+  appending each line to the live log. `handle_remediate_apply` is kept as a
+  thin drain of the stream so the plain JSON form still works.
+
+  Two details the blocking version could not express: closing the tab now
+  kills the agent rather than leaving it editing a repo nobody is watching,
+  and the error message carries the tail of the run rather than a truncated
+  stderr. 4 tests in `tests/test_scanner_server.py`, all offline.
+
+
 ### Removed
 
 - **The fabricated 160-tool catalog (`web/app/toolsCatalogData.ts`, deleted).**

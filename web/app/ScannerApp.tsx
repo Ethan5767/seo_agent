@@ -423,7 +423,34 @@ function Scanner({ initialTab }: { initialTab?: any }) {
         method: "POST",
         body: JSON.stringify({ repo, url, tier: 1, worklist: plan.worklist, confirm: true, max_items: 3 }),
       });
-      const r: ApplyResult = await res.json();
+
+      // The backend streams newline-delimited JSON: {"log": "..."} per line as
+      // Claude writes it, then one {"result": {...}}. Reading it with
+      // res.json() would block until the whole run finished, which is what made
+      // an apply look hung for up to half an hour.
+      let r: ApplyResult = { ok: false, error: "apply produced no result" } as ApplyResult;
+      if (res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const parts = buf.split("\n");
+          buf = parts.pop() ?? "";           // keep the partial last line
+          for (const line of parts) {
+            if (!line.trim()) continue;
+            try {
+              const ev = JSON.parse(line);
+              if (ev.log) setLive((l) => [...l, ev.log]);
+              if (ev.result) r = ev.result as ApplyResult;
+            } catch {
+              // A partial or malformed line is not worth failing the run over.
+            }
+          }
+        }
+      }
       setApply(r);
       // Record the run so the client's History timeline shows fixes, not just scans.
       if (r.ok && !r.error && clientId) {

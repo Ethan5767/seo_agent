@@ -298,25 +298,46 @@ def summarize_changelog(changelog: dict) -> dict:
     }
 
 
-def handle_remediate_apply(req: dict) -> dict:
-    """The REAL edit-run: hand the bridged worklist to Claude Code (the Claude
-    subscription) so it edits the client repo, then read back changelog.json and
-    the git diff. Irreversible, so it demands `confirm: true` and refuses without
-    `claude` on PATH. Bounded by `max_items` (default 3, cap 25) so a first run
-    can't run away. The operator commits + opens the PR downstream (gates there)."""
+def stream_remediate_apply(req: dict):
+    """The REAL edit-run, as a stream of events.
+
+    Hands the bridged worklist to Claude Code (the Claude subscription) so it
+    edits the client repo, then reads back changelog.json and the git diff.
+    Irreversible, so it demands `confirm: true` and refuses without `claude` on
+    PATH. Bounded by `max_items` (default 3, cap 25) so a first run cannot run
+    away. The operator commits and opens the PR downstream, where the gates are.
+
+    Yields `{"log": line}` per line as Claude produces it, then exactly one
+    terminal `{"result": {...}}`. This used to be a single blocking
+    subprocess.run(capture_output=True, timeout=1800): remediate.py already
+    streamed Claude's output line by line and this handler threw it away, so an
+    operator clicking Apply watched nothing happen for up to thirty minutes.
+    /scan solved the same problem the same way.
+    """
+    def done(result):
+        return {"result": result}
+
     if req.get("confirm") is not True:
-        return {"ok": False, "error": "apply needs confirm:true — it edits the repo via Claude Code."}
+        yield done({"ok": False,
+                    "error": "apply needs confirm:true — it edits the repo via Claude Code."})
+        return
     if shutil.which("claude") is None:
-        return {"ok": False, "error": "Claude Code ('claude') isn't on PATH. Install it and log into "
-                "your Claude subscription, then retry — apply runs on the subscription (no API key)."}
+        yield done({"ok": False,
+                    "error": "Claude Code ('claude') isn't on PATH. Install it and log into "
+                             "your Claude subscription, then retry — apply runs on the "
+                             "subscription (no API key)."})
+        return
 
     err, ctx = _remediate_prep(req)
     if err:
-        return err
-    bridged, repo_path, cycle, out_dir = ctx["bridged"], ctx["repo_path"], ctx["cycle"], ctx["out_dir"]
+        yield done(err)
+        return
+    bridged, repo_path, cycle, out_dir = (
+        ctx["bridged"], ctx["repo_path"], ctx["cycle"], ctx["out_dir"])
     if not bridged["worklist"]["items"]:
-        return {"ok": True, "applied": 0, "unbridged": bridged["unbridged"],
-                "note": "nothing bridged to the code-fix rail — nothing to apply."}
+        yield done({"ok": True, "applied": 0, "unbridged": bridged["unbridged"],
+                    "note": "nothing bridged to the code-fix rail — nothing to apply."})
+        return
 
     try:
         max_items = int(req.get("max_items") or 3)
@@ -324,14 +345,40 @@ def handle_remediate_apply(req: dict) -> dict:
         max_items = 3
     max_items = max(1, min(max_items, 25))
 
+    # Line-buffered so a long-running agent's output reaches the operator as it
+    # is written rather than when the pipe fills.
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [sys.executable, "-m", "pipeline.audit.remediate",
              "--project", str(repo_path), "--cycle", cycle, "--max-items", str(max_items)],
-            cwd=str(_ENGINE_ROOT), capture_output=True, text=True, timeout=1800,
+            cwd=str(_ENGINE_ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
         )
+    except OSError as exc:
+        yield done({"ok": False, "error": f"could not start the remediation run: {exc}"})
+        return
+
+    # Keep only the tail: a 30-minute run can emit a great deal, and the error
+    # message needs the end of it, not all of it.
+    tail: list[str] = []
+    try:
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            tail.append(line)
+            if len(tail) > 200:
+                del tail[0]
+            yield {"log": line}
+    except (BrokenPipeError, ConnectionResetError):
+        # The operator closed the tab. Stop the agent rather than leaving it
+        # editing a repo nobody is watching.
+        proc.kill()
+        return
+
+    try:
+        returncode = proc.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "apply timed out after 30 min — re-run to resume (fixed items are skipped)."}
+        proc.kill()
+        returncode = -1
 
     changelog = {}
     cl_path = out_dir / "changelog.json"
@@ -349,12 +396,25 @@ def handle_remediate_apply(req: dict) -> dict:
         pass
 
     applied = sum(1 for it in summary["items"] if it["status"] == "fixed")
-    ok = proc.returncode in (0, 1)  # 1 = tool's "nothing fixed", not a crash
-    res = {"ok": ok, "applied": applied, "exit_code": proc.returncode, "cycle": cycle,
+    ok = returncode in (0, 1)  # 1 = tool's "nothing fixed", not a crash
+    res = {"ok": ok, "applied": applied, "exit_code": returncode, "cycle": cycle,
            "summary": summary, "diffstat": diffstat, "unbridged": bridged["unbridged"]}
     if not ok:
-        res["error"] = (proc.stderr.strip() or proc.stdout.strip() or "apply failed")[:2000]
-    return res
+        res["error"] = ("\n".join(tail).strip() or "apply failed")[-2000:]
+    yield done(res)
+
+
+def handle_remediate_apply(req: dict) -> dict:
+    """The non-streaming form, kept so the plain JSON endpoint still works.
+
+    Drains the stream and returns its terminal result. Callers that want live
+    progress should consume `stream_remediate_apply` directly.
+    """
+    result = {"ok": False, "error": "apply produced no result"}
+    for ev in stream_remediate_apply(req):
+        if "result" in ev:
+            result = ev["result"]
+    return result
 
 
 def tool_catalog() -> list[dict]:
@@ -535,7 +595,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/remediate/apply":
             n = int(self.headers.get("Content-Length", 0))
             req = json.loads(self.rfile.read(n) or b"{}")
-            return self._send(200, json.dumps(handle_remediate_apply(req)))
+            # Newline-delimited JSON, same shape as /scan: {"log": "..."} per
+            # line as Claude writes it, then one {"result": {...}}. An apply can
+            # run for half an hour; buffering it meant the operator watched a
+            # dead screen and could not tell a working run from a hung one.
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            for ev in stream_remediate_apply(req):
+                try:
+                    self.wfile.write((json.dumps(ev, default=str) + "\n").encode())
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+            return
         if self.path != "/scan":
             return self._send(404, "not found", "text/plain")
         n = int(self.headers.get("Content-Length", 0))

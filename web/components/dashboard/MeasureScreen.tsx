@@ -13,6 +13,8 @@ import React from "react";
 
 import type { ReaiTab } from "@/components/dashboard/types";
 import { ALL_FINDINGS_VIEW, CHECKS_VIEW } from "@/lib/reportViews";
+import { derivePillars, severityMark, severityTone } from "@/lib/pillars";
+import { tone } from "@/lib/ui";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import {
@@ -23,8 +25,6 @@ import {
 } from "@/components/dashboard/primitives";
 
 type AuditSubTab = "summary" | "all_checks" | "progress" | "remediation";
-
-type WebVital = { val: string; status: string };
 
 export interface MeasureScreenProps {
   report: any;
@@ -50,7 +50,6 @@ export interface MeasureScreenProps {
   errChecks: number;
   infoChecks: number;
   dynamicHealth: number;
-  coreWebVitals: { lcp: WebVital; inp: WebVital; cls: WebVital };
   auditCategoryFilter: string;
   setAuditCategoryFilter: (key: string) => void;
   auditSeverityFilter: CheckSeverityFilter;
@@ -166,7 +165,6 @@ export function MeasureScreen({
   errChecks,
   infoChecks,
   dynamicHealth,
-  coreWebVitals,
   auditCategoryFilter,
   setAuditCategoryFilter,
   auditSeverityFilter,
@@ -294,107 +292,73 @@ export function MeasureScreen({
               </span>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-              {[
-                {
-                  catKey: "seo",
-                  title: "Crawlability & Indexing",
-                  // Was a hardcoded category score. Derived from the scan when one runs.
-                  score: 0,
-                  status: "Not measured",
-                  color: "var(--ok)",
-                  bg: "var(--ok-tint)",
-                  border: "var(--ok-border)",
-                  items: ["Robots.txt compliant", "Sitemap.xml indexed", "Canonical tags enforced", "0 4xx crawl errors"],
-                },
-                {
-                  catKey: "tech",
-                  title: "HTTPS & Security Architecture",
-                  // Was a hardcoded category score. Derived from the scan when one runs.
-                  score: 0,
-                  status: "Not measured",
-                  color: "var(--ok)",
-                  bg: "var(--ok-tint)",
-                  border: "var(--ok-border)",
-                  items: ["SSL/TLS 256-bit active", "Zero mixed content", "HSTS header enabled", "Secure redirection"],
-                },
-                {
-                  catKey: "perf",
-                  title: "Core Web Vitals & Speed",
-                  // Was a hardcoded category score. Derived from the scan when one runs.
-                  score: 0,
-                  status: "Not measured",
-                  color: "var(--accent)",
-                  bg: "#eef2ff",
-                  border: "#c7d2fe",
-                  items: [`LCP ${coreWebVitals.lcp.val} (${coreWebVitals.lcp.status})`, `INP ${coreWebVitals.inp.val} (${coreWebVitals.inp.status})`, `CLS ${coreWebVitals.cls.val} (${coreWebVitals.cls.status})`, "Mobile asset caching"],
-                },
-                {
-                  catKey: "site",
-                  title: "Internal Linking & Equity",
-                  // Was a hardcoded category score. Derived from the scan when one runs.
-                  score: 0,
-                  status: "Not measured",
-                  color: "var(--ok)",
-                  bg: "var(--ok-tint)",
-                  border: "var(--ok-border)",
-                  items: ["Click depth ≤ 3 for key pages", "0 orphan URLs detected", "Balanced equity flow", "Descriptive anchor text"],
-                },
-                {
-                  catKey: "schema",
-                  title: "Structured Data & Schema.org",
-                  // Was a hardcoded category score. Derived from the scan when one runs.
-                  score: 0,
-                  status: "Not measured",
-                  color: "var(--accent)",
-                  bg: "#eef2ff",
-                  border: "#c7d2fe",
-                  items: ["MedicalBusiness JSON-LD", "BreadcrumbList valid", "OpenGraph meta present", "Twitter Card schema"],
-                },
-                {
-                  catKey: "aeo",
-                  title: "AEO & LLM Search Readiness",
-                  // Was a hardcoded category score. Derived from the scan when one runs.
-                  score: 0,
-                  status: "AI Ready",
-                  color: "var(--info)",
-                  bg: "#f0f9ff",
-                  border: "#bae6fd",
-                  items: ["GPTBot / ClaudeBot unblocked", "Direct answer citations", "Semantic markdown structure", "Perplexity search ready"],
-                },
-              ].map((m) => (
-                <div key={m.title} style={{
-                  border: "1px solid var(--border)", borderRadius: 8, padding: "14px 16px",
+            {/*
+              Pillar cards.
+
+              Every bullet, score, badge and colour below is read from
+              derivePillars(report), which slices the report's own tool groups.
+              What was here before was six literals: green-ticked claims like
+              "SSL/TLS 256-bit active", "HSTS header enabled", "0 orphan URLs
+              detected" and "MedicalBusiness JSON-LD" (a healthcare schema
+              asserted for every client, whatever the industry), each card
+              scoring 0 while painted with the pass colour, and one badge
+              reading "AI Ready" over a pillar nothing had measured.
+            */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-3)" }}>
+              {derivePillars(report).map((m) => {
+                const t = tone(m.tone);
+                return (
+                <div key={m.catKey} style={{
+                  border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "var(--space-4)",
                   background: "var(--surface)", display: "flex", flexDirection: "column", justifyContent: "space-between",
                 }}>
                   <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ink-body)" }}>{m.title}</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-3)", gap: "var(--space-2)" }}>
+                      <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--ink-body)" }}>{m.title}</span>
                       <span style={{
-                        fontSize: 12, fontWeight: 700, color: m.color,
-                        background: m.bg, border: `1px solid ${m.border}`,
-                        padding: "2px 7px", borderRadius: 4,
+                        fontSize: "var(--text-xs)", fontWeight: 700, color: t.fg,
+                        background: t.bg, border: `1px solid ${t.border}`,
+                        padding: "2px var(--space-2)", borderRadius: "var(--radius-xs)", whiteSpace: "nowrap",
                       }}>
                         {m.status}
                       </span>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
-                      <span style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)" }}>{m.score}%</span>
-                      <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>pillar health</span>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: "var(--space-2)", marginBottom: "var(--space-2)" }}>
+                      {/* A pillar with no graded rows shows an em dash, never a 0% dressed as a pass. */}
+                      <span style={{ fontSize: "var(--text-2xl)", fontWeight: 800, color: m.score === null ? "var(--ink-muted)" : "var(--ink)" }}>
+                        {m.score === null ? "—" : `${m.score}%`}
+                      </span>
+                      <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
+                        {m.score === null ? "no graded checks" : `${m.ok} of ${m.ok + m.warn + m.error} checks passing`}
+                      </span>
                     </div>
 
-                    <div style={{ height: 6, background: "var(--surface-3)", borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
-                      <div style={{ width: `${m.score}%`, height: "100%", background: m.color, borderRadius: 3 }} />
+                    <div style={{ height: "var(--space-1)", background: "var(--surface-3)", borderRadius: "var(--radius-full)", overflow: "hidden", marginBottom: "var(--space-3)" }}>
+                      <div style={{ width: `${m.score ?? 0}%`, height: "100%", background: t.fg, borderRadius: "var(--radius-full)" }} />
                     </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {m.items.map((it, idx) => (
-                        <div key={idx} style={{ fontSize: 12, color: "#475569", display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ color: "var(--ok)", fontWeight: 700 }}>✓</span>
-                          <span>{it}</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+                      {m.items.length === 0 ? (
+                        <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
+                          No check in this area has run on {currentDomain || "this site"} yet.
+                        </div>
+                      ) : m.items.map((it, idx) => (
+                        <div key={idx} style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", display: "flex", alignItems: "baseline", gap: "var(--space-2)" }}>
+                          <span style={{ color: tone(severityTone(it.severity)).fg, fontWeight: 700 }}>
+                            {severityMark(it.severity)}
+                          </span>
+                          <span>
+                            {it.label}
+                            {it.detail ? <span style={{ color: "var(--ink-faint)" }}> · {it.detail}</span> : null}
+                          </span>
                         </div>
                       ))}
+                      {m.total > m.items.length ? (
+                        <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-faint)" }}>
+                          + {m.total - m.items.length} more check{m.total - m.items.length === 1 ? "" : "s"}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -405,17 +369,18 @@ export function MeasureScreen({
                       setAuditCategoryFilter(m.catKey);
                     }}
                     style={{
-                      marginTop: 12, borderTop: "1px solid var(--surface-3)", paddingTop: 8,
+                      marginTop: "var(--space-3)", borderTop: "1px solid var(--surface-3)", paddingTop: "var(--space-2)",
                       background: "none", border: 0, color: "var(--accent)",
-                      fontSize: 12, fontWeight: 600, cursor: "pointer",
-                      textAlign: "left", padding: "8px 0 0", display: "flex", justifyContent: "space-between", alignItems: "center",
+                      fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
+                      textAlign: "left", padding: "var(--space-2) 0 0", display: "flex", justifyContent: "space-between", alignItems: "center",
                     }}
                   >
                     <span>Inspect {m.title.split(" ")[0]} Checks</span>
                     <span>→</span>
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

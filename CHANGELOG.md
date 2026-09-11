@@ -8,6 +8,65 @@ see `CLAUDE.md` (the sync contract).
 
 ### Changed
 
+- **The Measure screen's six pillar cards are derived from the scan, and the
+  Executive Report is built from it or refused.** Both blocks asserted things
+  about a client's website that nothing had measured, and both survived the
+  earlier fabrication cleanup.
+
+  1. `web/components/dashboard/MeasureScreen.tsx:297-385` rendered six cards
+     whose bullets were literals shown with a green tick — `"SSL/TLS 256-bit
+     active"`, `"HSTS header enabled"`, `"Robots.txt compliant"`, `"0 orphan
+     URLs detected"`, `"BreadcrumbList valid"` and, worst, `"MedicalBusiness
+     JSON-LD"`, a healthcare schema claimed for every client whatever their
+     industry. The same claims had already been deleted from the `all_checks`
+     sub-tab for being fabricated. Each card also scored `0` while painted
+     `var(--ok)` with a green tint, and one hardcoded `status: "AI Ready"`
+     beside siblings reading "Not measured". Cards now come from
+     `derivePillars(report)` (`web/lib/pillars.ts`): a pillar is one tool group
+     in the report, its bullets are that group's own rows (severity-marked
+     `✓ ! ✕ ·`, errors first), its score is `ok / (ok + warn + error)`, and its
+     badge and colour follow `tone()`. A group with no rows renders an em dash,
+     "Not measured", a neutral tone and a one-line explanation — never a 0%
+     bar in the pass colour.
+
+  2. `web/app/ReaiDashboard.tsx` (the Executive Report modal, now at `:11667`)
+     built a printable, client-addressed deliverable out of literals:
+     `Technical Health Score: 94 / 100 (Grade A)`, `AI / AEO Engine Readiness:
+     92%`, `Core Web Vitals: PASSED (LCP 1.8s | INP 82ms | CLS 0.02)`,
+     `Est. Organic Traffic Value: $2,439 / mo (+14.2% MoM)`, a hardcoded
+     `September 10, 2026`, keyword fallbacks naming a city nobody had scanned,
+     and a `## 2. AUTONOMOUS REMEDIATIONS DEPLOYED` section listing five fixes
+     that never ran. It rendered identically for every client, scanned or not.
+     The feature is kept and made honest: `buildExecutiveReport()`
+     (`web/lib/executiveReport.ts`) reads the score from `report.score`, the
+     check counts from `report.counts` (falling back to a row tally), the
+     per-area results from `derivePillars`, the vitals from
+     `deriveCoreWebVitals`, the findings from `derivePriorities`, and the
+     keyword lines from the report's own `dfs.ranked_keyword` /
+     `dfs.serp_rank` / keyword-volume rows. **With no findings it returns
+     `null` and the modal refuses**, telling the operator to run an audit
+     instead of producing a document. The remediations section is deleted
+     rather than reworded — what was actually applied lives in the cycle's
+     `changelog.json` written by `wf-site-remediate`, which this screen does
+     not read. The date is generated at export time; a figure the report does
+     not carry (organic traffic value, any MoM delta) is omitted, never
+     estimated. The copyable markdown is generated from the same object, so
+     the clipboard and the printed page cannot disagree.
+
+  `web/tsconfig.json` gains `"allowImportingTsExtensions": true` so
+  `lib/executiveReport.ts` can import its three siblings with an explicit
+  `.ts` specifier — which is what lets `node --test` load the module directly,
+  the way `tests/priorities.test.mjs` already loads `lib/priorities.ts`.
+  `MeasureScreen`'s `coreWebVitals` prop is gone: the pillar cards no longer
+  read it.
+
+  Verified: `npx tsc --noEmit` → `TypeScript: No errors found`;
+  `node --test tests/*.test.mjs` → `tests 102 / pass 102 / fail 0`
+  (`tests/measure.test.mjs` alone: 24, up from 10);
+  `curl -s -o /dev/null -w "%{http_code}" http://localhost:3002/site-audit` →
+  `200`, and the page still renders the Measure screen.
+
+
 - **Measure screen extracted to `web/components/dashboard/MeasureScreen.tsx`.**
   `ReaiDashboard.tsx` was 13,437 lines against an `AGENTS.md` Rule 1 ceiling of
   1,000. The Measure screen is ~780 self-contained lines with a clear
@@ -28,6 +87,21 @@ see `CLAUDE.md` (the sync contract).
   `coreWebVitals`).
 
 ### Fixed
+
+- **Core Web Vitals are no longer invented from a Lighthouse score.**
+  `web/app/ReaiDashboard.tsx:1984-2006` produced `lcp.val = lhPerfNum < 50 ?
+  "3.8s" : lhPerfNum < 80 ? "2.4s" : "1.6s"`, INP `"420ms"` / `"38ms"` and CLS
+  `"0.14"` / `"0.03"` from the Lighthouse *performance score* — a score that
+  itself defaulted to `"46/100"` when no scan had run — and rendered the result
+  on the Measure and On-Page screens as measurements. A score is not an LCP
+  time, and a bucket cannot yield a millisecond figure. `deriveCoreWebVitals()`
+  (`web/lib/webVitals.ts`) now reads the real p75 out of the scanner's own
+  `crux.lcp` / `crux.inp` / `crux.cls` rows (`pipeline/scanner/audit.py`
+  `perf_rows`, from `providers.crux_metrics`), formats it in the metric's own
+  unit, and takes its verdict from the row's severity. With no CrUX row — no
+  scan, or an origin with too little Chrome traffic for field data — every
+  vital reads `—` / "Not measured".
+
 
 - **A filtered-to-empty `all_checks` table no longer claims the site was never
   scanned, or offers a paid scan as the way out.** `ReportTable` renders its

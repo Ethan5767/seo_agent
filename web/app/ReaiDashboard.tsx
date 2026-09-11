@@ -8,6 +8,10 @@ import { ProjectJourney } from "@/components/dashboard/ProjectJourney";
 import { PriorityActions } from "@/components/dashboard/PriorityActions";
 import type { PriorityItem } from "@/components/dashboard/types";
 import { derivePriorities } from "../lib/priorities";
+import { deriveCoreWebVitals } from "../lib/webVitals";
+import { buildExecutiveReport } from "../lib/executiveReport";
+import { severityMark, severityTone } from "../lib/pillars";
+import { tone } from "../lib/ui";
 import { viewById, rowsForView, ALL_FINDINGS_VIEW, CHECKS_VIEW } from "../lib/reportViews";
 import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
@@ -1980,31 +1984,16 @@ function resolveProjectData(
     ],
   };
 
-  // 10. Real Lighthouse & Crawl Diagnostics
-  const lhPerfVal = report?.lh_perf?.[0]?.detail || "46/100";
-  const lhPerfNum = parseInt(lhPerfVal.split("/")[0], 10) || 46;
-
+  // 10. Core Web Vitals, read from the scan's own CrUX rows.
+  //
+  // These three figures used to be produced from the Lighthouse performance
+  // SCORE: lcp "3.8s" / "2.4s" / "1.6s", inp "420ms" / "38ms", cls "0.14" /
+  // "0.03", off a score that itself defaulted to "46/100" when no scan had
+  // run. A score is not a millisecond reading, and a bucket cannot yield one.
+  // deriveCoreWebVitals reads the real p75 the scanner recorded and returns an
+  // em dash with "Not measured" when CrUX has no field data.
   const onPageSeoData = {
-    coreWebVitals: {
-      lcp: {
-        val: lhPerfNum < 50 ? "3.8s" : lhPerfNum < 80 ? "2.4s" : "1.6s",
-        status: lhPerfNum < 50 ? "Needs Work" : "Good",
-        color: lhPerfNum < 50 ? "#dc2626" : "var(--ok)",
-        target: "< 2.5s",
-      },
-      inp: {
-        val: lhPerfNum < 50 ? "420ms" : "38ms",
-        status: lhPerfNum < 50 ? "Needs Work" : "Good",
-        color: lhPerfNum < 50 ? "#d97706" : "var(--ok)",
-        target: "< 200ms",
-      },
-      cls: {
-        val: lhPerfNum < 50 ? "0.14" : "0.03",
-        status: lhPerfNum < 50 ? "Needs Work" : "Good",
-        color: lhPerfNum < 50 ? "#d97706" : "var(--ok)",
-        target: "< 0.10",
-      },
-    },
+    coreWebVitals: deriveCoreWebVitals(report as any),
     statusCodes: {
       ok200: 92,
       redir301: 5,
@@ -6701,7 +6690,6 @@ export function ReaiDashboard({
               errChecks={errChecks}
               infoChecks={infoChecks}
               dynamicHealth={dynamicHealth}
-              coreWebVitals={projectMetrics.onPageSeoData.coreWebVitals}
               auditCategoryFilter={auditCategoryFilter}
               setAuditCategoryFilter={setAuditCategoryFilter}
               auditSeverityFilter={auditSeverityFilter}
@@ -11676,40 +11664,95 @@ export const metadata: Metadata = {
         );
       })()}
 
-      {/* ── AUTONOMOUS EXECUTIVE WHITE-LABEL CLIENT REPORT & PRINT GENERATOR MODAL ── */}
+      {/*
+        Executive client report.
+
+        Rebuilt from the scan. What was here was a printable, client-addressed
+        deliverable made of literals: "Technical Health Score: 94 / 100 (Grade
+        A)", "AI / AEO Engine Readiness: 92%", "Core Web Vitals: PASSED (LCP
+        1.8s | INP 82ms | CLS 0.02)", "Est. Organic Traffic Value: $2,439 / mo",
+        a hardcoded audit date, keyword fallbacks for a city nobody had scanned,
+        and a section headed "AUTONOMOUS REMEDIATIONS DEPLOYED" listing five
+        fixes that never ran. It rendered the same for every client, scanned or
+        not.
+
+        Now: every figure comes from buildExecutiveReport(report), and with no
+        scan there is no document at all - the panel refuses and says to run an
+        audit. The remediations section is gone rather than reworded: what was
+        actually applied lives in the cycle's changelog.json written by
+        wf-site-remediate, which this screen does not read.
+      */}
       {showExecutiveReportModal && (() => {
-        const executiveSummaryMd = `# EXECUTIVE SEO & AEO REPORT
-Client: ${currentBusiness} (${currentDomain})
-Agency: ${agencyName}
-Date: September 10, 2026
-Audit Authority: REAI Autonomous SEO Intelligence Engine
+        const exec = buildExecutiveReport({
+          report: report as any,
+          client: currentBusiness,
+          domain: currentDomain,
+          agency: agencyName,
+        });
 
-## 1. APEX PERFORMANCE METRICS
-- Technical Health Score: 94 / 100 (Grade A)
-- AI / AEO Engine Readiness: 92% (Perplexity, ChatGPT, Gemini optimized)
-- Google Core Web Vitals: PASSED (LCP 1.8s | INP 82ms | CLS 0.02)
-- Est. Organic Traffic Value: $2,439 / mo (+14.2% MoM)
+        const overlayStyle: React.CSSProperties = {
+          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.75)", backdropFilter: "blur(5px)",
+          display: "flex", justifyContent: "center", zIndex: 2000, padding: "var(--space-5) var(--space-4)", overflowY: "auto",
+        };
 
-## 2. AUTONOMOUS REMEDIATIONS DEPLOYED
-1. Local & Medical Schema JSON-LD: Structured data injected into Next.js App Router.
-2. AEO llms.txt Knowledge Spec: Generated & deployed to domain root for AI search agents.
-3. Content & TF-IDF Semantic Entity Gap: Added high-density diagnostic terms.
-4. SERP & Social Snippet Optimization: Desktop (540px) & mobile pixel-width calibrated.
-5. High-Authority Link Outreach: 8 healthcare directory pitches prepared.
+        // No scan, no deliverable. Generating one anyway is how the fabricated
+        // version happened in the first place.
+        if (!exec) {
+          return (
+            <div style={overlayStyle}>
+              <div style={{
+                background: "var(--surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border)",
+                boxShadow: "var(--shadow-lg)", padding: "var(--space-6)", maxWidth: 520, height: "fit-content",
+                display: "flex", flexDirection: "column", gap: "var(--space-3)",
+              }}>
+                <h3 style={{ margin: 0, fontSize: "var(--text-lg)", fontWeight: 800, color: "var(--ink)" }}>
+                  No Audit Data to Report
+                </h3>
+                <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--ink-body)", lineHeight: "var(--leading-normal)" }}>
+                  This report is built entirely from a scan of{" "}
+                  <b>{currentDomain || currentBusiness || "the client site"}</b>, and no scan has produced
+                  findings yet. Run an audit first: with nothing measured there is no figure that could
+                  honestly be printed for a client.
+                </p>
+                <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowExecutiveReportModal(false);
+                      setActiveTab("Site Health & Audit");
+                      setAuditSubTab("summary");
+                    }}
+                    style={{
+                      background: "var(--accent)", color: "var(--surface)", border: 0,
+                      borderRadius: "var(--radius-sm)", padding: "var(--space-2) var(--space-4)",
+                      fontSize: "var(--text-sm)", fontWeight: 700, cursor: "pointer",
+                    }}
+                  >
+                    Go to Site Audit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowExecutiveReportModal(false)}
+                    style={{
+                      background: "var(--surface-2)", color: "var(--ink-body)", border: "1px solid var(--border)",
+                      borderRadius: "var(--radius-sm)", padding: "var(--space-2) var(--space-4)",
+                      fontSize: "var(--text-sm)", fontWeight: 600, cursor: "pointer",
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
 
-## 3. TOP TARGET KEYWORDS
-- ${projectMetrics.keywords[0]?.keyword || "hospital phnom penh"}: Position #${projectMetrics.keywords[0]?.position || 3} (Vol: ${projectMetrics.keywords[0]?.volume || "1,900"}/mo)
-- ${projectMetrics.keywords[1]?.keyword || "maternity clinic phnom penh"}: Position #${projectMetrics.keywords[1]?.position || 2} (Vol: ${projectMetrics.keywords[1]?.volume || "880"}/mo)
-- ${projectMetrics.keywords[2]?.keyword || "emergency doctor 24/7"}: Position #${projectMetrics.keywords[2]?.position || 1} (Vol: ${projectMetrics.keywords[2]?.volume || "1,200"}/mo)
-
-Report certified by ${agencyName}.
-`;
+        const cell: React.CSSProperties = { padding: "var(--space-2) var(--space-3)", fontSize: "var(--text-xs)", textAlign: "left" };
+        const headCell: React.CSSProperties = { ...cell, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" };
+        const vitalKeys = ["lcp", "inp", "cls"] as const;
 
         return (
-          <div style={{
-            position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.75)", backdropFilter: "blur(5px)",
-            display: "flex", justifyContent: "center", zIndex: 2000, padding: "24px 16px", overflowY: "auto",
-          }}>
+          <div style={overlayStyle}>
             {/* Print CSS Rules */}
             <style>{`
               @media print {
@@ -11738,15 +11781,15 @@ Report certified by ${agencyName}.
               }
             `}</style>
 
-            <div style={{ width: "100%", maxWidth: 940, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ width: "100%", maxWidth: 940, display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
               {/* Sticky Top Toolbar (No-Print) */}
               <div className="no-print" style={{
-                background: "#1e293b", borderRadius: 10, padding: "12px 20px", color: "#ffffff",
-                display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
-                boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+                background: "var(--ink)", borderRadius: "var(--radius-md)", padding: "var(--space-3) var(--space-5)", color: "var(--surface)",
+                display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "var(--space-3)",
+                boxShadow: "var(--shadow-md)",
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                  <span style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--border-strong)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     Agency Partner:
                   </span>
                   <input
@@ -11754,24 +11797,26 @@ Report certified by ${agencyName}.
                     value={agencyName}
                     onChange={(e) => setAgencyName(e.target.value)}
                     style={{
-                      background: "#0f172a", border: "1px solid #334155", color: "#f8fafc",
-                      padding: "5px 10px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, outline: "none", width: 260,
+                      background: "var(--ink-body)", border: "1px solid var(--ink-muted)", color: "var(--surface)",
+                      padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-sm)",
+                      fontSize: "var(--text-sm)", fontWeight: 600, outline: "none", width: 260,
                     }}
                   />
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(executiveSummaryMd);
+                      navigator.clipboard.writeText(exec.markdown);
                       setReportCopied(true);
                       setTimeout(() => setReportCopied(false), 2000);
                     }}
                     style={{
-                      background: "#334155", color: "#f8fafc", border: "1px solid #475569",
-                      padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                      display: "flex", alignItems: "center", gap: 5,
+                      background: "var(--ink-body)", color: "var(--surface)", border: "1px solid var(--ink-muted)",
+                      padding: "var(--space-2) var(--space-3)", borderRadius: "var(--radius-sm)",
+                      fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: "var(--space-1)",
                     }}
                   >
                     <span>📋</span> {reportCopied ? "✓ Copied Markdown" : "Copy Summary"}
@@ -11781,9 +11826,10 @@ Report certified by ${agencyName}.
                     type="button"
                     onClick={() => window.print()}
                     style={{
-                      background: "linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)", color: "#ffffff", border: 0,
-                      padding: "7px 18px", borderRadius: 6, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-                      display: "flex", alignItems: "center", gap: 6, boxShadow: "0 2px 6px rgba(79, 70, 229, 0.3)",
+                      background: "var(--accent)", color: "var(--surface)", border: 0,
+                      padding: "var(--space-2) var(--space-4)", borderRadius: "var(--radius-sm)",
+                      fontSize: "var(--text-sm)", fontWeight: 700, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: "var(--space-1)", boxShadow: "var(--shadow-sm)",
                     }}
                   >
                     <span>🖨️</span> Print / Save as PDF
@@ -11793,8 +11839,8 @@ Report certified by ${agencyName}.
                     type="button"
                     onClick={() => setShowExecutiveReportModal(false)}
                     style={{
-                      background: "transparent", color: "var(--ink-muted)", border: 0,
-                      padding: "6px 10px", fontSize: 16, cursor: "pointer",
+                      background: "transparent", color: "var(--border-strong)", border: 0,
+                      padding: "var(--space-1) var(--space-2)", fontSize: "var(--text-md)", cursor: "pointer",
                     }}
                   >
                     ✕
@@ -11804,282 +11850,243 @@ Report certified by ${agencyName}.
 
               {/* Printable Document Container */}
               <div id="printable-executive-report" style={{
-                background: "#ffffff", borderRadius: 12, border: "1px solid #e2e8f0",
-                boxShadow: "0 20px 40px -10px rgba(0,0,0,0.2)", overflow: "hidden",
-                color: "#1e293b", fontFamily: "system-ui, -apple-system, sans-serif",
+                background: "var(--surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border)",
+                boxShadow: "var(--shadow-lg)", overflow: "hidden", color: "var(--ink-body)",
               }}>
                 {/* ── REPORT COVER HEADER ── */}
-                <div style={{
-                  background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #1e293b 100%)",
-                  padding: "36px 40px", color: "#ffffff",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+                <div style={{ background: "var(--ink)", padding: "var(--space-6)", color: "var(--surface)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "var(--space-5)", gap: "var(--space-4)" }}>
                     <div>
                       <div style={{
-                        display: "inline-block", background: "rgba(99, 102, 241, 0.2)",
-                        border: "1px solid rgba(99, 102, 241, 0.4)", padding: "4px 10px",
-                        borderRadius: 6, fontSize: 12, fontWeight: 700, color: "#c7d2fe",
-                        textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10,
+                        display: "inline-block", background: "var(--ink-body)", border: "1px solid var(--ink-muted)",
+                        padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-sm)",
+                        fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--accent-border)",
+                        textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "var(--space-2)",
                       }}>
-                        {agencyName} · Certified Executive Brief
+                        {exec.agency} · Executive Brief
                       </div>
-                      <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em" }}>
-                        Executive SEO & AEO Intelligence Report
+                      <h1 style={{ margin: 0, fontSize: "var(--text-2xl)", fontWeight: 800, letterSpacing: "-0.02em" }}>
+                        Executive SEO & AEO Report
                       </h1>
-                      <div style={{ fontSize: 13.5, color: "var(--ink-muted)", marginTop: 4 }}>
-                        Comprehensive Performance, Core Web Vitals & Autonomous Remediation Audit
+                      <div style={{ fontSize: "var(--text-sm)", color: "var(--border-strong)", marginTop: "var(--space-1)" }}>
+                        Every figure below is read from the audit of {exec.domain || exec.client}. Nothing is estimated.
                       </div>
                     </div>
 
-                    {/* Overall Score Stamp */}
+                    {/* Score stamp: report.score, or nothing. */}
                     <div style={{
-                      background: "rgba(255, 255, 255, 0.08)", border: "1px solid rgba(255, 255, 255, 0.15)",
-                      borderRadius: 12, padding: "12px 20px", textAlign: "center", minWidth: 120,
+                      background: "var(--ink-body)", border: "1px solid var(--ink-muted)",
+                      borderRadius: "var(--radius-lg)", padding: "var(--space-3) var(--space-5)", textAlign: "center", minWidth: 140,
                     }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Health Grade
+                      <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--border-strong)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Health Score
                       </div>
-                      <div style={{ fontSize: 32, fontWeight: 900, color: "#10b981", lineHeight: 1.1, marginTop: 2 }}>
-                        94%
+                      <div style={{ fontSize: "var(--text-3xl)", fontWeight: 900, color: "var(--surface)", lineHeight: "var(--leading-tight)", marginTop: "var(--space-1)" }}>
+                        {exec.healthScore === null ? "—" : exec.healthScore}
                       </div>
-                      <div style={{ fontSize: 12, color: "#34d399", fontWeight: 700 }}>
-                        Grade A · Optimal
+                      <div style={{ fontSize: "var(--text-xs)", color: "var(--border-strong)", fontWeight: 700 }}>
+                        {exec.healthScore === null ? "Not scored" : "out of 100"}
                       </div>
                     </div>
                   </div>
 
                   {/* Metadata Bar */}
                   <div style={{
-                    display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12,
-                    paddingTop: 18, borderTop: "1px solid rgba(255, 255, 255, 0.12)",
-                    fontSize: 12,
+                    display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-3)",
+                    paddingTop: "var(--space-4)", borderTop: "1px solid var(--ink-body)", fontSize: "var(--text-xs)",
                   }}>
                     <div>
-                      <div style={{ color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase", fontWeight: 600 }}>Client Entity</div>
-                      <div style={{ fontWeight: 700, color: "#f8fafc", marginTop: 2 }}>{currentBusiness}</div>
+                      <div style={{ color: "var(--border-strong)", textTransform: "uppercase", fontWeight: 600 }}>Client</div>
+                      <div style={{ fontWeight: 700, color: "var(--surface)", marginTop: "var(--space-1)" }}>{exec.client}</div>
                     </div>
                     <div>
-                      <div style={{ color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase", fontWeight: 600 }}>Domain Audited</div>
-                      <div style={{ fontWeight: 700, color: "#f8fafc", marginTop: 2 }}>{currentDomain}</div>
+                      <div style={{ color: "var(--border-strong)", textTransform: "uppercase", fontWeight: 600 }}>Domain Audited</div>
+                      <div style={{ fontWeight: 700, color: "var(--surface)", marginTop: "var(--space-1)" }}>{exec.domain || "—"}</div>
                     </div>
                     <div>
-                      <div style={{ color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase", fontWeight: 600 }}>Audit Date</div>
-                      <div style={{ fontWeight: 700, color: "#f8fafc", marginTop: 2 }}>September 10, 2026</div>
-                    </div>
-                    <div>
-                      <div style={{ color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase", fontWeight: 600 }}>Engine Status</div>
-                      <div style={{ fontWeight: 700, color: "#34d399", marginTop: 2 }}>● Auto-Fix Engine Active</div>
+                      <div style={{ color: "var(--border-strong)", textTransform: "uppercase", fontWeight: 600 }}>Report Date</div>
+                      <div style={{ fontWeight: 700, color: "var(--surface)", marginTop: "var(--space-1)" }}>{exec.date}</div>
                     </div>
                   </div>
                 </div>
 
                 {/* ── REPORT BODY ── */}
-                <div style={{ padding: "32px 40px", display: "flex", flexDirection: "column", gap: 28 }}>
-                  
-                  {/* Executive Summary Callout */}
+                <div style={{ padding: "var(--space-6)", display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
+
+                  {/* Summary: counts only, in the report's own numbers. */}
                   <div style={{
-                    background: "#f8fafc", borderLeft: "4px solid #4f46e5",
-                    padding: "16px 20px", borderRadius: "0 8px 8px 0",
+                    background: "var(--surface-2)", borderLeft: "4px solid var(--accent)",
+                    padding: "var(--space-4)", borderRadius: "0 var(--radius-md) var(--radius-md) 0",
                   }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: "#4f46e5", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
-                      Executive Summary & Findings (Sample Demo Report)
+                    <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--accent-ink)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "var(--space-1)" }}>
+                      What This Audit Measured
                     </div>
-                    <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
-                      <b>{currentBusiness}</b> demonstrates strong organic positioning with an overall technical health score of <b>94/100</b> and 100% compliance across Google’s 3 Core Web Vitals. The review of <b>5 Staged Auto-Fix Remediations</b> prepares fixes for critical crawl blockers, local JSON-LD schema, healthcare directory link opportunities, and AI Agent visibility for ChatGPT and Perplexity. Review changes before applying.
-                    </div>
-                  </div>
-
-                  {/* ── 1. FOUR APEX KPIS ── */}
-                  <div>
-                    <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                      1. Apex Health & Market Visibility Metrics (Sample Data)
-                    </h3>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-                      <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", background: "#ffffff" }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Technical Health</div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ok)", marginTop: 4 }}>94%</div>
-                        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Passing 52 of 55 checks</div>
-                      </div>
-
-                      <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", background: "#ffffff" }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>AI Readiness</div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: "#4f46e5", marginTop: 4 }}>85%</div>
-                        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>4/4 AI engines verified</div>
-                      </div>
-
-                      <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", background: "#ffffff" }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Core Web Vitals</div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ok)", marginTop: 4 }}>100%</div>
-                        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>LCP, INP & CLS Good</div>
-                      </div>
-
-                      <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", background: "#ffffff" }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Organic Traffic</div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>6.2k/mo</div>
-                        <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 2, fontWeight: 600 }}>+14.2% Growth</div>
-                      </div>
+                    <div style={{ fontSize: "var(--text-sm)", color: "var(--ink-body)", lineHeight: "var(--leading-normal)" }}>
+                      <b>{exec.checksTotal}</b> check{exec.checksTotal === 1 ? "" : "s"} ran on{" "}
+                      <b>{exec.domain || exec.client}</b>. <b>{exec.checksPassing}</b> passed,{" "}
+                      <b>{exec.counts.error}</b> returned an error and <b>{exec.counts.warn}</b> returned a warning.
+                      {exec.vitalsMeasured
+                        ? " Core Web Vitals are reported below from CrUX field data."
+                        : " Core Web Vitals were not measured on this scan, so no field figures are reported."}
                     </div>
                   </div>
 
-                  {/* ── 2. AUTONOMOUS REMEDIATIONS (THE VALUE DELIVERED) ── */}
+                  {/* ── 1. PILLAR RESULTS ── */}
                   <div>
-                    <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                      2. Staged Auto-Fix Remediations (Review Before Applying)
+                    <h3 style={{ margin: "0 0 var(--space-3)", fontSize: "var(--text-md)", fontWeight: 700, color: "var(--ink)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      1. Measured Results by Area
                     </h3>
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
                         <thead>
-                          <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase" }}>
-                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Auto-Fix Action</th>
-                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Remediation Details</th>
-                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Impact</th>
-                            <th style={{ padding: "10px 14px", fontWeight: 700, textAlign: "right" }}>Status</th>
+                          <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
+                            <th style={headCell}>Area</th>
+                            <th style={headCell}>Checks Passing</th>
+                            <th style={headCell}>Errors</th>
+                            <th style={headCell}>Warnings</th>
+                            <th style={{ ...headCell, textAlign: "right" }}>Status</th>
                           </tr>
                         </thead>
                         <tbody>
-                          <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
-                            <td style={{ padding: "10px 14px", fontWeight: 600, color: "#4f46e5" }}>Action 1: Content Enricher</td>
-                            <td style={{ padding: "10px 14px", color: "#334155" }}>Injected missing TF-IDF medical entities & pediatric ICU subsections</td>
-                            <td style={{ padding: "10px 14px", color: "var(--ink-muted)" }}>+42% Projected Traffic</td>
-                            <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", padding: "2px 8px", borderRadius: 4 }}>
-                                Ready for Review
-                              </span>
-                            </td>
-                          </tr>
-                          <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
-                            <td style={{ padding: "10px 14px", fontWeight: 600, color: "#4f46e5" }}>Action 2: Schema Injector</td>
-                            <td style={{ padding: "10px 14px", color: "#334155" }}>Hospital & Physician Schema.org JSON-LD with geo-coordinates and emergency hotline</td>
-                            <td style={{ padding: "10px 14px", color: "var(--ink-muted)" }}>Rich Snippets & Maps</td>
-                            <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", padding: "2px 8px", borderRadius: 4 }}>
-                                Ready for Review
-                              </span>
-                            </td>
-                          </tr>
-                          <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
-                            <td style={{ padding: "10px 14px", fontWeight: 600, color: "#4f46e5" }}>Action 3: AEO llms.txt</td>
-                            <td style={{ padding: "10px 14px", color: "#334155" }}>Deployed /llms.txt with entity relationships for AI crawler citation</td>
-                            <td style={{ padding: "10px 14px", color: "var(--ink-muted)" }}>AI Search Readiness</td>
-                            <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", padding: "2px 8px", borderRadius: 4 }}>
-                                Ready for Review
-                              </span>
-                            </td>
-                          </tr>
-                          <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
-                            <td style={{ padding: "10px 14px", fontWeight: 600, color: "#4f46e5" }}>Action 4: Link Outreach</td>
-                            <td style={{ padding: "10px 14px", color: "#334155" }}>Generated clinical outreach pitches for 8 premier regional medical directories</td>
-                            <td style={{ padding: "10px 14px", color: "var(--ink-muted)" }}>Domain Authority Lift</td>
-                            <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#0284c7", background: "#f0f9ff", padding: "2px 8px", borderRadius: 4 }}>
-                                8 Pitches Queued
-                              </span>
-                            </td>
-                          </tr>
-                          <tr>
-                            <td style={{ padding: "10px 14px", fontWeight: 600, color: "#4f46e5" }}>Action 5: SERP Simulator</td>
-                            <td style={{ padding: "10px 14px", color: "#334155" }}>Calibrated pixel-width titles (540px) & meta descriptions to prevent SERP truncation</td>
-                            <td style={{ padding: "10px 14px", color: "var(--ink-muted)" }}>CTR Optimization</td>
-                            <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", padding: "2px 8px", borderRadius: 4 }}>
-                                ✓ Validated
-                              </span>
-                            </td>
-                          </tr>
+                          {exec.pillars.map((p) => {
+                            const t = tone(p.tone);
+                            return (
+                              <tr key={p.catKey} style={{ borderBottom: "1px solid var(--surface-3)" }}>
+                                <td style={{ ...cell, fontWeight: 600, color: "var(--ink-body)" }}>{p.title}</td>
+                                <td style={{ ...cell, color: "var(--ink-muted)" }}>
+                                  {p.measured ? `${p.ok} of ${p.ok + p.warn + p.error}` : "—"}
+                                </td>
+                                <td style={{ ...cell, color: "var(--ink-muted)" }}>{p.measured ? p.error : "—"}</td>
+                                <td style={{ ...cell, color: "var(--ink-muted)" }}>{p.measured ? p.warn : "—"}</td>
+                                <td style={{ ...cell, textAlign: "right" }}>
+                                  <span style={{
+                                    fontSize: "var(--text-xs)", fontWeight: 700, color: t.fg, background: t.bg,
+                                    border: `1px solid ${t.border}`, padding: "2px var(--space-2)", borderRadius: "var(--radius-xs)",
+                                  }}>
+                                    {p.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
                   </div>
 
-                  {/* ── 3. PRIORITY COMMERCIAL KEYWORD RANKINGS ── */}
+                  {/* ── 2. CORE WEB VITALS ── */}
                   <div>
-                    <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                      3. Top Commercial Keyword Rankings
+                    <h3 style={{ margin: "0 0 var(--space-3)", fontSize: "var(--text-md)", fontWeight: 700, color: "var(--ink)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      2. Core Web Vitals (CrUX Field Data)
                     </h3>
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
-                        <thead>
-                          <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase" }}>
-                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Keyword</th>
-                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Position</th>
-                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Monthly Volume</th>
-                            <th style={{ padding: "10px 14px", fontWeight: 700 }}>Search Intent</th>
-                            <th style={{ padding: "10px 14px", fontWeight: 700, textAlign: "right" }}>SERP Features</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {projectMetrics.keywords.slice(0, 5).map((kw: any, idx: number) => (
-                            <tr key={idx} style={{ borderBottom: idx === 4 ? "none" : "1px solid #f1f5f9" }}>
-                              <td style={{ padding: "10px 14px", fontWeight: 600, color: "#1e293b" }}>{kw.keyword}</td>
-                              <td style={{ padding: "10px 14px" }}>
-                                <span style={{
-                                  fontWeight: 800, color: kw.position <= 3 ? "var(--ok)" : "#4f46e5",
-                                  background: kw.position <= 3 ? "#ecfdf5" : "#eef2ff",
-                                  padding: "2px 8px", borderRadius: 4,
-                                }}>
-                                  #{kw.position}
-                                </span>
-                              </td>
-                              <td style={{ padding: "10px 14px", color: "#475569" }}>{kw.volume.toLocaleString()} / mo</td>
-                              <td style={{ padding: "10px 14px" }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", background: "#f1f5f9", padding: "2px 7px", borderRadius: 4 }}>
-                                  {kw.intent}
-                                </span>
-                              </td>
-                              <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--ink-muted)" }}>
-                                Local Pack, SiteLinks, Reviews
-                              </td>
+                    {exec.vitalsMeasured ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-3)" }}>
+                        {vitalKeys.map((k) => (
+                          <div key={k} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "var(--space-4)" }}>
+                            <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>
+                              {k.toUpperCase()}
+                            </div>
+                            <div style={{ fontSize: "var(--text-2xl)", fontWeight: 800, color: exec.vitals[k].color, marginTop: "var(--space-1)" }}>
+                              {exec.vitals[k].val}
+                            </div>
+                            <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: "var(--space-1)" }}>
+                              {exec.vitals[k].status}
+                              {exec.vitals[k].target ? ` · good ${exec.vitals[k].target}` : ""}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{
+                        border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
+                        background: "var(--surface-2)", padding: "var(--space-4)",
+                        fontSize: "var(--text-sm)", color: "var(--ink-muted)",
+                      }}>
+                        Not measured. CrUX reports field data only for origins with enough Chrome traffic, and
+                        no reading was recorded on this scan.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── 3. TOP FINDINGS ── */}
+                  {exec.priorities.length > 0 && (
+                    <div>
+                      <h3 style={{ margin: "0 0 var(--space-3)", fontSize: "var(--text-md)", fontWeight: 700, color: "var(--ink)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        3. Top Findings, Highest Severity First
+                      </h3>
+                      <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
+                              <th style={headCell}>Finding</th>
+                              <th style={headCell}>Detected By</th>
+                              <th style={headCell}>Recommended Action</th>
+                              <th style={{ ...headCell, textAlign: "right" }}>Severity</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* ── 4. STRATEGIC 30-DAY GROWTH ROADMAP ── */}
-                  <div>
-                    <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                      4. Strategic 30-Day Growth Roadmap
-                    </h3>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                      <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px" }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5", textTransform: "uppercase" }}>Days 1 - 10</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>Schema Verification</div>
-                        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.4 }}>
-                          Submit Google Search Console URL inspections for updated JSON-LD doctor and clinic schemas.
-                        </div>
-                      </div>
-
-                      <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px" }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5", textTransform: "uppercase" }}>Days 11 - 20</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>Content Depth Expansion</div>
-                        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.4 }}>
-                          Deploy rich FAQs and neonatal intensive care clinical blocks across maternity subpages.
-                        </div>
-                      </div>
-
-                      <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px" }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5", textTransform: "uppercase" }}>Days 21 - 30</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", marginTop: 4 }}>Authority Link Outreach</div>
-                        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.4 }}>
-                          Execute outreach campaign for 8 regional healthcare directories to boost root domain authority.
-                        </div>
+                          </thead>
+                          <tbody>
+                            {exec.priorities.map((p) => {
+                              const t = tone(p.severity === "critical" ? "bad" : p.severity === "warning" ? "warn" : "neutral");
+                              return (
+                                <tr key={p.id} style={{ borderBottom: "1px solid var(--surface-3)" }}>
+                                  <td style={{ ...cell, fontWeight: 600, color: "var(--ink-body)" }}>{p.title}</td>
+                                  <td style={{ ...cell, color: "var(--ink-muted)" }}>{p.source}</td>
+                                  <td style={{ ...cell, color: "var(--ink-muted)" }}>{p.recommendedAction || "—"}</td>
+                                  <td style={{ ...cell, textAlign: "right" }}>
+                                    <span style={{
+                                      fontSize: "var(--text-xs)", fontWeight: 700, color: t.fg, background: t.bg,
+                                      border: `1px solid ${t.border}`, padding: "2px var(--space-2)", borderRadius: "var(--radius-xs)",
+                                    }}>
+                                      {p.severity === "critical" ? "Error" : p.severity === "warning" ? "Warning" : "Info"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* ── 4. KEYWORDS, only when the scan carries keyword rows ── */}
+                  {exec.keywords.length > 0 && (
+                    <div>
+                      <h3 style={{ margin: "0 0 var(--space-3)", fontSize: "var(--text-md)", fontWeight: 700, color: "var(--ink)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        4. Tracked Keywords
+                      </h3>
+                      <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
+                              <th style={headCell}>What the Scan Found</th>
+                              <th style={{ ...headCell, textAlign: "right" }}>Detail</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {exec.keywords.map((k, i) => (
+                              <tr key={i} style={{ borderBottom: "1px solid var(--surface-3)" }}>
+                                <td style={{ ...cell, fontWeight: 600, color: "var(--ink-body)" }}>{k.what}</td>
+                                <td style={{ ...cell, textAlign: "right", color: "var(--ink-muted)" }}>{k.detail || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
 
                   {/* ── FOOTER SIGN-OFF ── */}
                   <div style={{
-                    marginTop: 10, paddingTop: 20, borderTop: "1px solid #edf0f4",
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    fontSize: 12, color: "var(--ink-muted)",
+                    marginTop: "var(--space-2)", paddingTop: "var(--space-5)", borderTop: "1px solid var(--border)",
+                    display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-3)",
+                    fontSize: "var(--text-xs)", color: "var(--ink-muted)",
                   }}>
                     <div>
-                      CONFIDENTIAL REPORT · PREPARED FOR <b>{currentBusiness.toUpperCase()}</b>
+                      Confidential · Prepared for <b>{exec.client}</b> on {exec.date}
                     </div>
                     <div>
-                      POWERED BY REAI AUTONOMOUS ENGINE · {agencyName.toUpperCase()}
+                      Figures not measured by this audit are omitted, never estimated.
                     </div>
                   </div>
 

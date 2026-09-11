@@ -6,6 +6,45 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Removed
+
+- **Fabricated client identity across the AI Visibility screen
+  (`web/app/ReaiDashboard.tsx`).** The screen asserted one client's contact
+  details, location and credentials as verified fact, for every client,
+  whatever their industry.
+
+  - **A fabricated AI answer.** `presetPrompts` hardcoded hospital-specific
+    queries with invented model responses, one asserting the client "is widely
+    recognized as a premier private healthcare provider". That fabricates a
+    third-party endorsement and presents it as a simulation result.
+  - **A fabricated accreditation.** The `llms.txt` studio emitted "Accredited
+    under Cambodia Ministry of Health standards" under a heading calling the
+    file "verified facts", alongside an emergency hotline and street address -
+    with a Copy button, for publication at the client's own domain.
+  - **Fabricated NAP data in three copyable snippets.** The LocalBusiness and
+    MedicalOrganization JSON-LD blocks and the `llms.txt` carried a telephone,
+    street address, locality, country, latitude, longitude and 24/7 opening
+    hours as literals. Pasted unedited, they publish a wrong phone number and
+    address to Google and to customers. All are now bracketed placeholders: an
+    unfinished file is obvious, an invented address is silently wrong.
+  - **Verdicts nothing computed.** "94% High Confidence / AI Disambiguation
+    Verified", a geo row marked `severity: "ok"` with "Verified optimal.", and
+    four rows of a schema table marked PASS over values nothing had read. All
+    now read "Not measured".
+
+### Changed
+
+- **The AI Visibility screen's duplicate navigation removed.** An operator
+  reported that clicking any of the five studios appeared to open the same
+  page. The five do render different content (224 / 313 / 139 / 97 / 400
+  lines), but 216 lines of shared chrome sat above them - including an in-page
+  tab bar repeating the same five entries the sidebar already carries. Two
+  navigations for one set of destinations. The tab bar is gone, the sidebar is
+  the single navigation, and the header now names the studio in view so
+  switching changes something above the fold. `aeoScorePct` also reads 0 when
+  no AEO rows were measured, rather than falling back to a stand-in.
+
+
 ### Changed
 
 - **The Measure screen's six pillar cards are derived from the scan, and the

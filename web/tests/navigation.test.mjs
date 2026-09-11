@@ -398,9 +398,16 @@ test("AI Search Visibility (AEO): Dedicated sub-views exist and switch dynamical
   const dashboardPath = path.join(webDir, "app", "ReaiDashboard.tsx");
   const content = fs.readFileSync(dashboardPath, "utf-8");
 
-  // Verify sub-navigation bar tab list
-  assert.ok(content.includes('aria-label="AI Search Visibility Sections"'), "Sub-navigation tablist must exist");
+  // The five studios are navigated from the sidebar (AI Visibility > Studios).
+  // The in-page tab bar that repeated those same five entries is gone: two
+  // navigations for one set of destinations made every studio read as the same
+  // page, which is what an operator reported. `selectAeoFocus` is still the
+  // routing handler, now driven by the sidebar alone.
   assert.ok(content.includes("selectAeoFocus"), "selectAeoFocus routing handler must be defined");
+  assert.ok(
+    !content.includes('aria-label="AI Search Visibility Sections"'),
+    "the in-page tab bar duplicating the sidebar must not come back"
+  );
 
   // Verify all 5 dedicated sub-views
   assert.ok(content.includes('aeoActiveFocus === "matrix"'), "AI Readiness sub-view must exist");
@@ -409,11 +416,43 @@ test("AI Search Visibility (AEO): Dedicated sub-views exist and switch dynamical
   assert.ok(content.includes('aeoActiveFocus === "answers"'), "Answer Content sub-view must exist");
   assert.ok(content.includes('aeoActiveFocus === "crawlers"'), "AI Crawler Access sub-view must exist");
 
+  // Switching studio has to change something above the fold, or the five read
+  // as one page however different their content is further down.
+  assert.ok(content.includes("aeoFocusLabel"), "the header must name the studio in view");
+
   // Verify dedicated content per sub-view
   assert.ok(content.includes("Detailed AEO & LLM Crawler Signals Matrix"), "Readiness matrix table must exist");
-  assert.ok(content.includes("Interactive AI Search Prompt Simulator"), "Prompt simulator must exist in Citations");
   assert.ok(content.includes("Generated JSON-LD Structured Data Snippet"), "JSON-LD snippet must exist in Schema");
   assert.ok(content.includes("Live /llms.txt Specification"), "/llms.txt studio must exist in Answers");
   assert.ok(content.includes("Recommended robots.txt Configuration for AEO"), "robots.txt recommendations must exist in Crawlers");
+});
+
+test("AI Search Visibility (AEO): no fabricated AI answers about the client", () => {
+  const dashboardPath = path.join(webDir, "app", "ReaiDashboard.tsx");
+  const content = fs.readFileSync(dashboardPath, "utf-8");
+
+  // The prompt simulator shipped a hardcoded fixture of hospital-specific
+  // queries with invented model responses, including a summary asserting the
+  // client "is widely recognized as a premier private healthcare provider".
+  // That fabricates a third-party endorsement and presents it as a simulation
+  // result: industry-wrong for any non-healthcare client, and false for all.
+  for (const fixture of [
+    "Specialized Care Query",
+    "premier private healthcare",
+    "Emergency & 24/7 Consultation",
+    "Specialist Accreditation",
+  ]) {
+    assert.ok(
+      !content.includes(fixture),
+      `Fabricated prompt fixture '${fixture}' must not return`
+    );
+  }
+
+  // Structural guard: the fixture array itself, not just its strings.
+  assert.equal(
+    /const presetPrompts\s*=\s*\[/.test(content),
+    false,
+    "the presetPrompts fixture array must not return"
+  );
 });
 

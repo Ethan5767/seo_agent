@@ -2619,11 +2619,6 @@ export function ReaiDashboard({
   const [showOutreachModal, setShowOutreachModal] = useState(false);
   const [selectedOutreachDomain, setSelectedOutreachDomain] = useState("");
 
-  // AEO Prompt Simulator State
-  const [aeoPromptModel, setAeoPromptModel] = useState<"chatgpt" | "perplexity" | "gemini" | "claude">("chatgpt");
-  const [selectedAeoPromptIdx, setSelectedAeoPromptIdx] = useState<number>(0);
-  const [customAeoPrompt, setCustomAeoPrompt] = useState<string>("");
-  const [aeoCopied, setAeoCopied] = useState<boolean>(false);
   const [selectedOutreachCategory, setSelectedOutreachCategory] = useState("");
   const [outreachCopied, setOutreachCopied] = useState(false);
   const [selectedOnPageUrl, setSelectedOnPageUrl] = useState<string>("/");
@@ -7464,11 +7459,14 @@ export function ReaiDashboard({
                                   fix: "Verified optimal.",
                                 },
                                 {
-                                  severity: "ok",
+                                  // Was severity "ok" with one client's
+                                  // coordinates and "Verified optimal." Nothing
+                                  // read a geo value, so it cannot pass.
+                                  severity: "info",
                                   what: "Local Geo-Targeting & Service Areas",
-                                  detail: "Geo-coordinates (11.5564° N, 104.9282° E) aligned with Phnom Penh central district.",
+                                  detail: "Not measured. No geo value has been read for this site.",
                                   why: "Essential for matching 'near me' local search intent.",
-                                  fix: "Verified optimal.",
+                                  fix: "Connect Google Business Profile, or add LocalBusiness geo coordinates to the site's structured data.",
                                 },
                               ];
 
@@ -7558,56 +7556,49 @@ export function ReaiDashboard({
 
                 const aeoPassed = aeoRows.filter((r) => r.severity === "ok").length;
                 const aeoTotal = Math.max(aeoRows.length, 1);
-                const aeoScorePct = aeoRows.length > 0 ? Math.round((aeoPassed / aeoTotal) * 100) : (report ? 60 : 75);
+                // No AEO rows means nothing was measured. It must read as 0,
+                // never as a plausible stand-in score.
+                const aeoScorePct = aeoRows.length > 0 ? Math.round((aeoPassed / aeoTotal) * 100) : 0;
 
-                const presetPrompts = [
-                  {
-                    label: "Specialized Care Query",
-                    query: `Which is the top-rated hospital in Phnom Penh for specialized maternity and pediatrics?`,
-                    summary: `${currentBusiness} is widely recognized as a premier private healthcare provider in Phnom Penh, particularly acclaimed for its comprehensive maternity, pediatric, and 24/7 neonatal intensive care units.`,
-                    sourcePath: "/services/maternity",
-                  },
-                  {
-                    label: "Emergency & 24/7 Consultation",
-                    query: `Recommended 24/7 emergency clinic in Phnom Penh with modern diagnostic imaging`,
-                    summary: `For emergency medical needs and modern inpatient diagnostics, ${currentBusiness} operates a 24/7 emergency center equipped with high-resolution CT imaging, dedicated operating suites, and multi-lingual medical specialists.`,
-                    sourcePath: "/emergency-24-7",
-                  },
-                  {
-                    label: "Specialist Accreditation",
-                    query: `Who are the leading medical specialists and obstetricians practicing at ${currentBusiness}?`,
-                    summary: `The medical faculty at ${currentBusiness} comprises board-certified French and Cambodian specialists spanning obstetrics, gynecology, cardiology, and general surgery, maintaining international patient care protocols.`,
-                    sourcePath: "/doctors",
-                  },
-                ];
+                // The studio in view, named in the header so that switching
+                // studios changes something at the top of the page.
+                const aeoFocusLabel =
+                  aeoActiveFocus === "citations" ? "AI Citations" :
+                  aeoActiveFocus === "schema" ? "Schema & Entities" :
+                  aeoActiveFocus === "answers" ? "Answer Content" :
+                  aeoActiveFocus === "crawlers" ? "AI Crawler Access" : "AI Readiness";
 
-                const activePrompt = presetPrompts[selectedAeoPromptIdx] || presetPrompts[0];
-                const currentQuery = customAeoPrompt.trim() || activePrompt.query;
-
+                // A LocalBusiness snippet the operator copies into the client's
+                // site. Only the name and URL are known here, so everything
+                // else is a bracketed placeholder.
+                //
+                // It previously shipped a telephone, street address, locality,
+                // country, latitude, longitude and 24/7 opening hours as
+                // literals, for every client. Pasted unedited, that publishes a
+                // wrong phone number and address to Google and to customers.
+                // A placeholder left in is visibly unfinished; an invented
+                // address left in is silently wrong, which is far worse.
                 const jsonLdSnippet = JSON.stringify(
                   {
                     "@context": "https://schema.org",
                     "@type": "LocalBusiness",
-                    "name": currentBusiness,
-                    "url": `https://${currentDomain}`,
-                    "telephone": "+855 23 991 000",
+                    "name": currentBusiness || "[confirm: business name]",
+                    "url": currentDomain ? `https://${currentDomain}` : "[confirm: website URL]",
+                    "telephone": "[confirm: telephone]",
                     "address": {
                       "@type": "PostalAddress",
-                      "streetAddress": "Central Boulevard",
-                      "addressLocality": "Phnom Penh",
-                      "addressCountry": "KH",
-                    },
-                    "geo": {
-                      "@type": "GeoCoordinates",
-                      "latitude": "11.5564",
-                      "longitude": "104.9282",
+                      "streetAddress": "[confirm: street address]",
+                      "addressLocality": "[confirm: city]",
+                      "addressRegion": "[confirm: region or state]",
+                      "postalCode": "[confirm: postal code]",
+                      "addressCountry": "[confirm: ISO country code, e.g. US]",
                     },
                     "openingHoursSpecification": [
                       {
                         "@type": "OpeningHoursSpecification",
-                        "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-                        "opens": "00:00",
-                        "closes": "23:59",
+                        "dayOfWeek": ["[confirm: days open]"],
+                        "opens": "[confirm: opening time, e.g. 09:00]",
+                        "closes": "[confirm: closing time, e.g. 17:00]",
                       },
                     ],
                   },
@@ -7615,19 +7606,28 @@ export function ReaiDashboard({
                   2
                 );
 
-                const llmsTxtContent = `# ${currentBusiness}
-> Comprehensive Healthcare & Specialized Clinical Services
+                // An llms.txt the operator publishes at the client's domain.
+                // Only the business name and URL are known here; the rest is a
+                // bracketed placeholder.
+                //
+                // It previously emitted a healthcare business: maternity,
+                // pediatrics and emergency service lines, a MedicalOrganization
+                // type, a Phnom Penh location and a telephone number, all as
+                // literals, for every client whatever their industry. Published
+                // unedited it tells answer engines the wrong things about the
+                // wrong company.
+                const llmsTxtContent = `# ${currentBusiness || "[confirm: business name]"}
+> [confirm: one-line description of what this business does]
 
-## Core Services
-- Specialized Maternity & Pediatrics: https://${currentDomain}/services/maternity
-- 24/7 Emergency & Diagnostic Imaging: https://${currentDomain}/emergency-24-7
-- Medical Specialists & Faculty: https://${currentDomain}/doctors
+## Core Pages
+- [confirm: page name]: https://${currentDomain || "[confirm: domain]"}/[confirm: path]
+- [confirm: page name]: https://${currentDomain || "[confirm: domain]"}/[confirm: path]
 
 ## Verification & Entities
-- Organization Type: LocalBusiness / MedicalOrganization
-- Primary Location: Phnom Penh, Cambodia
-- Telephone: +855 23 991 000
-- Official Website: https://${currentDomain}
+- Organization Type: [confirm: schema.org type, e.g. LocalBusiness]
+- Primary Location: [confirm: city, country]
+- Telephone: [confirm: telephone]
+- Official Website: https://${currentDomain || "[confirm: domain]"}
 `;
 
                 const robotsTxtSnippet = `# robots.txt recommendations for AI Search Visibility
@@ -7665,105 +7665,47 @@ Sitemap: https://${currentDomain}/sitemap.xml
 
                 return (
                   <>
-                    {/* Top Header Card with Principle & Overall Readiness */}
-                    <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+                    {/* Screen header. The five studios are navigated from the
+                        sidebar (AI Visibility > Studios); the in-page tab bar
+                        that repeated those same five entries is gone, because
+                        two navigations for one set of destinations made every
+                        studio read as the same page. What stays is the screen
+                        title, the name of the studio in view, and the one
+                        summary shared by all five. */}
+                    <div style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", padding: "var(--space-3) var(--space-4)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "var(--space-3)" }}>
                         <div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#1e293b" }}>
-                              AI Search Visibility (AEO)
-                            </h3>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", padding: "2px 8px", borderRadius: 4 }}>
-                              Generative Engine Optimization
-                            </span>
+                          <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                            AI Search Visibility (AEO)
                           </div>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
-                            AI Readiness and citations across ChatGPT, Claude, Perplexity & Google AI Overviews for <b>{currentDomain}</b>
-                          </div>
-                          <div style={{ fontSize: 12, color: "#581c87", marginTop: 8, background: "#f5f3ff", border: "1px solid #ddd6fe", padding: "8px 12px", borderRadius: 6, lineHeight: 1.45 }}>
-                            <b>Principle:</b> SEO helps search engines understand and rank your site. AI Search Visibility builds on SEO to help AI answer tools understand and cite it. <i>(AEO optimizes technical extractability and schema clarity; it does not guarantee citations, rankings, or traffic).</i>
+                          <h3 style={{ margin: "var(--space-1) 0 0", fontSize: "var(--text-md)", fontWeight: 800, color: "var(--ink-body)" }}>
+                            {aeoFocusLabel}
+                          </h3>
+                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: "var(--space-1)" }}>
+                            {currentDomain}
                           </div>
                         </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#f8fafc", padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", background: "var(--surface-2)", padding: "var(--space-2) var(--space-3)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
                           <div>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>Overall AI Readiness</div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: aeoScorePct >= 70 ? "var(--ok)" : "#d97706" }}>
-                              {aeoScorePct}% {aeoScorePct >= 70 ? "Ready" : "Action Needed"}
+                            <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>Overall AI Readiness</div>
+                            <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: aeoRows.length === 0 ? "var(--ink-muted)" : aeoScorePct >= 70 ? "var(--ok)" : "var(--warn)" }}>
+                              {aeoRows.length === 0 ? "\u2014 Not measured" : `${aeoScorePct}% ${aeoScorePct >= 70 ? "Ready" : "Action Needed"}`}
                             </div>
                           </div>
-                          <MiniRadialGauge score={aeoScorePct} size={36} color={aeoScorePct >= 70 ? "var(--ok)" : "#7c3aed"} />
+                          <MiniRadialGauge score={aeoScorePct} size={36} color={aeoScorePct >= 70 ? "var(--ok)" : "var(--accent)"} />
                         </div>
-                      </div>
-
-                      {/* Interactive Sub-Navigation Tabs Bar */}
-                      <div
-                        role="tablist"
-                        aria-label="AI Search Visibility Sections"
-                        style={{
-                          display: "flex",
-                          gap: 6,
-                          marginTop: 18,
-                          borderBottom: "1px solid #e2e8f0",
-                          paddingBottom: 2,
-                          overflowX: "auto",
-                        }}
-                      >
-                        {[
-                          { id: "matrix", label: "AI Readiness", icon: "📊", badge: `${aeoScorePct}%` },
-                          { id: "citations", label: "AI Citations", icon: "🤖", badge: "Prompt Simulator" },
-                          { id: "schema", label: "Schema & Entities", icon: "📐", badge: schemaBiz && schemaBiz.severity !== "ok" ? "Needs Fix" : "JSON-LD" },
-                          { id: "answers", label: "Answer Content", icon: "⚡", badge: "/llms.txt" },
-                          { id: "crawlers", label: "AI Crawler Access", icon: "🛡️", badge: crawlerBlocked ? "Blocked" : "Allowed" },
-                        ].map((tab) => {
-                          const isSelected = aeoActiveFocus === tab.id;
-                          return (
-                            <button
-                              key={tab.id}
-                              type="button"
-                              role="tab"
-                              aria-selected={isSelected}
-                              onClick={() => selectAeoFocus(tab.id as any)}
-                              style={{
-                                background: isSelected ? "#ffffff" : "transparent",
-                                border: isSelected ? "1px solid #cbd5e1" : "1px solid transparent",
-                                borderBottom: isSelected ? "3px solid #7c3aed" : "3px solid transparent",
-                                borderRadius: "8px 8px 0 0",
-                                padding: "8px 14px",
-                                fontSize: 12.5,
-                                fontWeight: isSelected ? 700 : 500,
-                                color: isSelected ? "#6d28d9" : "var(--ink-muted)",
-                                cursor: "pointer",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 6,
-                                whiteSpace: "nowrap",
-                                transition: "all 0.15s ease",
-                              }}
-                            >
-                              <span>{tab.icon}</span>
-                              <span>{tab.label}</span>
-                              <span
-                                style={{
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  padding: "2px 6px",
-                                  borderRadius: 10,
-                                  background: isSelected ? "#f5f3ff" : "#f1f5f9",
-                                  color: isSelected ? "#7c3aed" : "var(--ink-muted)",
-                                  border: isSelected ? "1px solid #ddd6fe" : "1px solid #e2e8f0",
-                                }}
-                              >
-                                {tab.badge}
-                              </span>
-                            </button>
-                          );
-                        })}
                       </div>
                     </div>
 
                     {/* ══════════════ SUB-VIEW 1: AI READINESS ══════════════ */}
                     {aeoActiveFocus === "matrix" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                        {/* Moved out of the shared header: this frames the
+                            readiness matrix, so it belongs to this studio
+                            rather than to all five. */}
+                        <div style={{ fontSize: "var(--text-xs)", color: "var(--accent-ink)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "var(--space-2) var(--space-3)", borderRadius: "var(--radius-sm)", lineHeight: "var(--leading-snug)" }}>
+                          <b>Principle:</b> SEO helps search engines understand and rank your site. AI Search Visibility builds on SEO to help AI answer tools understand and cite it. <i>(AEO optimizes technical extractability and schema clarity; it does not guarantee citations, rankings, or traffic).</i>
+                        </div>
                         {/* Real LLM Mentions Banner */}
                         {realLlm && (
                           <div style={{
@@ -8024,276 +7966,22 @@ Sitemap: https://${currentDomain}/sitemap.xml
                           </div>
                         </div>
 
-                        {/* Interactive AI Search Prompt Simulator */}
-                        <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-                            <div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: "#1e293b" }}>
-                                  Interactive AI Search Prompt Simulator
-                                </h4>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", padding: "2px 7px", borderRadius: 4 }}>
-                                  Multi-LLM Consensus Engine
-                                </span>
-                              </div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>
-                                Simulate how AI engines cite <b>{currentBusiness}</b> when users query high-intent commercial prompts in generative search
-                              </div>
-                            </div>
-
-                            {/* Model Switcher */}
-                            <div style={{ display: "flex", background: "#f1f5f9", padding: 3, borderRadius: 8, gap: 3 }}>
-                              {[
-                                { id: "chatgpt", label: "ChatGPT Search", icon: "🟢" },
-                                { id: "perplexity", label: "Perplexity AI", icon: "🌐" },
-                                { id: "gemini", label: "Google Gemini", icon: "✨" },
-                                { id: "claude", label: "Claude 3.5", icon: "🟣" },
-                              ].map((m) => (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  onClick={() => setAeoPromptModel(m.id as any)}
-                                  style={{
-                                    background: aeoPromptModel === m.id ? "#ffffff" : "transparent",
-                                    color: aeoPromptModel === m.id ? "#0f172a" : "var(--ink-muted)",
-                                    border: 0, borderRadius: 6, padding: "5px 12px", fontSize: 12,
-                                    fontWeight: aeoPromptModel === m.id ? 700 : 500,
-                                    cursor: "pointer",
-                                    boxShadow: aeoPromptModel === m.id ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                                    display: "flex", alignItems: "center", gap: 5,
-                                  }}
-                                >
-                                  <span>{m.icon}</span> {m.label}
-                                </button>
-                              ))}
-                            </div>
+                        {/* Prompt simulator: empty state.
+                            This card used to render a hardcoded fixture of
+                            hospital-specific prompts with invented LLM answers
+                            about the client, presented as a simulation result.
+                            No model is wired to this screen, so it says so
+                            rather than fabricating an answer. */}
+                        <div style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", padding: "var(--space-5) var(--space-4)", textAlign: "center" }}>
+                          <div style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--ink)" }}>
+                            No Prompt Results Here Yet
                           </div>
-
-                          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                            {/* Presets and Custom Input */}
-                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                {presetPrompts.map((p, idx) => (
-                                  <button
-                                    key={idx}
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedAeoPromptIdx(idx);
-                                      setCustomAeoPrompt("");
-                                    }}
-                                    style={{
-                                      background: (!customAeoPrompt && selectedAeoPromptIdx === idx) ? "#1e293b" : "#f8fafc",
-                                      color: (!customAeoPrompt && selectedAeoPromptIdx === idx) ? "#ffffff" : "#475569",
-                                      border: "1px solid",
-                                      borderColor: (!customAeoPrompt && selectedAeoPromptIdx === idx) ? "#1e293b" : "#cbd5e1",
-                                      borderRadius: 6, padding: "5px 12px", fontSize: 12,
-                                      fontWeight: (!customAeoPrompt && selectedAeoPromptIdx === idx) ? 700 : 500,
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    {p.label}
-                                  </button>
-                                ))}
-                              </div>
-
-                              <div style={{ display: "flex", gap: 8 }}>
-                                <input
-                                  type="text"
-                                  placeholder="Or type a custom conversational AI search prompt..."
-                                  value={customAeoPrompt}
-                                  onChange={(e) => setCustomAeoPrompt(e.target.value)}
-                                  style={{
-                                    flex: 1, padding: "8px 12px", fontSize: 12.5,
-                                    border: "1px solid #cbd5e1", borderRadius: 6, outline: "none",
-                                    background: "#f8fafc",
-                                  }}
-                                />
-                                {customAeoPrompt && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setCustomAeoPrompt("")}
-                                    style={{
-                                      background: "#ffffff", border: "1px solid #cbd5e1",
-                                      borderRadius: 6, padding: "0 12px", fontSize: 12,
-                                      color: "var(--ink-muted)", cursor: "pointer",
-                                    }}
-                                  >
-                                    Clear
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* 2-Column Grid: Live AI Conversation on Left, AEO Citation Diagnostics on Right */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 14 }}>
-                              {/* Left: Chat Canvas */}
-                              <div style={{
-                                background: "#0f172a", borderRadius: 8, border: "1px solid #1e293b",
-                                padding: "16px 18px", color: "#f8fafc", display: "flex", flexDirection: "column", gap: 12,
-                              }}>
-                                {/* User Query Bubble */}
-                                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                                  <div style={{
-                                    width: 26, height: 26, borderRadius: "50%", background: "#334155",
-                                    display: "grid", placeItems: "center", fontSize: 12, flexShrink: 0,
-                                  }}>
-                                    👤
-                                  </div>
-                                  <div style={{
-                                    background: "#1e293b", padding: "8px 12px", borderRadius: "0 8px 8px 8px",
-                                    fontSize: 12.5, color: "#e2e8f0", lineHeight: 1.45,
-                                  }}>
-                                    &ldquo;{currentQuery}&rdquo;
-                                  </div>
-                                </div>
-
-                                {/* LLM Response */}
-                                <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 4 }}>
-                                  <div style={{
-                                    width: 26, height: 26, borderRadius: "50%",
-                                    background: aeoPromptModel === "chatgpt" ? "#10b981" : aeoPromptModel === "gemini" ? "#3b82f6" : aeoPromptModel === "perplexity" ? "#06b6d4" : "#8b5cf6",
-                                    display: "grid", placeItems: "center", fontSize: 12, flexShrink: 0,
-                                  }}>
-                                    {aeoPromptModel === "chatgpt" ? "🤖" : aeoPromptModel === "gemini" ? "✨" : aeoPromptModel === "perplexity" ? "🌐" : "🟣"}
-                                  </div>
-                                  <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", marginBottom: 4 }}>
-                                      {aeoPromptModel === "chatgpt" ? "ChatGPT Search (GPT-4o)" : aeoPromptModel === "gemini" ? "Google Gemini Live" : aeoPromptModel === "perplexity" ? "Perplexity Pro Engine" : "Claude 3.5 Sonnet"}
-                                    </div>
-
-                                    <div style={{
-                                      fontSize: 12.5, lineHeight: 1.6, color: "#cbd5e1",
-                                      background: "rgba(255,255,255,0.03)", padding: "12px 14px",
-                                      borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)",
-                                    }}>
-                                      <p style={{ margin: "0 0 8px" }}>
-                                        {activePrompt.summary}{" "}
-                                        <a
-                                          href={`https://${currentDomain}${activePrompt.sourcePath}`}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          style={{
-                                            display: "inline-block", background: "#1e293b", border: "1px solid #38bdf8",
-                                            color: "#38bdf8", fontSize: 12, fontWeight: 700, padding: "1px 5px",
-                                            borderRadius: 3, textDecoration: "none", verticalAlign: "super",
-                                          }}
-                                        >
-                                          [1]
-                                        </a>
-                                      </p>
-                                      <p style={{ margin: 0, fontSize: 12, color: "var(--ink-muted)" }}>
-                                        Key patient features cited: English and Khmer medical documentation, accredited obstetrics staff, and verified physical clinic location at Phnom Penh.{" "}
-                                        <a
-                                          href={`https://${currentDomain}/llms.txt`}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          style={{
-                                            display: "inline-block", background: "#1e293b", border: "1px solid #38bdf8",
-                                            color: "#38bdf8", fontSize: 12, fontWeight: 700, padding: "1px 5px",
-                                            borderRadius: 3, textDecoration: "none", verticalAlign: "super",
-                                          }}
-                                        >
-                                          [2]
-                                        </a>
-                                      </p>
-                                    </div>
-
-                                    {/* Sources Citation Footnote Bar */}
-                                    <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                      <span style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Sources Cited:</span>
-                                      <span style={{
-                                        fontSize: 12, background: "#1e293b", border: "1px solid #334155",
-                                        color: "#38bdf8", padding: "2px 8px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 4,
-                                      }}>
-                                        <span>[1]</span> {currentDomain}{activePrompt.sourcePath}
-                                      </span>
-                                      <span style={{
-                                        fontSize: 12, background: "#1e293b", border: "1px solid #334155",
-                                        color: "#38bdf8", padding: "2px 8px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 4,
-                                      }}>
-                                        <span>[2]</span> {currentDomain}/llms.txt
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Right: AEO Citation Diagnostics */}
-                              <div style={{
-                                background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0",
-                                padding: "16px 16px", display: "flex", flexDirection: "column", justifyContent: "space-between",
-                              }}>
-                                <div>
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginBottom: 10 }}>
-                                    AEO Visibility Diagnostics
-                                  </div>
-
-                                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
-                                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-muted)", marginBottom: 4 }}>
-                                        <span style={{ fontWeight: 600 }}>Citation Likelihood</span>
-                                        <span style={{ fontWeight: 700, color: "var(--ok)" }}>96% High</span>
-                                      </div>
-                                      <div style={{ height: 6, background: "#e2e8f0", borderRadius: 3, overflow: "hidden" }}>
-                                        <div style={{ width: "96%", height: "100%", background: "#10b981", borderRadius: 3 }} />
-                                      </div>
-                                    </div>
-
-                                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
-                                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-muted)", marginBottom: 4 }}>
-                                        <span style={{ fontWeight: 600 }}>Schema & Entity Clarity</span>
-                                        <span style={{ fontWeight: 700, color: "#4f46e5" }}>MedicalOrganization</span>
-                                      </div>
-                                      <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                                        Matches schema.org local hospital entity
-                                      </div>
-                                    </div>
-
-                                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
-                                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-muted)", marginBottom: 4 }}>
-                                        <span style={{ fontWeight: 600 }}>Sentiment Polarity</span>
-                                        <span style={{ fontWeight: 700, color: "var(--ok)" }}>+0.92 Positive</span>
-                                      </div>
-                                      <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                                        Derived from doctor credentials & 184 Google reviews
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const citationSummary = `AI Search Citation Brief for ${currentBusiness}\nPrompt: ${currentQuery}\nEngine: ${aeoPromptModel.toUpperCase()}\nCitation Probability: 96%\nSources: https://${currentDomain}${activePrompt.sourcePath}\nVerified Schema: MedicalOrganization\n`;
-                                      navigator.clipboard.writeText(citationSummary);
-                                      setAeoCopied(true);
-                                      setTimeout(() => setAeoCopied(false), 2000);
-                                    }}
-                                    style={{
-                                      background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 6,
-                                      padding: "7px 12px", fontSize: 12, fontWeight: 600, color: "#1e293b",
-                                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                                    }}
-                                  >
-                                    <span>📋</span> {aeoCopied ? "✓ Copied Citation Brief!" : "Copy Citation Brief"}
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => selectAeoFocus("answers")}
-                                    style={{
-                                      background: "#4f46e5", border: 0, borderRadius: 6,
-                                      padding: "7px 12px", fontSize: 12, fontWeight: 600, color: "#ffffff",
-                                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                                    }}
-                                  >
-                                    <span>⚡</span> Scaffold /llms.txt for this Query
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
+                          <p style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)", margin: "var(--space-2) auto 0", maxWidth: "54ch", lineHeight: "var(--leading-normal)" }}>
+                            The prompt simulator asks a live model how it answers a query about <b>{currentBusiness}</b> and records which pages it cites.
+                          </p>
+                          <p style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)", margin: "var(--space-2) auto 0", maxWidth: "54ch", lineHeight: "var(--leading-normal)" }}>
+                            No model provider is connected to this workspace, so there is nothing to show. Connect one to run a prompt. Until then this panel stays empty rather than showing an answer no model gave.
+                          </p>
                         </div>
                       </div>
                     )}
@@ -8352,14 +8040,19 @@ Sitemap: https://${currentDomain}/sitemap.xml
                               <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Canonical Name</div>
                             </div>
                             <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
+                              {/* "94% High Confidence / AI Disambiguation Verified"
+                                  and a set of coordinates were literals: a
+                                  confidence score nothing computed, a verdict
+                                  nothing verified, and one client's location
+                                  shown for every client. */}
                               <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>Entity Resolution</div>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ok)", marginTop: 2 }}>94% High Confidence</div>
-                              <div style={{ fontSize: 12, color: "var(--ok)" }}>AI Disambiguation Verified</div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-muted)", marginTop: 2 }}>Not measured</div>
+                              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>No entity-resolution check has run</div>
                             </div>
-                            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
+                            <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "var(--space-3)" }}>
                               <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>Geocoding & NAP</div>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", marginTop: 2 }}>11.5564° N, 104.9282° E</div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Phnom Penh, KH</div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-muted)", marginTop: 2 }}>Not measured</div>
+                              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Connect Google Business Profile to read the real location</div>
                             </div>
                           </div>
                         </div>
@@ -8411,13 +8104,21 @@ Sitemap: https://${currentDomain}/sitemap.xml
                                 </tr>
                               </thead>
                               <tbody>
+                                {/*
+                                  Only name and url are known here. The other
+                                  four carried one client's telephone, geo and
+                                  24/7 hours as literals, each marked PASS, for
+                                  every client. A PASS on a value nobody read is
+                                  the worst cell in the table: it tells the
+                                  operator a check ran.
+                                */}
                                 {[
-                                  { prop: "@type", purpose: "Entity Classification", val: "LocalBusiness", status: "PASS" },
-                                  { prop: "name", purpose: "Brand Disambiguation", val: currentBusiness, status: "PASS" },
-                                  { prop: "url", purpose: "Canonical Source Verification", val: `https://${currentDomain}`, status: "PASS" },
-                                  { prop: "telephone", purpose: "Direct Customer Contact", val: "+855 23 991 000", status: "PASS" },
-                                  { prop: "geo", purpose: "Local AI & Map Entity Search", val: "11.5564° N, 104.9282° E", status: "PASS" },
-                                  { prop: "openingHoursSpecification", purpose: "Operating Schedule Clarity", val: "Mon-Sun 24/7", status: "PASS" },
+                                  { prop: "@type", purpose: "Entity Classification", val: "[confirm]", status: "NOT MEASURED" },
+                                  { prop: "name", purpose: "Brand Disambiguation", val: currentBusiness || "[confirm]", status: currentBusiness ? "PASS" : "NOT MEASURED" },
+                                  { prop: "url", purpose: "Canonical Source Verification", val: currentDomain ? `https://${currentDomain}` : "[confirm]", status: currentDomain ? "PASS" : "NOT MEASURED" },
+                                  { prop: "telephone", purpose: "Direct Customer Contact", val: "[confirm]", status: "NOT MEASURED" },
+                                  { prop: "geo", purpose: "Local AI & Map Entity Search", val: "[confirm]", status: "NOT MEASURED" },
+                                  { prop: "openingHoursSpecification", purpose: "Operating Schedule Clarity", val: "[confirm]", status: "NOT MEASURED" },
                                 ].map((row, idx) => (
                                   <tr key={idx} style={{ borderBottom: idx === 5 ? "none" : "1px solid #f1f5f9" }}>
                                     <td style={{ padding: "8px 12px", fontFamily: "monospace", fontWeight: 600, color: "#7c3aed" }}>{row.prop}</td>
@@ -11088,21 +10789,21 @@ Sitemap: https://${currentDomain}/sitemap.xml
               <pre style={{ margin: 0 }}>{`<script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "MedicalOrganization",
+  "@type": "[confirm: schema.org type, e.g. LocalBusiness]",
   "name": "${currentBusiness}",
   "url": "https://${currentDomain}",
   "logo": "https://${currentDomain}/logo.png",
-  "telephone": "+855 23 888 999",
+  "telephone": "[confirm: telephone]",
   "address": {
     "@type": "PostalAddress",
-    "streetAddress": "Street 1986, Sen Sok",
-    "addressLocality": "Phnom Penh",
-    "addressCountry": "KH"
+    "streetAddress": "[confirm: street address]",
+    "addressLocality": "[confirm: city]",
+    "addressCountry": "[confirm: ISO country code]"
   },
   "geo": {
     "@type": "GeoCoordinates",
-    "latitude": "11.5564",
-    "longitude": "104.9282"
+    "latitude": "[confirm: latitude]",
+    "longitude": "[confirm: longitude]"
   },
   "openingHoursSpecification": [
     {
@@ -11123,21 +10824,21 @@ Sitemap: https://${currentDomain}/sitemap.xml
                   const schemaCode = `<script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "MedicalOrganization",
+  "@type": "[confirm: schema.org type, e.g. LocalBusiness]",
   "name": "${currentBusiness}",
   "url": "https://${currentDomain}",
   "logo": "https://${currentDomain}/logo.png",
-  "telephone": "+855 23 888 999",
+  "telephone": "[confirm: telephone]",
   "address": {
     "@type": "PostalAddress",
-    "streetAddress": "Street 1986, Sen Sok",
-    "addressLocality": "Phnom Penh",
-    "addressCountry": "KH"
+    "streetAddress": "[confirm: street address]",
+    "addressLocality": "[confirm: city]",
+    "addressCountry": "[confirm: ISO country code]"
   },
   "geo": {
     "@type": "GeoCoordinates",
-    "latitude": "11.5564",
-    "longitude": "104.9282"
+    "latitude": "[confirm: latitude]",
+    "longitude": "[confirm: longitude]"
   }
 }
 </script>`;
@@ -11218,29 +10919,42 @@ Sitemap: https://${currentDomain}/sitemap.xml
             </p>
 
             <div style={{ background: "#0f172a", borderRadius: 8, padding: "14px 16px", maxHeight: 260, overflowY: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#38bdf8", lineHeight: 1.5 }}>
-              <pre style={{ margin: 0 }}>{`# ${currentBusiness}
-> International Hospital & Specialized Medical Center in Phnom Penh, Cambodia.
+              {/*
+                Published at the client's own domain, so every line here is a
+                claim made on their behalf to answer engines.
+
+                This previously emitted a complete hospital profile as literals
+                for every client: service lines, an emergency hotline, a street
+                address, and "Accredited under Cambodia Ministry of Health
+                standards" - a fabricated accreditation, under a heading that
+                called it verified. Placeholders instead: an unfinished file is
+                obvious, an invented accreditation is not.
+              */}
+              <pre style={{ margin: 0 }}>{`# ${currentBusiness || "[confirm: business name]"}
+> [confirm: one-line description of this business]
 
 ## Official Summary
-${currentBusiness} provides 24/7 emergency medical care, maternity & neonatal intensive care, pediatric specialties, and advanced surgical procedures. Accredited under Cambodia Ministry of Health standards.
+[confirm: two or three sentences on what this business does. State only what
+you can trace to the client's own site or config. Do not claim accreditations,
+certifications, awards or memberships without a source.]
 
-## Core Capabilities & Departments
-- Maternity & NICU: Specialized labor suites and neonatal care
-- Emergency Care (24/7): Trauma response and intensive resuscitation
-- Pediatric Care: Inpatient and outpatient consultations
-- Diagnostic Imaging: MRI, CT scan, and digital laboratory analysis
+## Core Capabilities
+- [confirm: capability]: [confirm: one-line description]
+- [confirm: capability]: [confirm: one-line description]
 
 ## Canonical Entity URIs
-- Website: https://${currentDomain}
-- Emergency Hotline: +855 23 888 999
-- Location: Street 1986, Sen Sok, Phnom Penh, Cambodia`}</pre>
+- Website: https://${currentDomain || "[confirm: domain]"}
+- Telephone: [confirm: telephone]
+- Location: [confirm: full address]`}</pre>
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
               <button
                 type="button"
                 onClick={() => {
-                  const llmsContent = `# ${currentBusiness}\n> International Hospital & Specialized Medical Center in Phnom Penh, Cambodia.\n\n## Official Summary\n${currentBusiness} provides 24/7 emergency medical care, maternity, pediatric specialties, and advanced surgical procedures.\n\n## Canonical Entity URIs\n- Website: https://${currentDomain}\n- Emergency Hotline: +855 23 888 999\n- Location: Street 1986, Sen Sok, Phnom Penh, Cambodia`;
+                  // Must match the block rendered above: the operator copies
+                  // this to the clipboard and pastes it onto the client's site.
+                  const llmsContent = `# ${currentBusiness || "[confirm: business name]"}\n> [confirm: one-line description of this business]\n\n## Official Summary\n[confirm: two or three sentences on what this business does. State only what you can trace to the client's own site or config. Do not claim accreditations, certifications, awards or memberships without a source.]\n\n## Core Capabilities\n- [confirm: capability]: [confirm: one-line description]\n\n## Canonical Entity URIs\n- Website: https://${currentDomain || "[confirm: domain]"}\n- Telephone: [confirm: telephone]\n- Location: [confirm: full address]`;
                   navigator.clipboard.writeText(llmsContent);
                   setLlmsCopied(true);
                   setTimeout(() => setLlmsCopied(false), 2000);

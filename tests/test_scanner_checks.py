@@ -49,7 +49,10 @@ def test_fixed_label_tools_really_emit_their_catalog_labels():
 
 def test_static_catalog_counts():
     assert len(STATIC_CHECKS["seo"]) == 10
-    assert len(STATIC_CHECKS["aeo"]) == 6
+    # 6 -> 8: the AEO tool gained a training-crawler check (blocking GPTBot and
+    # friends is a business decision, distinct from blocking a citation crawler)
+    # and an answer-engine schema check (FAQPage / QAPage / HowTo / Article).
+    assert len(STATIC_CHECKS["aeo"]) == 8
     assert len(STATIC_CHECKS["content"]) == 5
 
 

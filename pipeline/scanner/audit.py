@@ -10,9 +10,39 @@ import re
 
 from pipeline.audit import measure
 from pipeline.gates.robots_aicrawler_check import (
-    DEFAULT_CITATION_UAS, parse_groups, root_blocked, rules_for_ua,
+    DEFAULT_CITATION_UAS, DEFAULT_TRAINING_UAS, parse_groups, root_blocked,
+    rules_for_ua,
 )
 from pipeline.scanner.recommendations import recommend
+
+# schema.org types that mean "this is a business", so a dentist, restaurant or
+# clinic using the correct subtype is not reported as having no business schema.
+# The old check was a substring match on "LocalBusiness" alone.
+_BUSINESS_TYPES = {
+    "localbusiness", "organization", "corporation", "medicalorganization",
+    "medicalbusiness", "hospital", "dentist", "physician", "restaurant",
+    "store", "professionalservice", "homeandconstructionbusiness",
+    "legalservice", "financialservice", "automotivebusiness", "lodgingbusiness",
+    "healthandbeautybusiness", "sportsactivitylocation", "educationalorganization",
+    "governmentorganization", "ngo", "travelagency", "realestateagent",
+}
+
+# The types answer engines lean on hardest when deciding what to quote and who
+# to attribute it to.
+_ANSWER_TYPES = {"faqpage", "qapage", "howto", "article", "newsarticle",
+                 "blogposting", "techarticle"}
+
+_TYPE_RE = re.compile(r'"@type"\s*:\s*"([^"]+)"', re.IGNORECASE)
+
+
+def _schema_types(html: str) -> set[str]:
+    """Every @type declared anywhere in the page, lowercased.
+
+    A regex rather than a JSON parse on purpose: real pages nest entities in
+    @graph arrays, split JSON-LD across several script tags, and ship invalid
+    JSON often enough that a parse failure would silently drop the whole check.
+    """
+    return {t.strip().lower() for t in _TYPE_RE.findall(html or "")}
 
 _ERROR_CODES = {
     "health.title_missing", "health.title_length",
@@ -91,6 +121,9 @@ def aeo_rows(robots_text: str | None, html: str) -> list[dict]:
         rows.append(_row("aeo.robots_missing", "no robots.txt served"))
     else:
         groups = parse_groups(robots_text)
+
+        # Citation crawlers fetch a page to answer a question and cite it. One
+        # blocked here means the site cannot be cited at all: a real problem.
         blocked = []
         for ua in DEFAULT_CITATION_UAS:
             rules, _matched = rules_for_ua(groups, ua)  # returns (rules, matched)
@@ -103,13 +136,74 @@ def aeo_rows(robots_text: str | None, html: str) -> list[dict]:
                 "robots.txt lets every AI citation crawler (ChatGPT, Perplexity, "
                 "Google, Bing, Claude) read the site."))
 
-    # 2. LocalBusiness schema for entity extraction
-    if '"@type":"LocalBusiness"' not in html.replace(" ", "").replace("'", '"'):
-        rows.append(_row("health.schema_business_missing", "no LocalBusiness JSON-LD"))
-    else:
+        # Training crawlers harvest content to train models. Blocking them is a
+        # deliberate business decision many clients make, so it is reported as
+        # information, never as a defect. Reporting both kinds identically lost
+        # the single distinction that matters most in AEO.
+        trained = [ua for ua in DEFAULT_TRAINING_UAS
+                   if root_blocked(rules_for_ua(groups, ua)[0])]
+        if trained:
+            rows.append({
+                "code": "aeo.training_crawler_blocked",
+                "what": "AI training crawlers blocked",
+                "why": "These crawlers harvest content to train models rather than to "
+                       "cite it. Blocking them does not affect whether AI engines can "
+                       "cite this site, so this is a business decision, not a fault.",
+                "fix": "no action needed unless the client wants their content used "
+                       "for model training",
+                "severity": "info",
+                "detail": ", ".join(trained),
+            })
+        else:
+            rows.append(_pass_row(
+                "AI training crawlers allowed",
+                "GPTBot, ClaudeBot, Google-Extended and CCBot may use this site's "
+                "content for model training. Block them in robots.txt if the client "
+                "would rather they did not."))
+
+    # 2. Business schema for entity extraction. Any schema.org business type
+    # counts, not just the literal "LocalBusiness".
+    types = _schema_types(html)
+    if types & _BUSINESS_TYPES:
         rows.append(_pass_row(
-            "LocalBusiness schema",
+            "Business schema",
             "AI engines can read the business's name, address and phone directly."))
+    else:
+        rows.append(_row("health.schema_business_missing", "no business JSON-LD"))
+
+    # 2b. The schema types answer engines quote from.
+    answer_types = types & _ANSWER_TYPES
+    if answer_types:
+        rows.append(_pass_row(
+            "Answer-engine schema",
+            f"Marked up as {', '.join(sorted(answer_types))}, which answer engines "
+            "use to lift and attribute answers."))
+    else:
+        rows.append({
+            "code": "aeo.answer_schema_missing",
+            "what": "Answer-engine schema",
+            "why": "FAQPage, QAPage, HowTo and Article tell an answer engine what "
+                   "kind of answer a page holds. Without one it has to guess from "
+                   "prose, and guesses less often become citations.",
+            "fix": "add FAQPage, QAPage, HowTo or Article JSON-LD, whichever matches "
+                   "the page",
+            "severity": "warn",
+            "detail": "",
+        })
+
+    # 2c. An Article nobody wrote is hard to cite with confidence.
+    if types & {"article", "newsarticle", "blogposting", "techarticle"} and \
+            not re.search(r'"author"\s*:', html or "", re.IGNORECASE):
+        rows.append({
+            "code": "aeo.article_author_missing",
+            "what": "Article author",
+            "why": "Answer engines weigh authorship when deciding what to attribute. "
+                   "An article with no author is harder to cite with confidence.",
+            "fix": 'add an "author" to the Article JSON-LD, with a Person or '
+                   "Organization name",
+            "severity": "warn",
+            "detail": "",
+        })
 
     # 3. Answer-first structure (the genuine gap DataForSEO has no tool for):
     # can an AI engine lift a clean Q&A/answer from the page?

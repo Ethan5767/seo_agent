@@ -6,6 +6,40 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **The AEO tool now distinguishes citation crawlers from training crawlers
+  (`pipeline/scanner/audit.py`).** It checked six citation crawlers and never
+  looked at the four training crawlers, although `DEFAULT_TRAINING_UAS`
+  (GPTBot, ClaudeBot, Google-Extended, CCBot) already existed in
+  `pipeline/gates/robots_aicrawler_check.py`.
+
+  That is the distinction that matters most in AEO. A blocked **citation**
+  crawler means the site cannot be cited at all: a defect, reported `warn`. A
+  blocked **training** crawler means the client declined to have their content
+  used for model training: a business decision, reported `info` and never as a
+  fault. Reporting both the same way, or one not at all, loses the difference.
+
+- **Answer-engine schema check (`aeo.answer_schema_missing`).** FAQPage,
+  QAPage, HowTo and Article are the types answer engines use to lift and
+  attribute an answer. Only FAQPage was recognised before.
+
+- **Article author check (`aeo.article_author_missing`).** An Article with no
+  `author` is hard for an engine to cite with confidence.
+
+### Fixed
+
+- **The business-schema check no longer misses every subtype.** It was
+  `'"@type":"LocalBusiness"' not in html.replace(" ", "")` - a substring match,
+  so a dentist, clinic, restaurant or law firm using the correct schema.org
+  subtype was reported as having no business schema at all, and an entity
+  nested in an `@graph` array passed only by accident of formatting. Now any of
+  23 schema.org business types counts, found by parsing every `@type` in the
+  page. Renamed "LocalBusiness schema" -> "Business schema" to match.
+
+  The AEO catalog goes from 6 checks to 8.
+
+
 ### Removed
 
 - **Fabricated client identity across the AI Visibility screen

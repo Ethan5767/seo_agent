@@ -24,7 +24,11 @@ STATIC_CHECKS: dict[str, list[str]] = {
         "Breadcrumb schema", "Image alt text", "Content depth",
     ],
     "aeo": [
-        "AI crawlers allowed", "LocalBusiness schema", "Answer-first structure",
+        # "Business schema" was "LocalBusiness schema": the check now accepts any
+        # schema.org business type, so a dentist or clinic using the correct
+        # subtype is no longer reported as having none.
+        "AI crawlers allowed", "AI training crawlers allowed", "Business schema",
+        "Answer-engine schema", "Answer-first structure",
         "Statistics and data", "Quotes and citations", "Data tables",
     ],
     "content": [

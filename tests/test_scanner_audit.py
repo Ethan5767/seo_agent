@@ -115,3 +115,108 @@ def test_aeo_geo_signals_absent():
     assert by["Statistics and data"]["severity"] == "warn"   # no concrete figures
     assert by["Quotes and citations"]["severity"] == "info"
     assert by["Data tables"]["severity"] == "info"
+
+
+# ── AEO strengthening ────────────────────────────────────────────────────────
+# Three gaps found auditing our own tool: training crawlers were never checked
+# (only citation crawlers), the business-schema test was a bare substring match
+# that missed every subtype, and only two schema types were recognised at all.
+
+def test_training_crawlers_reported_separately_from_citation_crawlers():
+    """Blocking a training crawler is a choice; blocking a citation crawler is a
+    problem. Reporting them the same way loses the distinction that matters."""
+    robots = (
+        "User-agent: GPTBot\nDisallow: /\n\n"
+        "User-agent: ClaudeBot\nDisallow: /\n\n"
+        "User-agent: *\nAllow: /\n"
+    )
+    rows = aeo_rows(robots, "<html></html>")
+    codes = {r["code"] for r in rows}
+    assert "aeo.training_crawler_blocked" in codes, (
+        "a blocked training crawler must be reported under its own code"
+    )
+    # GPTBot and ClaudeBot are training crawlers, not citation crawlers, so
+    # blocking them must NOT be reported as a blocked citation crawler.
+    blocked_citation = [r for r in rows if r["code"] == "aeo.crawler_blocked"]
+    assert blocked_citation == [], (
+        f"training crawlers were misreported as citation crawlers: {blocked_citation}"
+    )
+
+
+def test_blocking_a_training_crawler_is_not_an_error():
+    """Many clients deliberately block training crawlers. It is information, not
+    a defect, so it must never carry error severity."""
+    robots = "User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nAllow: /\n"
+    rows = aeo_rows(robots, "<html></html>")
+    training = [r for r in rows if r["code"] == "aeo.training_crawler_blocked"]
+    assert training, "expected a training-crawler row"
+    for r in training:
+        assert r["severity"] in ("info", "ok"), (
+            f"blocking a training crawler is a choice, got severity {r['severity']!r}"
+        )
+
+
+def test_blocking_a_citation_crawler_is_still_a_problem():
+    """The distinction must not weaken the check that matters: a blocked
+    citation crawler means the site cannot be cited at all."""
+    robots = "User-agent: PerplexityBot\nDisallow: /\n\nUser-agent: *\nAllow: /\n"
+    rows = aeo_rows(robots, "<html></html>")
+    assert any(r["code"] == "aeo.crawler_blocked" for r in rows)
+
+
+def test_business_schema_accepts_a_subtype():
+    """The old check was `'"@type":"LocalBusiness"' not in html`, so a dentist,
+    restaurant or clinic using a proper schema.org subtype was reported as
+    having no business schema at all."""
+    html = '<script type="application/ld+json">{"@type":"Dentist","name":"X"}</script>'
+    rows = aeo_rows("User-agent: *\nAllow: /\n", html)
+    assert not any(r["code"] == "health.schema_business_missing" for r in rows), (
+        "a LocalBusiness subtype must count as business schema"
+    )
+
+
+def test_business_schema_found_inside_a_graph():
+    """Real sites commonly nest entities in @graph; a substring match over the
+    raw HTML happened to work, but only by accident of formatting."""
+    html = (
+        '<script type="application/ld+json">'
+        '{"@context":"https://schema.org","@graph":[{"@type":"WebSite"},'
+        '{"@type":"LocalBusiness","name":"X"}]}</script>'
+    )
+    rows = aeo_rows("User-agent: *\nAllow: /\n", html)
+    assert not any(r["code"] == "health.schema_business_missing" for r in rows)
+
+
+def test_answer_engine_schema_types_are_reported():
+    """QAPage, HowTo and Article-with-author are the types answer engines lean
+    on hardest for attribution. Only FAQPage and LocalBusiness were recognised."""
+    rows = aeo_rows("User-agent: *\nAllow: /\n", "<html><body><p>hi</p></body></html>")
+    assert any(r["code"] == "aeo.answer_schema_missing" for r in rows), (
+        "a page with no answer-engine schema must say so"
+    )
+
+
+def test_answer_engine_schema_passes_when_present():
+    html = (
+        '<script type="application/ld+json">'
+        '{"@type":"HowTo","name":"Fix a roof"}</script>'
+    )
+    rows = aeo_rows("User-agent: *\nAllow: /\n", html)
+    missing = [r for r in rows if r["code"] == "aeo.answer_schema_missing"]
+    assert missing == [], f"HowTo should satisfy the answer-schema check, got {missing}"
+
+
+def test_article_without_an_author_is_flagged():
+    """An Article with no author is hard for an engine to cite confidently."""
+    html = '<script type="application/ld+json">{"@type":"Article","headline":"X"}</script>'
+    rows = aeo_rows("User-agent: *\nAllow: /\n", html)
+    assert any(r["code"] == "aeo.article_author_missing" for r in rows)
+
+
+def test_article_with_an_author_is_not_flagged():
+    html = (
+        '<script type="application/ld+json">'
+        '{"@type":"Article","headline":"X","author":{"@type":"Person","name":"A"}}</script>'
+    )
+    rows = aeo_rows("User-agent: *\nAllow: /\n", html)
+    assert not any(r["code"] == "aeo.article_author_missing" for r in rows)

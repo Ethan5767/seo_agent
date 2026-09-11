@@ -2231,8 +2231,11 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         heading: "Site Performance",
         items: [
-          { label: "Site Audit", tab: "Site Health & Audit", sub: "summary" },
-          { label: "All Checks", tab: "Site Health & Audit", sub: "all_checks" },
+          // One entry, one page. "All Checks" and "Scan Progress" were separate
+          // nav entries onto this same screen, which is the one-page-many-
+          // sections shape the sidebar is not allowed to have. The screen keeps
+          // its own sub-tab bar for those.
+          { label: "Site Audit", tab: "Site Health & Audit" },
           { label: "Crawl Issues", view: "site-crawl" },
           { label: "Position Tracking", view: "position-tracking" },
         ],
@@ -2347,19 +2350,14 @@ export const NAV_SECTIONS: NavSection[] = [
     heading: "Local Presence",
     groups: [
       {
-        // The screen always had eight sub-sections behind an in-page tab bar,
-        // but the drawer listed one entry, so opening Local looked like it did
-        // nothing. Same treatment as the AI section.
         heading: null,
         items: [
-          { label: "Business Info", tab: "Local SEO & GBP", local: "info" },
-          { label: "Opening Hours", tab: "Local SEO & GBP", local: "hours" },
-          { label: "Reviews", tab: "Local SEO & GBP", local: "reviews" },
-          { label: "Review Boost", tab: "Local SEO & GBP", local: "review_boost" },
-          { label: "Google Posts", tab: "Local SEO & GBP", local: "posts" },
-          { label: "Geo-Grid Rank", tab: "Local SEO & GBP", local: "local_grid" },
-          { label: "Schema Alignment", tab: "Local SEO & GBP", local: "nap_audit" },
-          { label: "Local Insights", tab: "Local SEO & GBP", local: "insights" },
+          // One entry, one page. This was eight entries onto the same screen,
+          // each selecting a sub-tab: the one-page-many-sections shape the
+          // sidebar must not have. LocalBusinessManager carries its own tab bar
+          // for Business Info, Hours, Reviews, Review Boost, Posts, Geo-Grid,
+          // Schema Alignment and Insights.
+          { label: "Local Presence", tab: "Local SEO & GBP" },
         ],
       },
     ],
@@ -2396,19 +2394,14 @@ export const NAV_SECTIONS: NavSection[] = [
         // into this component - but neither had a nav entry, and two audit
         // sub-tabs ("remediation", "progress") were unreachable from the
         // sidebar entirely.
-        heading: "Stages",
+        heading: null,
         items: [
-          // "Measure" is deliberately absent: that is Site Audit in the SEO
-          // section, and a second name for it would be the duplicate this
-          // structure exists to prevent.
-          { label: "Plan", tab: "Site Health & Audit", sub: "remediation" },
+          // "Plan" and "Scan Progress" were entries onto the Site Audit screen,
+          // selecting its "remediation" and "progress" sub-tabs. That is the
+          // one-page-many-sections shape the sidebar must not have: three nav
+          // entries, one page. Both live on the Site Audit screen's own sub-tab
+          // bar now, and "Measure" was already absent for the same reason.
           { label: "Review Fixes", tab: "Auto-Fix Engine" },
-        ],
-      },
-      {
-        heading: "Activity",
-        items: [
-          { label: "Scan Progress", tab: "Site Health & Audit", sub: "progress" },
           { label: "Change History", drawer: true },
         ],
       },
@@ -2547,7 +2540,22 @@ export function ReaiDashboard({
     return () => clearTimeout(timer);
   }, [aeoActiveFocus]);
 
-  const showSkeleton = isLoading || isTabTransitioning;
+  // The whole tab body used to be gated on `isLoading || isTabTransitioning`.
+  // `isLoading` is ScannerApp's `initialLoading`, cleared only after a
+  // browser-side Supabase call returns; if that call hangs rather than throws,
+  // the flag never clears and EVERY tab renders the same skeleton forever. The
+  // nav updates, the URL updates, activeTab updates, and the screen never
+  // changes: clicking any sidebar entry appears to open the same page.
+  //
+  // Content is no longer gated on it. Every screen now has an honest empty
+  // state, so rendering "nothing measured yet" while clients load is better
+  // than a shimmer that may never resolve. The 180ms tab transition still
+  // shows a skeleton, because that one is guaranteed to end.
+  const showSkeleton = isTabTransitioning;
+
+  // A header-only hint that the initial load is still running. It can never
+  // hide the page, so a hung call costs a spinner, not the product.
+  const showHeaderSkeleton = isLoading || isTabTransitioning;
 
   useEffect(() => {
     if (initialTab) {
@@ -3984,7 +3992,7 @@ export function ReaiDashboard({
             {/* Project Title Bar with Real Domain Switcher */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
               <div style={{ position: "relative", display: "inline-block" }}>
-                {showSkeleton ? (
+                {showHeaderSkeleton ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0" }}>
                     <SkeletonBox width={190} height={24} borderRadius={6} />
                     <SkeletonBox width={130} height={16} borderRadius={4} />

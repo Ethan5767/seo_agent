@@ -90,7 +90,8 @@ test("Navigation & UX: every SEO foundation screen stays reachable after the mer
     "SERP Preview",    // was "Content" + "SEO Writing Assistant"
     "Keyword Overview", // was "Keywords & Rankings" + 6 other aliases
     "Backlinks",       // was "Links" + "Referring Domains" + "Backlink Audit"
-    "Business Info",   // Local SEO now lists its eight sub-sections
+    "Local Presence",  // one entry, one page: the eight sub-sections live on
+                       // that screen's own tab bar, not in the sidebar
   ];
 
   for (const item of expected) {

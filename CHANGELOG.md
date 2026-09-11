@@ -8,6 +8,33 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **Every sidebar click showed the same page (`web/app/ReaiDashboard.tsx`,
+  `web/app/ScannerApp.tsx`).** The whole tab body was gated behind
+  `showSkeleton = isLoading || isTabTransitioning`, and `isLoading` is
+  `ScannerApp`'s `initialLoading`, cleared only after a browser-side Supabase
+  call returns. If that call hangs rather than throws - no session, stalled
+  network - the flag never clears and **every tab renders the same skeleton
+  forever**: the nav updates, the URL updates, `activeTab` updates, and the
+  screen never changes.
+
+  Content is no longer gated on the initial load; only the 180ms tab
+  transition shows a skeleton, and that one is guaranteed to end. Every screen
+  now has an honest empty state, so "nothing measured yet" beats a shimmer that
+  may never resolve. The header keeps a loading hint that cannot hide the page.
+  The Supabase call is raced against an 8s timeout, so a stalled call costs an
+  empty client list rather than a dead app.
+
+- **One page no longer wears several sidebar entries.** "Site Health & Audit"
+  had four entries (Site Audit, All Checks, Plan, Scan Progress) and
+  "Local SEO & GBP" had eight, each selecting a sub-tab of the same screen.
+  The sidebar was promising navigation it did not deliver: three clicks, one
+  page. Each screen now appears once and carries its own sub-tab bar. 53
+  entries -> 43, and `tests/nav.test.mjs` fails if a screen is ever split
+  across entries again.
+
+
+### Fixed
+
 - **`/remediate/apply` streams instead of going dark for half an hour
   (`pipeline/scanner/server.py`, `web/app/api/remediate/apply/route.ts`,
   `web/app/ScannerApp.tsx`).** The handler used

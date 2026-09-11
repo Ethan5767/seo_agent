@@ -300,7 +300,14 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     let active = true;
     (async () => {
       try {
-        const loaded = await listClients();
+        // listClients() is a browser-side Supabase call. If the session is
+        // missing or the network stalls it can hang rather than throw, and the
+        // loading flag it gates would never clear. Racing it against a timeout
+        // means a stalled call costs an empty client list, not a dead app.
+        const loaded = await Promise.race([
+          listClients(),
+          new Promise<never[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+        ]);
         if (!active) return;
         setClients(loaded);
         if (loaded && loaded.length > 0) {

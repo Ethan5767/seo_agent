@@ -162,3 +162,31 @@ test("no competitor trademarks ship as menu items", () => {
     );
   }
 });
+
+test("no page is split across several sidebar entries", () => {
+  // The rule: if two things are separate, they get separate pages; if they are
+  // one page, they get one entry. What is not allowed is one page wearing
+  // several sidebar entries that each select a sub-tab of it — the sidebar then
+  // promises navigation it does not deliver, and clicking three entries appears
+  // to open the same page.
+  //
+  // This was the shape of "Site Health & Audit" (Site Audit / All Checks /
+  // Plan / Scan Progress) and "Local SEO & GBP" (eight entries). Those screens
+  // carry their own sub-tab bars; the sidebar lists each once.
+  const byTab = new Map();
+  for (const { label, destination } of navItems()) {
+    // Only plain tab destinations can collide this way. A view, gsc or content
+    // entry is its own screen, and `local:`/`sub:` suffixes are gone.
+    if (destination.includes(":")) continue;
+    if (destination === "drawer" || destination === "modal") continue;
+    if (destination.startsWith("href:")) continue;
+    byTab.set(destination, [...(byTab.get(destination) ?? []), label]);
+  }
+
+  const split = [...byTab.entries()].filter(([, labels]) => labels.length > 1);
+  assert.deepEqual(
+    split,
+    [],
+    `these screens are split across several sidebar entries: ${JSON.stringify(split)}`,
+  );
+});

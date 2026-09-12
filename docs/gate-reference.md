@@ -147,6 +147,15 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 
 Everything still not listed — `robots-aicrawler`, `client-docs-check`, `proof-assert`, the live post-deploy checks — is in a **third category**: neither baselineable nor declared never-baselineable, because on the pilot they were already clean. That is a property of the pilot, not of the gates, and each is a decision waiting to be made rather than a decision already made.
 
+### `e2e-check` — a 20th gate, implemented but NOT yet wired (2026-09-12)
+
+`pipeline/gates/e2e_check.py` (`wf-e2e-check`, exit 21 broken / 4 cannot-judge / 0 intact) asserts the `findings → worklist → changelog` handoff chain is internally consistent. It is **never-baselineable by design** — a broken provenance chain is a live invariant break, and an empty/partial chain is exit 4, not a pass. But two things are deliberately **not done**, so the counts above still read 8 + 9 + 2 = 19:
+
+1. It is **not registered** in `NEVER_BASELINEABLE` in `pipeline/lib/baseline.py`. When it is, re-count this line to 8 + 10 + 2 = 20.
+2. It is **not invoked** by `quality-gate.reusable.yml`. It ships UNVERIFIED (no tests, `pytest` not run this session), and wiring an untested gate into the path that blocks every client's production PR is exactly the risk B-018 / the never-green rule warn about. Wire it only after it has tests and a green run — that is a separate, deliberate step (the B-007 "implemented is not wired" lesson, applied on purpose this time).
+
+So: **20 gate implementations exist; 19 are wired.** The gap is intentional and tracked here.
+
 ### Wiring, not just implementation (B-007, 2026-08-06)
 
 The module above was complete and tested for a release while `quality-gate.reusable.yml` invoked every gate **bare**, so a client's inherited debt was reported as blocking and the ratchet did nothing on any PR. The workflow now resolves the flag once, by asking whether `docs/gate-baseline.json` exists:

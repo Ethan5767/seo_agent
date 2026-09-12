@@ -6,6 +6,571 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+> **All six items below ship UNVERIFIED.** The operator directed this session to
+> build without running the test suite, so none of these has a test and `pytest`
+> was not run. They are recorded here exactly as the provider network paths are
+> (CLAUDE.md sharp-edge #6): implemented, not proven. Behaviour was smoke-checked
+> inline where noted; that is a sanity check, not the gate suite.
+
+- **Report delivery over email/Telegram (`pipeline/audit/deliver.py`, `wf-deliver`).**
+  Renders a cycle report (progress/action/combined) and, by default, writes an
+  outbox preview to `docs/audit/<cycle>/outbox/` for human review; `--send`
+  transmits over the client's configured channels and appends a receipt (no body)
+  to `outbox/delivery-log.jsonl`. SMTP/Telegram credentials read from env by name
+  (`SMTP_HOST/PORT/USER/PASS`, `TELEGRAM_BOT_TOKEN`); recipients in the client
+  config `delivery:` block. Every unconfigured path is a named skip. This closes
+  the SOP's "sent via Email or Telegram" promise, which had no implementation.
+  Network paths NOT run; skip paths smoke-checked.
+
+- **Backlink outreach (`pipeline/outreach/`, `wf-outreach`).** New package:
+  `qualify.py` (4-point safety check via DataForSEO — frozen, so honest per-domain
+  `unknown` named skips today, real verdicts when live), `linkbank.py` (candidate
+  store in the client repo `docs/outreach/linkbank.json`), `content.py` (tier-1/2
+  drafts via the `claude` CLI), `run.py` (orchestrates qualify → bank → draft).
+  Qualify + bank + draft only — the outreach email to a site owner stays a human
+  step (SOP §12). Units smoke-checked inline.
+
+- **Server access-log crawl-budget parsing (`pipeline/audit/logparse.py`,
+  `wf-logparse`, `wf-site-health --with-logs`).** Parses Apache/Nginx combined and
+  Cloudflare JSON logs into `log.crawl_error` (crawler 4xx/5xx) and
+  `log.byte_overhead` Findings attributed to known crawler UAs, feeding the same
+  `findings.json` and ratchet as every other measure output. Missing / empty /
+  unattributable log is a named skip, never a green. Parsing smoke-checked on mixed
+  formats.
+
+- **E2E handoff-chain gate #20 (`pipeline/gates/e2e_check.py`, `wf-e2e-check`).**
+  Re-reads `findings.json → worklist.json → changelog.json` for a cycle and asserts
+  each is a strict refinement of the last (every planned item traces to a measured
+  finding, every remediation entry to a planned item, schemas match). Exit 21 on a
+  break, exit 4 "cannot judge" on a partial/empty chain (never a pass, per the
+  never-green-over-nothing rule), exit 0 intact. **20 gate implementations now
+  exist; 19 are wired** — `e2e-check` is deliberately NOT yet registered in
+  `baseline.py` or invoked by `quality-gate.reusable.yml`, because wiring an
+  untested gate into the path that blocks every client PR is the exact risk the
+  never-green rule warns about (the B-007 "implemented is not wired" lesson,
+  applied on purpose). Wire it after it has tests. See `docs/gate-reference.md`.
+  Separately, the SOP's "16 automated safety checks" was already wrong: the real
+  wired count was 19.
+
+- **CSR shell detection in the measure rail (`pipeline/audit/measure.py`,
+  `health.csr_empty_shell`).** Ports `scanner/extra_checks.visible_text_ratio` into
+  `check_page` (words < 100 and text/markup ratio < 0.05) so a client-rendered
+  empty shell now feeds the ratchet, the plan and the gates instead of living only
+  in the web MVP. Classified T3 in `plan.ACTIONS` (fix is SSR/SSG). Direction
+  smoke-checked (flags a shell, passes an SSR page). Heuristic limitation recorded
+  in the bug ledger (B-061); the not-yet-wired E2E gate is B-062.
+
+- **Two client-facing reports (`pipeline/audit/plan.py`).** `write_artifacts` now
+  also emits `report-progress.md` (RESOLVED lane + score deltas) and
+  `report-action.md` (NEW/REGRESSION/PERSISTING + tier-blocked + human-worklist
+  items) alongside the combined `report.md`, satisfying the SOP §10 Progress /
+  Action-Needed split. Derived from the same doc/lanes; a re-run reproduces
+  identical bytes. Import-checked.
+
+### Changed
+
+- **One health score, published, monotonic, and versioned
+  (`pipeline/scanner/audit.py`, `web/app/ReaiDashboard.tsx`,
+  `web/components/dashboard/AuditHeroBar.tsx`, `MeasureScreen.tsx`).** There
+  were three formulas: the scanner's `max(0, 100 - 10*errors - 3*warns)`, a pass
+  rate recomputed in `ReaiDashboard`, and a third in `AuditHeroBar` -
+  `max(20, 100 - 12*errors - 4*warns)` - with different weights and a floor of
+  20. One scan, three numbers.
+
+  `audit.health_score(counts)` is now the only one, and the whole formula is
+  `ok / (ok + warn + error)`. Info rows are excluded from both halves: they
+  report a fact rather than a verdict, so counting them as passes would let a
+  site raise its health by adding unjudgeable observations.
+
+  The old model was wrong in ways that mattered rather than merely inelegant:
+
+  - **It saturated.** Any site with ten or more errors scored 0, so a client who
+    fixed 200 of 400 errors saw no movement at all.
+  - **It had no denominator**, so a ten-page site and a hundred-thousand-page
+    site with the same absolute error count scored the same.
+  - **It was not monotonic in practice**, which is what a ratchet needs.
+  - And it read high for bad pages. The existing `assemble` test had a page
+    where **every graded check failed** and the old formula called it **87**.
+    It now scores 0, which is the truth.
+
+  Two properties the replacement has and the old one did not, both pinned by
+  tests: fixing a finding **can only raise** the score, and nothing gradeable
+  scores **None rather than 0** - a scan that measured nothing must not report
+  0% health, which reads as "everything is broken" instead of "we did not look".
+  TypeScript then forced every consumer to handle that null, which is how the
+  donut, the gauge and the grade badge each got an honest unmeasured state.
+
+  `score_version` ships beside the score so a movement caused by **us** is
+  distinguishable from one caused by the **site**. Lighthouse has revised its
+  own weights five times; unversioned, that looks like every site improving on
+  the same day.
+
+  **On the deliberate absence of a better composite:** the research is against
+  shipping one at all. Reporting a single measure rather than several
+  demonstrably increases surrogation - people optimising the number instead of
+  the thing (Choi, Hecht & Tayler 2012, two experiments). Published weights are
+  not importance either (Becker et al. 2017). And every vendor composite in this
+  market is unvalidated: Ahrefs lets you relabel an Error as a Warning to raise
+  the score without touching the site, and Semrush documents that its score can
+  fall while the issue count falls. So this number stays a summary, the
+  per-pillar scores in `derivePillars` remain the thing to read, and the raw
+  counts travel beside it.
+
+  Live scan of example.com: **33**, score_version 2, counts
+  `{error: 8, warn: 21, info: 8, ok: 14}` - 14 of 43 gradeable checks passing.
+  The same scan scored **0** yesterday. `python -m pytest -q` -> **1024
+  passed**; `npm test` -> **147 passed**. B-055.
+
+### Fixed
+
+- **No scan ever produced a site-level finding, because the site-wide crawler
+  was called by nothing (`pipeline/scanner/crawl.py`,
+  `pipeline/scanner/server.py`).** `crawl_site` and `site_rows` find broken
+  internal links, orphan pages, duplicate titles and duplicate meta
+  descriptions. Both were complete and tested. `grep -rn` for either name
+  returned `crawl.py` itself and its own test file, nothing else.
+
+  The scan used `multipage.discover_pages` instead, which fetches a flat list of
+  URLs and so can only run PER-PAGE tools. Every site-level check the crawler
+  already knew how to run was unreachable, and a free scan reported zero broken
+  internal links on any site. B-007's shape, and the second instance found today.
+
+  Wiring it exposed a latent bug worth naming. `_norm()` appends a trailing
+  slash so `/a` and `/a/` dedupe to one page - a canonical form for
+  **comparison** - and `crawl_site` used that string as the **fetch** URL. It
+  would have asked a server for `/a/` when the site publishes `/a`, taking a
+  redirect at best and a 404 at worst, then reporting a working page as broken.
+  Invisible while nothing called it, and its own fixtures used trailing slashes
+  throughout. The normalised string is now the dedup key and the URL as
+  published is what gets fetched and reported.
+
+  Live scan of a real 8-page site: **2 site-level rows where there were 0**, and
+  both codes reach the Crawl Issues screen. `python -m pytest -q` ->
+  **1018 passed**; `npm test` -> **145 passed**. B-060.
+
+- **Our own AEO copy stated effects the current evidence does not support
+  (`pipeline/scanner/audit.py`, `pipeline/scanner/source_audit.py`).** Three
+  claims traced to the 2023 GEO paper (Aggarwal et al., KDD '24), whose measured
+  lifts came from GPT-3.5-turbo:
+
+  - "Concrete figures are **the single biggest lever** for being cited by AI
+    answer engines" (from Statistics Addition, +33%)
+  - "Quoted experts, cited studies and 'according to' phrasing **raise trust and
+    AI-citation odds**" (from Quotation Addition, +41%)
+  - llms.txt as "a curated signpost for AI answer engines", with the fix text
+    "consider adding public/llms.txt for AEO"
+
+  Two 2026 papers re-measured those levers on modern engines and found they
+  "move citation on none", and a 252,000-trial controlled study found topical
+  relevance and list position dominate while "formatting-only edits have little
+  impact". On llms.txt, Google's AI-features documentation says the opposite of
+  our copy in as many words: "You don't need to create new machine readable
+  files, AI text files, or markup to appear in these features." No engine
+  documents reading one, and no study measures an effect in either direction.
+
+  This is the derivation rule turned on ourselves. We refuse a client's copy
+  that states a figure with no provenance; ours stated an effect size from a
+  superseded study and sold an unread file as a visibility lever. The rows now
+  say what the check observes and what the evidence actually supports: stated
+  prices and recent dates are among the few content factors the 2026 study found
+  to help consistently, so the statistics row keeps its recommendation and loses
+  its promise. `llms.txt` reports presence at `info` whether present or absent -
+  the check reports a fact it cannot grade, and absence is explicitly "not a
+  gap".
+
+  `python -m pytest -q` -> **1018 passed**; `npm test` -> **145 passed**.
+
+- **Playbooks gained a timeline and a permission to ignore
+  (`pipeline/scanner/recommendations.py`).** Two gaps the research made obvious.
+
+  **`timeline`** answers "when will we see this work?" before the client asks in
+  week three. Google's own guidance is the honest form and the source: "Some
+  changes might take effect in a few hours, others could take several months."
+  Every written playbook now carries one, and a test refuses any that promises a
+  date, a position or a guarantee, because "No one can guarantee a #1 ranking on
+  Google."
+
+  **`optional`** marks a finding that is a legitimate business choice rather
+  than a defect. Blocking AI training crawlers is the clearest case, and until
+  now that fact lived in a code comment with no way to reach the client. Every
+  serious tool ships this permission explicitly - Search Console's "there is
+  nothing you need to do", Semrush's "feel free to ignore this recommendation" -
+  because a severity system with no documented bottom reads as an infinite
+  to-do list. A test asserts an optional finding is never an error and always
+  tells the client they may leave it.
+
+  Client copy is now held to published plain-English limits rather than taste: a
+  test caps every `plain` and `impact` sentence at 25 words (GOV.UK: "Plain
+  English is mandatory"; NN/g puts the better figure at 15-20).
+
+### Added
+
+- **Playbooks: how to fix a finding, in two registers
+  (`pipeline/scanner/recommendations.py`, `GET /playbooks`).** A finding gave
+  one line. For a missing answer schema that line was "add FAQPage, QAPage,
+  HowTo or Article JSON-LD, whichever matches the page" - which names the defect
+  and leaves the reader to work out which type applies, which fields are
+  required, where the block goes and how to tell it landed. An audit that only
+  names the defect makes the reader do the work, and the product is meant to do
+  the work.
+
+  A playbook adds ordered `steps`, the `snippet` to paste with every value
+  bracketed, a `verify` line that proves it landed, and an `effort` band
+  (quick / moderate / deep) so a worklist can be ordered by what it costs.
+
+  **Two registers, because two people read this.** `plain` and `impact` are for
+  the client, who does not write code and should never be shown
+  `aeo.answer_schema_missing` or a block of JSON-LD: one sentence on what is
+  wrong, one on what it costs them, both in business words. `steps`, `snippet`
+  and `verify` are for whoever implements, and that half is deliberately
+  technical. The video playbook reads *"You have a video on the page, but
+  nothing on the page tells Google it is a video or what it shows"* to a client
+  and hands an implementer eight steps plus a VideoObject block.
+
+  Eight written so far, covering the families the operator asked for:
+  `aeo.answer_schema_missing`, `aeo.no_answer_structure`, `aeo.crawler_blocked`,
+  `video.video_snippets`, `video.video_metadata`, `health.title_length`,
+  `health.desc_missing`, `health.thin_content`. **16 of the 24 codes still have
+  none**, and `plain_coverage()` reports that gap rather than letting it hide:
+  a code with no `plain` falls back to `why`, which is operator language and
+  will read as jargon to a client.
+
+  Served at `GET /playbooks` rather than inlined on every row: a report holds
+  50+ rows and the steps and markup would dwarf the findings. Only written
+  playbooks are served, so the UI cannot offer "How to fix" on a finding with
+  nothing behind it.
+
+  `tests/test_scanner_playbooks.py`, 9 tests, mostly on what the copy may not
+  do: **the client register is scanned for jargon** (a finding code, an HTML
+  tag, "JSON-LD", "schema.org", "robots.txt", a filename, a CLI command) and
+  capped at one sentence; **no playbook may promise an outcome it cannot know**
+  ("guarantee", "will rank", "40% more"), which is the provenance rule applied
+  to our own copy rather than only to the agent's; and no playbook may contain
+  an em dash, since these strings reach both a client report and a client repo
+  where the em-dash gate accepts no baseline. `python -m pytest -q` ->
+  **1014 passed**.
+
+### Changed
+
+- **Content drafting runs on the Claude Code CLI, not a metered API key
+  (`web/app/api/content/generate/route.ts`).** The route called
+  `@anthropic-ai/sdk` and refused with a 501 unless `ANTHROPIC_API_KEY` was set,
+  which is a separate billed account. Everything else in this product that
+  reaches a model already shells out to `claude` - `remediate.run_agent` and
+  `seed_queries.run_agent` both do - so drafting was the only lane demanding its
+  own credentials, and it was dead on any machine that had the subscription but
+  no API key. It now spawns `claude -p --model sonnet` with the prompt on STDIN,
+  matching the two existing call sites (the prompt opens with a markdown
+  document and the CLI reads a leading `---` as a malformed flag; both Python
+  call sites carry that comment, so this one does too). The `@anthropic-ai/sdk`
+  dependency is removed - nothing imports it any more.
+
+  `--allowedTools ""`: drafting returns text and may not touch the filesystem.
+  Editing a repo is remediation's lane, and that runs under a declared tier with
+  the gates watching. A 3-minute timeout kills a wedged agent, `cancel()` kills
+  the child when the client disconnects, and a missing CLI reports
+  **"`claude` is not on PATH ... this product drafts through your Claude
+  subscription, not an API key"** rather than a bare 500.
+
+  Verified end to end against a real scan: `POST /api/content/generate` with 51
+  findings from a live free scan of example.com returned **200 in 21s** with an
+  answer-first rewrite that named each AEO finding and what it did about it.
+
+- **The content tools argue from the scan instead of from a text box
+  (`web/lib/contentTools.ts`).** Every tool began with the operator typing a
+  keyword, so none of them touched the 51 findings a scan produces, the page the
+  scanner had already fetched, or the client's own Search Console. They would
+  have worked identically pasted into any chatbot, which was the whole problem:
+  nothing about them required this product to exist.
+
+  A tool now declares `evidenceCodes`, and `evidenceFor()` slices the scan's
+  findings for it - worst severity first, passing checks dropped, because a
+  passing check is not a thing to fix and feeding "Content depth: passing" into
+  a rewrite invites the model to change something that was right. Three context
+  blocks reach the model: the page as the scanner fetched it (URL, title,
+  description, heading tree, word count, copy), the matching findings with
+  severity and prescribed fix, and Search Console rows labelled as measured
+  demand rather than an estimate.
+
+  Seven tools, five rewired and two new:
+
+  - **Answer-First Rewrite** - argues from `aeo.*`, restructures the page into
+    question headings with direct answers, and is forbidden from introducing a
+    figure the copy does not already contain.
+  - **Page-Two Opportunities** - **no input fields at all.** The queries are the
+    input: Search Console rows at positions 8-20, measured demand with a known
+    gap. With no rows in that band it says so and stops rather than substituting
+    keywords from elsewhere. Nothing a competitor sells can do this for a
+    client, because it needs the client's own Search Console.
+  - Content Optimizer now uses the scanned page; the paste field is an override
+    that says it is one.
+
+  No tool may ask the model to predict a ranking or a traffic number: a
+  predicted position is exactly the invented figure the publishing gate refuses.
+
+  The em-dash rule was also widened from "copy intended for a public page" to
+  the whole output. The model had been reading the narrow rule correctly and
+  putting em dashes in its own report headings, which is fine until a draft is
+  applied into a repo as a work item: the em-dash gate accepts no baseline
+  (B-008), so one anywhere in a file blocks that client's pipeline. Re-verified:
+  **0 em dashes** in the regenerated draft.
+
+  `web/tests/contentTools.test.mjs`, 13 tests on the wiring rather than the
+  wording: the prompt carries the finding's own words and detail, a tool sees
+  only the codes it claims, `evidenceFor` is total over malformed input,
+  page-two filters position 12 and 19 in and position 4 out, and **every
+  `evidenceCodes` entry is a code the scanner really emits** - the same rule the
+  report views follow, so a tool cannot argue from a code nothing produces.
+  Two of those tests caught real defects while being written: an absent optional
+  field left a blank run in the brief prompt, and the first prediction guard
+  flagged its own prohibition. `npm test` -> **145 passed** (was 132).
+
+- **The content findings moved into the Content section
+  (`web/lib/reportViews.ts`, `web/app/ReaiDashboard.tsx`).** They had been one
+  "Content & Trust" view parked under SEO, which left the Content menu holding
+  five drafting tools and not one finding: the half of the product that measures
+  content sat under SEO while the half that writes it sat under Content. Now
+  three screens - **Content Quality** (`content.`), **Video** (`video.`, the
+  VideoObject check plus live YouTube metadata) and **Trust & E-E-A-T**
+  (`eeat.`) - in Content, next to the tools that act on them. Verified against
+  the live scan: 5, 1 and 6 rows respectively.
+
+### Fixed
+
+- **The Overview screen stated eighteen figures it had never measured
+  (`web/app/ReaiDashboard.tsx`).** Rendered headless with no client and no scan,
+  the dashboard reported: `+14.2%` organic growth, `$2,439/mo` traffic value,
+  `Top 35%` authority, **`Grade B+` beside a 0% health score**, `609 pages
+  checked`, `609 URLs checked`, `85%` AI readiness, `~342 brand mentions`
+  (twice), four per-engine scores hidden in bar tooltips (OpenAI 96, Gemini 92,
+  Perplexity 98, Claude 88), `All Tools (156)`, a nav badge reading `160`, and
+  `7 AT RANK #1` directly beside a headline reading `0 Ranked Keywords`.
+
+  **Why it survived every previous sweep:** the fabrications were not in the
+  data layer. `resolveProjectData` had already been cleaned - `authorityScore =
+  0`, `refDelta = ""`, each with a comment explaining why a number was refused -
+  and the JSX printed constants *over the top* of those honest values. The
+  "Grade B+" badge is the clearest case: its **colour** was computed from the
+  real score while the **letter** stayed frozen, so 0% health rendered an amber
+  B+. Auditing the derivation found it clean, because it was.
+
+  Worse than the constants, three fabrications invented client-specific facts:
+
+  - **A star rating and review count from a substring of the domain.**
+    `currentDomain.includes("hospital") ? "4.8★ / 128" : "No Reviews"`, and the
+    same test picking the GBP category. `CLAUDE.md`'s derivation rule names
+    exactly this: a rating or review count must trace to config or evidence.
+    This one traced to the letters in the URL. B-043's shape.
+  - **Another client's competitors.** Any `.kh` domain inherited four named
+    Cambodian hospitals as *its* rivals, and every other domain got competitors
+    invented from its own name (`acme-leader.com`, `industry-network.com`) which
+    may belong to real businesses. Both also backed the keyword-gap table.
+  - **Invented rankings.** Keywords on the client's config - which are targets,
+    not measurements - were given position 3/7/14, volume 600/520/440, an
+    alternating intent and a "Snippet" SERP feature whenever no scan had run.
+
+  Plus a floor: `Math.max(120, ...)` gave every unscanned client 120 organic
+  visits a month, the same shape as the 128-keyword floor removed a few lines
+  above it. And `pagesPerVisit: "3.4"`, `avgDuration: "3m 48s"`,
+  `bounceRate: "41.2%"` - session metrics that neither the scan nor Search
+  Console observes. The traffic chart's three series were fixtures too: a
+  six-month ramp, a keyword climb ending at a 128 floor, and a visibility curve
+  whose endpoint was baked into the tab label, "Visibility (74%)".
+
+  Everything that has a real source now reads it - the tool counts come from the
+  catalog, page counts from `site.pages_crawled`, AI readiness from the
+  canonical `derivePillars` AEO pillar, the health grade from the score beside
+  it. Everything else says "Not measured".
+
+  **Found by rendering the page, not by grepping it.** Routes returned 200 and
+  the tests were green throughout; a headless Chrome dump of `/dashboard` is
+  what showed the numbers. Two of the worst - the star rating and the GBP
+  category - were then found by the regression test, not by me.
+
+  `web/tests/nofabrication.test.mjs`, 5 tests over the rendered code. It strips
+  comments before matching, so the file can keep documenting the constants it
+  used to print without tripping its own guard. `npm test` -> **132 passed**;
+  `npx tsc --noEmit` -> no errors. Verified by re-render: every figure above is
+  gone from the live page. B-053.
+
+- **The Project Journey bar reported a stage nobody had reached
+  (`web/lib/journey.ts` new, `web/components/dashboard/ProjectJourney.tsx`,
+  `web/app/ReaiDashboard.tsx`, `web/components/dashboard/Overview.tsx`).** Both
+  call sites hardcoded `currentStep={4}`, and `Overview` additionally passed
+  `hasClient={true} hasScan={true}`. An account with no client and no scan was
+  therefore told it had reached "Stage 4 of 6: Review Top Priorities" with the
+  first three steps ticked green. `ReaiDashboard` passed real `hasClient` and
+  `hasScan` but still pinned the stage, and never passed `hasGsc` at all, so
+  Search Console read as disconnected even when it was connected. Steps 5 and 6
+  could never become current, step 6 never completed, and clicking steps 1, 4
+  or 6 did nothing. Same family as the 160-tool catalog and the fabricated
+  "Resolved" remediations: a component rendering a state rather than reading
+  one.
+
+  `deriveJourney` in the new `web/lib/journey.ts` takes evidence and returns
+  stages. The component takes the evidence too, so there is no stage number left
+  to hardcode. Two rules it follows:
+
+  - **A stage is completed only where there is evidence for it.** Each step
+    names the artifact that proves it: a client row, a connected GSC property,
+    a scan (in memory *or* recorded on the client row, since switching clients
+    drops the report and the work still happened), real findings, a remediation
+    that ran, and - for "Track Results Over Time" - a second scan, because a
+    trend needs two points.
+  - **`current` is the lowest INCOMPLETE step, not the furthest reached.** The
+    stages are not a strict sequence: an audit runs fine without Search Console.
+    A bar that marched past a skipped step would stop asking for the one thing
+    still missing.
+
+  `web/tests/journey.test.mjs`, 11 tests, most of them about what must *not* be
+  claimed - an empty account claims nothing, a clean scan gives nothing to
+  triage, one scan is not a trend. `navigation.test.mjs` now asserts the
+  exported `JOURNEY_STEPS` rather than grepping the component for label text
+  (which would have gone on passing against a comment), and a second test fails
+  if any caller reintroduces a literal stage or a `hasClient={true}`.
+  `npm test` -> **126 passed** (was 114). `npx tsc --noEmit` -> no errors.
+  B-051.
+
+- **A check that ran and passed reached no screen (`pipeline/scanner/audit.py`,
+  `pipeline/scanner/plan.py`, `pipeline/scanner/multipage.py`).** Every passing
+  check was emitted with `code: ""`. The report views match rows by code and
+  skip codeless ones, so a site where every AI check passed rendered an **empty**
+  "Crawler Findings" screen under the hint "Run a scan. The AI visibility check
+  is free and runs by default." A check that ran and passed was
+  indistinguishable from a check that never ran - `CLAUDE.md`'s "a gate that
+  scanned nothing must never report a pass", inverted.
+
+  `_pass_row(code, label, why)` now carries the code of the finding it is the
+  absence of. A pass is never actionable (`severity: "ok"`), so it cannot become
+  a work item. The Article-author check had the same hole in a different shape -
+  it emitted a row only on failure, so an Article that named its author passed
+  silently - and now reports pass or fail. A page that is not an Article still
+  emits nothing: not applicable is not the same as passing.
+
+  Two consequences, both fixed here rather than left to be discovered:
+
+  - **The ratchet.** `RESOLVED` was "actionable last time, absent now"; a coded
+    pass row puts the code back into the current scan, which would have dropped
+    every fixed finding out of both the worklist and the resolved list. The rule
+    is now "actionable last time, not actionable now" - also the stronger
+    reading, because an explicit `ok` row is positive proof of a fix where
+    absence could equally mean the tool did not run this month.
+  - **The multi-page merge.** `merge_by_code` skips codeless rows, so every pass
+    was being dropped from a multi-page crawl and those scans reported failures
+    only - across `seo`, `schema`, `content`, `video`, `eeat` and `internal`,
+    all six of the per-page tools. Passes now merge like any other row, worst
+    severity still wins, and only failing pages are named.
+
+  `python -m pytest -q` -> **1005 passed**. B-047.
+
+- **One check answered to two names (`pipeline/scanner/audit.py`,
+  `pipeline/scanner/checks.py`).** The crawler checks called themselves "AI
+  crawlers allowed" / "AI training crawlers allowed" when they passed and "AI
+  crawlers blocked" / "AI training crawlers blocked" when they failed, because
+  the two outcomes were built by two separate hand-written dicts. Anything
+  grouping by name saw two checks; `rowsForView` de-duplicates on code plus
+  `what`, so one check occupied two rows; and the 115-check catalog could only
+  ever list one of the two names, which is what `test_fixed_label_tools_really
+  _emit_their_catalog_labels` caught. The names are now neutral - "AI citation
+  crawlers", "AI training crawlers" - and the severity carries the news. B-049.
+
+- **Eleven code families were measured on every run and displayed nowhere
+  (`web/lib/reportViews.ts`, `web/app/ReaiDashboard.tsx`).** The AEO
+  strengthening pass added `aeo.training_crawler_blocked`,
+  `aeo.answer_schema_missing` and `aeo.article_author_missing`, and the three AI
+  findings screens showed none of them. The same hole covered `dfs.op.*` (the
+  DataForSEO per-page flags), `site.*` (the free multi-page crawl), and the
+  whole free technical and content lane: `tech.` `schema.` `valid.` `content.`
+  `eeat.` `video.`
+
+  The root cause was a one-directional test: `reportViews.test.mjs` asserted
+  every view code is emitted by the scanner, and nothing asserted the reverse,
+  so a code could be measured, paid for, and shown to no one. B-007's shape in
+  the view layer.
+
+  The three AEO codes now go to the screen whose question they answer;
+  `dfs.op.` and `site.` join Crawl Issues, so both crawls report in one place.
+  Two lanes that had no screen at all get one: **Technical Checks** (`tech.`
+  `schema.` `valid.`) and **Content & Trust** (`content.` `eeat.` `video.`).
+
+  The guard runs both directions over **every** scanner module on disk, read
+  from the directory rather than a typed-out file list - a list would have
+  reintroduced the same failure one level up, where a new module is simply not
+  read and the green means nothing. Codes are extracted at the places a row is
+  *built*, and a canary set asserts the extraction still finds codes stamped by
+  four different mechanisms, so a drifted pattern fails loudly instead of
+  quietly narrowing what is checked. Both confirmed to bite: removing
+  `aeo.training_crawler_blocked` from its view fails with "these codes are
+  measured on every scan and appear on no screen"; renaming a `make_row` call
+  site fails with "extraction lost 'tech.'". `npm test` -> **114 passed**.
+  B-046.
+
+- **The tools directory still advertised 156 tools
+  (`web/app/ReaiDashboard.tsx`).** The fabricated catalog was deleted a commit
+  ago and the directory reads the scanner's real 23 tools / 117 checks, but the
+  search box kept a hardcoded count in its placeholder while the badge one line
+  below rendered the true number. The placeholder now reads the same
+  `catalogSummary.tools` the badge does. B-045.
+
+- **Domain Overview said its own tool was not in the scan
+  (`web/lib/reportViews.ts`).** The empty hint read "The Domain Overview tool is
+  not part of the scan yet". `keywords_card()` has been calling
+  `domain_overview()` on every paid run. A stale doc-shaped claim living inside
+  code. B-044.
+
+### Changed
+
+- **One table now owns why, fix and severity per finding code
+  (`pipeline/scanner/recommendations.py`).** Severity was an `_ERROR_CODES` set
+  inside `audit.py` while the copy lived in `recommendations.py`, so adding one
+  code meant editing two modules in step and neither one alone told you what a
+  code meant. `severity_of(code)` reads the table; a code that declares none is
+  a warning. Four AEO codes that had bypassed the table entirely - their why,
+  fix and severity inlined at the call site - are now in it.
+
+- **`_check(code, label, failures, pass_why)` replaces five hand-written
+  pass/fail pairs (`pipeline/scanner/audit.py`).** Each check's code and name
+  are written once; `failures` is the detail per failing instance, so the
+  zero-or-one checks and the one-per-blocked-crawler check are the same shape.
+  This is what made the two-names defect above possible: two separately-built
+  dicts a branch apart, where two spellings is a perfectly valid state.
+
+- **`lighthouse._row` was a byte-for-byte reimplementation of
+  `rows.make_row("lh")`** - same row shape, same slug rule - and the ninth
+  module to need the helper was the one that copied it. It now uses the
+  canonical one, like the other eight.
+
+### Known
+
+- **`web/components/dashboard/Overview.tsx` is rendered by nothing.** 343 lines,
+  exported from the barrel, imported by no file: an extraction that was never
+  wired up, so the live Overview is still the inline block in
+  `ReaiDashboard.tsx`. B-007's shape again - a finished module called by
+  nothing. It was kept in step with this change rather than left to rot, but it
+  is dead either way and wants a decision: wire it or delete it. Checked the
+  whole extraction, and it is the only dead one - `MeasureScreen`,
+  `LocalBusinessManager`, `PriorityActions`, `GscPanel`, `ContentPanel`,
+  `AuditHeroBar`, `GoogleServicesHub`, `ProjectJourney` and `ReportTable` all
+  render. B-052.
+
+- **Web brand mentions (`mention.*`) still reach no sectioned screen.** The paid
+  Reputation tool stamps the family on every run and the rows show only on the
+  combined audit list. Not fixed here: a screen needs a nav home and the SEO
+  tree has no Reputation group, which is a product decision. Recorded in
+  `UNSECTIONED` in the view test with that reason, so it is a decision on the
+  record rather than a silence. B-048.
+
+- **36 DataForSEO tests never run by default.** `pyproject.toml`'s pytest
+  `addopts` carries `-k 'not dataforseo'` plus an `--ignore` of the retry
+  module, so `pytest -q` reports **1005 passed, 32 deselected** and a green
+  suite says nothing about the largest paid provider. They pass when run
+  (`--override-ini` -> 36 passed) and take under a second, so speed is not the
+  reason. Left alone rather than flipped blind: the exclusion may be deliberate
+  and changing what CI runs is not a side effect to slip into another commit.
+  B-050.
+
 ### Fixed
 
 - **Every sidebar click showed the same page (`web/app/ReaiDashboard.tsx`,

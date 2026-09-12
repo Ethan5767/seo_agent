@@ -211,13 +211,39 @@ def _lines(rows: list) -> str:
     return "\n".join(body) + "\n"
 
 
-def render_report(doc: dict, cycle: str, prior_cycle, lanes: dict, resolved: list,
-                  items: list, unclassified: list, tier) -> str:
-    by_lane = {lane: [] for lane in LANES}
+# The standing one-line explanation each lane carries. Written once so the
+# operator report and the client Action-Needed report cannot describe the same
+# lane two different ways.
+LANE_NOTES = {
+    "REGRESSION": "Seen before, fixed, and back. The fix did not hold.",
+    "NEW": "Not present in any earlier cycle.",
+    "PERSISTING": "Carried over from the previous cycle.",
+    "RESOLVED": "Present last cycle, gone now. No action needed.",
+}
+
+
+def _by_lane(doc: dict, lanes: dict) -> dict:
+    """Current findings grouped by lane. RESOLVED stays empty — resolved findings
+    are not in the current doc, so a caller that wants them assigns them itself."""
+    out = {lane: [] for lane in LANES}
     for f in doc.get("findings", []):
         lane = lanes.get(f.get("fingerprint"))
         if lane:
-            by_lane[lane].append(f)
+            out[lane].append(f)
+    return out
+
+
+def _lane_section(lane: str, rows: list) -> list:
+    """The md block for one lane — heading, its standing note, the finding lines.
+    [] when the lane is empty, so callers can `extend` unconditionally."""
+    if not rows:
+        return []
+    return [f"## {lane.title()} ({len(rows)})", "", LANE_NOTES[lane], _lines(rows)]
+
+
+def render_report(doc: dict, cycle: str, prior_cycle, lanes: dict, resolved: list,
+                  items: list, unclassified: list, tier) -> str:
+    by_lane = _by_lane(doc, lanes)
     by_lane["RESOLVED"] = resolved
 
     # A briefed item is real, in-tier, and still not going to be worked by the
@@ -252,18 +278,7 @@ def render_report(doc: dict, cycle: str, prior_cycle, lanes: dict, resolved: lis
     out.append("")
 
     for lane in LANES:
-        rows = by_lane[lane]
-        if not rows:
-            continue
-        heading = lane.title()
-        note = {"REGRESSION": "Seen before, fixed, and back. The fix did not hold.",
-                "NEW": "Not present in any earlier cycle.",
-                "PERSISTING": "Carried over from the previous cycle.",
-                "RESOLVED": "Present last cycle, gone now. No action needed."}[lane]
-        out.append(f"## {heading} ({len(rows)})")
-        out.append("")
-        out.append(note)
-        out.append(_lines(rows))
+        out.extend(_lane_section(lane, by_lane[lane]))
 
     if blocked:
         out.append(f"## Not Actionable at {tier_label.title() if tier else 'This Tier'} "
@@ -305,22 +320,10 @@ def render_report(doc: dict, cycle: str, prior_cycle, lanes: dict, resolved: lis
 # Action-Needed report (what still needs work, and what a human must do). Both
 # derive from the doc/lanes already computed — no new inputs, no second scan.
 
-def _resolved_rows(project, prior_cycle, current_fps: dict) -> list:
-    """Findings present in the prior cycle and gone now. [] on the first cycle."""
-    if not prior_cycle:
-        return []
-    prior = _fps(read_findings(project, prior_cycle))
-    return [f for fp, f in prior.items() if fp not in current_fps]
-
-
 def render_progress_report(doc: dict, cycle: str, prior_cycle, lanes: dict,
                            resolved: list) -> str:
     """What got better this cycle. Client-facing, positive framing, no jargon."""
-    by_lane = {lane: [] for lane in LANES}
-    for f in doc.get("findings", []):
-        lane = lanes.get(f.get("fingerprint"))
-        if lane:
-            by_lane[lane].append(f)
+    by_lane = _by_lane(doc, lanes)
     resolved = resolved or []
 
     out = [f"# Progress Report: {cycle}", ""]
@@ -355,12 +358,7 @@ def render_progress_report(doc: dict, cycle: str, prior_cycle, lanes: dict,
 def render_action_report(doc: dict, cycle: str, lanes: dict, items: list,
                          unclassified: list, tier) -> str:
     """What still needs work: the actionable lanes plus what a human must own."""
-    by_lane = {lane: [] for lane in LANES}
-    for f in doc.get("findings", []):
-        lane = lanes.get(f.get("fingerprint"))
-        if lane and lane != "RESOLVED":
-            by_lane[lane].append(f)
-
+    by_lane = _by_lane(doc, lanes)
     human_edit = [i for i in items if i.get("human_edit")]
     actionable = [i for i in items if not i["tier_blocked"] and not i.get("human_edit")]
     blocked = [i for i in items if i["tier_blocked"]]
@@ -380,16 +378,7 @@ def render_action_report(doc: dict, cycle: str, lanes: dict, items: list,
     out.append("")
 
     for lane in ("REGRESSION", "NEW", "PERSISTING"):
-        rows = by_lane[lane]
-        if not rows:
-            continue
-        note = {"REGRESSION": "Seen before, fixed, and back. The fix did not hold.",
-                "NEW": "Not present in any earlier cycle.",
-                "PERSISTING": "Carried over from the previous cycle."}[lane]
-        out.append(f"## {lane.title()} ({len(rows)})")
-        out.append("")
-        out.append(note)
-        out.append(_lines(rows))
+        out.extend(_lane_section(lane, by_lane[lane]))
 
     if blocked:
         out.append(f"## Not Actionable at {tier_label.title() if tier else 'This Tier'} "
@@ -486,9 +475,16 @@ def plan(project, cycle: str | None = None) -> tuple:
         "counts": counts,
         "items": items,
     }
+    resolved = sort_findings_json(resolved)
     report = render_report(doc, cycle, prior_cycle, lanes,
-                           sort_findings_json(resolved), items, unclassified, tier)
-    return worklist, report, doc, lanes
+                           resolved, items, unclassified, tier)
+    # The two client-facing cuts are rendered HERE, from the same lanes/items/
+    # resolved this function already computed — not recomputed in write_artifacts.
+    # One source of truth is the whole point: report.md and worklist.json once
+    # disagreed precisely because the same numbers were derived in two places.
+    progress = render_progress_report(doc, cycle, prior_cycle, lanes, resolved)
+    action = render_action_report(doc, cycle, lanes, items, unclassified, tier)
+    return worklist, report, doc, lanes, progress, action
 
 
 def sort_findings_json(rows: list) -> list:
@@ -497,24 +493,18 @@ def sort_findings_json(rows: list) -> list:
                                        f.get("context", ""), f.get("ordinal", 0)))
 
 
-def write_artifacts(project, worklist: dict, report: str, doc: dict, lanes: dict) -> Path:
+def write_artifacts(project, worklist: dict, report: str, doc: dict, lanes: dict,
+                    progress: str = "", action: str = "") -> Path:
     out_dir = audit_dir(project) / worklist["cycle"]
     (out_dir / "worklist.json").write_text(json.dumps(worklist, indent=2, sort_keys=True) + "\n")
     (out_dir / "report.md").write_text(report)
-    # The two client-facing cuts (SOP §10). Derived from the same doc/lanes the
-    # operator report used — unclassified is recomputed deterministically, and
-    # resolved is re-read from the prior cycle, so a re-run over an unchanged cycle
-    # reproduces the same bytes. Written before doc["cycle"] is popped below,
-    # because build_worklist reads it for item ids.
-    prior_cycle = worklist.get("prior_cycle")
-    current_fps = _fps(doc)
-    resolved = sort_findings_json(_resolved_rows(project, prior_cycle, current_fps))
-    _items, unclassified = build_worklist(doc, lanes, worklist.get("tier"))
-    (out_dir / "report-progress.md").write_text(
-        render_progress_report(doc, worklist["cycle"], prior_cycle, lanes, resolved))
-    (out_dir / "report-action.md").write_text(
-        render_action_report(doc, worklist["cycle"], lanes, worklist["items"],
-                             unclassified, worklist.get("tier")))
+    # The two client-facing cuts (SOP §10) are rendered by plan(); this just writes
+    # the bytes. They are optional args so an older caller passing the 4-tuple still
+    # works — an empty string means "not rendered", not "empty report".
+    if progress:
+        (out_dir / "report-progress.md").write_text(progress)
+    if action:
+        (out_dir / "report-action.md").write_text(action)
     # Stamp the lane back onto each current finding: the fleet view reads lanes
     # off findings.json, and re-running the planner over an unchanged cycle must
     # reproduce the same bytes rather than a noise diff.
@@ -535,12 +525,12 @@ def main() -> int:
     args = ap.parse_args()
 
     try:
-        worklist, report, doc, lanes = plan(args.project, args.cycle)
+        worklist, report, doc, lanes, progress, action = plan(args.project, args.cycle)
     except PlanError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
 
-    out_dir = write_artifacts(args.project, worklist, report, doc, lanes)
+    out_dir = write_artifacts(args.project, worklist, report, doc, lanes, progress, action)
     c = worklist["counts"]
     if worklist["tier"] is None:
         print("[WARN] no tier declared in docs/client-config.yml — every work item is "

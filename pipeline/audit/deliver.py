@@ -165,8 +165,10 @@ def main() -> int:
     statuses = []
     for ch in channels:
         if ch == "email":
+            # Email carries the subject in its header, so the body is the report
+            # itself — no need for the subject-prefixed `message` telegram uses.
             statuses.append(("email", delivery.get("email", ""),
-                             send_email(subject, message, delivery.get("email", ""))))
+                             send_email(subject, body, delivery.get("email", ""))))
         elif ch == "telegram":
             statuses.append(("telegram", delivery.get("telegram_chat_id", ""),
                              send_telegram(message, delivery.get("telegram_chat_id", ""))))

@@ -13,23 +13,13 @@ import re
 from urllib.parse import urlsplit
 
 
+from pipeline.lib.common import visible_text_ratio  # canonical home; re-exported
 from pipeline.scanner.rows import make_row
 _row = make_row("tech")
 
 
 def _present(html: str, pattern: str) -> bool:
     return re.search(pattern, html, re.IGNORECASE) is not None
-
-
-def visible_text_ratio(html: str) -> tuple[int, float]:
-    """(word_count, text/html char ratio) after stripping script/style/tags —
-    the signal for SSR vs CSR: a big HTML doc with almost no readable text is a
-    client-rendered shell that crawlers and AI bots see as empty."""
-    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", " ", body)
-    words = len(text.split())
-    ratio = len(text.strip()) / len(html) if html else 0.0
-    return words, ratio
 
 
 def tech_rows(url: str, html: str, status: int, sitemap: str | None) -> list[dict]:

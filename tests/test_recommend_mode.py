@@ -227,7 +227,7 @@ def test_plan_reports_a_briefed_item_instead_of_hiding_it(repo, monkeypatch):
                        "kind": "thin_content", "location": "/product/rice-cake-cleanser/",
                        "context": "", "detail": "words=336"}]}))
 
-    worklist, report, _, _ = pl.plan(proj)
+    worklist, report, _, _, *_ = pl.plan(proj)
     briefed = [i for i in worklist["items"] if i.get("human_edit")]
     assert len(briefed) == 1, "the item must still be IN worklist.json"
     assert "Briefed for a Human Editor (1)" in report

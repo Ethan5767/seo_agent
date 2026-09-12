@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 from pipeline.audit.providers import (crux_findings, dataforseo_findings,
                                       gsc_findings, serp_findings)
 from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
-from pipeline.lib.common import curl, curl_status, load_config
+from pipeline.lib.common import curl, curl_status, load_config, visible_text_ratio
 
 GATE = "site_health"
 SCHEMA = "site-health/1"
@@ -30,22 +30,10 @@ TITLE_MIN, TITLE_MAX = 30, 60
 DESC_MIN, DESC_MAX = 120, 160
 THIN_CONTENT_WORDS = 500
 # CSR shell thresholds — a raw doc under this many readable words AND under this
-# text/markup ratio is a client-rendered shell. Kept identical to the scanner's
-# tech_rows so both rails call a page CSR on the same evidence.
+# text/markup ratio is a client-rendered shell. The ratio helper is canonical in
+# lib.common, so this rail and the scanner call a page CSR on identical evidence.
 CSR_MIN_WORDS = 100
 CSR_MIN_RATIO = 0.05
-
-
-def _visible_text_ratio(html: str) -> tuple:
-    """(word_count, text/html char ratio) after stripping script/style/tags.
-    A big HTML doc with almost no readable text is a CSR shell. Mirrors
-    scanner/extra_checks.visible_text_ratio verbatim so the two rails agree."""
-    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html,
-                  flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", " ", body)
-    words = len(text.split())
-    ratio = len(text.strip()) / len(html) if html else 0.0
-    return words, ratio
 
 
 def check_page(url: str, html: str, status: int, cfg: dict) -> list:
@@ -159,10 +147,10 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
     # Rendering: a raw HTML doc with almost no readable text is a client-rendered
     # (CSR) shell — crawlers and AI bots see an empty page and never wait for the
     # JS to build it. Same heuristic and thresholds as the scanner's tech_rows
-    # (scanner/extra_checks.visible_text_ratio), ported into the MEASURE rail so
-    # the finding feeds the ratchet, the plan and the gates instead of living only
-    # in the web MVP. The fix is SSR/SSG, which is template/build work → T3.
-    words_raw, ratio = _visible_text_ratio(html)
+    # (lib.common.visible_text_ratio, shared with the scanner), so the finding
+    # feeds the ratchet, the plan and the gates instead of living only in the web
+    # MVP. The fix is SSR/SSG, which is template/build work → T3.
+    words_raw, ratio = visible_text_ratio(html)
     if words_raw < CSR_MIN_WORDS and ratio < CSR_MIN_RATIO:
         add("health.csr_empty_shell", detail=f"words={words_raw} ratio={ratio:.3f}")
 

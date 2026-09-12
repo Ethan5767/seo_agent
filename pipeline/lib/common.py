@@ -88,6 +88,21 @@ def curl_status(url: str, follow: bool = True) -> int:
     return int(m.group(1)) if m else 0
 
 
+def visible_text_ratio(html: str) -> tuple:
+    """(word_count, text/html char ratio) after stripping script/style/tags.
+
+    The SSR-vs-CSR signal: a big HTML doc with almost no readable text is a
+    client-rendered shell that crawlers and AI bots see as empty. Canonical here
+    (the layer both rails import) so the scanner's tech_rows and the measure
+    rail's check_page call ONE definition and cannot drift apart."""
+    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html,
+                  flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", body)
+    words = len(text.split())
+    ratio = len(text.strip()) / len(html) if html else 0.0
+    return words, ratio
+
+
 TOPOLOGY_PATTERNS = {
     "single-location-single-city": {
         "hub": r"^/[a-z0-9-]+/$",

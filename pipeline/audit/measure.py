@@ -287,6 +287,9 @@ def main() -> int:
     ap.add_argument("--with-serp", action="store_true",
                     help="rank and absence for the config's seed_queries (PAID; "
                          "needs BRIGHTDATA_API_KEY / BRIGHTDATA_SERP_ZONE)")
+    ap.add_argument("--with-logs", metavar="PATH",
+                    help="parse a client-supplied access log (Apache/Nginx combined "
+                         "or Cloudflare JSON) into crawl-budget findings")
     args = ap.parse_args()
 
     cfg = load_config(args.project)
@@ -332,6 +335,10 @@ def main() -> int:
     if args.with_serp:
         found, providers["serp"] = serp_findings(cfg["domain"],
                                                  cfg.get("seed_queries"))
+        findings.extend(found)
+    if args.with_logs:
+        from pipeline.audit.logparse import parse_logs
+        found, providers["logs"] = parse_logs(args.with_logs)
         findings.extend(found)
     for name, status in providers.items():
         print(f"[{name}] {status}", file=sys.stderr)

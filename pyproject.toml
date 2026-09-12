@@ -65,6 +65,10 @@ wf-onboard = "pipeline.audit.onboard:main"
 # topics: green auto-post (stub in MVP), yellow drafts for approval, red skip.
 wf-seed = "pipeline.seed.run:main"
 wf-site-health = "pipeline.audit.measure:main"
+# Parse a client-supplied access log into crawl-budget findings (Googlebot
+# errors, per-crawler byte overhead). Also foldable into wf-site-health via
+# --with-logs so the rows join the cycle's findings.json.
+wf-logparse = "pipeline.audit.logparse:main"
 wf-site-plan = "pipeline.audit.plan:main"
 wf-site-remediate = "pipeline.audit.remediate:main"
 # Auto-merge decision for a green PR (automation spine). Prints AUTO/HUMAN and

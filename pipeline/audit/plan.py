@@ -84,6 +84,10 @@ ACTIONS = {
     "health.schema_breadcrumb_missing": ("schema_breadcrumb_missing", 3, None),
     "health.tel_link_missing":  ("tel_link_missing",              3, None),
     "health.ga4_missing":       ("ga4_tag_missing",               3, None),
+    # A CSR shell is fixed by turning on server rendering / static generation —
+    # build + template work, so T3. acceptance re-measures the page and the
+    # finding clears once the raw HTML carries the text.
+    "health.csr_empty_shell":   ("csr_empty_shell",               3, None),
 }
 
 

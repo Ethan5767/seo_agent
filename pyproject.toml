@@ -42,6 +42,9 @@ wf-client-docs-check = "pipeline.gates.client_docs_check:main"
 wf-tier-check = "pipeline.gates.tier_check:main"
 wf-claim-provenance-check = "pipeline.gates.claim_provenance_check:main"
 wf-acceptance-check = "pipeline.gates.acceptance_check:main"
+# The whole-pipeline handoff gate (#20): findings -> worklist -> changelog must
+# be an intact provenance chain. Exit 21 broken, 4 cannot-judge, 0 intact.
+wf-e2e-check = "pipeline.gates.e2e_check:main"
 wf-scaffold-client-docs = "pipeline.audit.scaffold_client_docs:main"
 
 # ── baseline / ratchet (pre-existing-debt bookkeeping for the gates above) ───

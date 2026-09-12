@@ -64,6 +64,10 @@ wf-onboard = "pipeline.audit.onboard:main"
 # Brand seed engine — turns the measure agent's gaps.json into brand-mention
 # topics: green auto-post (stub in MVP), yellow drafts for approval, red skip.
 wf-seed = "pipeline.seed.run:main"
+# Backlink outreach (SOP §12): 4-point domain safety qualifier, link bank in the
+# client repo, tier-1/2 draft generation. Qualify + bank + draft only — the
+# outreach email to a site owner stays a human step, so this never sends.
+wf-outreach = "pipeline.outreach.run:main"
 wf-site-health = "pipeline.audit.measure:main"
 # Parse a client-supplied access log into crawl-budget findings (Googlebot
 # errors, per-crawler byte overhead). Also foldable into wf-site-health via

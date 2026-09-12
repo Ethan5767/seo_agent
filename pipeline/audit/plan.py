@@ -295,6 +295,131 @@ def render_report(doc: dict, cycle: str, prior_cycle, lanes: dict, resolved: lis
     return "\n".join(out).rstrip() + "\n"
 
 
+# ── the two client-facing reports (SOP §10) ──────────────────────────────────
+# report.md above is the operator's full lane-by-lane record. The client gets two
+# narrower cuts of the SAME data: a Progress report (what got better) and an
+# Action-Needed report (what still needs work, and what a human must do). Both
+# derive from the doc/lanes already computed — no new inputs, no second scan.
+
+def _resolved_rows(project, prior_cycle, current_fps: dict) -> list:
+    """Findings present in the prior cycle and gone now. [] on the first cycle."""
+    if not prior_cycle:
+        return []
+    prior = _fps(read_findings(project, prior_cycle))
+    return [f for fp, f in prior.items() if fp not in current_fps]
+
+
+def render_progress_report(doc: dict, cycle: str, prior_cycle, lanes: dict,
+                           resolved: list) -> str:
+    """What got better this cycle. Client-facing, positive framing, no jargon."""
+    by_lane = {lane: [] for lane in LANES}
+    for f in doc.get("findings", []):
+        lane = lanes.get(f.get("fingerprint"))
+        if lane:
+            by_lane[lane].append(f)
+    resolved = resolved or []
+
+    out = [f"# Progress Report: {cycle}", ""]
+    out.append(f"- Domain: `{doc.get('domain', '?')}`")
+    out.append(f"- Compared Against: {prior_cycle or 'nothing — this is the first cycle'}")
+    out.append("")
+    out.append("## What Got Better")
+    out.append("")
+    if prior_cycle is None:
+        out.append("This is the first cycle measured, so there is nothing to compare "
+                   "against yet. From next cycle this report lists everything that was "
+                   "fixed.")
+        return "\n".join(out).rstrip() + "\n"
+
+    out.append("| Signal | Count |")
+    out.append("|---|---|")
+    out.append(f"| Resolved since {prior_cycle} | {len(resolved)} |")
+    out.append(f"| Came Back (Regression) | {len(by_lane['REGRESSION'])} |")
+    out.append(f"| Still Open (New) | {len(by_lane['NEW'])} |")
+    out.append(f"| Still Open (Persisting) | {len(by_lane['PERSISTING'])} |")
+    out.append("")
+    if resolved:
+        out.append(f"## Resolved ({len(resolved)})")
+        out.append("")
+        out.append("Present last cycle, gone now. No action needed.")
+        out.append(_lines(resolved))
+    else:
+        out.append("No findings were resolved this cycle.")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def render_action_report(doc: dict, cycle: str, lanes: dict, items: list,
+                         unclassified: list, tier) -> str:
+    """What still needs work: the actionable lanes plus what a human must own."""
+    by_lane = {lane: [] for lane in LANES}
+    for f in doc.get("findings", []):
+        lane = lanes.get(f.get("fingerprint"))
+        if lane and lane != "RESOLVED":
+            by_lane[lane].append(f)
+
+    human_edit = [i for i in items if i.get("human_edit")]
+    actionable = [i for i in items if not i["tier_blocked"] and not i.get("human_edit")]
+    blocked = [i for i in items if i["tier_blocked"]]
+    tier_label = f"T{tier}" if tier else "none declared"
+
+    out = [f"# Action-Needed Report: {cycle}", ""]
+    out.append(f"- Domain: `{doc.get('domain', '?')}`")
+    out.append(f"- Tier: {tier_label}")
+    out.append("")
+    out.append("## Needs Attention")
+    out.append("")
+    out.append(f"{len(actionable)} in the worklist for the agent, "
+               f"{len(blocked)} blocked at {tier_label}, "
+               f"{len(unclassified)} need a human"
+               + (f", {len(human_edit)} briefed for a human editor." if human_edit
+                  else "."))
+    out.append("")
+
+    for lane in ("REGRESSION", "NEW", "PERSISTING"):
+        rows = by_lane[lane]
+        if not rows:
+            continue
+        note = {"REGRESSION": "Seen before, fixed, and back. The fix did not hold.",
+                "NEW": "Not present in any earlier cycle.",
+                "PERSISTING": "Carried over from the previous cycle."}[lane]
+        out.append(f"## {lane.title()} ({len(rows)})")
+        out.append("")
+        out.append(note)
+        out.append(_lines(rows))
+
+    if blocked:
+        out.append(f"## Not Actionable at {tier_label.title() if tier else 'This Tier'} "
+                   f"({len(blocked)})")
+        out.append("")
+        out.append("Real findings the current tier does not permit the agent to touch. "
+                   "Each line names the tier that would unlock it.")
+        out.append("")
+        for code, group in _group(blocked).items():
+            out.append(f"- `{code}` ({len(group)}) needs T{group[0]['min_tier']}")
+        out.append("")
+
+    if human_edit:
+        out.append(f"## Briefed for a Human Editor ({len(human_edit)})")
+        out.append("")
+        out.append("Real findings the agent cannot fix at any tier because the copy does "
+                   "not live in the repository. Each carries a brief in "
+                   "`docs/audit/human-worklist.md`.")
+        out.append("")
+        for code, group in _group([{"code": i["code"], "location": i.get("url", "")}
+                                   for i in human_edit]).items():
+            out.append(f"- `{code}` ({len(group)})")
+        out.append("")
+
+    if unclassified:
+        out.append(f"## Needs a Human ({len(unclassified)})")
+        out.append("")
+        out.append("No machine-checkable acceptance exists for these, so they are not in "
+                   "the worklist. Read them yourself.")
+        out.append(_lines(unclassified))
+
+    return "\n".join(out).rstrip() + "\n"
+
+
 # ── the CLI ──────────────────────────────────────────────────────────────────
 
 def plan(project, cycle: str | None = None) -> tuple:
@@ -372,6 +497,20 @@ def write_artifacts(project, worklist: dict, report: str, doc: dict, lanes: dict
     out_dir = audit_dir(project) / worklist["cycle"]
     (out_dir / "worklist.json").write_text(json.dumps(worklist, indent=2, sort_keys=True) + "\n")
     (out_dir / "report.md").write_text(report)
+    # The two client-facing cuts (SOP §10). Derived from the same doc/lanes the
+    # operator report used — unclassified is recomputed deterministically, and
+    # resolved is re-read from the prior cycle, so a re-run over an unchanged cycle
+    # reproduces the same bytes. Written before doc["cycle"] is popped below,
+    # because build_worklist reads it for item ids.
+    prior_cycle = worklist.get("prior_cycle")
+    current_fps = _fps(doc)
+    resolved = sort_findings_json(_resolved_rows(project, prior_cycle, current_fps))
+    _items, unclassified = build_worklist(doc, lanes, worklist.get("tier"))
+    (out_dir / "report-progress.md").write_text(
+        render_progress_report(doc, worklist["cycle"], prior_cycle, lanes, resolved))
+    (out_dir / "report-action.md").write_text(
+        render_action_report(doc, worklist["cycle"], lanes, worklist["items"],
+                             unclassified, worklist.get("tier")))
     # Stamp the lane back onto each current finding: the fleet view reads lanes
     # off findings.json, and re-running the planner over an unchanged cycle must
     # reproduce the same bytes rather than a noise diff.

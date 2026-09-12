@@ -71,6 +71,9 @@ wf-site-health = "pipeline.audit.measure:main"
 wf-logparse = "pipeline.audit.logparse:main"
 wf-site-plan = "pipeline.audit.plan:main"
 wf-site-remediate = "pipeline.audit.remediate:main"
+# Deliver a rendered report to the client over email/telegram. Outbox preview by
+# default; --send transmits. Creds by env name, recipients in the client config.
+wf-deliver = "pipeline.audit.deliver:main"
 # Auto-merge decision for a green PR (automation spine). Prints AUTO/HUMAN and
 # writes decision=<...> to $GITHUB_OUTPUT; never merges. The workflow's guarded
 # `gh pr merge` step reads that output. Off unless the caller sets automerge_enabled.

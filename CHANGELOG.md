@@ -54,6 +54,22 @@ see `CLAUDE.md` (the sync contract).
   and that no two sections claim the same tool - an unintended overlap means an
   operator pays twice for one answer.
 
+- **A project is now the stated precondition for auditing anything**
+  (`web/components/dashboard/SectionScanButton.tsx`). *"When audit, like before
+  checking everything, they need to create one project first."*
+
+  Three states, kept apart on purpose:
+
+  | State | What the screen says |
+  |---|---|
+  | no projects at all | **"Create a project before auditing"**, with the button |
+  | projects exist, none selected | "Select a project to scan" |
+  | ready | "Scan [section] only", with its cost |
+
+  The first two used to be one disabled button whose reason was **only visible
+  on hover** - and "select a project" is advice an operator with no projects
+  cannot act on, so the order matters and is asserted.
+
 ### Fixed
 
 - **B-103: "Unauthorized: Missing or invalid Supabase authentication token", and

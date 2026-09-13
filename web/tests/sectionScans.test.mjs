@@ -149,8 +149,30 @@ test("the button refuses rather than falling back to a full scan", () => {
   // A "safe" fallback to everything would quietly reinstate the behaviour this
   // replaces - and spend the money it exists to save.
   const btn = readSrc("components/dashboard/SectionScanButton.tsx");
-  assert.match(btn, /const ready = Boolean\(domain && keys && keys\.length\)/);
+  assert.match(btn, /const ready = Boolean\(keys && keys\.length\)/);
   assert.match(btn, /disabled=\{!ready \|\| busy\}/);
+});
+
+test("a project is required before anything can be audited", () => {
+  // An audit runs against a specific site, and a project is what carries the
+  // domain. Three states kept apart on purpose: "no projects at all" and "none
+  // selected" need different actions, and the previous behaviour collapsed both
+  // into one disabled button whose reason was only visible on hover.
+  const btn = readSrc("components/dashboard/SectionScanButton.tsx");
+  assert.match(btn, /if \(!hasProjects\)/);
+  assert.match(btn, /Create a project before auditing/);
+  assert.match(btn, /onClick=\{onCreateProject\}/, "the create button must be wired");
+  assert.match(btn, /if \(!domain\)/);
+  assert.match(btn, /Select a project<\/b> to scan/s);
+  // The no-project branch must come first: with no projects, "select one" is
+  // advice the operator cannot act on.
+  assert.ok(btn.indexOf("if (!hasProjects)") < btn.indexOf("if (!domain)"));
+});
+
+test("the precondition is wired to the real project list and the real modal", () => {
+  // B-007: a state nobody can reach is not shipped.
+  assert.match(DASH, /hasProjects=\{clients\.length > 0\}/);
+  assert.match(DASH, /onCreateProject=\{\(\) => setShowNewProjectModal\(true\)\}/);
 });
 
 test("the paid tools are named before the click, not totalled", () => {

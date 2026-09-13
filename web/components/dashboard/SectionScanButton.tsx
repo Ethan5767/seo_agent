@@ -19,44 +19,72 @@ import { sectionById, toolsForSection, sectionCost, type ToolLike } from "@/lib/
  * quietly reinstate the behaviour this replaces.
  */
 export function SectionScanButton({
-  sectionId, domain, tools, busy, onScan,
+  sectionId, domain, tools, busy, onScan, hasProjects, onCreateProject,
 }: {
   sectionId: string;
   domain: string | null | undefined;
   tools: ToolLike[] | null | undefined;
   busy?: boolean;
   onScan: (url: string, toolKeys: string[]) => void;
+  /** Does this account have ANY project? Distinct from "none selected". */
+  hasProjects?: boolean;
+  onCreateProject?: () => void;
 }) {
   const section = sectionById(sectionId);
   const keys = toolsForSection(sectionId, tools);
   const cost = sectionCost(sectionId, tools);
   if (!section) return null;
 
-  const ready = Boolean(domain && keys && keys.length);
+  // A project is the precondition for auditing anything: a scan needs a domain,
+  // and a domain is what a project carries. The three states below are kept
+  // apart on purpose - "you have no projects" and "you have projects but have
+  // not picked one" need different actions, and collapsing them into one
+  // disabled button with a tooltip means the operator has to HOVER to find out
+  // why nothing works. That was the previous behaviour.
+  if (!hasProjects) {
+    return (
+      <div style={{ ...shell, borderStyle: "dashed", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>
+          Create a project before auditing
+        </div>
+        <div style={{ fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.5, maxWidth: "68ch" }}>
+          An audit runs against a specific site, and a project is what carries the domain, the
+          business name and the repository. {section.scope}
+        </div>
+        {onCreateProject && (
+          <button type="button" onClick={onCreateProject} style={primary}>
+            Create a project
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (!domain) {
+    return (
+      <div style={{ ...shell, borderStyle: "dashed" }}>
+        <div style={{ fontSize: 12.5, color: "var(--ink-body)" }}>
+          <b>Select a project</b> to scan. {section.scope}
+        </div>
+      </div>
+    );
+  }
+
+  const ready = Boolean(keys && keys.length);
   const paid = cost?.paid ?? [];
 
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-      padding: "10px 14px", borderRadius: 8,
-      border: "1px solid #e2e8f0", background: "#f8fafc", marginBottom: 14,
-    }}>
+    <div style={shell}>
       <button
         type="button"
         disabled={!ready || busy}
-        onClick={() => { if (ready && domain && keys) onScan(domain, keys); }}
-        title={
-          !domain ? "Select a client first"
-          : !keys ? "Tool list not loaded"
-          : `Runs ${keys.length} tool(s): ${keys.join(", ")}`
-        }
+        onClick={() => { if (ready && keys) onScan(domain, keys); }}
+        title={ready ? `Runs ${keys!.length} tool(s): ${keys!.join(", ")}` : "Tool list not loaded"}
         style={{
+          ...primary,
           background: ready && !busy ? "#1e293b" : "#e2e8f0",
           color: ready && !busy ? "#fff" : "var(--ink-muted)",
-          border: 0, borderRadius: 6, padding: "8px 14px",
-          fontSize: 12.5, fontWeight: 700,
           cursor: ready && !busy ? "pointer" : "not-allowed",
-          whiteSpace: "nowrap",
         }}
       >
         {busy ? "Scanning…" : `Scan ${section.label} only`}
@@ -77,3 +105,15 @@ export function SectionScanButton({
     </div>
   );
 }
+
+const shell: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+  padding: "10px 14px", borderRadius: 8,
+  border: "1px solid #e2e8f0", background: "#f8fafc", marginBottom: 14,
+};
+
+const primary: React.CSSProperties = {
+  background: "#1e293b", color: "#fff", border: 0, borderRadius: 6,
+  padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+  whiteSpace: "nowrap",
+};

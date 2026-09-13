@@ -4539,6 +4539,8 @@ export function ReaiDashboard({
                       tools={toolPicker?.catalog}
                       busy={scanState?.busy}
                       onScan={(u, keys) => onTriggerScan?.(u, keys)}
+                      hasProjects={clients.length > 0}
+                      onCreateProject={() => setShowNewProjectModal(true)}
                     />
                   )}
                   {/* Counts render whether or not there are rows: zero is a

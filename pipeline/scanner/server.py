@@ -10,6 +10,7 @@ import copy
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import urlsplit
+from urllib.parse import urlparse, urlsplit
 
 from pipeline.audit import measure
 from pipeline.audit.providers import crux_metrics
@@ -625,6 +626,14 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("static/"):
             path = path[len("static/"):]
         f = STATIC / path
+        if f.is_file() and STATIC in f.resolve().parents and f.suffix == ".html":
+            # The token rides in the HTML. CORS stops a cross-origin page from
+            # reading it, which is what stops that page forging the header.
+            body = f.read_text(encoding="utf-8").replace(
+                "</head>",
+                f'<script>window.SCAN_TOKEN="{getattr(self.server, "token", "")}";</script></head>',
+                1)
+            return self._send(200, body, "text/html")
         if f.is_file() and STATIC in f.resolve().parents:
             ctype = "text/html" if f.suffix == ".html" else "application/javascript"
             self._send(200, f.read_bytes(), ctype)
@@ -632,6 +641,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, "not found", "text/plain")
 
     def do_POST(self):
+        # B-079. Every POST here either spends money, writes to a repository, or
+        # starts an AI agent inside one. None of them may be reachable by a page
+        # the operator merely happens to be visiting.
+        if not authorized(self.headers, getattr(self.server, "token", "")):
+            return self._send(403, json.dumps({
+                "error": "not authorized — this endpoint is not reachable from "
+                         "another page. Open the console the server printed."
+            }), "application/json")
         if self.path == "/plan":
             n = int(self.headers.get("Content-Length", 0))
             req = json.loads(self.rfile.read(n) or b"{}")
@@ -739,12 +756,44 @@ class Handler(BaseHTTPRequestHandler):
             print(f"[scan] FAILED: {exc}", flush=True)
 
 
+def authorized(headers, token: str) -> bool:
+    """Is this request allowed to drive the scanner? (B-079)
+
+    127.0.0.1 is not a trust boundary: any page in the operator's browser can
+    POST to localhost, and a `text/plain` body triggers no CORS preflight to
+    stop it. This server hands a request-supplied repo path to
+    `claude -p --permission-mode acceptEdits`, so an unauthenticated POST is a
+    remote page choosing which of the operator's repositories an AI agent edits.
+    The response is unreadable cross-origin; the edit is not.
+
+    Two layers, the same pair `pipeline/dashboard/server.py` already uses:
+
+    1. A token minted per run and injected into the served HTML. CORS stops a
+       cross-origin page from reading that HTML, so it cannot forge the header.
+    2. Origin compared against THIS request's own Host — which is the
+       same-origin test and needs no allow-list. A hardcoded list is what made
+       the dashboard 403 every browser POST under `--host 0.0.0.0`. A forged
+       Origin still fails: the browser sets Host to whatever it connected to,
+       and an attacker page cannot make the two agree.
+
+    Fails closed. No configured token means refuse, never allow.
+    """
+    if not token:
+        return False
+    origin = headers.get("Origin")
+    if origin and urlparse(origin).netloc != headers.get("Host"):
+        return False
+    return headers.get("X-Scan-Token") == token
+
+
 def main() -> int:
     loaded = load_dotenv()  # pipeline.lib.env.load_env — the one shared .env
     if loaded:
         print(f"loaded from .env: {', '.join(loaded)}")
     port = int(os.environ.get("SCAN_PORT", "8765"))
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    # Minted per run, never persisted. The console reads it from its own HTML.
+    srv.token = os.environ.get("SCAN_TOKEN") or secrets.token_urlsafe(16)
     print(f"wf-scan-web on http://127.0.0.1:{port}  (Ctrl-C to stop)")
     try:
         srv.serve_forever()

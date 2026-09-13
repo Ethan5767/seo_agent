@@ -164,3 +164,62 @@ def test_apply_stream_reports_a_crash_as_a_result_not_an_exception(monkeypatch, 
     events = list(S.stream_remediate_apply({"confirm": True}))
     assert "result" in events[-1]
     assert events[-1]["result"]["ok"] is False
+
+
+# ── 127.0.0.1 is not a trust boundary (B-079) ────────────────────────────────
+#
+# The scan server accepted /scan, /remediate and /remediate/apply with no token,
+# no Origin check and no content-type check. /remediate/apply runs
+# `claude -p --permission-mode acceptEdits` inside a repo path taken straight
+# from the request body.
+#
+# A text/plain POST triggers no CORS preflight, so ANY page the operator visits
+# while the server is running could drive it: choose the repo, supply the
+# worklist (which flows verbatim into the agent prompt), and edit a client's
+# repository. The response is unreadable cross-origin; the edit is not.
+#
+# The dashboard on the same machine already solved this and says so in a
+# docstring — "127.0.0.1 is not a trust boundary". The two servers in this repo
+# had opposite security postures.
+
+def _headers(**kw):
+    class H(dict):
+        def get(self, k, d=None):   # HTTPMessage is case-insensitive
+            for key, val in self.items():
+                if key.lower() == k.lower():
+                    return val
+            return d
+    return H(**kw)
+
+
+def test_a_request_with_no_token_is_refused():
+    from pipeline.scanner import server as s
+    assert s.authorized(_headers(Host="127.0.0.1:8765"), "secret") is False
+
+
+def test_the_right_token_is_accepted():
+    from pipeline.scanner import server as s
+    assert s.authorized(_headers(Host="127.0.0.1:8765", **{"X-Scan-Token": "secret"}), "secret") is True
+
+
+def test_a_cross_origin_page_is_refused_even_with_a_token():
+    """The Origin check is the second layer: a page that somehow learned the
+    token still cannot drive the server from another origin."""
+    from pipeline.scanner import server as s
+    h = _headers(Host="127.0.0.1:8765", Origin="https://evil.example", **{"X-Scan-Token": "secret"})
+    assert s.authorized(h, "secret") is False
+
+
+def test_same_origin_is_allowed_on_any_host_the_browser_reached():
+    """Compared against this request's own Host rather than a hardcoded list —
+    the dashboard's list was pinned to 127.0.0.1:<port>, so `--host 0.0.0.0`
+    made it 403 every browser POST."""
+    from pipeline.scanner import server as s
+    h = _headers(Host="10.0.0.5:8765", Origin="http://10.0.0.5:8765", **{"X-Scan-Token": "secret"})
+    assert s.authorized(h, "secret") is True
+
+
+def test_a_server_with_no_token_configured_refuses_everything():
+    """Fail closed. A missing token must never mean 'allow'."""
+    from pipeline.scanner import server as s
+    assert s.authorized(_headers(Host="x", **{"X-Scan-Token": ""}), "") is False

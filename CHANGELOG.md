@@ -8,6 +8,62 @@ see `CLAUDE.md` (the sync contract).
 
 ### Security
 
+- **B-091: `traffic_snapshots` was readable by the entire internet**
+  (`web/supabase-schema.sql`, `web/migrations/2026-09-13-b091-traffic-snapshots-rls.sql`).
+
+  The table had Row Level Security **enabled** and a policy named
+  **`traffic_snapshots_owner`**, and the body of that policy was:
+
+  ```sql
+  for all using (true) with check (true)
+  ```
+
+  RLS being on made it look protected. The name made it look owner-scoped. It
+  was neither - `using (true)` returns every row to every role, for select,
+  insert, update and delete. Nine other tables in the same file use
+  `auth.uid() = user_id`; this was the only exception, and nothing in the
+  application needed it. The route already writes `user_id` and already filters
+  on it.
+
+  The `anon` key is public **by design** - it ships in the browser bundle,
+  because RLS is the thing that makes that safe. Measured with that key, from
+  outside, on 2026-09-13:
+
+  ```
+  clients              service:206 range=0-0/2     anon:200 range=*/0
+  scans                service:206 range=0-0/2     anon:200 range=*/0
+  findings             service:206 range=0-0/94    anon:200 range=*/0
+  traffic_snapshots    service:206 range=0-0/170   anon:206 range=0-0/170
+  ```
+
+  Every other table refused. That one returned **170 of 170 rows**, each
+  carrying `site_url`, `clicks`, `impressions`, CTR, average position, country
+  and device splits, and the full `top_queries` array - the actual search terms
+  real people used to reach a customer's site.
+
+  All 170 rows have `user_id` NULL, so they predate the route stamping it and
+  belong to nobody. Under the corrected policy they would be invisible to every
+  user while still readable by anyone with the key, so the migration deletes
+  them. The table is a cache; every row is re-derived from Search Console on the
+  next load.
+
+  **The schema file is not the database.** The fix does nothing until the
+  migration is run, which is why it is row 0 of `docs/ADMIN-CHECKLIST.md` rather
+  than a line in a changelog.
+
+  7 tests in `web/tests/rls.test.mjs` read the schema and assert the properties
+  rather than the text: every table with a `user_id` enables RLS and has a
+  policy, no policy body contains `using (true)`, every policy on a per-user
+  table compares `auth.uid()` to `user_id`, every write policy carries a
+  `with check` (a `using`-only policy lets a caller insert rows under someone
+  else's id), no `user_id` is nullable, and every view sets `security_invoker`
+  (a Postgres view runs as its owner by default and silently bypasses the RLS on
+  everything it selects from). Reverting the policy to its original text turns
+  **3 of the 7 red**, which is how a guard earns its place.
+
+
+### Security
+
 - **B-090: one operator's Google data was served to the next person who signed
   in to the same browser** (`web/lib/googleSession.ts` and six routes).
   Reported by the operator: signed in with a different account, saw the same

@@ -288,8 +288,24 @@ create index if not exists traffic_snapshots_domain_idx
 create index if not exists traffic_snapshots_site_url_idx
   on public.traffic_snapshots (site_url, created_at desc);
 
+-- B-091. This table had RLS ENABLED and a policy named `traffic_snapshots_owner`
+-- that read `for all using (true) with check (true)` - every row, to everybody,
+-- for select, insert, update and delete. RLS being on made it look protected and
+-- the name made it look owner-scoped; it was neither.
+--
+-- The anon key is PUBLIC - it ships in the browser bundle by design, because RLS
+-- is what protects the data. With this policy it protected nothing: an anonymous
+-- read returned 170 of 170 rows, carrying every user's site_url, clicks,
+-- impressions, CTR, average position, per-country and per-device splits, and the
+-- full `top_queries` array - the actual search terms their customers used.
+--
+-- Every other table in this file gets `auth.uid() = user_id`. This one is now
+-- the same. Nothing in the application needed the difference: the route already
+-- writes `user_id` and already filters on it.
 alter table public.traffic_snapshots enable row level security;
+alter table public.traffic_snapshots
+  alter column user_id set not null;
 drop policy if exists traffic_snapshots_owner on public.traffic_snapshots;
 create policy traffic_snapshots_owner on public.traffic_snapshots
-  for all using (true) with check (true);
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 

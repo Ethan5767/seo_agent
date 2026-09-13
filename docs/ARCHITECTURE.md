@@ -141,7 +141,7 @@ B-027 in the bug ledger).
 that pull the real logic in by pinned tag:
 
 ```yaml
-uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.1.3
+uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.2.0
 secrets: inherit
 ```
 

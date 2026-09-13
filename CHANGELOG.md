@@ -6,6 +6,77 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+## [v3.2.0] — 2026-09-13
+
+**Every client on `@v3.1.3` or `@v3.1.4` must bump to `@v3.2.0`.** Both of those
+carry **B-063**: the Evaluate step gated the merge on `$TREE` but never declared
+it as env, so the shell read an empty string, `"" != "true"` was always true, and
+**every client pull request went red regardless of the code under review** -
+while the sticky comment said GREEN, because the report step declared it
+correctly and the verdict step did not. Shipped in v3.1.3, still present in
+v3.1.4. That one fix is the reason this tag exists.
+
+Everything below was already written up in detail under the dated entries that
+follow; this is the release summary.
+
+### The gate suite
+
+- **B-063 fixed** — see above. Nothing else in this release matters until a
+  client is on it.
+- **20 gates, all wired.** `e2e_check` (findings -> worklist -> changelog
+  provenance) and `client_docs_check` were implemented and invoked by nothing.
+  21 checks now run per PR; 20 block.
+- **B-080** — a training-crawler opt-out was reported as blocking its citation
+  sibling, failing the PR for a correct `robots.txt`.
+- Four gates gained their first tests (`e2e_check`, `robots_aicrawler_check`).
+
+### Data integrity
+
+- **B-086/087/088** — eight `<loc>` parsers and four `<title>` parsers became
+  one. **None of the eight decoded `&amp;`**, so every escaped URL was fetched
+  wrong and reported broken, orphaned *and* a parity failure.
+- **B-089** — every cycle artifact was written non-atomically. A truncated
+  `findings.json` reads to the ratchet as *a site with no findings*.
+
+### Security
+
+- **B-081 to B-085** — the Google OAuth flow: access tokens readable by page
+  script, no state nonce, an open redirect, an unauthenticated route that writes
+  the OAuth client secret.
+- **B-090** — one operator's Search Console and Business Profile served to the
+  next person who signed in to the same browser.
+- **B-091** — `traffic_snapshots` readable by the public anon key: 170 of 170
+  rows. Applied to the live database and verified from outside.
+- `next` 15.0.3 -> 15.5.25 (34 advisories, one critical).
+
+### Honesty
+
+Seven fabrication bugs, every one found by the operator reading a screen:
+**B-053, B-085, B-094, B-095, B-096, B-097**, plus the publishable fabrications
+(a disavow file seeded with invented domains, a 4.9-star rating on by default,
+Google's own sample Place ID printed on client QR codes).
+
+The rule they all broke is the one the engine enforces on itself and the UI did
+not: **a check that scanned nothing must never report a pass.**
+
+### Automation
+
+- **Fix with Claude on every stage** — Measure, Plan, Gate, Local, and every
+  report view. A stage that measures and then stops is where the automation
+  claim dies.
+- Live gate activity: watch the run step by step, with what each gate reads.
+- The client's repository is **picked from a list**, not typed.
+
+### Engineering
+
+- A **linter** on 30k lines that had none. It caught a duplicated test that had
+  never run, and a syntax error that would have failed CI on Python 3.10 while
+  passing locally on 3.14.
+- `npm run db:check` — compares the live database to the schema, and probes RLS
+  from outside with the public key.
+- **1,257 Python tests · 352 web tests · ruff clean · tsc clean.**
+
+
 ### Added
 
 - **Fix with Claude on every stage: Measure, Plan, Gate, and every report view.**

@@ -6,6 +6,87 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **Each section audits only its own concern**
+  (`web/lib/sectionScans.ts`, `web/components/dashboard/SectionScanButton.tsx`).
+  *"If SEO, when audit only audit about SEO. In AEO/AI only about AI. Content
+  too."*
+
+  Every scan ran all 25 tools, so pressing Scan on the Local page spent money on
+  backlinks and rank tracking and then showed five local rows. Each section now
+  scans its own:
+
+  | Section | Tools | Cost |
+  |---|---|---|
+  | SEO | 13 | 2 paid (~$0.031) |
+  | AI Search (AEO) | 2 | 1 paid (~$0.11) |
+  | Local | 3 | 2 paid (~$0.036) |
+  | Content | 3 | **all free** |
+  | Keywords & Rankings | 3 | 3 paid (~$0.355) |
+
+  **Nothing new was needed to support this.** `build_report(..., selected=...)`
+  has always taken a set of tool keys and the scan route has always forwarded a
+  `tools` list; every tool already declared a `category`. The missing piece was
+  a map from the SECTION a person is looking at to the CATEGORIES that answer
+  it - product knowledge, so it lives in one module rather than being re-derived
+  in a component. `run()` gained **one optional argument**, not a second scan
+  path.
+
+  Four decisions worth recording:
+
+  * **The button states the cost before the click, naming each paid tool** - not
+    a total. A total hides which tool is expensive, and that is the decision the
+    operator is actually making.
+  * **It refuses rather than falling back.** With no tool list it is disabled.
+    A "safe" fallback to the full scan would quietly reinstate the behaviour
+    this replaces, and spend the money it exists to save.
+  * **`section` is declared on each view, not derived from its id.** `trust` and
+    `local` share no prefix with their section, so a prefix guess works today
+    and breaks on the next view added.
+  * **The two "everything" views carry no section at all** - optional, not a
+    sentinel. They show the whole scan, so scoping a scan from them would be a
+    contradiction.
+
+  Mounted **once**, on the shared report renderer, so every section screen gets
+  it and no copies can drift. 16 tests, including that every section resolves to
+  real tools, that a section scan is always a strict subset of the full scan,
+  and that no two sections claim the same tool - an unintended overlap means an
+  operator pays twice for one answer.
+
+### Fixed
+
+- **B-103: "Unauthorized: Missing or invalid Supabase authentication token", and
+  no repositories listed.** Reported by the operator after connecting GitHub.
+
+  `RepoPicker` used a plain `fetch`. The Supabase session lives in
+  `localStorage`, so a bare fetch carries no identity, every route guarded by
+  `authenticateRequest` answers 401 - and **a 401 renders as an empty list**,
+  which reads as "you have no repositories" rather than "we never asked
+  properly".
+
+  ```
+  $ curl -s localhost:3001/api/github/repos
+  {"error":"Unauthorized: Missing or invalid Supabase authentication token."}
+  ```
+
+  **The same bug had already shipped three times**: `ContentPanel` (every
+  content tool 401'd in production), `RepoPicker`, and thirteen more sites found
+  only by grepping. **Sixteen in total, across five files.**
+
+  Per the thermonuclear standard's Rule 0 - be ambitious, delete the class
+  rather than rearrange it - patching sixteen call sites would leave the
+  seventeenth free to happen. So all sixteen went through `authedFetch`, and
+  `web/tests/apiAuth.test.mjs` now fails the build on a bare `fetch("/api/…")`
+  anywhere under `app/` or `components/`, excluding `app/api/**` (a server route
+  calling another service is not a browser fetch and has no session to attach).
+
+  Worth recording why this was invisible: `fetch(` and `authedFetch(` differ by
+  six characters and behave **identically in development**, where
+  `ALLOW_DEV_AUTH` masks the difference entirely. It fails only in production,
+  silently, as an empty screen.
+
+
 ### Security
 
 - **B-098: a traffic forecast computed from the number of to-do items, shipped

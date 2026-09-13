@@ -23,6 +23,18 @@ export interface ReportColumn {
 }
 
 export interface ReportView {
+  /**
+   * The nav section this view belongs to, so a screen can scan ITS OWN concern
+   * instead of running all 25 tools. Declared here rather than derived from the
+   * id prefix: `trust` and `local` share no prefix with their section, and a
+   * guess that works today breaks on the next view added.
+   *
+   * Absent on the two "everything" views (ALL_FINDINGS_VIEW, CHECKS_VIEW),
+   * which deliberately belong to no section - they show the whole scan, so
+   * scoping a scan from them would be a contradiction. Optional rather than a
+   * sentinel value, because "this view has no section" is the real shape.
+   */
+  section?: "SEO" | "AI" | "Content" | "Local";
   id: string;
   label: string;
   /** Row codes this view shows. A prefix ending in "." matches any suffix. */
@@ -62,6 +74,7 @@ const FINDING_COLUMNS: ReportColumn[] = [
 export const REPORT_VIEWS: ReportView[] = [
   {
     id: "position-tracking",
+    section: "SEO",
     label: "Position Tracking",
     codes: ["dfs.rank_trend"],
     blurb: "How this domain's ranking positions have moved over time.",
@@ -70,6 +83,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "domain-overview",
+    section: "SEO",
     label: "Domain Overview",
     codes: ["dfs.domain_overview"],
     blurb: "Headline organic figures for the domain, as reported by DataForSEO.",
@@ -78,6 +92,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "organic-rankings",
+    section: "SEO",
     label: "Organic Rankings",
     codes: ["dfs.ranked_keyword"],
     blurb: "Keywords this domain already ranks for, best positions first.",
@@ -86,6 +101,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "compare-domains",
+    section: "SEO",
     label: "Compare Domains",
     codes: ["dfs.competitor"],
     blurb: "Domains competing for the same organic terms, discovered from the SERP.",
@@ -94,6 +110,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "keyword-gap",
+    section: "SEO",
     label: "Keyword Gap",
     codes: ["dfs.keyword_gap"],
     blurb: "Terms a competitor ranks for and this domain does not.",
@@ -102,6 +119,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "keyword-overview",
+    section: "SEO",
     label: "Keyword Overview",
     codes: ["dfs.keyword_volume", "dfs.keyword_difficulty"],
     blurb: "Search volume and difficulty for the terms tracked on this project.",
@@ -112,6 +130,7 @@ export const REPORT_VIEWS: ReportView[] = [
     // The big suites call the equivalent a Keyword Strategy Builder. Derived from the
     // keyword rows the scan already paid for, so it adds no API call.
     id: "keyword-clusters",
+    section: "SEO",
     label: "Keyword Clusters",
     codes: ["cluster."],
     blurb:
@@ -121,6 +140,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "keyword-ideas",
+    section: "SEO",
     label: "Keyword Ideas",
     codes: ["dfs.keyword_idea", "dfs.keyword_suggestion"],
     blurb: "Related terms and suggestions to expand the keyword set.",
@@ -129,6 +149,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "search-intent",
+    section: "SEO",
     label: "Search Intent",
     codes: ["dfs.search_intent"],
     blurb: "What searchers want from each term: informational, commercial, navigational or transactional.",
@@ -137,6 +158,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "backlinks",
+    section: "SEO",
     label: "Backlinks",
     codes: ["dfs.backlinks"],
     blurb: "Referring domains and total backlinks for this site.",
@@ -145,6 +167,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "backlink-audit",
+    section: "SEO",
     label: "Backlink Audit",
     codes: ["dfs.broken_backlinks", "dfs.broken_links", "dfs.broken_page"],
     blurb: "Links pointing at pages that no longer resolve, inbound and internal.",
@@ -153,6 +176,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "site-crawl",
+    section: "SEO",
     label: "Crawl Issues",
     codes: [
       "dfs.duplicate_content",
@@ -180,6 +204,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "serp-positions",
+    section: "SEO",
     label: "SERP Positions",
     codes: ["dfs.serp_rank"],
     blurb: "Live SERP position for each tracked term.",
@@ -188,6 +213,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "ai-mentions",
+    section: "AI",
     label: "AI Mentions",
     codes: ["dfs.llm_mentions"],
     blurb: "Where this brand is mentioned in answers from large language models.",
@@ -196,6 +222,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "aeo-answers",
+    section: "AI",
     label: "Answer Readiness",
     codes: [
       "aeo.no_answer_structure",
@@ -212,6 +239,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "aeo-crawlers",
+    section: "AI",
     label: "Crawler Findings",
     // "aeo.robots" is not a real code: it was a prefix match on
     // "aeo.robots_missing". The scanner emits only these two.
@@ -230,6 +258,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "aeo-citations",
+    section: "AI",
     label: "Citation Signals",
     // Authorship is a citation signal, not an answer-structure one: engines
     // weigh who wrote a thing when deciding what to attribute.
@@ -241,6 +270,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "core-web-vitals",
+    section: "SEO",
     label: "Core Web Vitals",
     codes: ["crux.", "lh."],
     blurb:
@@ -251,6 +281,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "source-code",
+    section: "SEO",
     label: "Source Code",
     codes: ["src."],
     blurb:
@@ -261,6 +292,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "on-page",
+    section: "SEO",
     label: "On-Page Checks",
     // `health.` is the universal checklist (title, description, H1, canonical,
     // indexability). `onpage.` is the deep pass over the same page: URL shape,
@@ -279,6 +311,7 @@ export const REPORT_VIEWS: ReportView[] = [
     // only on the combined audit list, so the whole technical lane was
     // unreachable from the menu while being measured every time.
     id: "technical",
+    section: "SEO",
     label: "Technical Checks",
     codes: ["tech.", "schema.", "valid."],
     blurb:
@@ -299,6 +332,7 @@ export const REPORT_VIEWS: ReportView[] = [
    */
   {
     id: "content-quality",
+    section: "Content",
     label: "Content Quality",
     codes: ["content."],
     blurb:
@@ -308,6 +342,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "video",
+    section: "Content",
     label: "Video",
     codes: ["video."],
     blurb:
@@ -318,6 +353,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "local",
+    section: "Local",
     label: "Local Signals",
     codes: ["local."],
     blurb:
@@ -328,6 +364,7 @@ export const REPORT_VIEWS: ReportView[] = [
   },
   {
     id: "trust",
+    section: "Content",
     label: "Trust & E-E-A-T",
     codes: ["eeat."],
     blurb:

@@ -38,6 +38,7 @@ import { deriveDirectories, directoryLabel, directoryColor, directorySummary } f
 import { GateActivity } from "@/components/dashboard/GateActivity";
 import { FixWithClaude } from "@/components/dashboard/FixWithClaude";
 import { GbpMatrix } from "@/components/dashboard/GbpMatrix";
+import { SectionScanButton } from "@/components/dashboard/SectionScanButton";
 import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import { MeasureScreen } from "@/components/dashboard/MeasureScreen";
@@ -2160,7 +2161,8 @@ export interface ReaiDashboardProps {
   onSelectClient: (c: ClientWithStats) => void;
   openReport: { report: any; scan: ScanRow } | null;
   onSaveNewClient?: (profile: any) => Promise<void>;
-  onTriggerScan?: (url: string) => Promise<void>;
+  /** `tools` scopes the scan to one section's concern. Omitted = the full scan. */
+  onTriggerScan?: (url: string, tools?: string[]) => Promise<void>;
   scanState?: { busy: boolean; phaseLine: string; live: string[]; tools: any[] };
   toolPicker?: {
     catalog: any[];
@@ -4526,6 +4528,19 @@ export function ReaiDashboard({
                       {view.blurb}
                     </p>
                   </div>
+                  {/* "If SEO, when audit only audit about SEO." Mounted once on
+                      the shared renderer, so every section screen scans its own
+                      concern and no other. The two "everything" views carry no
+                      section and correctly render nothing here. */}
+                  {view.section && (
+                    <SectionScanButton
+                      sectionId={view.section}
+                      domain={currentDomain}
+                      tools={toolPicker?.catalog}
+                      busy={scanState?.busy}
+                      onScan={(u, keys) => onTriggerScan?.(u, keys)}
+                    />
+                  )}
                   {/* Counts render whether or not there are rows: zero is a
                       reading, and a screen of zeroes beats a blank one. */}
                   <ReportStats rows={rows} />

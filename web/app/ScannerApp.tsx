@@ -488,7 +488,14 @@ function Scanner({ initialTab }: { initialTab?: any }) {
   }
   const estCost = catalog.filter((t) => selected.has(t.key)).reduce((s, t) => s + (t.cost_num || 0), 0);
 
-  async function run(overrideUrl?: string) {
+  /**
+   * `overrideTools` is how a section scans only its own concern: the SEO screen
+   * passes the SEO tool keys, the Local screen passes the local ones. Absent, it
+   * falls back to the picker's selection, which is the full-scan behaviour that
+   * existed before. One optional argument rather than a second scan path -
+   * everything downstream already took a tool list.
+   */
+  async function run(overrideUrl?: string, overrideTools?: string[]) {
     const activeUrl = (overrideUrl || url || "").trim();
     setBusy(true); setData(null); setLive([]); setTools([]); setPhaseLine("");
     const toolMap = new Map<string, Tool>();
@@ -498,7 +505,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       const res = await authedFetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: activeUrl, repo, model, tools: [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25, crawl_pages: crawlPages }),
+        body: JSON.stringify({ url: activeUrl, repo, model, tools: overrideTools ?? [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25, crawl_pages: crawlPages }),
       });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();
@@ -560,10 +567,10 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     }
   }
 
-  async function handleTriggerScan(targetUrl: string) {
+  async function handleTriggerScan(targetUrl: string, toolKeys?: string[]) {
     const cleanUrl = targetUrl.trim();
     setUrl(cleanUrl);
-    await run(cleanUrl);
+    await run(cleanUrl, toolKeys);
     if (histClient) {
       await openClient(histClient);
     }

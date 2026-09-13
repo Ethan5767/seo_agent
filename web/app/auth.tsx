@@ -87,11 +87,17 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    const isLocal = typeof window !== "undefined" && (
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1" ||
-      process.env.NODE_ENV !== "production"
-    );
+    // Dev sign-in bypass. EXPLICIT opt-in only — never inferred from the
+    // hostname or from NODE_ENV.
+    //
+    // This used to be true on any localhost, so every developer ran the app
+    // permanently signed in as a synthetic user. That is not a harmless
+    // convenience: the app then looks logged-in with no projects, which reads
+    // as a broken account rather than a signed-out one, and it means nobody
+    // ever exercises the real signed-out path. The server-side half of this
+    // bypass was already gated behind ALLOW_DEV_AUTH; this is the other half.
+    const isLocal = typeof window !== "undefined"
+      && process.env.NEXT_PUBLIC_ALLOW_DEV_AUTH === "1";
 
     // Fast safety timeout: Never leave the user hanging on "Checking authentication..."
     const timer = setTimeout(() => {
@@ -157,6 +163,22 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         provider: "github",
         options: {
           redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+          // `repo` is what makes this real. Without it GitHub issues an
+          // identity-only token: private client repositories are invisible, the
+          // pull-request list is empty, check runs cannot be read and merge is
+          // impossible — the whole Gate & Merge screen sits on "not connected"
+          // forever with no way for the operator to fix it from inside the app.
+          //
+          // The client grants access by adding this GitHub account as a
+          // collaborator on their repo. `read:org` lets us see repos owned by
+          // an organisation rather than a person, which most agencies' clients
+          // are.
+          //
+          // Note `repo` is all-or-nothing: it covers every private repo this
+          // account can reach, not just client ones. That is the accepted
+          // trade-off for the collaborator model, and the reason to move to a
+          // GitHub App per-repo installation once the client count justifies it.
+          scopes: "repo read:org",
         },
       });
       if (error) setErr(error.message);
@@ -195,6 +217,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         <p style={{ marginTop: "16px", color: "var(--ink-muted)", fontSize: "14px", fontWeight: 500 }}>
           Checking authentication...
         </p>
+        {process.env.NEXT_PUBLIC_ALLOW_DEV_AUTH === "1" ? (
         <button
           type="button"
           onClick={() => {
@@ -216,6 +239,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         >
           Skip to Dashboard →
         </button>
+        ) : null}
         <style>{`@keyframes authSpin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
@@ -309,6 +333,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             {signingIn ? "Redirecting to GitHub..." : "Sign in with GitHub"}
           </button>
 
+          {process.env.NEXT_PUBLIC_ALLOW_DEV_AUTH === "1" ? (
           <button
             type="button"
             onClick={() => {
@@ -334,6 +359,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           >
             <span>⚡</span> Continue in Local Dev / Demo Mode
           </button>
+          ) : null}
 
           <p style={{ marginTop: "24px", fontSize: "12px", color: "var(--ink-muted)" }}>
             Protected by Supabase Auth with Row-Level Security isolation.

@@ -76,6 +76,22 @@ function ProfilePageContent() {
         provider: "github",
         options: {
           redirectTo: typeof window !== "undefined" ? `${window.location.origin}/profile` : undefined,
+          // `repo` is what makes this real. Without it GitHub issues an
+          // identity-only token: private client repositories are invisible, the
+          // pull-request list is empty, check runs cannot be read and merge is
+          // impossible — the whole Gate & Merge screen sits on "not connected"
+          // forever with no way for the operator to fix it from inside the app.
+          //
+          // The client grants access by adding this GitHub account as a
+          // collaborator on their repo. `read:org` lets us see repos owned by
+          // an organisation rather than a person, which most agencies' clients
+          // are.
+          //
+          // Note `repo` is all-or-nothing: it covers every private repo this
+          // account can reach, not just client ones. That is the accepted
+          // trade-off for the collaborator model, and the reason to move to a
+          // GitHub App per-repo installation once the client count justifies it.
+          scopes: "repo read:org",
         },
       });
       if (error) setErrorMsg(error.message);

@@ -84,8 +84,22 @@ export async function authenticateRequest(req: Request | NextRequest): Promise<A
     }
   }
 
-  // Local development fallback: allow local testing in non-production
-  const isDev = process.env.NODE_ENV !== "production";
+  // Local development fallback. Gated on an EXPLICIT opt-in, never inferred from
+  // NODE_ENV (B-066).
+  //
+  // This used to read `process.env.NODE_ENV !== "production"`, which fails OPEN:
+  // any container started without NODE_ENV explicitly set — a plain `node
+  // server.js`, a compose file missing one line, a preview deploy — turned every
+  // route unauthenticated, and the caller chose their own user id via the
+  // `x-dev-user-id` header. It compounded downstream: the dev path returns no
+  // token, so `getScopedDb` fell through to the SERVICE ROLE key, which ignores
+  // Row Level Security entirely, leaving `.eq("user_id", ...)` — populated from
+  // that same attacker-supplied header — as the only tenant boundary. There is no
+  // middleware.ts, so this function is the only authentication in the product.
+  //
+  // ALLOW_DEV_AUTH must be set deliberately, and is refused in production even
+  // then, so a stray value in a deployed env cannot re-open it.
+  const isDev = process.env.ALLOW_DEV_AUTH === "1" && process.env.NODE_ENV !== "production";
   if (isDev) {
     const devHeaderUserId = req.headers.get("x-dev-user-id");
     return {
@@ -107,8 +121,23 @@ export async function authenticateRequest(req: Request | NextRequest): Promise<A
  * Returns a Supabase client scoped to the authenticated user's credentials.
  * If user token is available, uses the anon key with user's Authorization header (RLS).
  * Otherwise falls back to service role key with strict server-side user_id filtering.
+ *
+ * B-066: that fallback is the second half of the auth-bypass chain. The service
+ * role ignores Row Level Security completely, so when it is reached the ONLY
+ * tenant boundary left is whatever `.eq("user_id", ...)` each route remembers to
+ * apply — and a route that forgets returns the whole table. It is reached
+ * whenever `token` is absent, which was exactly the state the dev fallback
+ * produced. The dev path is now opt-in (see `authenticateRequest`), and this
+ * function refuses the service-role path in production so the two failures can
+ * never line up again.
  */
 export function getScopedDb(user: AuthenticatedUser, token?: string): SupabaseClient {
+  if (!token && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "getScopedDb: refusing to fall back to the service-role key for a request " +
+      "carrying no user token. Row Level Security would be bypassed."
+    );
+  }
   if (token && SUPABASE_ANON_KEY) {
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: {

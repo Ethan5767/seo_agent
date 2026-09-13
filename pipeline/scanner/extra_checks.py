@@ -136,21 +136,41 @@ def find_video_ids(html: str) -> list[str]:
     return seen
 
 
+#: These rows belong to the VIDEO tool, not to Technical. The module-level
+#: `_row` above is bound to "tech" because most of this file is technical
+#: checks, and `video_rows` inherited that prefix purely by living here.
+#:
+#: B-093: the consequence was invisible in the only case anyone tested. A page
+#: with NO video never reaches this function - `youtube.video_rows_full` answers
+#: that case with its own `video.`-stamped row and returns before calling in. The
+#: moment a page actually HAD a video the row arrived as `tech.video_snippets`,
+#: and two things silently stopped working:
+#:
+#:   * the Video report view filters on `video.`, so it showed only the metadata
+#:     row - or nothing at all when there was no API key - and printed "Run a
+#:     scan" over a scan that had already run;
+#:   * `recommendations.py` keys this finding as `video.video_snippets`, with a
+#:     comment stating that prefix, so its remediation never fired.
+#:
+#: The one case the tool exists for was the broken one.
+_video_row = make_row("video")
+
+
 def video_rows(html: str) -> list[dict]:
     """One row: are embedded videos backed by VideoObject schema (rich-snippet
     eligible)? No video = nothing to optimise (pass)."""
     ids = find_video_ids(html)
     has_native = "<video" in (html or "").lower()
     if not ids and not has_native:
-        return [_row("Video snippets", "ok",
+        return [_video_row("Video snippets", "ok",
                      "No embedded video on this page — nothing to optimise.", "passing")]
     has_schema = '"@type":"VideoObject"' in (html or "").replace(" ", "").replace("'", '"')
     n = len(ids) or 1
     if has_schema:
-        return [_row("Video snippets", "ok",
+        return [_video_row("Video snippets", "ok",
                      f"{n} video(s) with VideoObject schema — eligible for rich video results and AI citation.",
                      "passing", detail=f"{n} video(s)")]
-    return [_row("Video snippets", "warn",
+    return [_video_row("Video snippets", "warn",
                  f"{n} embedded video(s) but no VideoObject schema — Google/AI can't show a rich video snippet.",
                  "add VideoObject JSON-LD (name, description, thumbnailUrl, uploadDate, duration) per video",
                  detail=f"{n} video(s)")]

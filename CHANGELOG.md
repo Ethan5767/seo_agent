@@ -6,6 +6,58 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **B-093: the Video view was empty on exactly the pages that have video
+  (`pipeline/scanner/extra_checks.py`).** Reported by the operator: the Video
+  section said "Run a scan..." with a valid `YOUTUBE_API_KEY` configured and the
+  scan already run.
+
+  `extra_checks.py` binds its module-level row builder to the `tech` prefix,
+  because almost everything in that file is a technical check. `video_rows`
+  lives there and inherited it, so the VideoObject schema row went out as
+  **`tech.video_snippets`**.
+
+  Nothing caught it, because the case everyone tests never reaches that
+  function. `youtube.video_rows_full` answers "no video on this page" with its
+  **own** `video.`-stamped row and returns early - so the pass path looked
+  correct. The moment a page actually had a video, the row took the other branch
+  and two things silently stopped working:
+
+  * `lib/reportViews.ts` filters the Video view on `codes: ["video."]`, so the
+    schema row - the single most important video finding - rendered under
+    **Technical** instead, and the Video view showed only the metadata row. With
+    no API key, or on a fetch error, it showed **nothing**, and printed the
+    empty hint over a completed scan.
+  * `recommendations.py` keys this finding as `video.video_snippets`, with a
+    comment stating that prefix. A row stamped `tech.` matched nothing, so the
+    remediation for it never fired.
+
+  The one case the tool exists for was the broken one.
+
+  Verified live against the YouTube Data API after the fix:
+
+  ```
+  video.video_snippets     [warn] 1 embedded video(s) but no VideoObject schema
+  video.video_metadata     [ok]   1 video(s) carry full metadata
+  ```
+
+  3 tests in `tests/test_scanner_extra.py`, covering all four HTML shapes (no
+  video, embed without schema, embed with schema, native `<video>`), asserting
+  the code matches a real entry in `RECOMMENDATIONS`, and asserting the whole
+  tool - which composes rows from two modules that were stamped differently.
+  Restoring the old prefix turns all three red.
+
+### Notes
+
+- `BRIGHTDATA_API_KEY` and `BRIGHTDATA_SERP_ZONE` are present in `.env` but have
+  **empty values**, and `load_env` deliberately skips blanks so an empty
+  placeholder cannot read as a configured credential. SERP rank tracking is
+  therefore off, and reports it as a named skip rather than a clean result.
+  Noticed while confirming `YOUTUBE_API_KEY` loads; not a defect, but it is not
+  obvious from the UI either.
+
+
 ### Added
 
 - **ADD CLIENT lists your GitHub repositories instead of asking you to type one

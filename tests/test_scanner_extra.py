@@ -110,3 +110,56 @@ def test_image_link_without_alt():
     html = '<main><a href="/gallery/"><img src="/x.jpg"></a></main>'
     by = {r["what"]: r for r in internal_link_rows("https://s.com/", html)}
     assert by["Image link context"]["severity"] == "warn"
+
+
+# ── B-093: the video rows belong to the Video tool ───────────────────────────
+
+def test_video_rows_are_stamped_for_the_video_view_not_technical():
+    """`extra_checks` binds its module `_row` to "tech", and `video_rows` lived
+    here, so every schema row went out as `tech.video_snippets`.
+
+    Nothing caught it because the pass path never reaches this function:
+    `youtube.video_rows_full` answers "no video on this page" with its own
+    `video.`-stamped row and returns before calling in. Only a page that ACTUALLY
+    has a video took the broken branch - the one case the tool exists for.
+    """
+    from pipeline.scanner.extra_checks import video_rows
+    cases = [
+        "<html><body>no video at all</body></html>",
+        '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>',
+        '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>'
+        '<script>{"@type":"VideoObject"}</script>',
+        '<video src="clip.mp4"></video>',
+    ]
+    for html in cases:
+        for row in video_rows(html):
+            assert row["code"].startswith("video."), (
+                f"{row['code']} lands in the Technical view; the Video view filters on "
+                f"`video.` and would show nothing for a page that has a video"
+            )
+
+
+def test_the_schema_row_matches_the_recommendation_that_exists_for_it():
+    """`recommendations.py` keys this finding as `video.video_snippets` and says
+    so in a comment. A row stamped `tech.` silently matches nothing, so the
+    remediation for the most important video finding never fired."""
+    from pipeline.scanner.extra_checks import video_rows
+    from pipeline.scanner.recommendations import RECOMMENDATIONS
+
+    rows = video_rows('<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>')
+    assert rows[0]["severity"] == "warn"
+    assert rows[0]["code"] in RECOMMENDATIONS, (
+        f"{rows[0]['code']} has no recommendation; the table keys on video.video_snippets"
+    )
+
+
+def test_every_video_tool_row_reaches_the_video_view():
+    """The whole tool, not just the schema half. `video_rows_full` composes two
+    sources - this module and youtube.py - and they were stamped differently."""
+    from pipeline.scanner.youtube import video_rows_full
+    html = '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>'
+    rows, _status, _cost = video_rows_full(html, call=lambda ids, key: ({"items": [
+        {"id": "dQw4w9WgXcQ", "snippet": {"title": "T", "description": "D", "thumbnails": {}},
+         "contentDetails": {"duration": "PT1M"}},
+    ]}, None), key="fake-key-not-used-by-the-stub")
+    assert {r["code"] for r in rows} == {"video.video_snippets", "video.video_metadata"}

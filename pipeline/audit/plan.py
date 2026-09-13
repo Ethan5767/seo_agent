@@ -84,6 +84,39 @@ ACTIONS = {
     "health.schema_breadcrumb_missing": ("schema_breadcrumb_missing", 3, None),
     "health.tel_link_missing":  ("tel_link_missing",              3, None),
     "health.ga4_missing":       ("ga4_tag_missing",               3, None),
+
+    # ── onpage.* (B-078) ──────────────────────────────────────────────────────
+    # The fix loop was 18 codes, all health.*, against ~215 measured — 8%, and
+    # 8 of 41 on a default-tier client. That was never about difficulty: these
+    # are single-tag edits whose acceptance is the same code_absent re-measure
+    # the rest already use. Nobody had written the line.
+    #
+    # Every entry below is additive, idempotent, verifiable by re-measure, and
+    # reversible in one commit. What is left OUT is the point:
+    #   url_length / url_case / url_underscores / url_parameters — changing a
+    #     URL without a redirect deindexes the page. That is a migration.
+    #   single_canonical — several canonicals exist; picking the survivor is a
+    #     judgement with unbounded blast radius. Recommend, never apply.
+    #   dom_size / link_volume / iframe_count / subheadings / inline_styles —
+    #     judgement, not a mechanical repair.
+    "onpage.charset":                  ("onpage.charset",                  3, None),
+    "onpage.doctype":                  ("onpage.doctype",                  3, None),
+    "onpage.legacy_meta_keywords":     ("onpage.legacy_meta_keywords",     3, None),
+    "onpage.meta_refresh":             ("onpage.meta_refresh",             3, None),
+    "onpage.apple_touch_icon":         ("onpage.apple_touch_icon",         3, None),
+    "onpage.mixed_content":            ("onpage.mixed_content",            3, None),
+    "onpage.external_link_safety":     ("onpage.external_link_safety",     3, None),
+    "onpage.image_dimensions":         ("onpage.image_dimensions",         3, None),
+    "onpage.deprecated_html":          ("onpage.deprecated_html",          3, None),
+    "onpage.flash":                    ("onpage.flash",                    3, None),
+    "onpage.semantic_main":            ("onpage.semantic_main",            3, None),
+    "onpage.heading_order":            ("onpage.heading_order",            3, None),
+    "onpage.empty_links":              ("onpage.empty_links",              3, None),
+    "onpage.hreflang":                 ("onpage.hreflang",                 3, None),
+    "onpage.render-blocking_scripts":  ("onpage.render-blocking_scripts",  3, None),
+    # T1: placeholder copy is copy. The agent may remove lorem ipsum in files it
+    # is already allowed to reword.
+    "onpage.placeholder_text":         ("onpage.placeholder_text",         1, None),
     # A CSR shell is fixed by turning on server rendering / static generation —
     # build + template work, so T3. acceptance re-measures the page and the
     # finding clears once the raw HTML carries the text.

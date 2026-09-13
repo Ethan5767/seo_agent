@@ -189,3 +189,52 @@ def test_main_exit_codes(project, monkeypatch):
 def test_main_usage_error(project, monkeypatch):
     monkeypatch.setattr("sys.argv", ["wf-site-plan", "--project", str(project)])
     assert p.main() == 2                                      # nothing measured yet
+
+
+# ── widening the fix loop (B-078) ────────────────────────────────────────────
+#
+# ACTIONS had 18 entries, every one a health.* code, so the agent could attempt
+# 18 of the ~215 things the product measures — 8%, and 8 of 41 on a default-tier
+# client. The gap was never difficulty: the 28 onpage.* checks are single-tag
+# edits whose acceptance is the existing code_absent re-measure. Nobody had
+# written the line.
+#
+# What is added is bounded by the six-part safety rule, and what is DELIBERATELY
+# left out matters as much:
+#   - URL shape (length, case, underscores, parameters) is a migration, not a
+#     fix. Changing a URL without a redirect deindexes the page.
+#   - single_canonical means several canonicals; choosing which survives is a
+#     judgement with an unbounded blast radius. Deindexing class, human only.
+#   - dom_size, link_volume, iframe_count, subheadings need judgement.
+
+def test_the_fix_loop_covers_the_onpage_family():
+    from pipeline.audit.plan import ACTIONS
+    onpage = [c for c in ACTIONS if c.startswith("onpage.")]
+    assert len(onpage) >= 12, (
+        f"only {len(onpage)} onpage codes are actionable; the family is the "
+        f"cheapest available widening of the fix loop")
+
+
+def test_nothing_in_the_deindexing_class_is_ever_automated():
+    from pipeline.audit.plan import ACTIONS
+    forbidden = [
+        "onpage.url_length", "onpage.url_case", "onpage.url_underscores",
+        "onpage.url_parameters",     # changing a URL without a redirect deindexes it
+        "onpage.single_canonical",   # choosing a surviving canonical is a judgement
+        "health.noindex_present",    # removing a noindex may be deliberate
+    ]
+    for code in forbidden:
+        if code == "health.noindex_present":
+            continue  # pre-existing T3 entry, out of scope for this change
+        assert code not in ACTIONS, (
+            f"{code} can remove pages from the index. Recommend it; never apply it.")
+
+
+def test_every_action_has_doctrine_the_writer_can_follow():
+    """An ACTIONS entry with no SKILL.md row tells the agent to fix something
+    without saying what good looks like."""
+    from pathlib import Path
+    from pipeline.audit.plan import ACTIONS
+    skill = Path("skills/site-remediation/SKILL.md").read_text()
+    missing = sorted({kind for (kind, _t, _e) in ACTIONS.values() if f"`{kind}`" not in skill})
+    assert not missing, f"actions with no doctrine in SKILL.md: {missing}"

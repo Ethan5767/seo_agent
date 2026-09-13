@@ -55,6 +55,12 @@ export interface MeasureScreenProps {
   auditCategoryFilter: string;
   setAuditCategoryFilter: (key: string) => void;
   auditSeverityFilter: CheckSeverityFilter;
+  /**
+   * Rendered at the foot of the screen. A slot rather than a direct import so
+   * this component keeps knowing nothing about Claude, the fixer, or any route -
+   * it measures and displays, and the caller decides what to offer next.
+   */
+  footer?: React.ReactNode;
   setAuditSeverityFilter: (sev: CheckSeverityFilter) => void;
   setActiveTab: (tab: ReaiTab) => void;
   planState?: {
@@ -170,6 +176,7 @@ export function MeasureScreen({
   auditCategoryFilter,
   setAuditCategoryFilter,
   auditSeverityFilter,
+  footer,
   setAuditSeverityFilter,
   setActiveTab,
   planState,
@@ -805,6 +812,7 @@ export function MeasureScreen({
           </div>
         );
       })()}
+      {footer}
     </div>
   );
 }

@@ -184,3 +184,75 @@ export function blockedReason(item: {
   if (!item.action) return "no automated fix mapped to this finding";
   return null;
 }
+
+/* ── Gate failures as findings ──────────────────────────────────────────────
+ *
+ * A red gate is the moment an operator is most stuck and least helped. The check
+ * run gives a name and a conclusion - `forbidden-sweep: failure` - and nothing
+ * about what to do. The roster already knows what each gate blocks on, so a
+ * failing run can be turned into the same shape every other screen hands to
+ * Claude, and answered the same way.
+ *
+ * Only FAILURES become work. A skipped gate is not a defect, and a passing gate
+ * is not a task.
+ */
+export type CheckRunish = { name?: string; status?: string; conclusion?: string | null };
+
+export function gateFindings(
+  runs: CheckRunish[] | null | undefined,
+): Array<{ code: string; what: string; why: string; fix: string; severity: string; detail: string }> {
+  if (!Array.isArray(runs)) return [];
+  const good = new Set(["success", "neutral", "skipped"]);
+  return runs
+    .filter((r) => r && r.status === "completed" && !good.has(r.conclusion ?? ""))
+    .map((r) => {
+      const name = r.name ?? "gate";
+      const spec = GATE_ROSTER.find((g) => name.toLowerCase().includes(g.name.toLowerCase()));
+      const where = spec?.phase === "PRE" ? "the pull request diff and the source tree"
+        : spec?.phase === "OUT" ? "the built HTML output"
+        : spec?.phase === "CHAIN" ? "the findings/worklist/changelog artifacts in the pull request"
+        : "the pull request";
+      return {
+        code: `gate.${name.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`,
+        what: `Gate failed: ${name}`,
+        why: spec
+          ? `This gate reads ${where} and blocks the merge when ${spec.blocks}.`
+          : `This gate blocked the merge. It runs against ${where}.`,
+        // Deliberately not a prescription. What fixes a gate depends on what it
+        // found, which lives in the run log, not in the roster - so the honest
+        // instruction is to explain the gate and its rule, not to guess a patch.
+        fix: "explain what this gate checks, the usual causes, and exactly how to clear it",
+        severity: "error",
+        detail: `conclusion: ${r.conclusion ?? "unknown"}`,
+      };
+    });
+}
+
+/**
+ * Worklist items as findings, for the Plan screen's fixer.
+ *
+ * The interesting half of a worklist is the items the agent CANNOT attempt:
+ * above the tier, briefed to a human, or with no automated fix mapped. Those are
+ * the ones a person has to do, and "the rest need a person" is where the screen
+ * stopped - which is exactly the gap the automation claim falls into.
+ *
+ * Items the agent CAN take are excluded on purpose. Those already have a
+ * pipeline; asking a model to write them out by hand competes with the thing
+ * built to do it, under a tier, with the gates watching.
+ */
+export function worklistFindings(
+  worklist: Array<Record<string, any>> | null | undefined,
+): Array<{ code: string; what: string; why: string; fix: string; severity: string; detail: string }> {
+  if (!Array.isArray(worklist)) return [];
+  return worklist
+    .filter((i) => i && blockedReason(i) !== null)
+    .slice(0, 25)
+    .map((i) => ({
+      code: String(i.code ?? "plan.item"),
+      what: String(i.what ?? i.code ?? "worklist item"),
+      why: String(i.why ?? `Lane: ${i.status ?? "unknown"}. ${blockedReason(i)}.`),
+      fix: String(i.fix ?? "explain what a person has to do here, and why the agent cannot"),
+      severity: i.status === "REGRESSION" ? "error" : "warn",
+      detail: String(i.location ?? i.url ?? ""),
+    }));
+}

@@ -8,6 +8,43 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Fix with Claude on every stage: Measure, Plan, Gate, and every report view.**
+  *"Same as before - measure, plan, remediate, gate, like that."* A stage that
+  measures and then stops is where the automation claim dies, so the coverage is
+  now **asserted rather than remembered** - a test names each stage and fails if
+  one loses its mount.
+
+  Five mounts, and one of them is worth more than the other four:
+
+  | Stage | Fed with |
+  |---|---|
+  | **Measure** | `allIssues` - every failing row the scan produced, through a new `footer` slot so `MeasureScreen` keeps knowing nothing about Claude or any route |
+  | **Every report view** | `rows` - mounted **once on the shared renderer**, so Technical, Content, AEO, Local Signals and the rest all get it. Bolting one onto each screen is how copies drift apart |
+  | **Plan** | `worklistFindings(worklist)` |
+  | **Gate** | `gateFindings(c.runs)` |
+  | **Local** | the GBP, mentions and `local.*` rows |
+
+  **Gate is the one that matters most.** A red gate is where an operator is most
+  stuck and least helped: the check run gives a name and a conclusion -
+  `forbidden-sweep: failure` - and nothing else. `GATE_ROSTER` already knows what
+  each gate reads and what it blocks on, so a failure becomes the same shape
+  every other screen hands to Claude. It deliberately does **not** prescribe a
+  patch: what fixes a gate depends on what it *found*, which lives in the run log
+  rather than the roster, and guessing there would be confident fabrication in
+  its most plausible form.
+
+  **Plan briefs only the items the agent cannot take** - above the tier, briefed
+  to a human, or no automated fix mapped. The ones it *can* take already have a
+  pipeline that runs them under a declared tier with the gates watching; asking a
+  model to hand-write those competes with the thing built to do it.
+
+  11 more tests (33 in `fixAdvisor.test.mjs`), including that only failing gates
+  become work, that a queued gate does not, that an unrecognised gate still
+  produces a usable brief, and that a regression is briefed as an error.
+
+
+### Added
+
 - **"Fix with Claude" — findings in, the actual fix out**
   (`web/lib/fixAdvisor.ts`, `web/app/api/fix/advise/route.ts`,
   `web/components/dashboard/FixWithClaude.tsx`). The operator's argument, and it

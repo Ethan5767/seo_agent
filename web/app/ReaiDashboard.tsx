@@ -17,7 +17,7 @@ import type { PriorityItem } from "@/components/dashboard/types";
 import { derivePriorities } from "../lib/priorities";
 import { supabase } from "../lib/supabase";
 import { PIPELINE_STAGES, stage as pipelineStage, laneCounts, actionableCount,
-         blockedReason, GATE_ROSTER, MERGE_POLICY, AUTOMERGE_DEFAULT_ENABLED,
+         blockedReason, GATE_ROSTER, MERGE_POLICY, AUTOMERGE_DEFAULT_ENABLED, gateFindings, worklistFindings,
          type StageId } from "../lib/pipelineStages";
 import { deriveCoreWebVitals } from "../lib/webVitals";
 import { buildExecutiveReport } from "../lib/executiveReport";
@@ -4139,6 +4139,17 @@ export function ReaiDashboard({
                           </tbody>
                         </table>
                       </div>
+                      {/* The items the agent CANNOT take are the ones a person is
+                          left holding, and "the rest need a person" is exactly
+                          where this screen used to stop. Items the agent CAN take
+                          are excluded: those already have a pipeline that runs
+                          them under a tier with the gates watching. */}
+                      <FixWithClaude
+                        findings={worklistFindings(worklist)}
+                        business={currentBusiness}
+                        domain={currentDomain}
+                        label="Brief me on the items the agent cannot take"
+                      />
                     </>
                   ) : null}
 
@@ -4248,6 +4259,23 @@ export function ReaiDashboard({
                                     GitHub reported no check runs for this commit. That is not a pass — the
                                     workflow may not have started, or the client repo may not be running the
                                     quality gate. Merging is blocked until gates report.
+                                  </div>
+                                )}
+
+                                {/* A red gate is where an operator is most stuck
+                                    and least helped: the check run gives a name and
+                                    a conclusion and nothing else. The roster knows
+                                    what each gate reads and blocks on, so a failure
+                                    becomes the same shape every other screen hands
+                                    to Claude. */}
+                                {c?.runs && c.failed > 0 && (
+                                  <div style={{ padding: "0 18px 14px" }}>
+                                    <FixWithClaude
+                                      findings={gateFindings(c.runs)}
+                                      business={currentBusiness}
+                                      domain={currentDomain}
+                                      label="Explain and fix these gate failures"
+                                    />
                                   </div>
                                 )}
 
@@ -4495,6 +4523,16 @@ export function ReaiDashboard({
                       setActiveTab("Site Health & Audit");
                       setAuditSubTab("summary");
                     }}
+                  />
+                  {/* Mounted ONCE, on the shared renderer, so every report view
+                      gets it - not bolted onto each screen where the copies drift.
+                      Fed exactly the rows the table above is showing, so it can
+                      never advise on something the reader cannot see. */}
+                  <FixWithClaude
+                    findings={rows}
+                    business={currentBusiness}
+                    domain={currentDomain}
+                    label={`Fix these ${view.label.toLowerCase()} issues with Claude`}
                   />
                 </div>
               );
@@ -7305,6 +7343,17 @@ export function ReaiDashboard({
               auditCategoryFilter={auditCategoryFilter}
               setAuditCategoryFilter={setAuditCategoryFilter}
               auditSeverityFilter={auditSeverityFilter}
+              // MEASURE. `allIssues` is every failing row the scan produced,
+              // which is exactly the input the fixer wants: the same list the
+              // operator is looking at, with no re-derivation to drift.
+              footer={
+                <FixWithClaude
+                  findings={allIssues}
+                  business={currentBusiness}
+                  domain={currentDomain}
+                  label="Fix these audit findings with Claude"
+                />
+              }
               setAuditSeverityFilter={setAuditSeverityFilter}
               setActiveTab={setActiveTab}
               planState={planState}

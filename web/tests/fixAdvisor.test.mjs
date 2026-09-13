@@ -186,3 +186,107 @@ test("it is mounted, and fed the same rows the table shows", () => {
   assert.match(DASH, /<FixWithClaude/);
   assert.match(DASH, /findings=\{\[\.\.\.gbpRows, \.\.\.mentionsRows, \.\.\.\(\(report\?\.local \|\| \[\]\) as any\[\]\)\]\}/);
 });
+
+
+/* ── every stage, not just the ones anyone remembered ────────────────────── */
+
+const { gateFindings, worklistFindings } = await import("../lib/pipelineStages.ts");
+
+test("the fixer is mounted on every stage of the pipeline", () => {
+  // "Same as before: measure, plan, remediate, gate." A stage that measures and
+  // then stops is where the automation claim dies, so the coverage is asserted
+  // rather than remembered.
+  const mounts = DASH.match(/<FixWithClaude/g) ?? [];
+  assert.ok(mounts.length >= 5, `only ${mounts.length} mounts; every stage needs one`);
+
+  for (const [where, needle] of [
+    ["Measure", /footer=\{\s*<FixWithClaude[\s\S]{0,200}findings=\{allIssues\}/],
+    ["every report view", /findings=\{rows\}/],
+    ["Plan", /findings=\{worklistFindings\(worklist\)\}/],
+    ["Gate", /findings=\{gateFindings\(c\.runs\)\}/],
+    ["Local", /findings=\{\[\.\.\.gbpRows/],
+  ]) {
+    assert.match(DASH, needle, `${where} has no Fix with Claude`);
+  }
+});
+
+test("the report-view mount is on the shared renderer, not per screen", () => {
+  // One mount covers every view in reportViews.ts. Bolting one onto each screen
+  // is how copies drift apart.
+  const block = DASH.slice(DASH.indexOf("const rows = rowsForView(report, view)"));
+  assert.ok(block.indexOf("<FixWithClaude") < block.indexOf("})()"),
+    "the fixer must sit inside the shared view renderer");
+});
+
+/* ── gate failures ───────────────────────────────────────────────────────── */
+
+test("only failing gates become work", () => {
+  const runs = [
+    { name: "tier-check", status: "completed", conclusion: "success" },
+    { name: "em-dash-check", status: "completed", conclusion: "skipped" },
+    { name: "audit-ssr", status: "completed", conclusion: "neutral" },
+    { name: "forbidden-sweep", status: "completed", conclusion: "failure" },
+    { name: "orphan-check", status: "in_progress", conclusion: null },
+  ];
+  const out = gateFindings(runs);
+  assert.deepEqual(out.map((f) => f.what), ["Gate failed: forbidden-sweep"]);
+});
+
+test("a gate failure carries what it reads and what it blocks on", () => {
+  // The check run gives a name and a conclusion. The roster knows the rest.
+  const [f] = gateFindings([{ name: "forbidden-sweep", status: "completed", conclusion: "failure" }]);
+  assert.match(f.why, /built HTML output/);
+  assert.match(f.why, /banned phrase/);
+  assert.equal(f.severity, "error");
+  assert.match(f.detail, /conclusion: failure/);
+});
+
+test("an unknown gate still produces something usable", () => {
+  const [f] = gateFindings([{ name: "some-new-gate", status: "completed", conclusion: "failure" }]);
+  assert.ok(f.why.length > 20, "a gate the roster has not met must not produce an empty brief");
+});
+
+test("gateFindings does not prescribe a patch it cannot know", () => {
+  // What fixes a gate depends on what it FOUND, which lives in the run log, not
+  // in the roster. Guessing a patch here would be the confident-fabrication
+  // failure in its most plausible form.
+  const [f] = gateFindings([{ name: "em-dash-check", status: "completed", conclusion: "failure" }]);
+  assert.match(f.fix, /explain what this gate checks/);
+});
+
+test("no runs means no work", () => {
+  for (const v of [null, undefined, [], [{ name: "x", status: "queued" }]]) {
+    assert.deepEqual(gateFindings(v), []);
+  }
+});
+
+/* ── plan items ──────────────────────────────────────────────────────────── */
+
+test("only the items the agent cannot take are briefed", () => {
+  // The ones it CAN take already have a pipeline that runs them under a tier
+  // with the gates watching. Asking a model to hand-write those competes with
+  // the thing built to do it.
+  const worklist = [
+    { code: "a", action: "fix", tier_blocked: false, human_edit: false },
+    { code: "b", action: "fix", tier_blocked: true },
+    { code: "c", action: "fix", human_edit: true },
+    { code: "d" },
+  ];
+  assert.deepEqual(worklistFindings(worklist).map((f) => f.code), ["b", "c", "d"]);
+});
+
+test("a regression is briefed as an error, not a warning", () => {
+  const [f] = worklistFindings([{ code: "r", tier_blocked: true, status: "REGRESSION" }]);
+  assert.equal(f.severity, "error");
+});
+
+test("the reason the agent cannot take it reaches the brief", () => {
+  const [f] = worklistFindings([{ code: "x", tier_blocked: true, status: "NEW" }]);
+  assert.match(f.why, /above this client's tier/);
+});
+
+test("an empty or missing worklist briefs nothing", () => {
+  for (const v of [null, undefined, [], [{ code: "ok", action: "fix" }]]) {
+    assert.deepEqual(worklistFindings(v), []);
+  }
+});

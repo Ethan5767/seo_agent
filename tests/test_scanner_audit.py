@@ -36,11 +36,17 @@ def test_aeo_flags_blocked_citation_crawler():
     assert any("PerplexityBot" in r["detail"] for r in blocked)
 
 
-def test_aeo_clean_robots_has_no_crawler_rows():
+def test_aeo_clean_robots_reports_the_crawler_checks_as_passing():
+    """A check that ran and passed emits its code with severity "ok", not no row
+    at all: the report views key on the code, so a codeless pass was invisible
+    and a clean site rendered an empty screen."""
     robots = "User-agent: *\nAllow: /\n"
     rows = aeo_rows(robots, '<script type="application/ld+json">{"@type":"LocalBusiness"}</script>')
-    assert not any(r["code"] == "aeo.crawler_blocked" for r in rows)
-    assert not any(r["code"] == "health.schema_business_missing" for r in rows)
+    by_code = {r["code"]: r for r in rows}
+    for code in ("aeo.crawler_blocked", "health.schema_business_missing"):
+        assert code in by_code, f"a passing check must still emit {code}"
+        assert by_code[code]["severity"] == "ok", f"{code} must pass here"
+        assert by_code[code]["fix"] == "passing"
 
 
 def test_perf_disabled_when_no_crux():
@@ -72,7 +78,10 @@ def test_assemble_scores_and_groups():
     aeo = [{"code": "aeo.crawler_blocked", "severity": "warn", "what": "", "why": "", "fix": "", "detail": "GPTBot"}]
     perf = perf_rows(None)
     report = assemble({"seo": seo, "aeo": aeo, "perf": perf})
-    assert report["score"] == 100 - 10 - 3
+    # 1 error + 1 warn gradeable, 0 passing, plus a perf info row that is not
+    # gradeable at all -> 0% passed. Was `100 - 10 - 3` under the penalty model,
+    # which read as 87% "healthy" for a page where every graded check failed.
+    assert report["score"] == 0
     assert report["seo"] and report["aeo"] and report["perf"]
     assert report["counts"]["error"] == 1
 
@@ -137,7 +146,8 @@ def test_training_crawlers_reported_separately_from_citation_crawlers():
     )
     # GPTBot and ClaudeBot are training crawlers, not citation crawlers, so
     # blocking them must NOT be reported as a blocked citation crawler.
-    blocked_citation = [r for r in rows if r["code"] == "aeo.crawler_blocked"]
+    blocked_citation = [r for r in rows
+                        if r["code"] == "aeo.crawler_blocked" and r["severity"] != "ok"]
     assert blocked_citation == [], (
         f"training crawlers were misreported as citation crawlers: {blocked_citation}"
     )
@@ -170,7 +180,8 @@ def test_business_schema_accepts_a_subtype():
     having no business schema at all."""
     html = '<script type="application/ld+json">{"@type":"Dentist","name":"X"}</script>'
     rows = aeo_rows("User-agent: *\nAllow: /\n", html)
-    assert not any(r["code"] == "health.schema_business_missing" for r in rows), (
+    assert not any(r["code"] == "health.schema_business_missing" and r["severity"] != "ok"
+                   for r in rows), (
         "a LocalBusiness subtype must count as business schema"
     )
 
@@ -184,14 +195,16 @@ def test_business_schema_found_inside_a_graph():
         '{"@type":"LocalBusiness","name":"X"}]}</script>'
     )
     rows = aeo_rows("User-agent: *\nAllow: /\n", html)
-    assert not any(r["code"] == "health.schema_business_missing" for r in rows)
+    assert not any(r["code"] == "health.schema_business_missing" and r["severity"] != "ok"
+                   for r in rows)
 
 
 def test_answer_engine_schema_types_are_reported():
     """QAPage, HowTo and Article-with-author are the types answer engines lean
     on hardest for attribution. Only FAQPage and LocalBusiness were recognised."""
     rows = aeo_rows("User-agent: *\nAllow: /\n", "<html><body><p>hi</p></body></html>")
-    assert any(r["code"] == "aeo.answer_schema_missing" for r in rows), (
+    assert any(r["code"] == "aeo.answer_schema_missing" and r["severity"] != "ok"
+               for r in rows), (
         "a page with no answer-engine schema must say so"
     )
 
@@ -202,7 +215,8 @@ def test_answer_engine_schema_passes_when_present():
         '{"@type":"HowTo","name":"Fix a roof"}</script>'
     )
     rows = aeo_rows("User-agent: *\nAllow: /\n", html)
-    missing = [r for r in rows if r["code"] == "aeo.answer_schema_missing"]
+    missing = [r for r in rows
+               if r["code"] == "aeo.answer_schema_missing" and r["severity"] != "ok"]
     assert missing == [], f"HowTo should satisfy the answer-schema check, got {missing}"
 
 
@@ -213,10 +227,165 @@ def test_article_without_an_author_is_flagged():
     assert any(r["code"] == "aeo.article_author_missing" for r in rows)
 
 
-def test_article_with_an_author_is_not_flagged():
+def test_article_with_an_author_passes_the_check_rather_than_vanishing():
+    """The check used to emit a row only when it failed, so an Article that named
+    its author passed silently - the same invisible-pass hole as the codeless
+    pass rows."""
     html = (
         '<script type="application/ld+json">'
         '{"@type":"Article","headline":"X","author":{"@type":"Person","name":"A"}}</script>'
     )
     rows = aeo_rows("User-agent: *\nAllow: /\n", html)
-    assert not any(r["code"] == "aeo.article_author_missing" for r in rows)
+    row = [r for r in rows if r["code"] == "aeo.article_author_missing"]
+    assert len(row) == 1 and row[0]["severity"] == "ok"
+
+
+def test_a_page_that_is_not_an_article_is_not_judged_on_authorship():
+    """Not applicable is not the same as passing: a non-Article emits no row."""
+    html = '<script type="application/ld+json">{"@type":"LocalBusiness"}</script>'
+    rows = aeo_rows("User-agent: *\nAllow: /\n", html)
+    assert [r for r in rows if r["code"] == "aeo.article_author_missing"] == []
+
+
+def test_the_pass_row_is_stamped_with_the_checks_first_code():
+    """A check can fail for several reasons but passes as one thing, so its pass
+    row carries codes[0]. That makes the FIRST code the check's identity to the
+    ratchet and to the report views: reorder a check's codes and you rename it.
+    Pinned here because the assumption is invisible at the call site."""
+    from pipeline.scanner.audit import SEO_CHECKS, seo_rows
+    html = ("<html><head><title>A Perfectly Ordinary Page Title Here</title>"
+            '<meta name="description" content="' + "x" * 130 + '">'
+            '<link rel="canonical" href="https://x.com/"></head>'
+            "<body><h1>One</h1></body></html>")
+    rows = seo_rows("https://x.com/", html, 200, {})
+    by_what = {r["what"]: r for r in rows if r["fix"] == "passing"}
+    for label, codes, _why in SEO_CHECKS:
+        if label in by_what:
+            assert by_what[label]["code"] == codes[0], (
+                f"the pass row for {label!r} must carry codes[0], not {by_what[label]['code']!r}"
+            )
+
+
+# ── The health score ─────────────────────────────────────────────────────────
+#
+# One formula, in one place, with properties worth pinning. The old model was
+# `max(0, 100 - 10*errors - 3*warns)`, and the web tier carried two more with
+# different weights and floors, so one scan had three health numbers (B-055).
+
+
+def test_health_score_is_the_share_of_gradeable_checks_that_passed():
+    from pipeline.scanner.audit import health_score
+    assert health_score({"ok": 14, "warn": 21, "error": 8, "info": 8}) == 33
+    assert health_score({"ok": 10, "warn": 0, "error": 0}) == 100
+    assert health_score({"ok": 0, "warn": 0, "error": 10}) == 0
+
+
+def test_info_rows_are_not_gradeable_and_move_nothing():
+    """An info row reports a fact rather than a verdict. Counting it as a pass
+    would let a site raise its health by adding unjudgeable observations."""
+    from pipeline.scanner.audit import health_score
+    base = {"ok": 5, "warn": 5, "error": 0, "info": 0}
+    assert health_score(base) == health_score({**base, "info": 500})
+
+
+def test_nothing_gradeable_scores_None_rather_than_zero():
+    """A scan that measured nothing must not report 0% health - that reads as
+    'everything is broken' instead of 'we did not look'. Same rule as the gates:
+    a check that scanned nothing never reports a verdict."""
+    from pipeline.scanner.audit import health_score
+    assert health_score({"ok": 0, "warn": 0, "error": 0, "info": 9}) is None
+    assert health_score({}) is None
+
+
+def test_fixing_a_finding_can_only_raise_the_score():
+    """Monotonicity, which the penalty model did not have. Some suite tools document
+    that its own score can fall while the issue count falls; a number that moves
+    the wrong way cannot be reported against month over month."""
+    from pipeline.scanner.audit import health_score
+    prev = None
+    for fixed in range(0, 21):          # move findings one at a time into ok
+        s = health_score({"ok": fixed, "warn": 20 - fixed, "error": 0, "info": 3})
+        if prev is not None:
+            assert s >= prev, f"score fell from {prev} to {s} after fixing one more finding"
+        prev = s
+    assert prev == 100
+
+
+def test_the_score_never_saturates_away_the_difference():
+    """The old model clamped at 0, so a site with 10 errors and one with 400
+    were indistinguishable - exactly where a client most needs to see progress."""
+    from pipeline.scanner.audit import health_score
+    bad = health_score({"ok": 0, "warn": 0, "error": 400, "info": 0})
+    better = health_score({"ok": 200, "warn": 0, "error": 200, "info": 0})
+    assert bad == 0 and better == 50, "half the errors fixed must show as movement"
+
+
+def test_assemble_ships_the_score_version_beside_the_score():
+    """So a score change caused by US is distinguishable from one caused by the
+    site. Lighthouse has revised its weights five times."""
+    from pipeline.scanner.audit import assemble, HEALTH_SCORE_VERSION
+    out = assemble({"seo": [{"code": "x", "severity": "ok"}]})
+    assert out["score"] == 100
+    assert out["score_version"] == HEALTH_SCORE_VERSION
+
+
+def test_the_score_ships_its_own_denominator():
+    """A score is only comparable between scans that graded the same checks.
+    Enabling a tool raises it with no change to the site - adding the 28
+    on-page checks moved a real scan from 33 to 51 - so the denominator has to
+    travel with the number or two scores get compared that never should be."""
+    from pipeline.scanner.audit import assemble
+    few = assemble({"a": [{"code": "x", "severity": "ok"},
+                          {"code": "y", "severity": "error"}]})
+    many = assemble({"a": [{"code": "x", "severity": "ok"},
+                           {"code": "y", "severity": "error"}]
+                          + [{"code": f"z{i}", "severity": "ok"} for i in range(8)]})
+    assert few["score"] == 50 and few["graded"] == 2
+    assert many["score"] == 90 and many["graded"] == 10, \
+        "same one failure, higher score, because more checks ran"
+
+
+# ── a page that was never fetched is not a page that passed (B-074) ──────────
+#
+# The scanner graded a site it never reached at 40/100 with 23 checks marked
+# "ok" — including tech.https and onpage.mixed_content, on a response that never
+# arrived. `health_score` already refuses to score an empty grade set, and its
+# docstring says why; the guard never fired because ~20 row builders take only
+# `html` and cannot tell "" (unfetched) from "" (a page with no such feature).
+#
+# This is the same rule the gates settled on as exit 4: absence of evidence is
+# not evidence of compliance.
+
+def test_an_unfetched_page_produces_no_gradeable_rows():
+    from pipeline.scanner.audit import assemble
+    rows = [{"code": "tech.https", "what": "HTTPS", "severity": "ok"},
+            {"code": "health.title_missing", "what": "Title", "severity": "error"}]
+    out = assemble({"seo": rows}, reachable=False)
+    counts = out["counts"]
+    assert counts["ok"] == 0, "nothing can pass on a page that was never fetched"
+    assert counts["error"] == 0 and counts["warn"] == 0, (
+        "and nothing can fail either — we did not look")
+    assert out["score"] is None, (
+        "a scan that measured nothing must report no score, not 40/100")
+    assert out["graded"] == 0
+
+
+def test_an_unfetched_page_says_so_in_every_group():
+    from pipeline.scanner.audit import assemble
+    out = assemble({"seo": [{"code": "x", "what": "X", "severity": "ok"}],
+                    "onpage": [{"code": "y", "what": "Y", "severity": "warn"}]},
+                   reachable=False)
+    for group in ("seo", "onpage"):
+        assert len(out[group]) == 1, f"{group}: one honest row, not the invented set"
+        row = out[group][0]
+        assert row["severity"] == "info", "not measured is not a verdict"
+        assert "not measured" in row["what"].lower()
+
+
+def test_a_reachable_page_is_unaffected():
+    from pipeline.scanner.audit import assemble
+    rows = [{"code": "tech.https", "what": "HTTPS", "severity": "ok"},
+            {"code": "health.title_missing", "what": "Title", "severity": "error"}]
+    out = assemble({"seo": rows})
+    assert out["counts"]["ok"] == 1 and out["counts"]["error"] == 1
+    assert out["score"] == 50

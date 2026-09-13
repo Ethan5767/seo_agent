@@ -17,8 +17,27 @@ import urllib.error
 import urllib.request
 
 BASE = "https://api.dataforseo.com"
-LOCATION_CODE = 2116          # Cambodia (dfs-test default for this client)
-LANGUAGE_CODE = "en"
+# The market every paid lookup is measured against: keyword volume, SERP
+# position, GBP lookup, mention search.
+#
+# B-076. This was hardcoded to 2116 — Cambodia — with a comment conceding it was
+# "dfs-test default for this client". Every other client was therefore measured
+# against Cambodian SERPs and shown the numbers as their own, which is not a
+# wrong setting so much as a wrong answer delivered confidently.
+#
+# 2840 (United States) is the deliberate default; override per client. A value
+# that will not parse is refused loudly rather than silently falling back, since
+# a silently wrong market is exactly the failure being fixed.
+def _location_default() -> int:
+    raw = os.environ.get("DFS_LOCATION_CODE", "2840").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        raise SystemExit(f"DFS_LOCATION_CODE must be a DataForSEO location code, got {raw!r}")
+
+
+LOCATION_CODE = _location_default()
+LANGUAGE_CODE = os.environ.get("DFS_LANGUAGE_CODE", "en").strip() or "en"
 
 
 def _auth() -> str | None:
@@ -99,7 +118,24 @@ def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict
             "fix": fix, "detail": detail, "severity": severity}
 
 
-def parse_ranked_keywords(doc: dict, top: int = 15) -> list[dict]:
+#: How many rows a keyword/ranking parser keeps.
+#:
+#: It was 15 while the requests below ask DataForSEO for 50 or 100, so every
+#: paid call fetched depth we billed for and then discarded - 85 of 100 ranked
+#: keywords, 85 of 100 gap rows, 35 of 50 ideas. The rows are already bought by
+#: the time a parser sees them; slicing them off saves nothing and is the whole
+#: reason the keyword screens looked thin next to a competitor's.
+#:
+#: Named once so the ask and the keep cannot drift again. Override per call
+#: where a screen genuinely wants a shortlist.
+TOP_ROWS = 100
+
+#: Competitor lists are a shortlist by nature: past the first handful they are
+#: long-tail domains nobody acts on.
+TOP_COMPETITORS = 25
+
+
+def parse_ranked_keywords(doc: dict, top: int = TOP_ROWS) -> list[dict]:
     """Rows for the keywords a domain already ranks for, best positions first.
     Pure — takes the raw DataForSEO response, returns report rows."""
     rows = []
@@ -166,11 +202,11 @@ def site_audit(domain: str, max_pages: int = 25, run=None) -> tuple:
     return rows, f"{status} · ~${cost:.4f} est ({max_pages}pg crawl)", cost
 
 
-def ranked_keywords(domain: str, call=call, top: int = 15) -> tuple:
+def ranked_keywords(domain: str, call=call, top: int = TOP_ROWS) -> tuple:
     """(rows, status, cost_usd) — keywords `domain` ranks for. Input = domain."""
     doc, err = call("/v3/dataforseo_labs/google/ranked_keywords/live",
                     [{"target": domain, "location_code": LOCATION_CODE,
-                      "language_code": LANGUAGE_CODE, "limit": 100}])
+                      "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}])
     if err:
         return [], err, 0.0
     rows = parse_ranked_keywords(doc, top=top)
@@ -262,7 +298,7 @@ def _kw_row(code: str, kw: str, vol, sev: str, why: str, fix: str) -> dict:
             "why": why, "fix": fix, "severity": sev, "detail": f"{vol}/mo" if vol else ""}
 
 
-def parse_search_volume(doc: dict, top: int = 15) -> list[dict]:
+def parse_search_volume(doc: dict, top: int = TOP_ROWS) -> list[dict]:
     rows = []
     for it in result_items(doc)[:top]:
         kw, vol = _kw_vol(it)
@@ -273,7 +309,7 @@ def parse_search_volume(doc: dict, top: int = 15) -> list[dict]:
     return rows
 
 
-def parse_keyword_ideas(doc: dict, top: int = 15) -> list[dict]:
+def parse_keyword_ideas(doc: dict, top: int = TOP_ROWS) -> list[dict]:
     rows = []
     for it in result_items(doc)[:top]:
         kw, vol = _kw_vol(it)
@@ -284,7 +320,7 @@ def parse_keyword_ideas(doc: dict, top: int = 15) -> list[dict]:
     return rows
 
 
-def parse_keyword_gap(doc: dict, competitor: str, top: int = 15) -> list[dict]:
+def parse_keyword_gap(doc: dict, competitor: str, top: int = TOP_ROWS) -> list[dict]:
     rows = []
     for it in result_items(doc)[:top]:
         kw, vol = _kw_vol(it)
@@ -295,7 +331,7 @@ def parse_keyword_gap(doc: dict, competitor: str, top: int = 15) -> list[dict]:
     return rows
 
 
-def parse_competitors(doc: dict, top: int = 10) -> list[dict]:
+def parse_competitors(doc: dict, top: int = TOP_COMPETITORS) -> list[dict]:
     rows = []
     for it in result_items(doc)[:top]:
         dom = it.get("domain") or it.get("target")
@@ -320,11 +356,11 @@ def keyword_ideas(seeds: list, call=call) -> tuple:
         return [], "skipped: no seed keywords", 0.0
     return _tool("/v3/dataforseo_labs/google/keyword_ideas/live",
                  [{"keywords": seeds, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": 50}],
+                   "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}],
                  parse_keyword_ideas, call=call)
 
 
-def parse_keyword_suggestions(doc: dict, top: int = 15) -> list[dict]:
+def parse_keyword_suggestions(doc: dict, top: int = TOP_ROWS) -> list[dict]:
     rows = []
     for it in result_items(doc)[:top]:
         kw, vol = _kw_vol(it)
@@ -340,7 +376,7 @@ def keyword_suggestions(seed: str, call=call) -> tuple:
         return [], "skipped: no seed keyword", 0.0
     return _tool("/v3/dataforseo_labs/google/keyword_suggestions/live",
                  [{"keyword": seed, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": 50}],
+                   "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}],
                  parse_keyword_suggestions, call=call)
 
 
@@ -349,14 +385,14 @@ def keyword_gap(you: str, competitor: str, call=call) -> tuple:
         return [], "skipped: no competitor", 0.0
     return _tool("/v3/dataforseo_labs/google/domain_intersection/live",
                  [{"target1": competitor, "target2": you, "intersections": False,
-                   "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE, "limit": 100}],
+                   "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}],
                  lambda d: parse_keyword_gap(d, competitor), call=call)
 
 
 def competitors(domain: str, call=call) -> tuple:
     return _tool("/v3/dataforseo_labs/google/competitors_domain/live",
                  [{"target": domain, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": 10}],
+                   "language_code": LANGUAGE_CODE, "limit": TOP_COMPETITORS}],
                  parse_competitors, call=call)
 
 
@@ -379,6 +415,16 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
         r, _s, c = keyword_difficulty(keywords, call=call); rows += r; cost += c
         r, _s, c = search_intent(keywords, call=call); rows += r; cost += c
         r, _s, c = keyword_suggestions(keywords[0], call=call); rows += r; cost += c
+
+    # Clustering is derived, not fetched: it groups the keyword rows above into
+    # candidate pages, so the plan costs nothing beyond the calls already made.
+    # Imported here rather than at module scope so `clusters` can import nothing
+    # from this module and stay independently testable.
+    from pipeline.scanner.clusters import cluster_rows
+    keyword_codes = ("dfs.keyword_idea", "dfs.keyword_suggestion",
+                     "dfs.keyword_gap", "dfs.keyword_volume")
+    rows += cluster_rows([r for r in rows if r.get("code") in keyword_codes])
+
     cost = round(cost, 4)
     return rows, f"keywords: {len(rows)} row(s) · ${cost:.4f}", cost
 
@@ -410,7 +456,7 @@ def llm_mentions(brand: str, domain: str, call=call) -> tuple:
     ]
     return _tool("/v3/ai_optimization/llm_mentions/search_mentions/live",
                  [{"target": target, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": 100}],
+                   "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}],
                  lambda d: parse_llm_mentions(d, brand), call=call)
 
 
@@ -480,7 +526,7 @@ def historical_rank(domain: str, call=call) -> tuple:
 
 # ── Keyword difficulty (Labs): how hard each term is to rank for ─────────────
 
-def parse_keyword_difficulty(doc: dict, top: int = 15) -> list[dict]:
+def parse_keyword_difficulty(doc: dict, top: int = TOP_ROWS) -> list[dict]:
     rows = []
     for it in result_items(doc)[:top]:
         kw = it.get("keyword") or (it.get("keyword_data") or {}).get("keyword")
@@ -506,7 +552,7 @@ def keyword_difficulty(keywords: list, call=call) -> tuple:
 
 # ── Search intent (Labs): what the searcher wants per keyword ────────────────
 
-def parse_search_intent(doc: dict, top: int = 15) -> list[dict]:
+def parse_search_intent(doc: dict, top: int = TOP_ROWS) -> list[dict]:
     rows = []
     for it in result_items(doc)[:top]:
         kw = it.get("keyword") or (it.get("keyword_data") or {}).get("keyword")

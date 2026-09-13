@@ -23,8 +23,10 @@ from urllib.parse import urlsplit
 from pipeline.audit import measure
 from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
+from pipeline.scanner import recommendations
 from pipeline.scanner import dataforseo
 from pipeline.scanner.extra_checks import tech_rows, internal_link_rows
+from pipeline.scanner import onpage
 from pipeline.scanner import source_audit
 from pipeline.scanner import onpage_audit
 from pipeline.scanner import business_data
@@ -34,6 +36,7 @@ from pipeline.scanner.plan import build_plan
 from pipeline.scanner.remediate import build_remediation
 from pipeline.scanner.remediate_bridge import bridge_worklist
 from pipeline.scanner.checks import checks_for
+from pipeline.scanner.crawl import crawl_site, site_rows
 from pipeline.scanner.multipage import discover_pages, merge_by_code
 from pipeline.scanner import lighthouse
 from pipeline.scanner.eeat import eeat_rows
@@ -108,6 +111,8 @@ TOOLS = [
          lambda c: (A.seo_rows(c.url, c.html, c.status, {}), None, 0.0)),
     Tool("Site Health (DataForSEO)", "site", "On-page", "dataforseo", "~$0.006 (25 pages)", 0.006, None,
          lambda c: onpage_audit.site_audit_full(c.domain, c.max_pages)),
+    Tool("On-page deep", "onpage", "On-page", "free", "free", 0.0, None,
+         lambda c: (onpage.onpage_rows(c.url, c.html), None, 0.0)),
     Tool("Technical", "tech", "Technical", "free", "free", 0.0, None,
          lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
     Tool("Schema validation", "schema", "Technical", "free", "free", 0.0, None,
@@ -179,7 +184,7 @@ def phase_of(t: Tool) -> int:
 # are deliberately excluded: those origin files aren't swapped per page, so
 # running them per-page would repeat the homepage's robots/sitemap on every page.
 # Everything else (CrUX, Lighthouse, DataForSEO, source, validate) runs once.
-PER_PAGE = {"seo", "schema", "content", "video", "eeat", "internal"}
+PER_PAGE = {"seo", "onpage", "schema", "content", "video", "eeat", "internal"}
 
 
 def handle_plan(req: dict) -> dict:
@@ -417,6 +422,18 @@ def handle_remediate_apply(req: dict) -> dict:
     return result
 
 
+def all_playbooks() -> dict:
+    """Every code that has a written playbook, keyed by code.
+
+    Only the written ones: an empty playbook is indistinguishable from a missing
+    screen, and shipping 24 empty shells would let the UI offer "How to fix" on
+    findings with nothing behind it.
+    """
+    return {code: recommendations.playbook(code)
+            for code in recommendations.RECOMMENDATIONS
+            if recommendations.has_playbook(code)}
+
+
 def tool_catalog() -> list[dict]:
     """The tool list the frontend renders — single source of truth for the UI.
     `checks` is the tool's named checks (from checks.checks_for) so the UI can show
@@ -444,8 +461,19 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     url = normalize_url(url)
     fetched = fetch(url)
     html, status = fetched[0], fetched[1]
-    log.append(f"Opened the page — {_human_size(len(html))}, loaded OK." if status == 200
-               else f"Opened the page — the server responded {status} (couldn't read it normally).")
+    # B-074. "Reachable" means a response we can actually judge: a 200 carrying
+    # a body. A connection failure (status 0), an error page, or a 200 with an
+    # empty body all mean the same thing to every downstream row builder — they
+    # see `html == ""` and cannot distinguish it from a page that simply lacks
+    # the feature they check. `assemble` drops the verdicts rather than letting
+    # them read as passes.
+    reachable = status == 200 and bool((html or "").strip())
+    if status == 200 and not (html or "").strip():
+        log.append("Opened the page — the server answered 200 with an empty body, "
+                   "so there was nothing to measure.")
+    else:
+        log.append(f"Opened the page — {_human_size(len(html))}, loaded OK." if status == 200
+                   else f"Opened the page — the server responded {status} (couldn't read it normally).")
 
     ctx = SimpleNamespace(
         url=url, domain=urlsplit(url).netloc or url, html=html, status=status,
@@ -469,10 +497,27 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     # Free multi-page crawl: homepage + same-origin sitemap/nav URLs. Per-page
     # tools run on each; everything else runs once on the homepage.
     extra_pages: list = []
+    # Site-wide rows from the same walk: broken internal links, orphan pages,
+    # duplicate titles and descriptions. `crawl.crawl_site`/`site_rows` have
+    # existed, tested, since the free-crawl work, and were called by NOTHING -
+    # the scan used `discover_pages` instead, which fetches a flat list and so
+    # can only ever run per-page tools. Every site-level finding the crawler
+    # already knew how to produce was unreachable. B-007's shape.
+    site_findings: list = []
     if crawl_pages > 1:
-        for pu in discover_pages(url, ctx.sitemap or "", html, limit=crawl_pages)[1:]:
-            pf = fetch(pu)
-            extra_pages.append((pu, pf[0], pf[1]))
+        # The scan's fetch returns (html, status, robots, sitemap); crawl_site
+        # wants the (html, status) contract its own tests use. Adapt here rather
+        # than widening the crawler, which is also used standalone.
+        walk = crawl_site(url, lambda u: fetch(u)[:2], ctx.sitemap,
+                          max_pages=crawl_pages)
+        for page in walk["pages"]:
+            if page["url"] == url:
+                continue
+            # crawl_site keeps only what site-level checks need, so the body is
+            # re-fetched for the per-page tools. Same pages, one extra read.
+            pf = fetch(page["url"])
+            extra_pages.append((page["url"], pf[0], pf[1]))
+        site_findings = site_rows(walk)
         if extra_pages:
             log.append(f"Crawled {len(extra_pages) + 1} pages for the free checks.")
 
@@ -490,6 +535,8 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         return t.run(ctx)
 
     groups: dict[str, list] = {}
+    if site_findings:
+        groups["site"] = site_findings
     cost = 0.0
     # Walk phases in order (cheap → paid → source); a phase with no selected
     # tool is skipped silently, with no marker.
@@ -515,7 +562,7 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     all_rows = [r for rows in groups.values() for r in rows]
     log.append(f"Checked {len(all_rows)} things — {_status_line(all_rows)}. "
                f"Cost this run: ${cost:.4f}.")
-    report = A.assemble(groups)
+    report = A.assemble(groups, reachable=reachable)
     report["cost"] = round(cost, 4)
     return report
 
@@ -567,6 +614,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path == "/playbooks":
+            # Served separately rather than inlined on every row: a report holds
+            # 50+ rows and the steps and markup would dwarf the findings. The UI
+            # fetches this once and looks up by code.
+            return self._send(200, json.dumps({"playbooks": all_playbooks()}), "application/json")
         if self.path == "/tools":
             return self._send(200, json.dumps({"tools": tool_catalog()}))
         path = "index.html" if self.path in ("/", "") else self.path.lstrip("/")

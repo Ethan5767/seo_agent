@@ -271,3 +271,31 @@ def test_keyword_suggestions_parsed():
 def test_keyword_suggestions_no_seed_skips():
     rows, status, cost = keyword_suggestions("")
     assert rows == [] and "skipped" in status
+
+
+
+# ── the market is per client, not per developer (B-076) ──────────────────────
+#
+# LOCATION_CODE was hardcoded to 2116 — Cambodia — with a comment admitting it
+# was "dfs-test default for this client". It governs keyword volume, SERP
+# position, GBP lookup and mention search, so EVERY non-Cambodian client was
+# measured against the wrong market and shown the results as their own.
+
+def test_location_defaults_are_configurable(monkeypatch):
+    import importlib
+    import pipeline.scanner.dataforseo as d
+    monkeypatch.setenv("DFS_LOCATION_CODE", "2840")   # United States
+    monkeypatch.setenv("DFS_LANGUAGE_CODE", "es")
+    importlib.reload(d)
+    assert d.LOCATION_CODE == 2840
+    assert d.LANGUAGE_CODE == "es"
+    monkeypatch.delenv("DFS_LOCATION_CODE")
+    monkeypatch.delenv("DFS_LANGUAGE_CODE")
+    importlib.reload(d)
+
+
+def test_the_default_market_is_not_one_clients_test_value():
+    import pipeline.scanner.dataforseo as d
+    assert d.LOCATION_CODE != 2116, (
+        "2116 is Cambodia, carried over from one client's test run. A default "
+        "must be a deliberate choice, not the last value someone debugged with.")

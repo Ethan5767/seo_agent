@@ -172,7 +172,11 @@ test("a project is required before anything can be audited", () => {
 test("the precondition is wired to the real project list and the real modal", () => {
   // B-007: a state nobody can reach is not shipped.
   assert.match(DASH, /hasProjects=\{clients\.length > 0\}/);
-  assert.match(DASH, /onCreateProject=\{\(\) => setShowNewProjectModal\(true\)\}/);
+  // openCreateProject() rather than a raw setState: it also blanks the form and
+  // clears `editingProject`, so "Create" after an "Edit" cannot silently reopen
+  // — and overwrite — the project that was last edited.
+  assert.match(DASH, /onCreateProject=\{\(\) => openCreateProject\(\)\}/);
+  assert.match(DASH, /function openCreateProject\(\)/);
 });
 
 test("the paid tools are named before the click, not totalled", () => {

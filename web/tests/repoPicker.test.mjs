@@ -21,6 +21,12 @@ const ROUTE = code("app/api/github/repos/route.ts");
 const SERVER = code("lib/githubServer.ts");
 const DASH = code("app/ReaiDashboard.tsx");
 
+/** The create/edit project form, lifted out of the dashboard for Rule 1. */
+const MODAL = readFileSync(
+  new URL("../components/dashboard/ProjectModal.tsx", import.meta.url),
+  "utf8",
+);
+
 /* ── the three states are three different facts ──────────────────────────── */
 
 test("could-not-ask and you-have-none never render the same way", () => {
@@ -124,13 +130,16 @@ test("the GitHub token is never persisted", () => {
 
 test("the panel uses the picker and not a free-text box", () => {
   // B-007: a component nobody renders is not shipped.
-  assert.match(DASH, /<RepoPicker/);
-  assert.ok(!/placeholder="owner\/repo or local path"/.test(DASH),
+  assert.match(MODAL, /<RepoPicker/);
+  assert.ok(!/placeholder="owner\/repo or local path"/.test(MODAL + DASH),
     "the old free-text field is still there");
 });
 
 test("the picker is told when the panel is open, so it loads lazily", () => {
   // Up to five GitHub calls; most sessions never open ADD CLIENT.
+  // The modal takes `open` as a prop now and passes it straight through, so the
+  // laziness survives the extraction.
+  assert.match(MODAL, /open=\{open\}/);
   assert.match(DASH, /open=\{showNewProjectModal\}/);
   assert.match(PICKER, /if \(open && repos === null && !busy && !reason\) void load\(\)/);
 });

@@ -2,6 +2,7 @@
 // off the logged-in user, so these only work for a signed-in session; user_id is
 // stamped from the current session.
 import { supabase } from "./supabase";
+import { authedFetch } from "./authedFetch";
 
 export type ClientProfile = {
   business: string; domain: string; website: string; model: string;
@@ -52,6 +53,41 @@ export async function saveClient(p: ClientProfile): Promise<string | null> {
   if (error) { console.error("saveClient fallback", error); return null; }
   return data.id;
 }
+
+/**
+ * Correct a project that already exists.
+ *
+ * "I create a project, done — I also want to edit those details too. Example: I
+ * put the wrong website URL, so I should be able to edit it."
+ *
+ * Only the keys present are sent, so a form that does not carry a field cannot
+ * blank it. There is deliberately NO supabase fallback like `saveClient` has:
+ * the route derives `domain` from the validated `website`, and a direct table
+ * write would skip that and leave the two disagreeing — a project that scans one
+ * site and reports another.
+ */
+export async function updateClient(
+  id: string,
+  patch: Partial<ClientProfile>,
+): Promise<{ ok: true; client: any; domainChanged: DomainChange | null } | { ok: false; error: string }> {
+  try {
+    const res = await authedFetch(`/api/clients/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: json?.error || `Update failed (HTTP ${res.status})` };
+    }
+    return { ok: true, client: json.client, domainChanged: json.domainChanged ?? null };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** Reported when the site a project points at changes under existing scans. */
+export type DomainChange = { from: string; to: string; staleScans: number };
 
 export type FindingRow = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string };
 type ToolEvent = { name: string; state: string; rows: FindingRow[]; status: string; cost: number };

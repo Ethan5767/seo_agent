@@ -2,7 +2,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { AuthGate } from "./auth";
 import { ReaiDashboard } from "./ReaiDashboard";
-import { saveClient, saveScan, lastTwoScansFindings,
+import { saveClient, updateClient, saveScan, lastTwoScansFindings,
   listClients, scanHistory, getScanReport,
   saveRemediation, remediationHistory,
   type ClientWithStats, type ScanRow, type RemediationRow } from "../lib/db";
@@ -557,6 +557,29 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     }
   }
 
+  /**
+   * Correct an existing project.
+   *
+   * The selected client is re-read from the refreshed list rather than patched
+   * in place from the response, so the screen shows what the database holds and
+   * not what the form hoped it would hold. `domainChanged` is passed back up
+   * untouched: it is the caller's job to tell the operator that the site changed
+   * under scans that measured the old one.
+   */
+  async function handleUpdateClient(id: string, patch: any) {
+    const res = await updateClient(id, patch);
+    if (!res.ok) return res;
+    const refreshed = await listClients();
+    setClients(refreshed);
+    const fresh = refreshed.find((c) => c.id === id);
+    if (fresh) {
+      setHistClient(fresh);
+      // The domain may have moved, and `url` drives the next scan.
+      if (fresh.website) setUrl(fresh.website);
+    }
+    return res;
+  }
+
   async function handleSaveNewClient(profile: any) {
     const id = await saveClient(profile);
     const refreshed = await listClients();
@@ -586,6 +609,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       }}
       openReport={openReport}
       onSaveNewClient={handleSaveNewClient}
+      onUpdateClient={handleUpdateClient}
       onTriggerScan={handleTriggerScan}
       /*
        * B-104. `error` was missing here, and that is why a broken scan looked

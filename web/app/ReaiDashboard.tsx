@@ -39,6 +39,7 @@ import { GateActivity } from "@/components/dashboard/GateActivity";
 import { FixWithClaude } from "@/components/dashboard/FixWithClaude";
 import { GbpMatrix } from "@/components/dashboard/GbpMatrix";
 import { SectionScanButton } from "@/components/dashboard/SectionScanButton";
+import { ProjectModal } from "@/components/dashboard/ProjectModal";
 import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import { MeasureScreen } from "@/components/dashboard/MeasureScreen";
@@ -2161,6 +2162,16 @@ export interface ReaiDashboardProps {
   onSelectClient: (c: ClientWithStats) => void;
   openReport: { report: any; scan: ScanRow } | null;
   onSaveNewClient?: (profile: any) => Promise<void>;
+  /**
+   * Correct a project that already exists. Returns the outcome rather than
+   * throwing, because the failure has to be readable IN the modal — a project
+   * edit that fails silently leaves the operator believing the wrong URL was
+   * corrected, which is worse than not offering the edit at all.
+   */
+  onUpdateClient?: (
+    id: string,
+    patch: any,
+  ) => Promise<{ ok: true; domainChanged: { from: string; to: string; staleScans: number } | null } | { ok: false; error: string }>;
   /** `tools` scopes the scan to one section's concern. Omitted = the full scan. */
   onTriggerScan?: (url: string, tools?: string[]) => Promise<void>;
   scanState?: { busy: boolean; phaseLine: string; live: string[]; tools: any[]; error?: string | null };
@@ -2590,6 +2601,7 @@ export function ReaiDashboard({
   onSelectClient,
   openReport,
   onSaveNewClient,
+  onUpdateClient,
   onTriggerScan,
   scanState,
   toolPicker,
@@ -2797,6 +2809,14 @@ export function ReaiDashboard({
   const [newKw, setNewKw] = useState("");
   const [newKwList, setNewKwList] = useState<string[]>([]);
   const [savingProject, setSavingProject] = useState(false);
+  /**
+   * The project the modal is editing, or null when it is creating one. One
+   * modal serves both: create and edit ask for exactly the same nine fields, and
+   * a second copy of this form is a second place for them to drift apart.
+   */
+  const [editingProject, setEditingProject] = useState<any | null>(null);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [domainMoved, setDomainMoved] = useState<{ from: string; to: string; staleScans: number } | null>(null);
 
   // No project selected means no domain. It used to fall back to a real
   // client's domain, so an empty workspace looked like that client's data.
@@ -2939,7 +2959,7 @@ export function ReaiDashboard({
     else if (item.gsc) { setActiveGscView(item.gsc); }
     else if (item.view) { setActiveView(item.view); }
     else if (item.drawer) { setShowScanDrawer(true); return; }
-    else if (item.modal) { setShowNewProjectModal(true); return; }
+    else if (item.modal) { openCreateProject(); return; }
     else if (item.href) { if (typeof window !== "undefined") window.location.href = item.href; return; }
     else if (item.focus) { selectAeoFocus(item.focus); return; }
     else if (item.tab) {
@@ -3533,23 +3553,81 @@ export function ReaiDashboard({
   }, [report]);
 
   // Handle Project Creation in this single UI
+  /** Blank the form and open it in create mode. */
+  function openCreateProject() {
+    setEditingProject(null);
+    setProjectError(null);
+    setDomainMoved(null);
+    setNewBiz(""); setNewUrl(""); setNewModel("B"); setNewRepo("");
+    setNewGoal(""); setNewKw(""); setNewKwList([]);
+    setShowNewProjectModal(true);
+  }
+
+  /**
+   * Open the same form over an existing project.
+   *
+   * Every field is loaded from the record, including the ones the operator is
+   * not here to change. A form that opens blank and PATCHes what was typed
+   * silently blanks everything else, and "I put the wrong website URL" must not
+   * cost the keywords.
+   */
+  function openEditProject(c: any) {
+    if (!c) return;
+    setEditingProject(c);
+    setProjectError(null);
+    setDomainMoved(null);
+    setNewBiz(c.business || "");
+    setNewUrl(c.website || (c.domain ? `https://${c.domain}` : ""));
+    setNewModel(c.model || "B");
+    setNewRepo(c.repo || "");
+    setNewGoal(c.goal || "");
+    setNewKw("");
+    setNewKwList(Array.isArray(c.keywords) ? c.keywords : []);
+    setShowNewProjectModal(true);
+  }
+
   async function handleCreateProjectSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!newUrl.trim() || !onSaveNewClient) return;
+    if (!newUrl.trim()) return;
+    setProjectError(null);
     setSavingProject(true);
     try {
       const host = newUrl.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-      await onSaveNewClient({
+      const profile = {
         business: newBiz || host,
         domain: host,
         website: newUrl.trim(),
         model: newModel,
         repo: newRepo,
-        tier: 1,
+        tier: editingProject?.tier ?? 1,
         keywords: newKwList,
-        competitors: [],
+        competitors: Array.isArray(editingProject?.competitors) ? editingProject.competitors : [],
         goal: newGoal,
-      });
+      };
+
+      if (editingProject) {
+        if (!onUpdateClient) return;
+        const res = await onUpdateClient(editingProject.id, profile);
+        if (!res.ok) {
+          // Kept open, with the reason. Closing on failure is how an operator
+          // comes to believe a wrong URL was corrected when it was not.
+          setProjectError(res.error);
+          return;
+        }
+        // The site moved under scans that measured the old one. Those scans keep
+        // their own `url`, so nothing is falsified in the record - but the
+        // operator has to be told, or the next score they read is attributed to
+        // a site it never ran against.
+        if (res.domainChanged && res.domainChanged.staleScans > 0) {
+          setDomainMoved(res.domainChanged);
+        }
+        setShowNewProjectModal(false);
+        setEditingProject(null);
+        return;
+      }
+
+      if (!onSaveNewClient) return;
+      await onSaveNewClient(profile);
       setShowNewProjectModal(false);
       setNewBiz(""); setNewUrl(""); setNewRepo(""); setNewKwList([]);
     } finally {
@@ -3817,7 +3895,7 @@ export function ReaiDashboard({
                 <span>Project</span>
                 <button
                   type="button"
-                  onClick={() => setShowNewProjectModal(true)}
+                  onClick={() => openCreateProject()}
                   style={{
                     background: "none", border: 0, color: "#2563eb",
                     fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0,
@@ -4541,7 +4619,7 @@ export function ReaiDashboard({
                       error={scanState?.error}
                       onScan={(u, keys) => onTriggerScan?.(u, keys)}
                       hasProjects={clients.length > 0}
-                      onCreateProject={() => setShowNewProjectModal(true)}
+                      onCreateProject={() => openCreateProject()}
                     />
                   )}
                   {/* Counts render whether or not there are rows: zero is a
@@ -4711,15 +4789,42 @@ export function ReaiDashboard({
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>
-                          {c.domain} · {c.scans} scan{c.scans !== 1 ? "s" : ""}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 3, gap: 10 }}>
+                          <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                            {c.domain} · {c.scans} scan{c.scans !== 1 ? "s" : ""}
+                          </div>
+                          {/*
+                            The domain is right here, which is where a wrong one
+                            gets noticed. stopPropagation because the row itself
+                            selects the project - without it, Edit would select
+                            and then open, and the modal would sometimes be over
+                            a different project than the one clicked.
+                          */}
+                          {onUpdateClient && (
+                            <button
+                              type="button"
+                              title={`Edit ${c.business || c.domain}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDomainDropdown(false);
+                                openEditProject(c);
+                              }}
+                              style={{
+                                background: "transparent", border: "1px solid #e2e8f0", borderRadius: 6,
+                                padding: "3px 9px", fontSize: 11.5, fontWeight: 600,
+                                color: "#475569", cursor: "pointer", whiteSpace: "nowrap",
+                              }}
+                            >
+                              Edit
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
                     <div
                       onClick={() => {
                         setDomainDropdown(false);
-                        setShowNewProjectModal(true);
+                        openCreateProject();
                       }}
                       style={{ padding: "12px 18px", cursor: "pointer", color: "#4f46e5", fontSize: 12.5, fontWeight: 600, borderTop: "1px solid #edf0f4" }}
                     >
@@ -4744,7 +4849,7 @@ export function ReaiDashboard({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowNewProjectModal(true)}
+                  onClick={() => openCreateProject()}
                   style={{
                     background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8,
                     padding: "9px 18px", fontSize: 13, fontWeight: 600, color: "#334155", cursor: "pointer",
@@ -11138,161 +11243,59 @@ export function ReaiDashboard({
         </div>
       )}
 
-      {/* ── CREATE PROJECT MODAL (INLINE, NEVER LEAVES PAGE) ── */}
-      {showNewProjectModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.5)", backdropFilter: "blur(4px)",
-          display: "grid", placeItems: "center", zIndex: 1000, padding: 24,
+      {/*
+        The project now points at a different site than the scans it already
+        carries. Nothing in the record is false - each `scans` row keeps the URL
+        it ran against - but a score read off this screen would be attributed to
+        a site it was never measured on. This stays until dismissed rather than
+        auto-hiding like the toast, because it changes how every number above it
+        should be read.
+      */}
+      {domainMoved && (
+        <div role="status" style={{
+          position: "fixed", bottom: 24, right: 24, maxWidth: 420,
+          background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a",
+          padding: "14px 18px", borderRadius: 10, boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+          fontSize: 12.5, lineHeight: 1.55, zIndex: 3000,
         }}>
-          <div style={{
-            background: "#ffffff", borderRadius: 14, border: "1px solid #e9edf2",
-            width: "100%", maxWidth: 560, padding: "32px 36px", boxShadow: "0 20px 25px -5px rgba(15, 23, 42, 0.12)",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
-              <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: "#1e293b" }}>Create SEO Project</h2>
-              <button
-                type="button"
-                onClick={() => setShowNewProjectModal(false)}
-                style={{ background: "none", border: 0, fontSize: 20, color: "var(--ink-muted)", cursor: "pointer", padding: 4 }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateProjectSubmit}>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                  Business Name
-                </label>
-                <input
-                  type="text"
-                  value={newBiz}
-                  onChange={(e) => setNewBiz(e.target.value)}
-                  placeholder="e.g. Acme Studio"
-                  style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-                />
-              </div>
-
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                  Website URL *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newUrl}
-                  onChange={(e) => setNewUrl(e.target.value)}
-                  placeholder="https://example.com"
-                  style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-                />
-              </div>
-
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                  Remediation Model
-                </label>
-                <select
-                  value={newModel}
-                  onChange={(e) => setNewModel(e.target.value)}
-                  style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-                >
-                  <option value="B">Model B — Claude Code fixes code directly</option>
-                  <option value="A">Model A — Read-only brief</option>
-                </select>
-              </div>
-
-              {newModel === "B" && (
-                <RepoPicker
-                  value={newRepo}
-                  onChange={setNewRepo}
-                  getToken={githubToken}
-                  open={showNewProjectModal}
-                />
-              )}
-
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                  Target Keywords (press Enter to add)
-                </label>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <input
-                    type="text"
-                    value={newKw}
-                    onChange={(e) => setNewKw(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        if (newKw.trim() && !newKwList.includes(newKw.trim())) {
-                          setNewKwList([...newKwList, newKw.trim()]);
-                          setNewKw("");
-                        }
-                      }
-                    }}
-                    placeholder="keyword phrase"
-                    style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (newKw.trim() && !newKwList.includes(newKw.trim())) {
-                        setNewKwList([...newKwList, newKw.trim()]);
-                        setNewKw("");
-                      }
-                    }}
-                    style={{ padding: "10px 18px", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#334155", cursor: "pointer" }}
-                  >
-                    Add
-                  </button>
-                </div>
-                {newKwList.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-                    {newKwList.map((k) => (
-                      <span key={k} style={{ background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 12, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                        {k}
-                        <span style={{ cursor: "pointer", color: "#b91c1c", marginLeft: 3 }} onClick={() => setNewKwList(newKwList.filter((x) => x !== k))}>×</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div style={{ marginBottom: 22 }}>
-                <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                  Growth Goal
-                </label>
-                <input
-                  type="text"
-                  value={newGoal}
-                  onChange={(e) => setNewGoal(e.target.value)}
-                  placeholder="e.g. Increase organic signups"
-                  style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-                />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowNewProjectModal(false)}
-                  style={{ background: "#f1f5f9", color: "#475569", border: 0, borderRadius: 8, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingProject || !newUrl.trim()}
-                  style={{
-                    background: "#4f46e5", color: "#ffffff", border: 0, borderRadius: 8,
-                    padding: "10px 22px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(79, 70, 229, 0.2)",
-                  }}
-                >
-                  {savingProject ? "Creating..." : "Save Project"}
-                </button>
-              </div>
-            </form>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>Project now points at a different site</div>
+          <div>
+            Changed from <code>{domainMoved.from}</code> to <code>{domainMoved.to}</code>.
+            The {domainMoved.staleScans} scan{domainMoved.staleScans === 1 ? "" : "s"} already on
+            this project measured <code>{domainMoved.from}</code>, so those scores describe the old
+            site. Run a scan to measure the new one.
           </div>
+          <button
+            type="button"
+            onClick={() => setDomainMoved(null)}
+            style={{
+              marginTop: 10, background: "#92400e", color: "#fff", border: 0,
+              borderRadius: 6, padding: "5px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Got it
+          </button>
         </div>
       )}
+
+      {/* ── CREATE / EDIT PROJECT MODAL (INLINE, NEVER LEAVES PAGE) ── */}
+      <ProjectModal
+        open={showNewProjectModal}
+        editing={editingProject}
+        onClose={() => { setShowNewProjectModal(false); setEditingProject(null); setProjectError(null); }}
+        onSubmit={handleCreateProjectSubmit}
+        saving={savingProject}
+        error={projectError}
+        biz={newBiz} setBiz={setNewBiz}
+        url={newUrl} setUrl={setNewUrl}
+        model={newModel} setModel={setNewModel}
+        repo={newRepo} setRepo={setNewRepo}
+        goal={newGoal} setGoal={setNewGoal}
+        kw={newKw} setKw={setNewKw}
+        kwList={newKwList} setKwList={setNewKwList}
+        githubToken={githubToken}
+      />
+
 
       {/* ── LIVE SCAN DRAWER / MODAL (INLINE, NEVER LEAVES PAGE) ── */}
       {showScanDrawer && (

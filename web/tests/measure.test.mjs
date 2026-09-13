@@ -238,8 +238,29 @@ test("the Measure screen lives in its own file", () => {
 test("the dashboard shrank below 13,000 lines", () => {
   // Not an arbitrary number: AGENTS.md Rule 1 is 1,000 lines, and this is the
   // first extraction toward it. The check exists so the file cannot grow back.
+  //
+  // It has already done its job once: adding project editing pushed this file to
+  // 13,140 lines and this test refused the commit. The answer was to lift the
+  // project modal into components/dashboard/ProjectModal.tsx, not to raise the
+  // number — a ratchet that is relaxed whenever a feature needs room is not a
+  // ratchet. Raise it only by extracting something.
   const lines = DASHBOARD.split("\n").length;
   assert.ok(lines < 13000, `ReaiDashboard.tsx is ${lines} lines; extraction did not land`);
+});
+
+test("the project form is not duplicated between create and edit", () => {
+  // One modal serves both. Two copies of a nine-field form is how a field ends
+  // up editable on create and silently unreachable afterwards.
+  const modal = readFileSync(
+    path.join(__dirname, "..", "components", "dashboard", "ProjectModal.tsx"),
+    "utf8",
+  );
+  assert.match(modal, /editing \? "Edit Project" : "Create SEO Project"/);
+  const forms = (modal.match(/<form /g) || []).length;
+  assert.equal(forms, 1, "one form, both modes");
+  // And the dashboard must not have kept an inline copy.
+  assert.ok(!DASHBOARD.includes("Create SEO Project"),
+    "the modal markup belongs to ProjectModal now");
 });
 
 /* ──────────────────────────────────────────────────────────────────────────

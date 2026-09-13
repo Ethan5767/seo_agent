@@ -6,6 +6,63 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **A project's details can be corrected after it is created**
+  (`web/app/api/clients/[id]/route.ts`, `web/lib/db.ts` `updateClient`,
+  `web/components/dashboard/ProjectModal.tsx`).
+  *"I create a project, done — I also want to edit those details too. Example: I
+  put the wrong website URL, so I should be able to edit it."*
+
+  A project was write-once. A typo in the domain meant every later scan measured
+  the wrong site, and the only remedy was a second project carrying a duplicate
+  history. There is now an **Edit** control on every row of the project switcher,
+  and the same nine-field form serves create and edit — one form, because two
+  copies is how a field ends up editable on create and unreachable afterwards.
+
+  What the route refuses, and why:
+
+  | Guard | Reason |
+  |---|---|
+  | `.eq("user_id")` on the **read AND the write** | An ownership check performed only on a prior SELECT is a TOCTOU gap, and under the service-role fallback (B-066) `.eq("user_id")` is the only tenant boundary there is |
+  | Someone else's id → **404**, not a no-op | An update matching zero rows would otherwise report success |
+  | `validateScanTargetUrlAsync` on a new website | The website is what every future scan measures; correcting a typo must not become a way to aim the scanner at an internal address |
+  | `domain` derived from the validated URL, never accepted from the caller | Two fields that can disagree is a project that scans one site and reports another |
+  | `user_id` / `id` / `created_at` not in `EDITABLE` | |
+  | An absent key is left alone | PATCH semantics: a form that does not carry a field must not erase it |
+  | An empty patch → 400 | Rather than reporting a save that changed nothing |
+
+  **Changing the site is warned about twice**, because past scans measured the
+  old one. Each `scans` row keeps the `url` it actually ran against, so nothing
+  in the record is falsified — but a score read off the screen would otherwise be
+  attributed to a site it was never measured on. Before saving, the form says the
+  next scan is the first to measure the new site; after saving, the server
+  returns `domainChanged` with a **counted** (not assumed) number of affected
+  scans, and a banner states it.
+
+  A failed edit keeps the modal open with the reason. Closing on failure leaves
+  the operator believing a wrong URL was corrected, which is worse than not
+  offering the edit.
+
+### Changed
+
+- **The project modal moved out of `ReaiDashboard.tsx`**
+  (`web/components/dashboard/ProjectModal.tsx`, 226 lines).
+
+  Adding edit pushed the dashboard to **13,140 lines** and
+  `tests/measure.test.mjs` refused it. The answer was to extract the modal, not
+  to raise the number — a ratchet relaxed whenever a feature needs room is not a
+  ratchet. The file is now **12,978** lines. AGENTS.md Rule 1 is still 1,000, so
+  this is one extraction along a long road, and the test comment now says
+  explicitly that the only way to move the bar is to extract something.
+
+  Every create entry point (five of them) now calls `openCreateProject()`, which
+  blanks the form and clears `editingProject`. A raw `setShowNewProjectModal(true)`
+  after an edit would have reopened — and on save overwritten — the project last
+  edited. Only the two openers may set that state, and a test counts them.
+
+  Verified: `npm test` → **405 pass, 0 fail**; `npx tsc --noEmit` → clean.
+
 ### Fixed
 
 - **The web UI could not run a scan, a plan, or a remediation at all (B-104)**

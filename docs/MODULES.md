@@ -1,6 +1,6 @@
 # Pipeline Modules — the complete map
 
-**As of 2026-09-12** · 8 packages, 79 modules, 5 workflows, 41 `wf-*` commands. Tests were NOT re-run this session: the six 2026-09-12 subsystems (delivery, log parsing, E2E gate, CSR detection, two reports, backlink outreach) ship UNVERIFIED by operator instruction — see the CHANGELOG. The prior line read "905 tests (904 pass)"; that count predates these additions, none of which carry tests yet.
+**As of 2026-09-13** · 9 packages, 83 modules, 5 workflows, 41 `wf-*` commands, **1,248 tests (1,248 pass)**. Counted on 2026-09-13, not carried forward: `find pipeline -name '__init__.py' | wc -l`, `find pipeline -name '*.py' ! -name '__init__.py' | wc -l`, `ls .github/workflows/*.yml | wc -l`, the `wf-` entries under `[project.scripts]`, and `pytest -q`. The previous line read "8 packages, 79 modules … Tests were NOT re-run this session" and carried a test count from before six subsystems were added; the six 2026-09-12 subsystems it listed as UNVERIFIED are still unverified **against a live network**, which is a different claim from untested - see the CHANGELOG.
 (Counted, not remembered: modules = `.py` under `pipeline/` excluding `__init__.py`;
 commands = `[project.scripts]` in `pyproject.toml`; tests = `pytest -q`. Only the test
 count moved on 2026-08-10 — `--recommend` is a flag on an existing command, and

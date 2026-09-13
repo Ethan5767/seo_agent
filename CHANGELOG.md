@@ -6,6 +6,67 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Documentation
+
+Five claims in the docs that were false against the code. Each was verified by
+running the command, per `CLAUDE.md` §3, and each is the kind that costs a
+reader real time.
+
+- **`seo_agent` has been PUBLIC since 2026-08-11, and three docs still said
+  private.** `CLAUDE.md` sharp edge #3 told an operator that a collaborator
+  grant is not Actions access and that a client repo needs a `SEO_AGENT` secret
+  to check this repo out. It does not: the reusable workflows already fall back
+  to `|| github.token`, and that fallback works precisely because the repo is
+  public. The doc sent people hunting for a secret they do not need. Also
+  corrected in `SITE-AUDIT-PIPELINE.md` and the "can stay private" line in
+  `CLAUDE.md`, both of which argued the repo *could* stay private on Actions-cost
+  grounds - true, and beside the point, because it was made public for the token
+  reason instead. Verified: `gh repo view Ethan5767/seo_agent --json isPrivate`
+  -> `{"isPrivate":false}`.
+
+- **`CLAUDE.md` sharp edge #2 listed B-008 as open. It was fixed 2026-08-07** -
+  five weeks earlier, and is in the ledger's Fixed table with its proof.
+  `em_dash_check` is in `BASELINEABLE` and has been since. Anyone reading the
+  sharp-edge list would have believed a legacy em dash still blocks a client
+  forever.
+
+- **Sharp edge #5 said branch protection "cannot be enabled".** True for a
+  private repo on GitHub Free, and this repo is public, so it *can* have it. It
+  does not: `gh api repos/Ethan5767/seo_agent/branches/main/protection` -> 404,
+  `.../rulesets` -> `[]`. Reworded to separate the two cases, because the one
+  that matters is the client's private repo, where the gate really can only
+  report.
+
+- **`docs/gate-reference.md` named an authority that does not exist.** Its header
+  cited "the exit-code registry in the header of `quality-gate.reusable.yml`".
+  There is no such registry - `grep -n 'exit-code registry'` on that file returns
+  one line, the comment above `reg()`. `reg()` is the registry.
+
+- **A whole section of `gate-reference.md` documented deleted code.**
+  `### pipeline/generate/ — the data-gen emitter` described a package removed in
+  v3 §3, with an exit-code table, two "Corrected 2026-07-21" reconciliation notes
+  spanning four files, and the sentence "The orchestrator is real now:
+  `.github/workflows/cycle-emit.reusable.yml` branches on exactly this table".
+  Six paths in it do not exist: `pipeline/generate/`, that workflow,
+  `tests/test_cycle_emit_workflow.py`, `docs/briefs/`, `SPEC-emitter.md`,
+  `decisions.json`. Replaced with a tombstone naming each, and codes `15`/`16`
+  struck through in the registry as free to reclaim. This is B-023's defect
+  class, in the same file, a release later.
+
+Also: the exit-code registry gained `21` (`e2e_check`), and the "known drift"
+note - gates exiting on codes the registry does not assign them - was re-verified
+line by line against the code today rather than carried forward from a 2026-07-19
+observation whose report no longer exists. All four are still real: `orphan_check`
+returns 1 where the registry says 3, `audit_ssr` exits 9 where it says 10,
+`audit_built` exits 5 where it says 10, `forbidden_sweep` exits 3 on hits. Nothing
+branches on these numbers - the Evaluate loop keys on step outcome - so the only
+consequence is `reg()` printing the wrong number beside a real failure.
+
+`docs/MODULES.md` header recounted from the tree: **9 packages, 83 modules, 5
+workflows, 41 `wf-*` commands, 1,248 tests (1,248 pass)**. It said 8 packages and
+79 modules, and carried a test count from before six subsystems were added.
+
+
 ### Fixed
 
 - **B-089: every cycle artifact was written non-atomically

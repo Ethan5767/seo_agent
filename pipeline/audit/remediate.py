@@ -73,6 +73,8 @@ from pathlib import Path
 
 from pipeline.lib.common import client_profile, load_config, tier_verdict
 
+from pipeline.lib.atomic import write_atomic, write_json_atomic
+
 SCHEMA = "site-remediate-changelog/1"
 REFUSED_EXIT = 9
 USAGE_EXIT = 2
@@ -789,7 +791,7 @@ def main() -> int:
         return 0
 
     out = Path(args.project) / "docs" / "audit" / changelog["cycle"] / "changelog.json"
-    out.write_text(json.dumps(changelog, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(out, changelog)
 
     if args.recommend:
         briefed = sum(1 for r in changelog["items"] if r["status"] == "briefed")

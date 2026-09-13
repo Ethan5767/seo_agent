@@ -25,6 +25,8 @@ from pipeline.audit import measure, plan, remediate as rem
 from pipeline.scanner.config import ensure_config
 from pipeline.scanner.recommendations import recommend
 
+from pipeline.lib.atomic import write_json_atomic
+
 
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args],
@@ -98,8 +100,8 @@ def run_cycle(repo: Path, url: str, model: str, cycle: str | None = None,
         changelog, _code = rem.remediate(repo, cycle, max_items=20, max_files=20,
                                          model="sonnet", timeout=300, dry_run=False)
     log += [f"remediate: {ln}" for ln in buf.getvalue().splitlines() if ln.strip()]
-    (repo / "docs" / "audit" / changelog["cycle"] / "changelog.json").write_text(
-        json.dumps(changelog, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(repo / "docs" / "audit" / changelog["cycle"] / "changelog.json",
+                      changelog)
 
     base = _git(repo, "rev-parse", "HEAD").strip()
     _git(repo, "checkout", "-q", "-b", "scan-fix")

@@ -125,6 +125,8 @@ from pathlib import Path
 
 from pipeline.lib.html import sitemap_locs
 
+from pipeline.lib.atomic import write_atomic, write_json_atomic
+
 SCHEMA = "meridian-gate-baseline/1"
 
 # ── the safety boundary (see module docstring for the reasoning) ──────────────
@@ -362,7 +364,7 @@ class Baseline:
         }
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(doc, indent=2, sort_keys=False) + "\n")
+        write_json_atomic(p, doc, sort_keys=False)
 
 
 # ── comparison used by the gates ─────────────────────────────────────────────
@@ -424,7 +426,7 @@ def emit(path: str, findings: list) -> int:
     recorder and the gate can never drift apart. Returns the gate's exit code."""
     findings = sort_findings(assign_ordinals(list(findings)))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps([f.to_json() for f in findings], indent=2) + "\n")
+    write_json_atomic(path, [f.to_json() for f in findings], sort_keys=False)
     return 0
 
 

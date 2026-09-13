@@ -25,6 +25,8 @@ from pipeline.lib.common import curl, curl_status, load_config, visible_text_rat
 
 from pipeline.lib.html import page_title, sitemap_locs
 
+from pipeline.lib.atomic import write_atomic, write_json_atomic
+
 GATE = "site_health"
 SCHEMA = "site-health/1"
 
@@ -364,7 +366,7 @@ def main() -> int:
         "findings": [dict(f.to_json(), fingerprint=f.fingerprint)
                      for f in sort_findings(findings)],
     }
-    out_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(out_path, doc)
 
     print(f"[OK] {checked} URLs measured, {len(findings)} findings -> {out_path}")
     warn_dominant_code(findings)

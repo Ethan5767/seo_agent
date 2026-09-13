@@ -51,6 +51,8 @@ STATIC = Path(__file__).parent / "static"
 # The one shared .env loader — same file every wf-* command reads.
 from pipeline.lib.env import load_env as load_dotenv  # noqa: E402 (re-export)
 
+from pipeline.lib.atomic import write_json_atomic
+
 
 def _default_fetch(url: str):
     """(html, status, robots_text, sitemap_text) for a live URL. Reuses curl."""
@@ -248,8 +250,7 @@ def _remediate_prep(req: dict):
     bridged = bridge_worklist(worklist, url, tier, cycle)
     out_dir = repo_path / "docs" / "audit" / cycle
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "worklist.json").write_text(
-        json.dumps(bridged["worklist"], indent=2, sort_keys=True) + "\n")
+    write_json_atomic(out_dir / "worklist.json", bridged["worklist"])
     return None, {"repo_path": repo_path, "cycle": cycle, "bridged": bridged, "out_dir": out_dir}
 
 

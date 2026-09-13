@@ -39,6 +39,8 @@ from pathlib import Path
 from pipeline.audit.remediate import read_briefs
 from pipeline.lib.common import client_profile, load_config
 
+from pipeline.lib.atomic import write_atomic, write_json_atomic
+
 SCHEMA = "site-plan-worklist/1"
 LANES = ("REGRESSION", "NEW", "PERSISTING", "RESOLVED")
 _CYCLE_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -529,15 +531,15 @@ def sort_findings_json(rows: list) -> list:
 def write_artifacts(project, worklist: dict, report: str, doc: dict, lanes: dict,
                     progress: str = "", action: str = "") -> Path:
     out_dir = audit_dir(project) / worklist["cycle"]
-    (out_dir / "worklist.json").write_text(json.dumps(worklist, indent=2, sort_keys=True) + "\n")
-    (out_dir / "report.md").write_text(report)
+    write_json_atomic(out_dir / "worklist.json", worklist)
+    write_atomic(out_dir / "report.md", report)
     # The two client-facing cuts (SOP §10) are rendered by plan(); this just writes
     # the bytes. They are optional args so an older caller passing the 4-tuple still
     # works — an empty string means "not rendered", not "empty report".
     if progress:
-        (out_dir / "report-progress.md").write_text(progress)
+        write_atomic(out_dir / "report-progress.md", progress)
     if action:
-        (out_dir / "report-action.md").write_text(action)
+        write_atomic(out_dir / "report-action.md", action)
     # Stamp the lane back onto each current finding: the fleet view reads lanes
     # off findings.json, and re-running the planner over an unchanged cycle must
     # reproduce the same bytes rather than a noise diff.
@@ -545,7 +547,7 @@ def write_artifacts(project, worklist: dict, report: str, doc: dict, lanes: dict
         if f.get("fingerprint") in lanes:
             f["lane"] = lanes[f["fingerprint"]]
     doc.pop("cycle", None)
-    (out_dir / "findings.json").write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(out_dir / "findings.json", doc)
     return out_dir
 
 

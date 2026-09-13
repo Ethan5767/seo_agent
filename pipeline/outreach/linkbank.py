@@ -11,6 +11,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+from pipeline.lib.atomic import write_atomic, write_json_atomic
+
 SCHEMA = "outreach-linkbank/1"
 
 
@@ -34,7 +36,7 @@ def load(project) -> dict:
 def save(project, bank: dict) -> Path:
     p = bank_path(project)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(bank, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(p, bank)
     return p
 
 

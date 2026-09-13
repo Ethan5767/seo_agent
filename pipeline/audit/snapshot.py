@@ -53,6 +53,8 @@ from urllib.parse import urlsplit
 from pipeline.audit.measure import discover_urls
 from pipeline.lib.common import curl, curl_final_host, curl_status, load_config
 
+from pipeline.lib.atomic import write_atomic, write_json_atomic
+
 SCHEMA = "render-snapshot/1"
 MANIFEST = "snapshot.json"
 REFUSED_EXIT = 19
@@ -235,7 +237,7 @@ def main() -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return USAGE_EXIT
 
-    (out / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(out / MANIFEST, manifest)
     print(f"\n[OK] {len(manifest['routes'])} route(s) captured from "
           f"{manifest['base_url']} -> {out}"
           + (f", {len(manifest['failed'])} failed" if manifest["failed"] else ""))

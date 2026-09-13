@@ -6,6 +6,41 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **B-089: every cycle artifact was written non-atomically
+  (`pipeline/lib/atomic.py`, 16 call sites).** `Path.write_text` truncates the
+  file to zero bytes and only then writes the content. Anything that ends the
+  process inside that window - Ctrl-C on a long measure, an OOM kill, a runner
+  timing out mid-step, a full disk - leaves a truncated or empty file that the
+  next stage reads.
+
+  The dangerous part is that the damage is quiet. An empty `findings.json` is
+  not an error to the ratchet; it is a site with no findings, so every real
+  finding files as **RESOLVED**, the next worklist is empty, and the cycle
+  reports that everything got fixed. A half-written `gate-baseline.json` runs
+  the whole fleet's gates bare, which is the failure B-007 already cost a
+  release.
+
+  `write_atomic` writes a sibling temp file, fsyncs it, `os.replace`s it into
+  position (atomic on POSIX *and* Windows, unlike `os.rename`) and fsyncs the
+  directory. The temp file is a sibling rather than in `/tmp` because a rename
+  across filesystems is not atomic. `write_json_atomic` serialises **before**
+  touching the file, so a document that cannot be encoded fails with the
+  previous artifact still intact.
+
+  The cleanup catches `BaseException`, not `Exception`: `KeyboardInterrupt` is
+  not an `Exception`, and Ctrl-C during a long measure is precisely the
+  interruption this exists for.
+
+  Migrated: `findings.json`, `worklist.json`, `changelog.json`, `report.md`,
+  `report-progress.md`, `report-action.md`, `gate-baseline.json`, the baseline
+  finding dump, the snapshot manifest, the logparse output, the web bridge's
+  worklist, the scan runner's changelog, the seed log and the link bank.
+  10 tests, including one that fails the build if any cycle artifact is written
+  with a plain `write_text` again.
+
+
 ### Changed
 
 - **Eight `<loc>` parsers and four `<title>` parsers became one

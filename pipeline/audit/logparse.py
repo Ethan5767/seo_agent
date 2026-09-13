@@ -40,6 +40,8 @@ from pathlib import Path
 
 from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
 
+from pipeline.lib.atomic import write_atomic, write_json_atomic
+
 GATE = "site_health"
 SCHEMA = "site-logs/1"
 
@@ -203,7 +205,7 @@ def main() -> int:
             "source": args.logs,
             "findings": [dict(f.to_json(), fingerprint=f.fingerprint) for f in findings],
         }
-        Path(args.out).write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+        write_json_atomic(args.out, doc)
         print(f"[OK] {len(findings)} findings -> {args.out}")
     return 0
 

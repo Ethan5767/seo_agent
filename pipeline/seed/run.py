@@ -18,6 +18,8 @@ from pipeline.seed.generate import draft
 from pipeline.seed.posters import PostResult, green_poster, stub_post, write_draft_file
 from pipeline.seed.tiers import tier_of
 
+from pipeline.lib.atomic import write_json_atomic
+
 
 def dispatch(drafts, drafts_dir: str, poster=None) -> list[PostResult]:
     poster = poster or stub_post
@@ -86,8 +88,7 @@ def run_seed(gaps_path: str, out_dir: str, drafts_dir: str,
         "dropped": dropped,
     }
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "seed-log.json"), "w", encoding="utf-8") as fh:
-        json.dump(log, fh, indent=2)
+    write_json_atomic(os.path.join(out_dir, "seed-log.json"), log, sort_keys=False)
     return log
 
 

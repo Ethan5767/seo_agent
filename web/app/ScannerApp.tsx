@@ -9,6 +9,7 @@ import { saveClient, saveScan, lastTwoScansFindings,
 import { scoreTrend, sparklinePath } from "../lib/trend";
 import { listRepos } from "../lib/github";
 import { supabase } from "../lib/supabase";
+import { authedFetch } from "@/lib/authedFetch";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string; pages?: string[] };
 type Audit = {
@@ -346,7 +347,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
   const [catalog, setCatalog] = useState<CatalogTool[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   useEffect(() => {
-    fetch("/api/tools").then((r) => r.json()).then((d) => {
+    authedFetch("/api/tools").then((r) => r.json()).then((d) => {
       const t: CatalogTool[] = d.tools || [];
       setCatalog(t);
       setSelected(new Set(t.filter((x) => x.group === "free").map((x) => x.key)));  // ONLY free tools ticked; paid permanently unticked
@@ -374,7 +375,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     setPlanBusy(true); setPlan(null); setRemed(null); setDry(null); setApply(null); setConfirmApply(false);
     try {
       const { current, previous } = await lastTwoScansFindings(clientId);
-      const res = await fetch("/api/plan", {
+      const res = await authedFetch("/api/plan", {
         method: "POST",
         body: JSON.stringify({ current, previous }),
       });
@@ -390,7 +391,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     if (!plan?.worklist?.length) return;
     setRemedBusy(true); setRemed(null); setDry(null);
     try {
-      const res = await fetch("/api/remediate", {
+      const res = await authedFetch("/api/remediate", {
         method: "POST",
         body: JSON.stringify({ worklist: plan.worklist }),
       });
@@ -408,7 +409,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     if (!plan?.worklist?.length) return;
     setDryBusy(true); setDry(null); setApply(null); setConfirmApply(false);
     try {
-      const res = await fetch("/api/remediate/dryrun", {
+      const res = await authedFetch("/api/remediate/dryrun", {
         method: "POST",
         body: JSON.stringify({ repo, url, tier: 1, worklist: plan.worklist }),
       });
@@ -426,7 +427,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     if (!plan?.worklist?.length) return;
     setApplyBusy(true); setApply(null); setConfirmApply(false);
     try {
-      const res = await fetch("/api/remediate/apply", {
+      const res = await authedFetch("/api/remediate/apply", {
         method: "POST",
         body: JSON.stringify({ repo, url, tier: 1, worklist: plan.worklist, confirm: true, max_items: 3 }),
       });
@@ -494,7 +495,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     try {
       const { data: sess } = await supabase.auth.getSession();
       const github_token = sess.session?.provider_token || "";  // read-only source lane
-      const res = await fetch("/api/scan", {
+      const res = await authedFetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: activeUrl, repo, model, tools: [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25, crawl_pages: crawlPages }),

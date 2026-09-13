@@ -2856,7 +2856,7 @@ export function ReaiDashboard({
     setGhBusy(true); setMergeNote("");
     try {
       const gh = await githubToken();
-      const res = await fetch(`/api/clients/${selectedClient.id}/github/pulls`, {
+      const res = await authedFetch(`/api/clients/${selectedClient.id}/github/pulls`, {
         cache: "no-store",
         headers: gh ? { "x-github-token": gh } : {},
       });
@@ -2882,7 +2882,7 @@ export function ReaiDashboard({
     setMergeBusy(pr.number); setMergeNote("");
     try {
       const ghTok = await githubToken();
-      const res = await fetch(`/api/clients/${selectedClient.id}/github/merge`, {
+      const res = await authedFetch(`/api/clients/${selectedClient.id}/github/merge`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -3022,7 +3022,7 @@ export function ReaiDashboard({
 
   const loadCachedSnapshot = useCallback(async (siteUrl: string) => {
     try {
-      const res = await fetch(`/api/traffic/snapshot?siteUrl=${encodeURIComponent(siteUrl)}`);
+      const res = await authedFetch(`/api/traffic/snapshot?siteUrl=${encodeURIComponent(siteUrl)}`);
       if (res.ok) {
         const json = await res.json();
         if (json.latest) {
@@ -3176,7 +3176,7 @@ export function ReaiDashboard({
         ? Number(((qData.rows.reduce((acc: number, r: any) => acc + (r.position || 0), 0)) / qData.rows.length).toFixed(1))
         : 0;
 
-      fetch("/api/traffic/snapshot", {
+      authedFetch("/api/traffic/snapshot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3337,7 +3337,7 @@ export function ReaiDashboard({
 
   const handleDisconnectGoogle = useCallback(async () => {
     try {
-      await fetch("/api/auth/google/save-token", {
+      await authedFetch("/api/auth/google/save-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "disconnect" }),

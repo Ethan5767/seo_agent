@@ -64,7 +64,7 @@ function GoogleIntegrationContent() {
     }
 
     setIsConnectingOAuth(true);
-    fetch("/api/auth/google/save-token", {
+    authedFetch("/api/auth/google/save-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -95,7 +95,7 @@ function GoogleIntegrationContent() {
     setFeedbackMsg(null);
 
     try {
-      const res = await fetch("/api/auth/google/save-token", {
+      const res = await authedFetch("/api/auth/google/save-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accessToken: directToken.trim() }),
@@ -124,7 +124,7 @@ function GoogleIntegrationContent() {
 
   const handleDisconnect = async () => {
     try {
-      await fetch("/api/auth/google/save-token", {
+      await authedFetch("/api/auth/google/save-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "disconnect" }),

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { authedFetch } from "@/lib/authedFetch";
 
 /**
  * Choose the client's GitHub repository.
@@ -79,7 +80,7 @@ export function RepoPicker({
     setReason("");
     try {
       const token = await getToken();
-      const res = await fetch("/api/github/repos", {
+      const res = await authedFetch("/api/github/repos", {
         cache: "no-store",
         headers: token ? { "x-github-token": token } : {},
       });

@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { GATE_ROSTER } from "@/lib/pipelineStages";
+import { authedFetch } from "@/lib/authedFetch";
 
 /**
  * Watch the gates run, step by step, without leaving this app.
@@ -81,7 +82,7 @@ export function GateActivity({
     setBusy(true);
     try {
       const token = await getToken();
-      const res = await fetch(`/api/clients/${clientId}/github/activity?sha=${encodeURIComponent(sha)}`, {
+      const res = await authedFetch(`/api/clients/${clientId}/github/activity?sha=${encodeURIComponent(sha)}`, {
         cache: "no-store",
         headers: token ? { "x-github-token": token } : {},
       });

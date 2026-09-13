@@ -10,14 +10,18 @@ import { gbpContext, fetchPrimaryLocation, normalizeLocation, unavailable } from
  * Business Profile API" whenever a cookie was present. It made zero Google
  * calls. It now makes the real call, and says so plainly when it cannot.
  */
-export async function GET(_request: NextRequest) {
-  const ctx = await gbpContext();
+export async function GET(request: NextRequest) {
+  const ctx = await gbpContext(request);
 
   if (!ctx.token) {
     return NextResponse.json(
       unavailable(
         "no_token",
-        "Not connected. Connect the Google account that manages this Business Profile.",
+        // ctx.reason carries the specific case - signed out, never connected, or
+        // a connection belonging to a different account that was just cleared.
+        // Collapsing all three into "Not connected" is how the leak stayed
+        // invisible: the screen looked the same either way.
+        ctx.reason || "Not connected. Connect the Google account that manages this Business Profile.",
       ),
     );
   }
@@ -46,7 +50,7 @@ export async function GET(_request: NextRequest) {
  * The write path (locations.patch with an updateMask) is not wired yet; saying
  * so is better than accepting an edit into a variable and reporting success.
  */
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   return NextResponse.json(
     {
       ok: false,

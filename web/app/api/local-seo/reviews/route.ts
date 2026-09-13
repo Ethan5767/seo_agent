@@ -12,11 +12,11 @@ import { gbpContext, fetchPrimaryLocation, unavailable } from "@/lib/gbp";
  */
 const V4_API = "https://mybusiness.googleapis.com/v4";
 
-export async function GET(_request: NextRequest) {
-  const ctx = await gbpContext();
+export async function GET(request: NextRequest) {
+  const ctx = await gbpContext(request);
   if (!ctx.token) {
     return NextResponse.json(
-      unavailable("no_token", "Not connected. Connect Google to read your reviews."),
+      unavailable("no_token", ctx.reason || "Not connected. Connect Google to read your reviews."),
     );
   }
 
@@ -76,7 +76,7 @@ export async function GET(_request: NextRequest) {
  * Replying writes to a customer-visible surface, so it is never simulated.
  * The previous implementation mutated an in-memory array and reported success.
  */
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   return NextResponse.json(
     {
       ok: false,

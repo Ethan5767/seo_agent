@@ -38,6 +38,7 @@ import {
   SiteHealthDonut,
   CrawledPagesBar,
 } from "@/components/dashboard/primitives";
+import { authedFetch } from "../lib/authedFetch";
 
 // ── Icons ──
 function IconHome({ size = 18 }: { size?: number }) {
@@ -3031,22 +3032,22 @@ export function ReaiDashboard({
     setIsGscLoading(true);
     try {
       const [queryRes, dateRes, countryRes, deviceRes] = await Promise.all([
-        fetch("/api/gsc/query", {
+        authedFetch("/api/gsc/query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ siteUrl, days: 28, rowLimit: 50, dimensions: ["query"] }),
         }),
-        fetch("/api/gsc/query", {
+        authedFetch("/api/gsc/query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ siteUrl, days: 28, rowLimit: 30, dimensions: ["date"] }),
         }),
-        fetch("/api/gsc/query", {
+        authedFetch("/api/gsc/query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ siteUrl, days: 28, rowLimit: 10, dimensions: ["country"] }),
         }),
-        fetch("/api/gsc/query", {
+        authedFetch("/api/gsc/query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ siteUrl, days: 28, rowLimit: 5, dimensions: ["device"] }),
@@ -3263,7 +3264,7 @@ export function ReaiDashboard({
     }
 
     // 2. Fetch live status from backend
-    fetch(`/api/auth/google/status`)
+    authedFetch(`/api/auth/google/status`)
       .then((res) => res.json())
       .then((data) => {
         if (data.connected) {

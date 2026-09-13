@@ -25,11 +25,11 @@ function daysAgo(n: number): { year: number; month: number; day: number } {
  * looked like a successful sync. It made no Google call. It now reads the real
  * Performance API and reports an explicit reason when it cannot.
  */
-export async function GET(_request: NextRequest) {
-  const ctx = await gbpContext();
+export async function GET(request: NextRequest) {
+  const ctx = await gbpContext(request);
   if (!ctx.token) {
     return NextResponse.json(
-      unavailable("no_token", "Not connected. Connect Google to see customer actions."),
+      unavailable("no_token", ctx.reason || "Not connected. Connect Google to see customer actions."),
     );
   }
 

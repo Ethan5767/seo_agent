@@ -8,6 +8,7 @@ import {
   type GscView,
   type GscRow,
 } from "@/lib/gscViews";
+import { authedFetch } from "@/lib/authedFetch";
 
 /**
  * A Search Console screen.
@@ -41,7 +42,7 @@ export function GscPanel({ view, siteUrl, onConnect }: GscPanelProps) {
     setStatus("loading");
     setMessage("");
     try {
-      const res = await fetch("/api/gsc/query", {
+      const res = await authedFetch("/api/gsc/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

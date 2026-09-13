@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { authedFetch } from "@/lib/authedFetch";
 
 function GoogleIntegrationContent() {
   const searchParams = useSearchParams();
@@ -31,7 +32,7 @@ function GoogleIntegrationContent() {
   const fetchStatus = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/auth/google/status");
+      const res = await authedFetch("/api/auth/google/status");
       const data = await res.json();
       setStatus(data);
     } catch (e: any) {

@@ -1,29 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { PRIMARY_COOKIES, SECONDARY_COOKIES } from "@/lib/oauthCookies";
+import { clearGoogleCookies, googleSession, reasonFor } from "@/lib/googleSession";
+
+/**
+ * Which Google account is connected, for the signed-in caller.
+ *
+ * This route used to read `gsc_access_token` straight out of the cookie jar and
+ * report on whatever it found, with no idea whose it was. It is the first thing
+ * the dashboard calls on mount, so it was the route that actually delivered one
+ * operator's Search Console to the next person to sign in. See
+ * `lib/googleSession.ts` for the whole failure and the fix.
+ */
+const DISCONNECTED = {
+  connected: false,
+  userEmail: null as string | null,
+  sites: [] as string[],
+  siteEntries: [] as any[],
+  services: {
+    searchConsole: { connected: false, properties: [] as string[] },
+    businessProfile: { connected: false, accountEmail: null, isSecondary: false, hasLocations: null },
+    analytics: { connected: false },
+  },
+  secondaryGbp: { connected: false, email: null as string | null },
+};
 
 export async function GET(request: NextRequest) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("gsc_access_token")?.value;
-  const userEmail = cookieStore.get("gsc_user_email")?.value || "";
+  const session = await googleSession(request);
 
-  const gbpSecondaryToken = cookieStore.get("gbp_secondary_access_token")?.value;
-  const gbpSecondaryEmail = cookieStore.get("gbp_secondary_user_email")?.value || "";
-
-  if (!token && !gbpSecondaryToken) {
-    return NextResponse.json({
-      connected: false,
-      userEmail: null,
-      sites: [],
-      services: {
-        searchConsole: { connected: false, properties: [] },
-        businessProfile: { connected: false, accountEmail: null, hasLocations: false },
-        analytics: { connected: false },
-      },
-      secondaryGbp: { connected: false, email: null },
-      error: "No Google account currently connected. Please connect via OAuth.",
-    });
+  if (session.state !== "owned") {
+    return NextResponse.json({ ...DISCONNECTED, reason: reasonFor(session.state) });
   }
+
+  const token = session.gscToken;
+  const userEmail = session.gscEmail || "";
+  const gbpSecondaryToken = session.gbpSecondaryToken;
+  const gbpSecondaryEmail = session.gbpSecondaryEmail || "";
 
   // Verify primary token against Search Console
   let sites: string[] = [];
@@ -53,7 +63,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Google Business Profile status check
   const activeGbpToken = gbpSecondaryToken || token;
   const activeGbpEmail = gbpSecondaryEmail || userEmail;
   const isGbpSecondary = Boolean(gbpSecondaryToken);
@@ -74,7 +83,7 @@ export async function GET(request: NextRequest) {
       },
       businessProfile: {
         connected: Boolean(activeGbpToken),
-        accountEmail: activeGbpEmail,
+        accountEmail: activeGbpEmail || null,
         isSecondary: isGbpSecondary,
         // Never probed. This said `true` with the comment "Auto-probed" beside
         // it, so the UI reported locations on an account that may have none.
@@ -89,22 +98,33 @@ export async function GET(request: NextRequest) {
       connected: Boolean(gbpSecondaryToken),
       email: gbpSecondaryEmail || null,
     },
-    tokenSource: "oauth_session",
   });
 }
 
+/**
+ * Disconnect.
+ *
+ * Deliberately does NOT require an authenticated caller. This is the endpoint
+ * sign-out calls, and by then the Supabase session may already be gone - a
+ * disconnect that refuses because you have signed out would leave the token in
+ * the browser, which is the exact thing being fixed. It only ever deletes
+ * cookies from the caller's own jar, so there is nothing to protect.
+ */
 export async function DELETE(request: NextRequest) {
-  const cookieStore = await cookies();
+  const { cookies } = await import("next/headers");
+  const jar = await cookies();
   const service = request.nextUrl.searchParams.get("service") || "all";
 
-  // One list, in lib/oauthCookies.ts, so a cookie added to the flow cannot be
-  // forgotten here and leave a disconnected account still holding a token.
-  if (service === "gbp_secondary" || service === "all") {
-    for (const c of SECONDARY_COOKIES) cookieStore.delete(c);
-  }
+  const { SECONDARY_COOKIES, PRIMARY_COOKIES, FLOW_COOKIES } = await import("@/lib/oauthCookies");
 
-  if (service === "primary" || service === "all") {
-    for (const c of PRIMARY_COOKIES) cookieStore.delete(c);
+  if (service === "all") {
+    await clearGoogleCookies();
+  } else {
+    if (service === "gbp_secondary") for (const c of SECONDARY_COOKIES) jar.delete(c);
+    if (service === "primary") {
+      for (const c of PRIMARY_COOKIES) jar.delete(c);
+      for (const c of FLOW_COOKIES) jar.delete(c);
+    }
   }
 
   return NextResponse.json({

@@ -13,7 +13,9 @@
  * callers get an explicit reason and no data, never a fixture.
  */
 
-import { cookies } from "next/headers";
+import type { NextRequest } from "next/server";
+
+import { googleSession, reasonFor } from "@/lib/googleSession";
 
 const ACCOUNTS_API = "https://mybusinessaccountmanagement.googleapis.com/v1";
 const INFO_API = "https://mybusinessbusinessinformation.googleapis.com/v1";
@@ -45,34 +47,46 @@ export interface GbpContext {
   /** Which Google connection the token came from. */
   accountType: "secondary_gbp" | "primary_unified" | "none";
   accountEmail: string | null;
+  /** Why there is no token, when there is none. Null when there is one. */
+  reason?: string | null;
 }
 
 /**
- * The access token to use for Business Profile calls.
+ * The access token to use for Business Profile calls, for THIS caller.
  *
  * A dedicated secondary connection wins: operators commonly manage a client's
  * Maps listing under a different Google account from Search Console, which is
  * why the secondary connection exists at all.
+ *
+ * It takes the request because it must. This function used to read the cookie
+ * jar directly and hand back whatever token it found, so all four `local-seo`
+ * routes served one operator's Business Profile - locations, reviews, posts,
+ * the lot - to whoever signed in next in the same browser. `googleSession`
+ * authenticates the caller and refuses a connection that is not theirs; the
+ * whole failure is written up in `lib/googleSession.ts`.
  */
-export async function gbpContext(): Promise<GbpContext> {
-  const jar = await cookies();
-  const secondary = jar.get("gbp_secondary_access_token")?.value;
-  if (secondary) {
+export async function gbpContext(req: NextRequest): Promise<GbpContext> {
+  const session = await googleSession(req);
+  if (session.state !== "owned") {
+    return { token: null, accountType: "none", accountEmail: null, reason: reasonFor(session.state) };
+  }
+  if (session.gbpSecondaryToken) {
     return {
-      token: secondary,
+      token: session.gbpSecondaryToken,
       accountType: "secondary_gbp",
-      accountEmail: jar.get("gbp_secondary_user_email")?.value || null,
+      accountEmail: session.gbpSecondaryEmail,
+      reason: null,
     };
   }
-  const primary = jar.get("gsc_access_token")?.value;
-  if (primary) {
+  if (session.gscToken) {
     return {
-      token: primary,
+      token: session.gscToken,
       accountType: "primary_unified",
-      accountEmail: jar.get("gsc_user_email")?.value || null,
+      accountEmail: session.gscEmail,
+      reason: null,
     };
   }
-  return { token: null, accountType: "none", accountEmail: null };
+  return { token: null, accountType: "none", accountEmail: null, reason: reasonFor("not_connected") };
 }
 
 async function getJson(url: string, token: string): Promise<{ ok: boolean; data: any; status: number }> {

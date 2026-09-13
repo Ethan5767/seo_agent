@@ -3,6 +3,10 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import { purgeGoogleConnection } from "../lib/authedFetch";
+
+/** Which Supabase user this browser last held, so an account swap can be seen. */
+const LAST_USER_KEY = "reai_last_user";
 
 interface AuthContextType {
   session: Session | null;
@@ -137,6 +141,21 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
       if (active) {
+        // A different user in this browser must not inherit the last one's
+        // Google connection. Sign-out already purges, but it is not the only way
+        // to swap accounts: a session can be replaced outright by another tab,
+        // by a refresh onto a different account, or by signing in over a live
+        // session, and every one of those kept the old cookies.
+        const uid = s?.user?.id || null;
+        try {
+          const previous = localStorage.getItem(LAST_USER_KEY);
+          if (uid && previous && previous !== uid) void purgeGoogleConnection();
+          if (uid) localStorage.setItem(LAST_USER_KEY, uid);
+          else localStorage.removeItem(LAST_USER_KEY);
+        } catch {
+          // Blocked site data. The server-side ownership check in
+          // `googleSession` is the guarantee; this is only the tidy-up.
+        }
         if (s) {
           setSession(s);
         } else if (isLocal) {
@@ -190,6 +209,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   };
 
   const handleSignOut = async () => {
+    // BEFORE signing out, not after: once `setSession(null)` renders the login
+    // screen there is nothing mounted left to finish an await.
+    //
+    // This used to clear the Supabase session and nothing else. The Google
+    // tokens are ordinary cookies with a 30-day life (the refresh token, a year)
+    // and no tie to any account, so they survived sign-out and the next person
+    // to sign in to this browser was shown the previous operator's Search
+    // Console and Business Profile. See `lib/googleSession.ts`.
+    await purgeGoogleConnection();
     await supabase.auth.signOut();
     setSession(null);
   };

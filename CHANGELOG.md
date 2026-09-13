@@ -6,6 +6,73 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Security
+
+- **B-090: one operator's Google data was served to the next person who signed
+  in to the same browser** (`web/lib/googleSession.ts` and six routes).
+  Reported by the operator: signed in with a different account, saw the same
+  data.
+
+  The Google connection lived entirely in cookies - `gsc_access_token`,
+  `gsc_refresh_token`, `gsc_user_email`, `gbp_secondary_*` - and **a cookie
+  belongs to a browser, not to a signed-in user.** Three things had to be wrong
+  together, and they were:
+
+  1. Nothing tied any of those cookies to a Supabase account.
+  2. `handleSignOut` cleared the Supabase session and nothing else. The access
+     token is a 30-day cookie and the refresh token a 1-year one.
+  3. **None of the six routes that read those cookies authenticated the caller
+     at all** - `/api/auth/google/status`, `/api/gsc/query`, and the four
+     `/api/local-seo/*` routes through `lib/gbp.ts:gbpContext()`.
+
+  So account A connects Google, signs out, and account B signs in. The dashboard
+  mounts, calls `/api/auth/google/status`, and the cookie is still there: B is
+  shown A's Google email, A's verified Search Console properties, A's queries,
+  clicks and impressions, and A's Business Profile locations, reviews and posts.
+  B never did anything wrong and has no way to tell the data is not theirs.
+
+  Five `reai_*` `localStorage` keys leaked the same way - the selected GSC
+  property, the account email in the header, the traffic data source.
+
+  **The fix is in two halves, because either alone leaves a hole.**
+
+  *Ownership.* A `google_owner` cookie records which Supabase user id the
+  connection belongs to, and `googleSession(request)` is now the only way to
+  reach a token. It authenticates, compares, and on a mismatch **deletes** the
+  cookies rather than hiding them - a token that survives is one waiting for its
+  owner to sign back in on a machine they have left. An unauthenticated request
+  is refused but destroys nothing, so a forgotten bearer header cannot sign the
+  real owner out.
+
+  *Sign-out.* `purgeGoogleConnection()` clears the cookies server-side and the
+  `reai_*` keys locally, and runs on sign-out **and** on any change of user -
+  another tab, a refresh onto a different account, a sign-in over a live session
+  all replace the session without a sign-out, and every one of them kept the old
+  cookies.
+
+  Ownership is claimed on first authenticated read rather than during the OAuth
+  callback, because the callback is a top-level redirect from Google and this
+  app's Supabase session lives in `localStorage`: there is no session cookie and
+  no `Authorization` header on a browser navigation, so the server genuinely
+  cannot identify the user at that moment. The window that opens is "whoever is
+  signed in, in this browser, when the OAuth flow returns" - which is the person
+  who just completed it.
+
+  `authedFetch` (new) attaches the Supabase access token; 16 client calls moved
+  onto it, or every Google screen would now 401.
+
+  Hardened in passing: `/api/gsc/query` had no authentication, no rate limit, no
+  body cap, and echoed Google's error body back - on a 403 that names properties
+  and permissions, which is information about an account rather than about the
+  request. It now validates `siteUrl`, clamps `days` and `rowLimit`, and answers
+  with a sentence keyed on the status code.
+
+  14 tests in `web/tests/googleIsolation.test.mjs`, including one that walks
+  every `.ts`/`.tsx` file under `app/`, `lib/` and `components/` and fails if a
+  Google token cookie is named anywhere outside the session layer. That is how
+  this happened: six places each reading the jar for themselves.
+
+
 ### Added
 
 - **A linter, on 30,000 lines of Python that had none (`ruff`, wired into

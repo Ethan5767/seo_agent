@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { GoogleServicesHub } from "./GoogleServicesHub";
+import { authedFetch } from "@/lib/authedFetch";
 
 interface BusinessHours {
   open: string;
@@ -137,10 +138,10 @@ export function LocalBusinessManager({
     try {
       setLoading(true);
       const [bizRes, revRes, postRes, insRes] = await Promise.all([
-        fetch("/api/local-seo/business").then((r) => r.json()),
-        fetch("/api/local-seo/reviews").then((r) => r.json()),
-        fetch("/api/local-seo/posts").then((r) => r.json()),
-        fetch("/api/local-seo/insights").then((r) => r.json()),
+        authedFetch("/api/local-seo/business").then((r) => r.json()),
+        authedFetch("/api/local-seo/reviews").then((r) => r.json()),
+        authedFetch("/api/local-seo/posts").then((r) => r.json()),
+        authedFetch("/api/local-seo/insights").then((r) => r.json()),
       ]);
 
       // Connection state and the reason string are reported whether or not
@@ -185,7 +186,7 @@ export function LocalBusinessManager({
     try {
       setSaving(true);
       setSaveSuccess(null);
-      const res = await fetch("/api/local-seo/business", {
+      const res = await authedFetch("/api/local-seo/business", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -215,7 +216,7 @@ export function LocalBusinessManager({
   const handleGenerateAiReply = async (reviewId: string, tone: string = "professional") => {
     try {
       setGeneratingAi(reviewId);
-      const res = await fetch("/api/local-seo/reviews", {
+      const res = await authedFetch("/api/local-seo/reviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate_ai_reply", reviewId, tone }),
@@ -234,7 +235,7 @@ export function LocalBusinessManager({
     if (!text) return;
     try {
       setSubmittingReply(reviewId);
-      const res = await fetch("/api/local-seo/reviews", {
+      const res = await authedFetch("/api/local-seo/reviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "submit_reply", reviewId, replyText: text }),
@@ -257,7 +258,7 @@ export function LocalBusinessManager({
     if (!newPostSummary.trim()) return;
     try {
       setPublishingPost(true);
-      const res = await fetch("/api/local-seo/posts", {
+      const res = await authedFetch("/api/local-seo/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

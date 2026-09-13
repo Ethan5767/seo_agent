@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { authedFetch, purgeGoogleConnection } from "@/lib/authedFetch";
 
 interface GoogleServiceStatus {
   connected: boolean;
@@ -50,7 +51,7 @@ export function GoogleServicesHub({ compact = false, onStatusChange }: GoogleSer
   const fetchStatus = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/auth/google/status");
+      const res = await authedFetch("/api/auth/google/status");
       const data = await res.json();
       setStatus(data);
       onStatusChange?.(data);
@@ -78,7 +79,14 @@ export function GoogleServicesHub({ compact = false, onStatusChange }: GoogleSer
   const handleDisconnect = async (service: "primary" | "gbp_secondary" | "all") => {
     try {
       setIsDisconnecting(true);
-      await fetch(`/api/auth/google/status?service=${service}`, { method: "DELETE" });
+      if (service === "primary" || service === "all") {
+        // Goes through the shared purge so the BROWSER's half is cleared too -
+        // the selected property, the account email and the traffic source all
+        // live in localStorage and used to outlive the disconnect.
+        await purgeGoogleConnection();
+      } else {
+        await authedFetch(`/api/auth/google/status?service=${service}`, { method: "DELETE" });
+      }
       await fetchStatus();
     } finally {
       setIsDisconnecting(false);

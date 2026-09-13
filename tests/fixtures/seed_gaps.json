@@ -1,0 +1,35 @@
+[
+  {
+    "brand": "Acme",
+    "platform": "devto",
+    "topic": "best widget for remote teams",
+    "target_keyword": "remote team widget",
+    "angle": "compare on setup speed",
+    "url_target": "https://acme.com/widget"
+  },
+  {
+    "brand": "Acme",
+    "platform": "reddit",
+    "topic": "how do you pick a team widget",
+    "target_keyword": "team widget",
+    "angle": "honest tradeoffs, mention Acme as one option",
+    "url_target": "https://acme.com/widget",
+    "subreddit": "smallbusiness"
+  },
+  {
+    "brand": "Acme",
+    "platform": "quora",
+    "topic": "what is the best team widget",
+    "target_keyword": "team widget",
+    "angle": "answer the question, mention Acme in context",
+    "url_target": "https://acme.com/widget"
+  },
+  {
+    "brand": "Acme",
+    "platform": "wikipedia",
+    "topic": "Acme (company)",
+    "target_keyword": "acme company",
+    "angle": "notability-based entry",
+    "url_target": "https://acme.com"
+  }
+]

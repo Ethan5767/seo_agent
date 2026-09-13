@@ -75,7 +75,7 @@ def find_changelog(project, cycle: str | None) -> tuple:
     try:
         return target, json.loads(path.read_text())
     except json.JSONDecodeError as exc:
-        raise AcceptanceError(f"{path} is not valid JSON: {exc}")
+        raise AcceptanceError(f"{path} is not valid JSON: {exc}") from exc
 
 
 def built_page(build_dir: Path, url_path: str):

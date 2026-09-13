@@ -11,7 +11,6 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
 from pipeline.gates.forbidden_sweep import (
     SCRIPT_STYLE_RE,

@@ -33,7 +33,7 @@ repo + domain
    ▼
    │  REMEDIATE  wf-site-remediate Claude Code edits, inside the tier → changelog.json
    ▼             ── everything above runs locally, or in the container ──
-   │  GATES      19 gates on the client's PR, in Actions on the CLIENT repo
+   │  GATES      20 gates on the client's PR, in Actions on the CLIENT repo
    ▼
    │  HUMAN MERGE   always. the only path to production.
    ▼             ── pipeline ends here. deployment is the operator's ──
@@ -116,12 +116,14 @@ the client's default branch.
 
 ## 5. The gate suite
 
-19 gates, `pipeline/gates/*.py`, exactly matching the 19 gate/`wf-*` entries
+20 gates, `pipeline/gates/*.py`, exactly matching the 20 gate/`wf-*` entries
 in `pyproject.toml` and the count `CLAUDE.md` and `docs/gate-reference.md`
-both claim — no drift here:
+both claim — no drift here. On a PR the workflow runs **21 checks**: those 20
+plus `tsc --noEmit`. Twenty of the 21 block; `client-docs-check` is advisory
+until a client sets `client_docs_blocking` (2026-09-13):
 
 `acceptance_check`, `audit_built`, `audit_ssr`, `capsule_check`,
-`check_headings`, `claim_provenance_check`, `client_docs_check`,
+`check_headings`, `claim_provenance_check`, `client_docs_check`, `e2e_check`,
 `em_dash_check`, `fingerprint_check`, `forbidden_sweep`, `image_budget_check`,
 `lcp_hygiene_check`, `llms_sales_purge`, `noncommodity_check`, `orphan_check`,
 `parity_check`, `robots_aicrawler_check`, `rules_selftest`, `tier_check`.
@@ -139,13 +141,13 @@ B-027 in the bug ledger).
 that pull the real logic in by pinned tag:
 
 ```yaml
-uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.1.3
+uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.2.0
 secrets: inherit
 ```
 
 | Workflow | Standard? | Trigger | Does |
 |---|---|---|---|
-| `quality-gate.reusable.yml` | yes | every PR | build once, run the 19 gates, sticky comment. Required status check. |
+| `quality-gate.reusable.yml` | yes | every PR | build once, run the 20 gates + `tsc`, sticky comment. Required status check. |
 | `seo-health.reusable.yml` | yes | daily + dispatch | live routes, sitemap count, AI-crawler access. Never blocks. |
 | `preview.reusable.yml` | opt-in, CF only | every PR | Cloudflare preview + Lighthouse |
 | `deploy.reusable.yml` | opt-in, CF only | push to main | build, deploy, verify, rollback, IndexNow |

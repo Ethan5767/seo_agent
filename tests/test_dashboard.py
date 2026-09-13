@@ -301,7 +301,7 @@ def test_lane_counts_tallies_lanes_once_they_appear():
 def test_fleet_entry_distinguishes_never_run_from_clean(tmp_path):
     """`None` (no findings.json) and `0` (measured, nothing found) mean opposite
     things and must not collapse to the same rendering."""
-    never = _repo(tmp_path, "never")
+    _repo(tmp_path, "never")
     clean = _repo(tmp_path, "clean")
     d = clean / "docs" / "audit" / "2026-08"
     d.mkdir(parents=True)
@@ -529,14 +529,6 @@ def test_onboard_exit_1_is_the_interview_step_not_a_failure():
     assert interpret_exit(0, "git:pull")["kind"] == "clean"
 
 
-def test_every_declared_argument_type_has_a_builder():
-    """A type with no branch in build_argv used to be silently dropped. Every
-    type any command declares must round-trip through the builder."""
-    samples = {"int": 1, "path-list": ["/a/"], "cycle": "2026-08", "flag": True}
-    for name, spec in COMMANDS.items():
-        for arg, kind in spec["args"].items():
-            assert kind in samples, f"{name}.{arg}: no sample for type {kind}"
-            build_argv(name, "/p", {arg: samples[kind]})
 
 
 def test_every_declared_argument_type_has_a_widget():
@@ -559,7 +551,7 @@ def test_every_declared_argument_type_has_a_widget():
 # ── the baseline chip on the fleet card ──────────────────────────────────────
 
 def test_missing_baseline_is_reported_as_absent(tmp_path):
-    p = _repo(tmp_path, "acme")
+    _repo(tmp_path, "acme")
     assert fleet_entry(discover_clients(tmp_path)[0])["baseline"] == \
         {"present": False, "entries": None}
 
@@ -1122,12 +1114,27 @@ def test_a_base_url_that_is_not_an_origin_is_refused(bad):
 
 def test_every_declared_argument_type_has_a_builder():
     """A kind with no branch in build_argv used to fall through to the path-list
-    input and send the wrong shape; an unhandled kind now raises. This asserts the
-    two lists agree, so adding a type to COMMANDS cannot silently break a command."""
-    handled = {"int", "path-list", "cycle", "flag", "url", "text-list"}
+    input and send the wrong shape; an unhandled kind now raises.
+
+    This function was DEFINED TWICE in this file - once here and once ~600 lines
+    up - so Python bound the name to this one and the other never ran. The one
+    that never ran was the stronger of the two: it round-tripped a real sample
+    value through `build_argv` rather than only checking the kind was in a set.
+    It also predated `url` and `text-list`, so it would have failed the moment it
+    was collected. The two are merged here, which is what a duplicate-definition
+    lint is for. (ruff F811, 2026-09-13.)
+    """
+    samples = {
+        "int": 1, "path-list": ["/a/"], "cycle": "2026-08", "flag": True,
+        "url": "https://example.test/", "text-list": ["roof repair austin"],
+    }
     for name, spec in COMMANDS.items():
         for arg, kind in spec["args"].items():
-            assert kind in handled, f"{name}.{arg} declares unhandled type {kind}"
+            assert kind in samples, (
+                f"{name}.{arg} declares type {kind}, which has no sample here and "
+                f"therefore no proof build_argv handles it"
+            )
+            build_argv(name, "/p", {arg: samples[kind]})
 
 
 # ── provider statuses reach the screen (B-007: implemented is not wired) ─────

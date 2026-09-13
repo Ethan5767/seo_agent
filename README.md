@@ -1,49 +1,56 @@
 # SEO Content Pipeline
 
-A gated, multi-client SEO/AEO content pipeline: team-authored DOCX in, typed
-page data + a pull request in the client's repo out — with 19 quality gates
-between intake and production and a hard rule that **a human PR merge is the
-only path to production**.
+A gated, multi-client SEO/AEO content pipeline: website audit in, prioritized
+triage + remediated pull requests in the client's repo out — with 16 safety gates
+between audit and production and strict multi-tier change controls.
 
 This is a sanitized template repo: all client data, credentials, IDs, and
 brand references have been replaced with placeholders. The engineering —
 modules, gates, workflows, tests, and the lessons encoded in them — is real.
 
-## The flow
+## The SOP Flow
 
-A client gives you two things: collaborator access to their repo, and their
-domain. Everything below follows from those.
+The pipeline executes in 4 continuous stages:
 
 ```
-repo + domain
-        │  ONBOARD      wf-onboard <repo> <domain>
-        ▼               clone → config → preflight → profile → docs → measure → plan
-        │  MEASURE      wf-site-health ──► docs/audit/<YYYY-MM>/findings.json
-        ▼
-        │  PLAN         wf-site-plan ──► worklist.json + report.md
-        ▼               RESOLVED / PERSISTING / NEW / REGRESSION
-        │  REMEDIATE    wf-site-remediate ──► Claude Code edits in tier ──► changelog.json
-        ▼               ─── everything above runs locally, or in the container ───
-        │  GATES        19 quality gates on the client PR, green-on-legacy via the baseline
-        ▼
-        │  HUMAN MERGE  the operator merges = the ONLY path to production
-        ▼
-        │  DEPLOY       build → capture → deploy → verify-live + crawler check → auto-rollback
+target domain & client repo
+        │
+        ▼  1. AUDIT (Measure)
+        │  Runs technical, content, lighthouse, and AEO scanners.
+        │  `wf-site-health` ──► docs/audit/<YYYY-MM>/findings.json
+        │
+        ▼  2. PLAN (Triage)
+        │  4-lane ratchet: RESOLVED / PERSISTING / NEW / REGRESSION.
+        │  Classifies issues into Scope Tiers (T1 Copy, T2 Content, T3 Full).
+        │  `wf-site-plan` ──► worklist.json + report.md
+        │
+        ▼  3. REMEDIATE (Model A / Model B)
+        │  - Model A: Generates actionable implementation briefs for client developers.
+        │  - Model B: Claude Code autonomously patches code in client repo branch.
+        │  `wf-site-remediate` ──► changelog.json + PR
+        │
+        ▼  4. GATES (Safety Checks)
+        │  16 deterministic quality & safety checks verify PR code against baseline.
+        │
+        ▼  MERGE & DEPLOY
+        │  - Operator Review: Standard human merge is required.
+        │  - Auto-Merge: Optional, OFF by default. Strictly restricted to low-risk
+        │    T1 copy changes and must be explicitly enabled per workflow.
 ```
+
+### Running Tests & Verification
+
+Run the test suite and web build locally before pushing changes:
 
 ```bash
-wf-onboard acme/roofing-site acmeroofing.com     # stops at the interview, resumable
-wf-site-remediate --project ~/clients/roofing-site --max-items 1 --dry-run
-```
+# 1. Run Python test suite (offline unit tests, no paid API calls)
+pytest -q
 
-Or the same thing in the container, which is the only place the four tools it
-needs — Python, git, `gh`, Claude Code — are guaranteed to exist together:
+# 2. Run Web security unit tests (SSRF, DNS resolution, rate limiting, size limits)
+cd web && npm test
 
-```bash
-docker build -t seo-agent .
-docker run --rm -it -e ANTHROPIC_API_KEY \
-  -v "$HOME/clients:/clients" -v "$HOME/.config/gh:/root/.config/gh:ro" \
-  seo-agent wf-onboard /clients/roofing-site acmeroofing.com
+# 3. Run Web app production build & typecheck
+npm run build
 ```
 
 ## What's here
@@ -51,47 +58,37 @@ docker run --rm -it -e ANTHROPIC_API_KEY \
 | Path | What it is |
 |---|---|
 | `pipeline/lib` | Config loader, baseline ratchet (green-on-legacy, red-on-new), cycle ledger |
-| `pipeline/intake` | Discord/Drive/link ingest, DOCX pre-flight, the PR-only client handoff |
-| `pipeline/generate` | The emitter: distill → classify → brief → validate → emit typed data |
-| `pipeline/gates` | 19 quality gates (forbidden-phrase sweep, orphan check, parity, capsule, rules self-test, …) |
+| `pipeline/scanner` | Multi-engine local & cloud audit runner (SEO, AEO, Schema, Core Web Vitals, Crawl) |
+| `pipeline/audit` | Client profile, onboarding scaffolds, and the audit rail: measure (`wf-site-health`) → plan (`wf-site-plan`) → remediate (`wf-site-remediate`) |
+| `pipeline/gates` | 16 quality & safety gates (forbidden-phrase sweep, SSR hydration, orphan check, parity, rules self-test, …) |
 | `pipeline/deploy` | Verify-live, crawler reachability, capture + auto-rollback, IndexNow |
-| `pipeline/audit` | Client profile, onboarding scaffolds, and the v3 audit rail: measure (`wf-site-health`) → plan (`wf-site-plan`) → remediate (`wf-site-remediate`), plus the CrUX/GSC/DataForSEO providers |
-| `distiller/` | The one judgment stage: repair a raw team doc to 0-BLOCK before the engine parses it |
-| `.github/workflows` | Fleet crons (intake/drive polls), CI, and reusable workflows client repos call `@tag` |
-| `docs/` | `MODULES.md` (the complete map), `gate-reference.md`, `HOW-IT-WORKS.md` |
+| `web/` | Next.js 15 App Router dashboard, multi-tenant authenticated APIs, and SSRF-protected scanning proxy |
+| `.github/workflows` | Release-quality CI (`ci.yml`), reusable workflows, and automated safety sweeps |
+| `docs/` | Architecture specs, SOP guides, gate references, and security architecture (`docs/SECURITY.md`) |
 
 Design principles baked in everywhere:
 
 - **Agent proposes, gates dispose.** Generated content must pass deterministic
-  gates; a human merge gate is sacred and never automated.
-- **Model A:** every client repo is its own source of truth
-  (`docs/client-config.yml`, `docs/gate-baseline.json`, cycle logs). This repo
-  is the shared engine, versioned by tag.
-- **Fail loud, never guess.** Unroutable content goes to `unrouted/`; an
-  unsegmentable doc exits 16; a classify run that can see nothing refuses
-  (exit 17) instead of emitting confident wrong verdicts.
+  gates; auto-merge is optional, off by default, and limited to low-risk T1 copy changes.
+- **Model A vs Model B:** Model A generates client briefs for external teams;
+  Model B generates branch PRs with automated verification.
+- **Multi-Tenant Security & Isolation:** All data modification, scan execution, and
+  tenant persistence routes are authenticated via Supabase session tokens, scoped strictly
+  by `user_id`, and protected against DNS-rebinding SSRF, request bloat (413), and burst abuse (429).
+  Public utility and OAuth routes remain unauthenticated by design. Full details in `docs/SECURITY.md`.
 - **Rules are tested like code.** Forbidden-phrase rulesets have their own
   gate: fixtures prove every rule still fires, exceptions still hold, and a
   dead regex fails CI the day it's introduced.
 
 ## Adapting this template
 
-1. **Engine repo (this one):** create your repo from it, then
-   `python3.12 -m venv .venv && .venv/bin/pip install -e .` and run
-   `.venv/bin/python -m pytest` — the suite must be green before any change.
-2. **Per-client config:** copy `config/client-config.starter.yml` into each
-   client repo as `docs/client-config.yml` and fill it in. Real client data
-   never lives in this repo.
-3. **Intake rosters:** copy `config/discord-intake.example.yml` →
-   `config/discord-intake.yml` and `config/drive-intake.example.yml` →
-   `config/drive-intake.yml`; replace placeholder IDs.
-4. **Client repos:** add thin caller workflows pinned to a tag of this repo
-   (see `.github/workflows/*.reusable.yml` inputs), a gate baseline, and the
-   docs contract (`pipeline/audit/scaffold_client_docs.py` creates it).
-5. **Secrets** (GitHub Actions, names only — set what you use):
-   `DISCORD_BOT_TOKEN`, `DRIVE_CLIENT_ID`, `DRIVE_CLIENT_SECRET`,
-   `DRIVE_REFRESH_TOKEN`, `PIPELINE_DRIVE_PARENT_FOLDER_ID`,
-   `CLIENT_REPOS_TOKEN` (fine-grained PAT, client repos only, PR-mediated
-   writes), plus your deploy platform's token trio on each client repo.
-6. Read `docs/MODULES.md` first, then `docs/HOW-IT-WORKS.md`,
-   then `docs/gate-reference.md` for per-gate contracts and exit codes.
+1. **Engine repo (this one):** create your repo from it, install dependencies
+   in `.venv`, and run `pytest -q` — the suite must be green before any change.
+2. **Web Dashboard:** configure `web/.env.local` with Supabase keys, run
+   `npm run dev` for local dev, and test with `npm test && npm run build`.
+3. **Client repos:** add caller workflows pinned to a tag of this repo, a gate baseline,
+   and the docs contract (`pipeline/audit/scaffold_client_docs.py` creates it).
+4. **Secrets** (GitHub Actions, names only — set what you use):
+   `ANTHROPIC_API_KEY`, `CLIENT_REPOS_TOKEN`, plus your deploy platform's token trio on each client repo.
+5. Read `docs/MODULES.md` first, then `docs/SECURITY.md`, `docs/HOW-IT-WORKS.md`,
+   and `docs/gate-reference.md` for per-gate contracts and exit codes.

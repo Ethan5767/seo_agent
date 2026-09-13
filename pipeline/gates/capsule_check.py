@@ -51,7 +51,8 @@ from datetime import date
 from pathlib import Path
 
 from pipeline.lib import baseline as bl
-from pipeline.lib.common import load_config, url_fits_topology, client_profile
+from pipeline.lib.common import (load_config, url_fits_topology, client_profile,
+                                 refuse_empty_scan)
 
 GATE = "capsule_check"
 
@@ -210,7 +211,20 @@ def main() -> int:
 
     pages = select_pages(out_dir, topology, args.include_glob, args.exclude_glob)
     print(f"capsule-check: topology={topology or '(none)'} selected {len(pages)} page(s) under {out_dir}")
+    # Zero pages has two very different causes and they must not share an
+    # exit code. No HTML at all means the build tree is empty (B-018) and
+    # this gate judged nothing. An unrecognised or absent topology means
+    # `url_fits_topology` returned "invalid" for every route, which selects
+    # nothing while looking exactly like a clean pass. Only "HTML is present,
+    # topology is known, and none of these routes are service/blog pages" is
+    # a real PASS.
     if not pages:
+        if not any(Path(out_dir).rglob("*.html")):
+            return refuse_empty_scan("capsule_check", "HTML files", out_dir)
+        if not topology:
+            return refuse_empty_scan(
+                "capsule_check", "pages it could classify (no `topology` in "
+                "client-config.yml, so every route reads as invalid)", out_dir)
         print("capsule-check: no service/blog pages selected — nothing to check (PASS).")
         return 0
 

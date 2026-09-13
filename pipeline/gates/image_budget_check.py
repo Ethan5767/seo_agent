@@ -55,7 +55,8 @@ import sys
 from pathlib import Path
 
 from pipeline.lib import baseline as bl
-from pipeline.lib.common import load_config, client_profile, resolve_build_dir
+from pipeline.lib.common import (load_config, client_profile, resolve_build_dir,
+                                 refuse_empty_scan)
 
 GATE = "image_budget_check"
 
@@ -221,6 +222,11 @@ def main() -> int:
     thumb_pat = [p.lower() for p in (perf.get("thumb_patterns") or DEFAULT_THUMB_PATTERNS)]
     thumb_max_px = int(perf.get("thumb_max_px") or DEFAULT_THUMB_MAX_PX)
 
+    # The budget tiers are assigned by how each image is REFERENCED in the
+    # HTML, so with no HTML there is no way to classify anything and a
+    # "0 images over budget" pass would be over nothing.
+    if not any(build_dir.rglob("*.html")):
+        return refuse_empty_scan("image_budget_check", "HTML files", build_dir)
     idx = build_index(build_dir)
 
     files = []

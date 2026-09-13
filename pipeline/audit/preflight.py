@@ -6,7 +6,7 @@ required schema missing from homepage.
 
 Usage: python3 preflight.py [PROJECT_DIR]
 """
-import sys, re
+import sys
 from pathlib import Path
 from pipeline.lib.common import load_config, curl, curl_status
 
@@ -67,7 +67,7 @@ def main():
         print(f"[STOP] Homepage {home} returned {code}"); sys.exit(13)
     html = curl(home)
     if "cf-mitigated" in html.lower() or "challenge" in html[:500].lower():
-        print(f"[STOP] Cloudflare challenge detected. Turn off Bot Fight Mode."); sys.exit(14)
+        print("[STOP] Cloudflare challenge detected. Turn off Bot Fight Mode."); sys.exit(14)
     # schema type present on homepage
     schema = cfg["schema_type"]
     if schema not in html:

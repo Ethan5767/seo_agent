@@ -38,7 +38,8 @@ import re
 import sys
 from urllib.parse import urlsplit, unquote
 
-LOC_RE = re.compile(r"<loc>\s*([^<]+?)\s*</loc>", re.IGNORECASE)
+from pipeline.lib.html import sitemap_locs
+
 HAS_EXT_RE = re.compile(r"/[^/]*\.[^/]+$")
 
 DEFAULT_UTILITY = {"/404/", "/500/", "/thank-you/", "/_not-found/"}
@@ -61,8 +62,8 @@ def sitemap_paths(out_dir: str) -> set[str]:
         files.extend(sorted(glob.glob(os.path.join(out_dir, pat))))
     for f in files:
         with open(f, encoding="utf-8") as fh:
-            for m in LOC_RE.finditer(fh.read()):
-                paths.add(to_path(m.group(1)))
+            for loc in sitemap_locs(fh.read()):
+                paths.add(to_path(loc))
     return paths
 
 
@@ -152,8 +153,8 @@ def main() -> int:
     site_hosts = set()
     for f in glob.glob(os.path.join(out_dir, "sitemap*.xml")):
         with open(f, encoding="utf-8") as fh:
-            for m in LOC_RE.finditer(fh.read()):
-                h = urlsplit(m.group(1)).netloc.lower()
+            for loc in sitemap_locs(fh.read()):
+                h = urlsplit(loc).netloc.lower()
                 if h:
                     site_hosts.add(h)
                     if h.startswith("www."):

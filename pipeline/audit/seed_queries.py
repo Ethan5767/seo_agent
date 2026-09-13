@@ -49,22 +49,22 @@ from urllib.parse import urlsplit
 from pipeline.audit.measure import urls_or_refuse
 from pipeline.lib.common import curl, load_config
 
+from pipeline.lib.html import inner_text, page_title
+
 # Crawling every URL costs a request each and the titles repeat quickly on a
 # catalogue site. 40 pages is plenty of vocabulary to ground the expansion.
 CRAWL_MAX = 40
 # Every query emitted is one paid Bright Data request per cycle, forever.
 DEFAULT_LIMIT = 40
 
-_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 _H1_RE = re.compile(r"<h1[^>]*>(.*?)</h1>", re.I | re.S)
-_TAG_RE = re.compile(r"<[^>]+>")
 # Models wrap JSON in a ```json fence however firmly you ask them not to.
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
 
 
 def _text(raw: str) -> str:
     """Tag-stripped, whitespace-collapsed inner text."""
-    return " ".join(_TAG_RE.sub(" ", raw).split())
+    return inner_text(raw)
 
 
 def _norm(s: str) -> str:
@@ -79,13 +79,14 @@ def page_facts(html: str) -> tuple[str, list[str]]:
     This is the grounding. A query expanded from the site's own vocabulary is
     derived; one invented from a bare seed keyword is not.
 
-    Deliberately not the `<title>` regex from measure.py:51, which is `[^<]+`
-    and stops at the first tag. That is right for measuring title *length* and
-    wrong here, where an `<h1>` wrapping a `<span>` is the common case and its
-    words are the vocabulary we came for.
+    The title comes from the shared `page_title`, then through `_text`. That
+    second step is this module's own: `page_title` leaves markup alone because a
+    title's content is RCDATA and a browser shows a `<span>` in there literally,
+    which is right for measuring a title and wrong for harvesting vocabulary.
+    The `<h1>` case is the one that really needs it — an h1 wrapping a `<span>`
+    is the common modern layout and its words are what we came for.
     """
-    m = _TITLE_RE.search(html or "")
-    title = _text(m.group(1)) if m else ""
+    title = _text(page_title(html) or "")
     h1s = [t for t in (_text(h) for h in _H1_RE.findall(html or "")) if t]
     return title, h1s
 

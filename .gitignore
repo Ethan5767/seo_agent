@@ -6,6 +6,7 @@
 # Secrets / credentials — NEVER commit these
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 *.token
@@ -33,7 +34,12 @@ client-config*.yml
 
 # Client roster / profiles with real data (the .example.json is tracked)
 client-roster.json
-clients/
+# ANCHORED. Unanchored `clients/` matches a directory of that name ANYWHERE,
+# which silently excluded web/app/api/clients/ — the entire client API surface
+# (list, scans, and the GitHub routes) was never committed, so a fresh clone
+# produced an app whose dashboard could not load a single client. The rule is
+# about operator checkouts of client repos at the repo root; say that.
+/clients/
 
 # Client PII, deliverables and raw docs
 *.docx
@@ -88,3 +94,12 @@ client.png
 *.png
 
 graphify-out/cache/
+
+# Next.js / TypeScript build artifacts
+web/tsconfig.tsbuildinfo
+web/.next/
+
+# Local client checkouts. Model A: a client repo is that client's own
+# source of truth, including its docs/client-config.yml and tier. They must
+# never be committed into the engine repo.
+BothGG/

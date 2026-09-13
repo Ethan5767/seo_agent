@@ -33,7 +33,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pipeline.lib.common import client_profile, load_config, tier_verdict
+from pipeline.lib.common import (client_profile, load_config, tier_verdict,
+                                 unquote_git_path)
 
 REFUSED_EXIT = 17
 USAGE_EXIT = 2
@@ -48,7 +49,9 @@ class DiffError(RuntimeError):
 
 
 def _git(project, *args) -> str:
-    r = subprocess.run(["git", "-C", str(project), *args],
+    # `-c core.quotePath=false` (B-065): otherwise git C-quotes any non-ASCII
+    # path and the deny globs below match the quoted literal, never the path.
+    r = subprocess.run(["git", "-C", str(project), "-c", "core.quotePath=false", *args],
                        capture_output=True, text=True)
     if r.returncode != 0:
         raise DiffError(r.stderr.strip() or f"git {' '.join(args)} failed")
@@ -62,8 +65,8 @@ def resolve_base(project, base: str | None) -> str:
     if base:
         try:
             _git(project, "rev-parse", "--verify", f"{base}^{{commit}}")
-        except DiffError:
-            raise DiffError(f"--base {base!r} is not a commit in this repo")
+        except DiffError as exc:
+            raise DiffError(f"--base {base!r} is not a commit in this repo") from exc
         return base
     for cand in _BASE_CANDIDATES:
         try:
@@ -90,10 +93,10 @@ def parse_name_status(text: str) -> list:
         status = parts[0].strip()
         op = status[0].upper()
         if op in ("R", "C") and len(parts) >= 3:
-            out.append(("D" if op == "R" else "M", parts[1].strip()))
-            out.append(("A", parts[2].strip()))
+            out.append(("D" if op == "R" else "M", unquote_git_path(parts[1].strip())))
+            out.append(("A", unquote_git_path(parts[2].strip())))
         elif len(parts) >= 2:
-            out.append((op, parts[1].strip()))
+            out.append((op, unquote_git_path(parts[1].strip())))
     return out
 
 
@@ -137,9 +140,9 @@ def main() -> int:
     tier = profile.get("tier")
     label = f"T{tier}" if tier else "no tier declared"
 
-    for op, path, reason in refused:
+    for _op, _path, reason in refused:
         print(f"[REFUSED] {reason}")
-    for op, path, reason in allowed:
+    for _op, _path, reason in allowed:
         print(f"[ok] {reason}")
 
     if refused:

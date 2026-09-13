@@ -43,7 +43,6 @@ Exit: 0 pages written · 2 usage · 19 REFUSED (nothing fetched, nothing written
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import sys
 from datetime import date, datetime, timezone
@@ -52,6 +51,8 @@ from urllib.parse import urlsplit
 
 from pipeline.audit.measure import discover_urls
 from pipeline.lib.common import curl, curl_final_host, curl_status, load_config
+
+from pipeline.lib.atomic import write_json_atomic
 
 SCHEMA = "render-snapshot/1"
 MANIFEST = "snapshot.json"
@@ -79,9 +80,22 @@ def dest_for(out: Path, route: str) -> Path:
     globs for `index.html` specifically. Writing the flat form would produce a tree
     those three cannot read — a snapshot that satisfies some gates and silently
     starves others.
+
+    Pinned under `out`. The route comes from a `<loc>` in the SCANNED SITE'S OWN
+    sitemap, which is third-party input, and `pathlib` does not collapse `..` —
+    so `<loc>https://x/../../../../etc/foo/</loc>` produced a path outside the
+    output tree that the caller then created with `mkdir(parents=True)` and wrote
+    the response body into. `scanner/server.py` already pins its `cycle` argument
+    this way; this is the same guard on the other untrusted path.
     """
     rel = route.strip("/")
-    return (out / rel / "index.html") if rel else (out / "index.html")
+    dest = ((out / rel / "index.html") if rel else (out / "index.html"))
+    resolved, root = dest.resolve(), out.resolve()
+    if root != resolved and root not in resolved.parents:
+        raise SnapshotError(
+            f"refusing to write outside the snapshot tree: route {route!r} from the "
+            f"site's sitemap resolves to {resolved}, which is not under {root}")
+    return dest
 
 
 # Files the gates read out of the build tree that are NOT routes. A static export
@@ -222,7 +236,7 @@ def main() -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return USAGE_EXIT
 
-    (out / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(out / MANIFEST, manifest)
     print(f"\n[OK] {len(manifest['routes'])} route(s) captured from "
           f"{manifest['base_url']} -> {out}"
           + (f", {len(manifest['failed'])} failed" if manifest["failed"] else ""))

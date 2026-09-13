@@ -401,3 +401,161 @@ def test_the_query_is_url_encoded_into_the_google_target(monkeypatch):
     assert "metal+roofing+%26+siding" in seen["url"]
     assert "brd_json=1" in seen["url"]
     assert seen["zone"] == "z"
+
+
+# ── query-grounded content findings (B-067) ───────────────────────────────────
+#
+# The content lane judged a page's HTML in a vacuum: word count buckets, an h2
+# count, "is there a <table>". None of it knows what the page is trying to rank
+# for, so none of it can say whether the page is short *for its query* or which
+# page is worth editing at all. GSC answers that for free, and these are the
+# parsers that turn it into findings. All pure — the fetch is elsewhere.
+
+def _qrow(page, query=None, imp=0, clicks=0, pos=0.0, ctr=None):
+    keys = [query, page] if query else [page]
+    return {"keys": keys, "impressions": imp, "clicks": clicks, "position": pos,
+            "ctr": ctr if ctr is not None else (clicks / imp if imp else 0.0)}
+
+
+def test_decay_needs_both_windows_and_a_real_drop():
+    prev = [_qrow("https://a.com/x/", imp=1000), _qrow("https://a.com/steady/", imp=500)]
+    curr = [_qrow("https://a.com/x/", imp=600), _qrow("https://a.com/steady/", imp=495)]
+    found = p.parse_gsc_decay(prev, curr)
+    codes = [(f.code, f.location) for f in found]
+    assert codes == [("gsc.impressions_decay", "/x/")], (
+        "a 40% fall is decay; a 1% wobble is not")
+
+
+def test_decay_ignores_pages_too_small_to_read():
+    prev = [_qrow("https://a.com/tiny/", imp=30)]
+    curr = [_qrow("https://a.com/tiny/", imp=3)]
+    assert p.parse_gsc_decay(prev, curr) == [], (
+        "a 90% fall on 30 impressions is noise, and telling a client to rewrite "
+        "that page wastes the one edit they were going to make")
+
+
+def test_decay_does_not_fire_on_a_page_that_is_simply_new():
+    prev = []
+    curr = [_qrow("https://a.com/new/", imp=800)]
+    assert p.parse_gsc_decay(prev, curr) == [], "growth is not decay"
+
+
+def test_striking_distance_is_page_five_to_fifteen_with_demand():
+    rows = [
+        _qrow("https://a.com/p1/", query="roof repair", imp=900, pos=8.4),   # in
+        _qrow("https://a.com/p2/", query="roofing",     imp=900, pos=2.1),   # already won
+        _qrow("https://a.com/p3/", query="roof tiles",  imp=900, pos=44.0),  # too far
+        _qrow("https://a.com/p4/", query="roof nails",  imp=5,   pos=8.0),   # no demand
+    ]
+    found = p.parse_gsc_striking_distance(rows)
+    assert [(f.code, f.location, f.context) for f in found] == [
+        ("gsc.striking_distance", "/p1/", "roof repair")], (
+        "the only page worth a content edit is one already ranking 5-15 on a "
+        "query with real impressions")
+
+
+def test_striking_distance_context_is_the_query_not_the_position():
+    rows = [_qrow("https://a.com/p/", query="roof repair", imp=900, pos=8.4)]
+    f = p.parse_gsc_striking_distance(rows)[0]
+    assert f.context == "roof repair"
+    assert "8.4" not in f.context, (
+        "position moves every week; fingerprinting it would make the finding "
+        "NEW forever and the ratchet meaningless")
+    assert "8.4" in f.detail, "the number still has to reach a human"
+
+
+def test_queries_for_page_groups_and_ranks_by_impressions():
+    rows = [
+        _qrow("https://a.com/x/", query="b", imp=50),
+        _qrow("https://a.com/x/", query="a", imp=900),
+        _qrow("https://a.com/y/", query="c", imp=10),
+    ]
+    got = p.queries_for_page(rows)
+    assert got["/x/"][0] == ("a", 900), "highest-impression query first"
+    assert [q for q, _ in got["/x/"]] == ["a", "b"]
+    assert "/y/" in got
+
+
+def test_queries_for_page_is_what_grounds_the_content_lane():
+    """The whole point: content_rows can stop guessing what the page is about."""
+    rows = [_qrow("https://a.com/x/", query="emergency roof repair", imp=400)]
+    assert p.queries_for_page(rows)["/x/"] == [("emergency roof repair", 400)]
+
+
+# ── unattended GSC auth (B-068) ───────────────────────────────────────────────
+#
+# GSC_ACCESS_TOKEN is an OAuth access token: it expires in about an hour. That
+# is why the GSC lane has never run on a schedule — by the time a monthly cycle
+# fires, whatever token an operator pasted is dead. A refresh token does not
+# expire, so this exchanges one for an access token at call time.
+
+def test_access_token_is_used_directly_when_supplied(monkeypatch):
+    monkeypatch.setenv("GSC_ACCESS_TOKEN", "direct-token")
+    monkeypatch.delenv("GSC_REFRESH_TOKEN", raising=False)
+    assert p.gsc_access_token() == ("direct-token", None)
+
+
+def test_refresh_token_is_exchanged_when_there_is_no_access_token(monkeypatch):
+    monkeypatch.delenv("GSC_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("GSC_REFRESH_TOKEN", "r")
+    monkeypatch.setenv("GSC_CLIENT_ID", "cid")
+    monkeypatch.setenv("GSC_CLIENT_SECRET", "sec")
+    sent = {}
+
+    def fake_post(url, payload, headers):
+        sent["url"], sent["payload"] = url, payload
+        return {"access_token": "fresh"}, None
+
+    monkeypatch.setattr(p, "_form_post", fake_post)
+    assert p.gsc_access_token() == ("fresh", None)
+    assert sent["url"] == "https://oauth2.googleapis.com/token"
+    assert sent["payload"]["grant_type"] == "refresh_token"
+
+
+def test_a_refresh_failure_is_a_named_skip_never_a_silent_zero(monkeypatch):
+    monkeypatch.delenv("GSC_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("GSC_REFRESH_TOKEN", "r")
+    monkeypatch.setenv("GSC_CLIENT_ID", "cid")
+    monkeypatch.setenv("GSC_CLIENT_SECRET", "sec")
+    monkeypatch.setattr(p, "_form_post", lambda u, pl, h: (None, "HTTP 400"))
+    token, err = p.gsc_access_token()
+    assert token is None
+    assert "HTTP 400" in err, (
+        "a dead refresh token must be reported by name — sharp edge #6: a "
+        "provider that returned nothing because it was never asked must never "
+        "read as a site with nothing wrong")
+
+
+def test_refresh_without_client_credentials_says_which_one_is_missing(monkeypatch):
+    monkeypatch.delenv("GSC_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("GSC_REFRESH_TOKEN", "r")
+    monkeypatch.delenv("GSC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GSC_CLIENT_SECRET", raising=False)
+    token, err = p.gsc_access_token()
+    assert token is None and "GSC_CLIENT_ID" in err
+
+
+def test_the_new_parsers_are_actually_called_by_gsc_findings():
+    """B-007 guard. Implemented is not wired.
+
+    `lib/baseline.py` was complete, tested, and called by nothing for a whole
+    release. Three parsers landing at once is exactly how that happens again, so
+    this asserts the call sites exist rather than trusting the unit tests above,
+    which would all still pass if `gsc_findings` never invoked them.
+    """
+    import inspect
+    src = inspect.getsource(p.gsc_findings)
+    for fn in ("parse_gsc_pages", "parse_gsc_cannibalization",
+               "parse_gsc_striking_distance", "parse_gsc_decay"):
+        assert fn in src, f"{fn} is implemented and tested but nothing calls it"
+    assert "gsc_access_token()" in src, "the refresh-token path is not wired in"
+
+
+def test_decay_needs_a_second_window_to_be_fetched():
+    """The decay parser is useless without a prior-window request, and the easy
+    mistake is to wire the parser and forget the fetch."""
+    import inspect
+    src = inspect.getsource(p.gsc_findings)
+    assert "prev_start" in src and "prev_end" in src, (
+        "no prior window is requested, so parse_gsc_decay can only ever be "
+        "handed an empty list and will never fire")

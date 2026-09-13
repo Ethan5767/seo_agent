@@ -4,3 +4,5 @@
 #   python -m venv .venv && .venv/bin/pip install -e . -r requirements-dev.txt
 #   .venv/bin/pytest
 pytest>=8.0
+# The linter. Config and rationale: [tool.ruff] in pyproject.toml.
+ruff>=0.14

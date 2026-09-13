@@ -263,6 +263,63 @@ def test_a_crawled_tree_does_not_block_the_pr_on_the_failed_build(workflow):
         "$TREE is used by the blocking list but never exported to it")
 
 
+def test_every_shell_var_a_step_reads_is_declared_by_that_step():
+    """B-063. The assertion above is a substring test over the WHOLE file, and
+    that is exactly why it did not catch this.
+
+    `Evaluate gates` gates the merge on `$TREE`. `TREE:` was declared — in the
+    REPORT step. A step output is not shell environment, so `$TREE` was empty in
+    the step that mattered, `"" != "true"` was always true, and the gate exited 1
+    for every client on every PR from v3.1.3 onward. The report step read it
+    correctly, so the sticky comment could say GREEN while the check went red.
+
+    The lesson is the same shape as B-038: the words and the verdict lived in two
+    places and only one was rewired. So this asserts the invariant per STEP
+    rather than per file — every `$VAR` a run block reads must be declared by the
+    step that reads it (or be a documented shell-local / GitHub-provided name).
+    """
+    import re
+    import yaml
+
+    doc = yaml.safe_load(WORKFLOW.read_text())
+
+    # Names bash or the runner provides, plus locals each script assigns itself.
+    AMBIENT = {
+        "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_STEP_SUMMARY", "GITHUB_WORKSPACE",
+        "GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_REF",
+        "GITHUB_EVENT_NAME", "GITHUB_RUN_ID", "GITHUB_SERVER_URL", "HOME", "PATH",
+        "PWD", "SHELL", "RUNNER_OS", "RUNNER_TEMP", "CI",
+    }
+    ASSIGN = re.compile(r"^\s*(?:export\s+|local\s+|declare\s+-\w+\s+)?([A-Z][A-Z0-9_]{2,})=", re.M)
+    READ = re.compile(r"\$\{?([A-Z][A-Z0-9_]{2,})\b")
+    # `echo "NAME=..." >> $GITHUB_ENV` in one step is real environment for every
+    # LATER step, including from a composite action this workflow calls. That is
+    # how BUILD_DIR reaches the OUT gates, so it is a declaration, not a gap.
+    TO_ENV = re.compile(r'echo\s+"?([A-Z][A-Z0-9_]{2,})=[^"\n]*"?\s*>>\s*"?\$\{?GITHUB_ENV')
+
+    exported = set(TO_ENV.findall(WORKFLOW.read_text()))
+    for action in Path(".github/actions").glob("*/action.yml"):
+        exported |= set(TO_ENV.findall(action.read_text()))
+
+    problems = []
+    for job in doc["jobs"].values():
+        for step in job.get("steps", []):
+            script = step.get("run")
+            if not script:
+                continue
+            declared = (set(step.get("env") or {}) | set(job.get("env") or {})
+                        | set(doc.get("env") or {}) | exported)
+            assigned = set(ASSIGN.findall(script))
+            for name in set(READ.findall(script)):
+                if name in declared or name in assigned or name in AMBIENT:
+                    continue
+                problems.append(f"{step.get('name', '<unnamed>')!r} reads ${name} but nothing declares it")
+
+    assert not problems, (
+        "a step reads a shell variable no one gives it, so it is the empty string "
+        "at runtime — the B-063 shape:\n  " + "\n  ".join(sorted(problems)))
+
+
 def test_the_loop_that_actually_fails_the_run_agrees_with_the_comment(workflow):
     """B-038's FIRST fix was incomplete, and this is the test that would have
     caught it.

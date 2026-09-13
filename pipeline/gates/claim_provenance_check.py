@@ -53,7 +53,8 @@ import sys
 from pathlib import Path
 
 from pipeline.gates.tier_check import DiffError, resolve_base
-from pipeline.lib.common import ARTIFACT_PATHS, load_config, path_matches
+from pipeline.lib.common import (ARTIFACT_PATHS, load_config, path_matches,
+                                 unquote_git_path)
 
 UNSOURCED_EXIT = 18
 EMPTY_CORPUS_EXIT = 4
@@ -136,7 +137,7 @@ def build_corpus(project, cycle: str | None) -> tuple:
         try:
             doc = json.loads((audit / target / "worklist.json").read_text())
         except json.JSONDecodeError as exc:
-            raise ProvenanceError(f"{audit / target}/worklist.json is not valid JSON: {exc}")
+            raise ProvenanceError(f"{audit / target}/worklist.json is not valid JSON: {exc}") from exc
         # Evidence contributes its WORDS but never its NUMERALS (B-034).
         #
         # A work item's evidence is a measurement OF THE PAGE — `len=106`,
@@ -168,7 +169,13 @@ def added_lines(project, ref: str, diff_file: str | None) -> dict:
     if diff_file:
         raw = Path(diff_file).read_text()
     else:
-        r = subprocess.run(["git", "-C", str(project), "diff", "-U0", f"{ref}...HEAD"],
+        # `-c core.quotePath=false` (B-065): a quoted non-ASCII path made the
+        # `b/` strip below fail, so `path` kept its leading `"b/`, the suffix
+        # came out as `.md"`, `prose_from` returned [] and every claim in the
+        # file went unexamined. Two byte-identical files, one at content/plain.md
+        # and one at content/café/page.md, gave exit 18 and exit 0.
+        r = subprocess.run(["git", "-C", str(project), "-c", "core.quotePath=false",
+                            "diff", "-U0", f"{ref}...HEAD"],
                            capture_output=True, text=True)
         if r.returncode != 0:
             raise ProvenanceError(r.stderr.strip() or "git diff failed")
@@ -178,7 +185,7 @@ def added_lines(project, ref: str, diff_file: str | None) -> dict:
     path = None
     for line in raw.splitlines():
         if line.startswith("+++ "):
-            p = line[4:].strip()
+            p = unquote_git_path(line[4:].strip())
             path = None if p == "/dev/null" else p[2:] if p.startswith("b/") else p
         elif line.startswith("+") and not line.startswith("+++") and path:
             out.setdefault(path, []).append(line[1:])
@@ -317,7 +324,8 @@ def base_versions(project, ref: str, paths) -> dict:
     paragraph is not reported as a fresh fabrication."""
     out = {}
     for p in paths:
-        r = subprocess.run(["git", "-C", str(project), "show", f"{ref}:{p}"],
+        r = subprocess.run(["git", "-C", str(project), "-c", "core.quotePath=false",
+                            "show", f"{ref}:{p}"],
                            capture_output=True, text=True)
         if r.returncode == 0:
             out[p] = r.stdout

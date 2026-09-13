@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { markClaimPending } from "@/lib/googleSession";
 import {
   FLOW_COOKIES,
   ONE_YEAR,
@@ -97,6 +98,14 @@ export async function GET(request: NextRequest) {
 
     // The flow is over; nothing downstream should be able to replay the nonce.
     for (const c of FLOW_COOKIES) cookieStore.delete(c);
+
+    // Open the ownership claim window. The server cannot identify the Supabase
+    // user during a top-level redirect - the session lives in localStorage - so
+    // the first authenticated read claims the connection instead, and this
+    // marker is what bounds "first" to a flow that actually just happened here.
+    // Without it, a connection left over from before ownership existed would be
+    // claimed by whoever signed in next, stamping the leak as legitimate.
+    await markClaimPending();
 
     if (stateService === "gbp_secondary") {
       cookieStore.set("gbp_secondary_access_token", accessToken, oauthCookie(THIRTY_DAYS));

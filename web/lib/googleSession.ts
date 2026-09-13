@@ -47,6 +47,25 @@ import { FLOW_COOKIES, PRIMARY_COOKIES, SECONDARY_COOKIES, ONE_YEAR, oauthCookie
 
 export const OWNER_COOKIE = "google_owner";
 
+/**
+ * Set by the OAuth callback, and by nothing else.
+ *
+ * Trust-on-first-use needs a bound on "first". Without this marker, ANY
+ * connection with no owner is claimable - including one that predates this
+ * code, sitting in a browser from before ownership existed. The very operator
+ * who reported this bug would sign in and have the leaked connection claimed FOR
+ * them, seeing the same wrong data with a fresh ownership stamp on it.
+ *
+ * So the claim is only allowed when the callback has just run in this browser.
+ * An unowned connection with no pending claim is unattributable: it is cleared,
+ * and the operator reconnects once. Short-lived, because the gap between the
+ * callback returning and the dashboard's first authenticated read is seconds.
+ */
+export const CLAIM_COOKIE = "google_claim_pending";
+
+/** The callback's window to be claimed. Long enough for a slow page load. */
+const CLAIM_TTL = 300;
+
 export type GoogleSessionState =
   /** No signed-in user. Nothing about a Google connection may be revealed. */
   | "unauthenticated"
@@ -73,7 +92,7 @@ const EMPTY = {
 
 /** Every cookie the Google connection owns, including the ownership marker. */
 export const ALL_GOOGLE_COOKIES = [
-  ...PRIMARY_COOKIES, ...SECONDARY_COOKIES, ...FLOW_COOKIES, OWNER_COOKIE,
+  ...PRIMARY_COOKIES, ...SECONDARY_COOKIES, ...FLOW_COOKIES, OWNER_COOKIE, CLAIM_COOKIE,
 ] as const;
 
 export async function clearGoogleCookies(): Promise<void> {
@@ -112,9 +131,19 @@ export async function googleSession(req: NextRequest): Promise<GoogleSession> {
   const owner = jar.get(OWNER_COOKIE)?.value;
 
   if (!owner) {
-    // Trust on first use - see the module docstring. Claim it for this caller so
-    // the NEXT person to sign in cannot read it.
+    if (!jar.get(CLAIM_COOKIE)) {
+      // Unowned and not just connected: a connection from before ownership
+      // existed, or one whose claim window has closed. It cannot be attributed
+      // to anybody, so it is not attributed to whoever happens to be reading.
+      // Costs one reconnect; the alternative is stamping the leaked connection
+      // as belonging to the person it leaked to.
+      for (const name of ALL_GOOGLE_COOKIES) jar.delete(name);
+      return { state: "foreign", userId: auth.user.id, ...EMPTY };
+    }
+    // Claimed. The callback ran in this browser moments ago, so the signed-in
+    // user is the one who completed the flow.
     jar.set(OWNER_COOKIE, auth.user.id, oauthCookie(ONE_YEAR));
+    jar.delete(CLAIM_COOKIE);
   } else if (owner !== auth.user.id) {
     // The leak, caught. Delete rather than hide: a token that survives here is a
     // token waiting for its owner to sign back in on a machine they have left.
@@ -140,8 +169,21 @@ export function reasonFor(state: GoogleSessionState): string | null {
     case "not_connected":
       return "No Google account connected. Connect one to read Search Console and Business Profile.";
     case "foreign":
-      return "The Google connection in this browser belongs to a different account and has been signed out. Connect your own Google account to continue.";
+      // Covers both shapes: a connection owned by someone else, and one that
+      // cannot be attributed at all. The instruction is the same either way, and
+      // saying which would tell the reader something about the other account.
+      return "The Google connection in this browser is not yours and has been signed out. Connect your own Google account to continue.";
     default:
       return null;
   }
+}
+
+
+/**
+ * Open the claim window. The OAuth callback calls this after a successful token
+ * exchange; nothing else may, or the bound on trust-on-first-use is gone.
+ */
+export async function markClaimPending(): Promise<void> {
+  const jar = await cookies();
+  jar.set(CLAIM_COOKIE, "1", oauthCookie(CLAIM_TTL));
 }

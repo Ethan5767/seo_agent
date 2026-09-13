@@ -51,7 +51,15 @@ see `CLAUDE.md` (the sync contract).
   cookies.
 
   Ownership is claimed on first authenticated read rather than during the OAuth
-  callback, because the callback is a top-level redirect from Google and this
+  callback, and the claim is bounded by a `google_claim_pending` marker that only
+  the callback sets. **Without that bound the fix would have made things worse
+  for the person who reported it:** their browser already holds an unowned,
+  leaked connection, and an unbounded trust-on-first-use would have stamped it as
+  legitimately theirs the next time they signed in - same wrong data, now with an
+  ownership record. An unowned connection with no pending claim is
+  unattributable, so it is cleared and the operator reconnects once.
+
+  The read-time claim is necessary because the callback is a top-level redirect from Google and this
   app's Supabase session lives in `localStorage`: there is no session cookie and
   no `Authorization` header on a browser navigation, so the server genuinely
   cannot identify the user at that moment. The window that opens is "whoever is

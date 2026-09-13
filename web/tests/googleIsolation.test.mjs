@@ -201,3 +201,48 @@ test("only googleSession and the OAuth writers touch the token cookies", () => {
   assert.deepEqual(offenders, [],
     "a Google token cookie is named outside the session layer; that is how this bug happened");
 });
+
+
+/* ── the claim window ────────────────────────────────────────────────────── */
+
+test("an unowned connection is only claimable right after a real callback", () => {
+  // Without this bound, the very connection that leaked would be claimed BY the
+  // person it leaked to, the first time they signed in after the fix - stamping
+  // it as legitimately theirs and showing the same wrong data.
+  const claim = SESSION.slice(SESSION.indexOf("if (!owner) {"), SESSION.indexOf("} else if (owner !=="));
+  assert.match(claim, /if \(!jar\.get\(CLAIM_COOKIE\)\)/);
+  assert.match(claim, /delete\(name\)/, "an unattributable connection must be cleared");
+  assert.match(claim, /state: "foreign"/);
+  assert.ok(claim.indexOf("jar.get(CLAIM_COOKIE)") < claim.indexOf("jar.set(OWNER_COOKIE"),
+    "check the window before claiming, not after");
+});
+
+test("the claim marker is single-use and short-lived", () => {
+  assert.match(SESSION, /jar\.delete\(CLAIM_COOKIE\)/, "the window must close once used");
+  assert.match(SESSION, /const CLAIM_TTL = \d{2,3};/, "the window must expire on its own");
+});
+
+test("only the OAuth callback opens the claim window", () => {
+  // markClaimPending is the bound on trust-on-first-use. A second caller would
+  // remove it.
+  const callers = [];
+  for (const f of [...walk("app"), ...walk("lib"), ...walk("components")]) {
+    if (f === "lib/googleSession.ts") continue;
+    if (/markClaimPending\(/.test(code(f))) callers.push(f);
+  }
+  assert.deepEqual(callers, ["app/api/auth/google/callback/route.ts"]);
+});
+
+test("the callback claims only after the token exchange succeeds", () => {
+  const cb = code("app/api/auth/google/callback/route.ts");
+  assert.ok(cb.indexOf("oauth2.googleapis.com/token") < cb.indexOf("markClaimPending()"),
+    "a failed exchange must not open a claim window");
+});
+
+test("the refusal message does not distinguish the two unowned cases", () => {
+  // "belongs to someone else" and "cannot be attributed" get the same sentence:
+  // the difference is information about another account.
+  const reason = SESSION.slice(SESSION.indexOf('case "foreign":'));
+  assert.match(reason, /is not yours and has been signed out/);
+  assert.ok(!/different account and has been/.test(reason));
+});

@@ -6,6 +6,73 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **Watch the gates run, step by step, from inside the app**
+  (`web/components/dashboard/GateActivity.tsx`,
+  `web/app/api/clients/[id]/github/activity/route.ts`, `activityFor` in
+  `githubServer.ts`). The Gate screen showed a verdict and nothing else, which
+  is the least useful moment to have no visibility: "one gate is red" says
+  nothing about what it looked at, how far the run got, or whether it is still
+  going.
+
+  GitHub's jobs API carries every step with its own status and timestamps. Each
+  step is matched back to `GATE_ROSTER` and annotated with **what that gate reads
+  and what it blocks on** - PRE reads the diff and the source tree, OUT reads the
+  built HTML page by page, CHAIN reads the JSON artifacts the PR carries. A step
+  name alone (`forbidden-sweep`) tells whoever has to act on a red run nothing.
+
+  It polls every 5s **only while something is running**; a finished run is
+  finished, and polling it forever burns the operator's GitHub rate limit.
+  `jobs === null` renders as "no workflow run for this commit", never as a clean
+  run - the workflow may not have started, or the client repo may not call it.
+
+- **The sidebar says "Gate & Merge".** The rail read `Gate` while the screen
+  heading read `Gate & Merge`, so the navigation hid the half that actually
+  ships the work. Merging *is* the stage: the gates decide, and the merge is the
+  only path to production.
+
+### Fixed
+
+- **B-096: the Local screen was almost entirely invented**
+  (`web/lib/localSignals.ts`, `web/app/ReaiDashboard.tsx`). Reported by the
+  operator - *"i feel like it fake, is it real"*. It was not.
+
+  Six directory tiles read `Google Maps Synced · Apple Maps Synced · Bing Places
+  Synced · Waze Local Synced · Yelp Biz Claimed · YellowPages Format Diff`, under
+  a `5/6 Verified Active` badge. Every one a literal. **Nothing in this codebase
+  has ever queried Apple Maps, Bing Places, Waze or YellowPages** - and for four
+  of the six *no tool at any price can*, because they publish no read API.
+
+  The findings checklist fell back to six fabricated rows, including
+  `"4.8 / 5.0 rating across 184 Google reviews. 94% positive sentiment ratio."`,
+  a category of `"Medical Center / Hospital"` and a `"+855..."` phone format -
+  one pilot client's details, shown to every account. **A rating and a review
+  count with no source is the exact claim `claim_provenance_check` refuses on a
+  client's site**, printed by our own dashboard.
+
+  Also: `85% Positive / 12% Neutral / 3% Negative` as literals (the bar above
+  them had been emptied in an earlier pass with a comment saying so, and the
+  labels were left behind), `sentimentFinding?.detail || "90% Positive"`, and
+  `Google Map Embed & Coordinates — Ready ✓` rendered unconditionally.
+
+  **The honest matrix, which is the answer to "what is possible":**
+
+  | | |
+  |---|---|
+  | Google Business Profile | **checkable** - DataForSEO Business Data (paid), or Google's own API via OAuth |
+  | Yelp | **buildable** - Fusion API, free tier, read-only. Not built; needs a key |
+  | Bing Places | **no public read API** |
+  | Apple Business Connect | **no public read API** |
+  | Waze | **no API**, and its listings come from Google data anyway |
+  | YellowPages | **no API** - scraping only, and unreliable |
+
+  Saying "no public API" is not a failure to report. It is the only honest thing
+  to print, and it stops an operator promising a client a sync that cannot exist.
+
+  14 tests in `web/tests/localAndGate.test.mjs`.
+
+
 ### Security
 
 - **B-091 is closed on the live database, not just in the repo.** The operator

@@ -300,3 +300,118 @@ export async function listRepositories(
 
   return { repos: out, truncated };
 }
+
+/* ── Live gate activity ─────────────────────────────────────────────────────
+ *
+ * A check run tells you a gate's verdict. It does not tell you what the gate is
+ * doing right now, what it looked at, or how long it took - and "the gates ran
+ * and one is red" is the least useful moment to have no visibility.
+ *
+ * The workflow's JOBS carry that: every step, in order, with its own status,
+ * conclusion and timestamps. That is the live feed - the same list an operator
+ * would watch on github.com, without leaving this app.
+ */
+
+export type GateStep = {
+  name: string;
+  /** queued | in_progress | completed */
+  status: string;
+  conclusion: string | null;
+  number: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  /** Wall-clock seconds, once both timestamps exist. */
+  seconds: number | null;
+};
+
+export type GateJob = {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  htmlUrl: string;
+  runnerName: string | null;
+  steps: GateStep[];
+};
+
+export type GateActivity = {
+  /** null when nothing has reported - never render that as "finished". */
+  jobs: GateJob[] | null;
+  /** True while any job or step is still running. The UI polls on this. */
+  running: boolean;
+  /** The workflow run's own page, for the operator who wants the raw log. */
+  runUrl: string | null;
+  startedAt: string | null;
+};
+
+function seconds(a: string | null, b: string | null): number | null {
+  if (!a || !b) return null;
+  const d = (new Date(b).getTime() - new Date(a).getTime()) / 1000;
+  return Number.isFinite(d) && d >= 0 ? Math.round(d) : null;
+}
+
+/**
+ * The live step-by-step of the workflow run for one commit.
+ *
+ * Reached via the check runs rather than the workflow list, because a check run
+ * is what a PR actually shows and its `id` maps to the job directly - listing
+ * workflow runs and guessing which belongs to this commit is a second source of
+ * truth that can disagree with the first.
+ */
+export async function activityFor(
+  repo: string, sha: string, token: string,
+): Promise<GateActivity | GhError> {
+  const parsed = parseRepo(repo);
+  if (!parsed) return { error: `not a valid owner/name repository: ${repo}` };
+  if (!/^[0-9a-f]{7,40}$/i.test(sha || "")) return { error: "not a valid commit sha" };
+
+  const runs = await gh<{ workflow_runs?: any[] }>(
+    `/repos/${parsed.owner}/${parsed.name}/actions/runs?head_sha=${sha}&per_page=5`, token,
+  );
+  if (isGhError(runs)) return runs;
+
+  const run = (runs.workflow_runs ?? [])[0];
+  if (!run) {
+    // No workflow run for this commit. NOT "finished with no steps": the
+    // workflow may not have started, or the client repo may not call it at all.
+    return { jobs: null, running: false, runUrl: null, startedAt: null };
+  }
+
+  const jobsRaw = await gh<{ jobs?: any[] }>(
+    `/repos/${parsed.owner}/${parsed.name}/actions/runs/${run.id}/jobs?per_page=50`, token,
+  );
+  if (isGhError(jobsRaw)) return jobsRaw;
+
+  const jobs: GateJob[] = (jobsRaw.jobs ?? []).map((j) => ({
+    id: j.id,
+    name: j.name ?? "",
+    status: j.status ?? "",
+    conclusion: j.conclusion ?? null,
+    startedAt: j.started_at ?? null,
+    completedAt: j.completed_at ?? null,
+    htmlUrl: j.html_url ?? "",
+    runnerName: j.runner_name ?? null,
+    steps: (j.steps ?? []).map((s: any) => ({
+      name: s.name ?? "",
+      status: s.status ?? "",
+      conclusion: s.conclusion ?? null,
+      number: s.number ?? 0,
+      startedAt: s.started_at ?? null,
+      completedAt: s.completed_at ?? null,
+      seconds: seconds(s.started_at ?? null, s.completed_at ?? null),
+    })),
+  }));
+
+  const running = jobs.some(
+    (j) => j.status !== "completed" || j.steps.some((s) => s.status !== "completed"),
+  );
+
+  return {
+    jobs: jobs.length ? jobs : null,
+    running,
+    runUrl: run.html_url ?? null,
+    startedAt: run.run_started_at ?? run.created_at ?? null,
+  };
+}

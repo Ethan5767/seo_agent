@@ -34,6 +34,8 @@ import { RepoPicker } from "@/components/dashboard/RepoPicker";
 import { deriveAeoTiles, aeoVerdictColor, aeoMatrixRows } from "@/lib/aeo";
 import { AeoAccessPanel } from "@/components/dashboard/AeoAccessPanel";
 import { AeoCrawlerTable } from "@/components/dashboard/AeoCrawlerTable";
+import { deriveDirectories, directoryLabel, directoryColor, directorySummary } from "@/lib/localSignals";
+import { GateActivity } from "@/components/dashboard/GateActivity";
 import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import { MeasureScreen } from "@/components/dashboard/MeasureScreen";
@@ -2509,7 +2511,10 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     id: "Gate",
-    label: "Gate",
+    // The rail label was "Gate" while the screen heading said "Gate & Merge",
+    // so the sidebar hid the half that ships the work. Merging IS the stage -
+    // the gates decide, and the merge is the only path to production.
+    label: "Gate & Merge",
     heading: "Gate & Merge",
     groups: [{ heading: null, items: [{ label: "Gate & Merge", stage: "gate" }] }],
   },
@@ -4243,6 +4248,25 @@ export function ReaiDashboard({
                                     quality gate. Merging is blocked until gates report.
                                   </div>
                                 )}
+
+                                {/* Live activity. The check-run table above is the
+                                    VERDICT; this is the run itself - every step, in
+                                    order, with what that gate reads and how long it
+                                    took. "One gate is red" is the least useful
+                                    moment to have no visibility into what it looked
+                                    at. Polls only while something is running. */}
+                                <details style={{ borderTop: "1px solid #eef1f4" }}>
+                                  <summary style={{ cursor: "pointer", padding: "10px 18px", fontSize: 12.5, fontWeight: 600, color: "#4f46e5" }}>
+                                    Watch this run, step by step
+                                  </summary>
+                                  <div style={{ padding: "0 18px 16px" }}>
+                                    <GateActivity
+                                      clientId={selectedClient?.id}
+                                      sha={pr.headSha}
+                                      getToken={githubToken}
+                                    />
+                                  </div>
+                                </details>
                               </div>
                             );
                           })}
@@ -7763,6 +7787,8 @@ export function ReaiDashboard({
                 {/* 4 KPI summary cards with integrated charts */}
                 {(() => {
                   const gbpRows = (report?.gbp || []) as Array<any>;
+                  // B-096. What can actually be checked, and what nobody can.
+                  const localDirectories = deriveDirectories([...(report?.gbp || []), ...(report?.mentions || [])] as any[]);
                   const mentionsRows = (report?.mentions || []) as Array<any>;
                   const aeoRows = (report?.aeo || []) as Array<any>;
 
@@ -7903,11 +7929,13 @@ export function ReaiDashboard({
                               <div>
                                 <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>Google Map Embed & Coordinates</div>
                                 <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                                  Latitude / Longitude coordinates indexed
+                                  {/* B-096. Read "Ready ✓" unconditionally. Nothing
+                                      reads a geo value or looks for a Maps iframe. */}
+                                  No coordinates have been read for this site
                                 </div>
                               </div>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "2px 6px", borderRadius: 4 }}>
-                                Ready ✓
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b", background: "#f1f5f9", border: "1px solid #e2e8f0", padding: "2px 6px", borderRadius: 4 }}>
+                                Not measured
                               </span>
                             </div>
                           </div>
@@ -7933,18 +7961,30 @@ export function ReaiDashboard({
                             <div style={{ padding: "8px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #edf0f4" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>Sentiment Distribution</span>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "1px 6px", borderRadius: 3 }}>
-                                  {sentimentFinding?.detail || "90% Positive"}
+                                <span style={{
+                                  fontSize: 12, fontWeight: 700,
+                                  color: sentimentFinding?.detail ? "var(--ok)" : "#64748b",
+                                  background: sentimentFinding?.detail ? "#ecfdf5" : "#f1f5f9",
+                                  border: `1px solid ${sentimentFinding?.detail ? "#a7f3d0" : "#e2e8f0"}`,
+                                  padding: "1px 6px", borderRadius: 3,
+                                }}>
+                                  {sentimentFinding?.detail || "Not measured"}
                                 </span>
                               </div>
                               <MiniSegmentBar
                                 height={6}
                                 segments={[] /* was a hardcoded sentiment split */}
                               />
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
-                                <span>85% Positive</span>
-                                <span>12% Neutral</span>
-                                <span>3% Negative</span>
+                              {/* B-096. These three read 85% / 12% / 3% as literals.
+                                  The bar above them was emptied in an earlier pass
+                                  with a comment saying so, and the labels under it
+                                  were left behind - so the chart was honest and the
+                                  numbers beside it were not. Nothing computes a
+                                  sentiment split. */}
+                              <div style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.45 }}>
+                                {sentimentFinding?.detail
+                                  ? "From the brand-mentions tool."
+                                  : "No sentiment split is measured. The mentions tool reports how many sources mention the brand, not how they feel about it."}
                               </div>
                             </div>
                           </div>
@@ -7959,7 +7999,7 @@ export function ReaiDashboard({
                               Primary Directory Listings & NAP Sync
                             </span>
                             <span style={{ fontSize: 12, color: "var(--ink-muted)", marginLeft: 8 }}>
-                              5/6 Verified Active
+                              {directorySummary(localDirectories)}
                             </span>
                           </div>
                           <button
@@ -7974,25 +8014,30 @@ export function ReaiDashboard({
                             <span>⚡</span> Generate LocalBusiness Schema
                           </button>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
-                          {[
-                            { name: "Google Maps", status: "Synced", icon: "📍", color: "var(--ok)", bg: "#ecfdf5", border: "#a7f3d0" },
-                            { name: "Apple Maps", status: "Synced", icon: "🍏", color: "var(--ok)", bg: "#ecfdf5", border: "#a7f3d0" },
-                            { name: "Bing Places", status: "Synced", icon: "🌐", color: "var(--ok)", bg: "#ecfdf5", border: "#a7f3d0" },
-                            { name: "Waze Local", status: "Synced", icon: "🚗", color: "var(--ok)", bg: "#ecfdf5", border: "#a7f3d0" },
-                            { name: "Yelp Biz", status: "Claimed", icon: "⭐", color: "var(--ok)", bg: "#ecfdf5", border: "#a7f3d0" },
-                            { name: "YellowPages", status: "Format Diff", icon: "📞", color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
-                          ].map((dir) => (
-                            <div key={dir.name} style={{ background: "#ffffff", border: "1px solid #edf0f4", borderRadius: 6, padding: "8px 10px", textAlign: "center" }}>
-                              <div style={{ fontSize: 14 }}>{dir.icon}</div>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b", marginTop: 2 }}>{dir.name}</div>
+                        {/* B-096. Six literal verdicts used to live here - Apple
+                            Maps, Bing Places, Waze and YellowPages all reading
+                            "Synced", when nothing in this codebase has ever
+                            queried any of them and four of the six publish no
+                            read API at all. "No public API" is the only honest
+                            thing to print, and it stops an operator promising a
+                            client a sync that cannot exist. */}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                          {localDirectories.map((dir) => (
+                            <div key={dir.name} style={{ background: "#ffffff", border: "1px solid #edf0f4", borderRadius: 6, padding: "10px 12px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 14 }}>{dir.icon}</span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{dir.name}</span>
+                              </div>
                               <span style={{
-                                fontSize: 12, fontWeight: 700, color: dir.color,
-                                background: dir.bg, border: `1px solid ${dir.border}`,
-                                padding: "1px 5px", borderRadius: 3, display: "inline-block", marginTop: 4,
+                                fontSize: 11.5, fontWeight: 700, color: directoryColor(dir.state),
+                                border: "1px solid #e2e8f0", background: "#f8fafc",
+                                padding: "1px 5px", borderRadius: 3, display: "inline-block", marginTop: 5,
                               }}>
-                                {dir.status}
+                                {directoryLabel(dir.state)}
                               </span>
+                              <div style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.45 }}>
+                                {dir.note}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -8010,56 +8055,34 @@ export function ReaiDashboard({
                         </div>
 
                         {(() => {
-                          const activeLocalRows = (gbpRows.length > 0 || mentionsRows.length > 0)
-                            ? [...gbpRows, ...mentionsRows]
-                            : [
-                                {
-                                  severity: "ok",
-                                  what: "Google Business Profile Claimed & Verified",
-                                  detail: `${currentBusiness} is verified on Google Maps. Category: Medical Center / Hospital.`,
-                                  why: "Verified profile controls map pack pins, direct telephone dials, and user direction requests.",
-                                  fix: "Maintain weekly post and opening hours updates.",
-                                },
-                                {
-                                  severity: "ok",
-                                  what: "Local Reviews & Sentiment Score",
-                                  detail: "4.8 / 5.0 rating across 184 Google reviews. 94% positive sentiment ratio.",
-                                  why: "Review volume and velocity correlate directly with Local 3-Pack rankings.",
-                                  fix: "Automate review collection requests after client consultations.",
-                                },
-                                {
-                                  severity: "warn",
-                                  what: "LocalBusiness JSON-LD Schema Missing",
-                                  detail: `Physical street address, geo-coordinates, and opening hours schema missing on ${currentDomain}.`,
-                                  why: "Search engines cannot reliably extract local entity attributes without structured data.",
-                                  fix: "Inject schema.org/MedicalOrganization or LocalBusiness JSON-LD in <head>.",
-                                  isSchemaAction: true,
-                                },
-                                {
-                                  severity: "warn",
-                                  what: "NAP Consistency Across Local Directories",
-                                  detail: "Phone format mismatch detected between Google Maps and YellowPages directory.",
-                                  why: "Inconsistent telephone formatting dilutes citation authority across Google Local algorithm.",
-                                  fix: "Sync telephone format with E.164 standardization (+855...).",
-                                },
-                                {
-                                  severity: "ok",
-                                  what: "Google Maps Embed & Directions Link",
-                                  detail: "Responsive interactive Google Maps iframe verified on contact page.",
-                                  why: "Confirms authentic physical location and provides direct transit route access.",
-                                  fix: "Verified optimal.",
-                                },
-                                {
-                                  // Was severity "ok" with one client's
-                                  // coordinates and "Verified optimal." Nothing
-                                  // read a geo value, so it cannot pass.
-                                  severity: "info",
-                                  what: "Local Geo-Targeting & Service Areas",
-                                  detail: "Not measured. No geo value has been read for this site.",
-                                  why: "Essential for matching 'near me' local search intent.",
-                                  fix: "Connect Google Business Profile, or add LocalBusiness geo coordinates to the site's structured data.",
-                                },
-                              ];
+                          // B-096. This used to substitute SIX INVENTED ROWS when
+                          // there were no real ones, including "4.8 / 5.0 rating
+                          // across 184 Google reviews. 94% positive sentiment
+                          // ratio", a category of "Medical Center / Hospital" and
+                          // a "+855..." phone format - one pilot client's details,
+                          // shown to every account. A rating and a review count
+                          // with no source is the exact claim
+                          // claim_provenance_check refuses on a CLIENT's site,
+                          // printed by our own dashboard.
+                          const activeLocalRows = [...gbpRows, ...mentionsRows];
+                          if (activeLocalRows.length === 0) {
+                            return (
+                              <div style={{
+                                border: "1px dashed #cbd5e1", borderRadius: 8, padding: "22px 18px",
+                                textAlign: "center", background: "#f8fafc",
+                              }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>
+                                  No local signals measured yet
+                                </div>
+                                <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.55 }}>
+                                  The Local tool reads the live Google Business Profile - rating, review count,
+                                  primary category, address and phone, and whether the profile is claimed. Run a
+                                  scan with it enabled, or connect Google, and every row below fills in with what
+                                  was actually found.
+                                </div>
+                              </div>
+                            );
+                          }
 
                           return (
                             <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,28 +17,116 @@ const { REPORT_VIEWS, viewById, rowsForView, viewCounts, tallyRows } = await imp
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
 
-test("every view's codes are emitted somewhere in the scanner", () => {
-  const scanner = ["dataforseo.py", "audit.py", "onpage_audit.py", "checks.py", "extra_checks.py",
-     "lighthouse.py", "source_audit.py"]
-    .map((f) => {
-      try {
-        return readFileSync(path.join(REPO, "pipeline", "scanner", f), "utf8");
-      } catch {
-        return "";
-      }
-    })
-    .join("\n");
-  assert.ok(scanner.length > 0, "could not read the scanner sources");
+/**
+ * Both directions of the same rule, over every scanner module on disk.
+ *
+ * The module list used to be typed out here. That is the failure this file
+ * exists to prevent, one level up: a new scanner module would simply not be
+ * read, both tests would pass over nothing, and the green would mean nothing.
+ * `CLAUDE.md`: a gate that scanned nothing must never report a pass.
+ */
+function scannerSources() {
+  const dir = path.join(REPO, "pipeline", "scanner");
+  const files = readdirSync(dir).filter((f) => f.endsWith(".py") && f !== "__init__.py");
+  assert.ok(files.length >= 10, `only ${files.length} scanner modules found - wrong path?`);
+  return files.map((f) => readFileSync(path.join(dir, f), "utf8")).join("\n");
+}
 
+/**
+ * Every code the scanner stamps, found at the places a row is BUILT rather than
+ * by guessing at which strings look like codes. A prefix family ends in "." and
+ * stands for the whole family.
+ */
+function emittedCodes(src) {
+  const codes = new Set();
+  const add = (re, fn) => {
+    for (const m of src.matchAll(re)) codes.add(fn(m));
+  };
+  const CODE = "[a-z_]+\\.[a-z_0-9.]*[a-z_0-9]";
+  add(/make_row\("([a-z_]+)"\)/g, (m) => `${m[1]}.`);          // rows.make_row
+  add(/"code":\s*f"([a-z_]+\.(?:[a-z_0-9]+\.)*)\{/g, (m) => m[1]); // f-string code
+  add(new RegExp(`"code":\\s*"(${CODE})"`, "g"), (m) => m[1]); // dict literal
+  // The row helpers that take the code as their first argument, and the
+  // code-keyed copy tables (`"dfs.broken_links": ("...", ...)`).
+  // `\\s*` because a multi-line call puts the code on the line after the paren.
+  add(new RegExp(`\\b_(?:row|pass_row|kw_row|check)\\(\\s*"(${CODE})"`, "g"), (m) => m[1]);
+  add(new RegExp(`^\\s*"(${CODE})":\\s*[({]`, "gm"), (m) => m[1]);
+  return codes;
+}
+
+/**
+ * Canaries. If a refactor breaks one of the patterns above, the extraction
+ * quietly returns less and every coverage assertion below passes over the gap.
+ * These are stamped by four different mechanisms, so a silent extraction
+ * failure cannot survive all of them.
+ */
+const MUST_FIND = [
+  "aeo.crawler_blocked", "dfs.backlinks", "tech.", "src.", "health.title_missing",
+];
+
+/**
+ * Families deliberately not on a sectioned screen, each with its reason.
+ * An entry here is a decision on the record, not an omission.
+ */
+const UNSECTIONED = {
+  gbp: "Local Presence renders GBP through its own panel and API, not the row tables.",
+  mention:
+    "Web brand mentions (the paid Reputation tool) have no sectioned screen yet; "
+    + "they show on the combined audit list. Open gap, recorded rather than hidden.",
+};
+
+test("the code extraction still finds what it is supposed to find", () => {
+  const codes = emittedCodes(scannerSources());
+  for (const canary of MUST_FIND) {
+    assert.ok(codes.has(canary), `extraction lost '${canary}' - a row-builder pattern has drifted`);
+  }
+  assert.ok(codes.size > 30, `expected the scanner's codes, found ${codes.size}`);
+});
+
+test("every view's codes are emitted somewhere in the scanner", () => {
+  // No view may invent a code: a screen with no backing row is the alias
+  // problem one layer down, a menu item that always opens empty.
+  const codes = [...emittedCodes(scannerSources())];
   for (const view of REPORT_VIEWS) {
     for (const code of view.codes) {
-      const needle = code.endsWith(".") ? code : `"${code}"`;
+      // A prefix view is backed if ANY real code falls under it - either the
+      // family itself is stamped (`make_row("tech")`) or a member of it is
+      // registered (`health.title_missing`, which `measure` emits from outside
+      // this directory).
+      const backed = code.endsWith(".")
+        ? codes.some((c) => c === code || c.startsWith(code))
+        : codes.includes(code);
       assert.ok(
-        scanner.includes(needle),
+        backed,
         `view '${view.id}' lists code '${code}', which no scanner module emits`
       );
     }
   }
+});
+
+/**
+ * The reverse direction, and the one that actually slipped.
+ *
+ * Nothing proved that a code the scanner emits reaches a screen. So when the
+ * AEO pass added `aeo.training_crawler_blocked`, `aeo.answer_schema_missing`
+ * and `aeo.article_author_missing`, the scanner measured all three on every run
+ * and the three AEO screens showed none of them - B-007's shape, where a
+ * finished module was called by nothing.
+ */
+test("every code the scanner emits reaches a screen", () => {
+  const claimed = [...REPORT_VIEWS.flatMap((v) => v.codes)];
+  const isClaimed = (code) =>
+    claimed.some((c) => (c.endsWith(".") ? code.startsWith(c) : c === code));
+
+  const orphans = [...emittedCodes(scannerSources())]
+    .filter((code) => !UNSECTIONED[code.split(".")[0]] && !isClaimed(code))
+    .sort();
+
+  assert.deepEqual(
+    orphans,
+    [],
+    "these codes are measured on every scan and appear on no screen: " + orphans.join(", ")
+  );
 });
 
 test("view ids and labels are unique", () => {

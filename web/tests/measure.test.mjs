@@ -592,3 +592,94 @@ test("the keyword line is omitted rather than filled with a fallback", () => {
   assert.equal(withKeywords.keywords[0].what, "acme widgets — position 4");
   assert.ok(withKeywords.markdown.includes("acme widgets — position 4"));
 });
+
+test("the findings table shows how many pages each finding affects", () => {
+  /*
+   * `merge_by_code` has attached affected URLs to every multi-page row since
+   * the free crawl shipped, and `onpage_audit` attaches them per DataForSEO
+   * flag. Nothing rendered them. Every competitor puts this count on the row:
+   * it is the difference between "canonical mismatch" and "canonical mismatch
+   * on 340 pages", and it is what lets a list be read by consequence rather
+   * than by severity label alone.
+   */
+  const src = readFileSync(
+    path.resolve(__dirname, "..", "components", "dashboard", "ReportTable.tsx"), "utf8");
+
+  assert.ok(/function affected\(/.test(src), "no affected-pages helper");
+  assert.ok(/Array\.isArray\(pages\)/.test(src),
+    "the count must come from the row's own pages list, not be inferred");
+  assert.ok(/label="Pages"/.test(src), "no Pages column header");
+  assert.ok(/sortKey === "affected"/.test(src),
+    "the column must be sortable: consequence is the useful ordering");
+
+  // The column appears only where the data does. A single-page scan getting a
+  // column of em dashes is worse than no column at all.
+  assert.ok(/const anyAffected/.test(src), "column is not conditional on the data");
+  assert.ok(/\{anyAffected &&/.test(src), "header/cell not gated on anyAffected");
+});
+
+test("a pillar card shows the distribution, not the average twice", () => {
+  /*
+   * The bar used to be filled to the score, which restates the number beside it
+   * and hides the shape: 60% passing looks identical whether the other 40% is
+   * all notices or all server errors. Sitebulb never shows an average without
+   * its spread, and that is the right rule - the average is what you report,
+   * the spread is what you act on.
+   */
+  const src = readFileSync(
+    path.resolve(__dirname, "..", "components", "dashboard", "MeasureScreen.tsx"), "utf8");
+
+  assert.ok(!/width: `\$\{m\.score \?\? 0\}%`/.test(src),
+    "the bar is filled to the score again, which just repeats the number above it");
+  for (const sev of ["m.error", "m.warn", "m.info", "m.ok"]) {
+    assert.ok(src.includes(sev), `the distribution must include ${sev}`);
+  }
+  // Colour alone must not carry it: WCAG 1.4.1, and it has to survive
+  // greyscale printing in a client report.
+  assert.ok(/error, \$\{m\.warn\} warning/.test(src),
+    "segments must be labelled in text, not only coloured");
+});
+
+
+// ── ExecutiveTrafficChart empty series (B-069) ───────────────────────────────
+//
+// The de-fabrication pass removed the fixture series and left the maths that
+// assumed they were populated. `pts` becomes [], and `pts[pts.length - 1].x`
+// throws "Cannot read properties of undefined (reading 'x')" — so the Keywords
+// and Visibility tabs, whose arrays are unconditionally empty, crashed the whole
+// dashboard, and so did any page with no scan behind it.
+//
+// Removing invented data is only half the job; the empty state is the other half.
+
+test("the traffic chart renders an empty state instead of throwing", () => {
+  const src = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
+  const body = src.slice(src.indexOf("export function ExecutiveTrafficChart"));
+  const fn = body.slice(0, body.indexOf("\nexport "));
+
+  // Strip comments first. A comment explaining the bug legitimately quotes the
+  // very expression we are checking the position of, and matching that prose
+  // instead of the code is how this assertion lies to you.
+  const code = fn
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  assert.ok(/activeSeries\.length\s*===\s*0/.test(code) || /pts\.length\s*===\s*0/.test(code),
+    "no early return for an empty series — pts[pts.length-1] will throw");
+
+  const guardPos = Math.min(
+    ...[/activeSeries\.length\s*===\s*0/, /pts\.length\s*===\s*0/]
+      .map(re => { const m = code.match(re); return m ? code.indexOf(m[0]) : Infinity; }));
+  const derefPos = code.indexOf("pts[pts.length - 1].x");
+  assert.ok(derefPos === -1 || guardPos < derefPos,
+    "the empty-series guard must come BEFORE pts[pts.length - 1] is dereferenced");
+});
+
+test("the chart does not compute a range from an empty series", () => {
+  const src = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
+  const body = src.slice(src.indexOf("export function ExecutiveTrafficChart"));
+  const fn = body.slice(0, body.indexOf("\nexport "));
+  assert.ok(!/Math\.min\(\.\.\.activeSeries\)(?![\s\S]{0,400}activeSeries\.length)/.test(fn)
+    || /activeSeries\.length\s*===\s*0/.test(fn),
+    "Math.min(...[]) is Infinity — guard the empty case before computing the scale");
+});

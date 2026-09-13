@@ -49,7 +49,18 @@ export function AuditHeroBar({
   const errorCount = allRows.filter((r) => r.severity === "error").length;
   const warnCount = allRows.filter((r) => r.severity === "warn").length;
   const okCount = allRows.filter((r) => r.severity === "ok").length;
-  const overallScore = report?.score || (allRows.length > 0 ? Math.round(Math.max(20, 100 - (errorCount * 12 + warnCount * 4))) : null);
+  /*
+   * One number, computed once, in the scanner. This carried a third health
+   * formula - `max(20, 100 - 12*err - 4*warn)` - which disagreed with the
+   * scanner's and with ReaiDashboard's in both weights and floor, counted issue
+   * TYPES rather than affected URLs, and saturated at 9 errors. It is gone:
+   * `report.score` is `audit.health_score`, a published pass rate over
+   * gradeable checks, and `null` when nothing gradeable ran. See B-055.
+   */
+  const overallScore = report?.score ?? null;
+  // Narrowed once so the render below cannot re-introduce a coercion. A score
+  // of 0 is a real, terrible score and must not be treated as "no score".
+  const scored: number | null = typeof overallScore === "number" ? overallScore : null;
 
   const filteredRows = allRows.filter((r) => {
     if (selectedCategory === "error") return r.severity === "error";
@@ -280,35 +291,66 @@ export function AuditHeroBar({
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <div
-                style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: "50%",
-                  background: (overallScore || 80) >= 80 ? "#ecfdf5" : (overallScore || 80) >= 60 ? "#fffbeb" : "#fef2f2",
-                  border: `3px solid ${(overallScore || 80) >= 80 ? "#10b981" : (overallScore || 80) >= 60 ? "#f59e0b" : "#ef4444"}`,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                <div style={{ fontSize: 20, fontWeight: 900, color: (overallScore || 80) >= 80 ? "#065f46" : (overallScore || 80) >= 60 ? "#92400e" : "#991b1b", lineHeight: 1 }}>
-                  {overallScore || 80}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>/ 100</div>
-              </div>
+              {/*
+                `overallScore || 80` rendered a green "80 / 100 · Good Site
+                Health" for a site nobody had scored, and swallowed a real score
+                of 0 into the same 80. The component already reads
+                `report?.score ?? null` correctly a few lines up — this is the
+                coercion that threw that away.
 
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
-                  {(overallScore || 80) >= 80 ? "Good Site Health" : (overallScore || 80) >= 60 ? "Needs Improvement" : "Critical Fixes Required"}
-                </div>
-                <div style={{ fontSize: 12.5, color: "var(--ink-muted)", marginTop: 2 }}>
-                  Audited <strong>{inputUrl || currentDomain}</strong> · {allRows.length} technical checks evaluated
-                </div>
+                Unscored is its own state. Not 80, not 0, not a colour.
+              */}
+              {scored === null ? (
+                <>
+                  <div
+                    style={{
+                      width: 64, height: 64, borderRadius: "50%",
+                      background: "#f1f5f9", border: "3px dashed #cbd5e1",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    }}
+                  >
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "var(--ink-muted)", lineHeight: 1 }}>—</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "var(--ink-muted)" }}>Not scored yet</div>
+                    <div style={{ fontSize: 12.5, color: "var(--ink-muted)", marginTop: 2 }}>
+                      Run a scan to measure {inputUrl || currentDomain || "this site"}.
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      width: 64,
+                      height: 64,
+                      borderRadius: "50%",
+                      background: scored >= 80 ? "#ecfdf5" : scored >= 60 ? "#fffbeb" : "#fef2f2",
+                      border: `3px solid ${scored >= 80 ? "#10b981" : scored >= 60 ? "#f59e0b" : "#ef4444"}`,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{ fontSize: 20, fontWeight: 900, color: scored >= 80 ? "#065f46" : scored >= 60 ? "#92400e" : "#991b1b", lineHeight: 1 }}>
+                      {scored}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>/ 100</div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+                      {scored >= 80 ? "Good Site Health" : scored >= 60 ? "Needs Improvement" : "Critical Fixes Required"}
+                    </div>
+                      <div style={{ fontSize: 12.5, color: "var(--ink-muted)", marginTop: 2 }}>
+                        Audited <strong>{inputUrl || currentDomain}</strong> · {allRows.length} technical checks evaluated
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
-            </div>
 
             {/* Quick Filter Pill Badges */}
             <div style={{ display: "flex", gap: 8 }}>

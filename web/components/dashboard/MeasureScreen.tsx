@@ -49,7 +49,9 @@ export interface MeasureScreenProps {
   warnChecks: number;
   errChecks: number;
   infoChecks: number;
-  dynamicHealth: number;
+  /** Null when nothing gradeable ran. Not zero: a scan that measured nothing
+   *  has no health to report, and 0% reads as "everything is broken". */
+  dynamicHealth: number | null;
   auditCategoryFilter: string;
   setAuditCategoryFilter: (key: string) => void;
   auditSeverityFilter: CheckSeverityFilter;
@@ -241,7 +243,15 @@ export function MeasureScreen({
         <>
           <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 12 }}>
             <div style={{ background: "var(--surface)", padding: "18px 20px", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-              <SiteHealthDonut score={dynamicHealth} size={92} />
+              {dynamicHealth === null ? (
+                <div style={{ width: 92, height: 92, borderRadius: "50%", border: "2px dashed #cbd5e1",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 12, color: "var(--ink-muted)", textAlign: "center", padding: 8 }}>
+                  Not measured
+                </div>
+              ) : (
+                <SiteHealthDonut score={dynamicHealth} size={92} />
+              )}
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-body)", marginTop: 10 }}>Site Health Score</div>
               <div style={{ fontSize: 12, color: "var(--ink-muted)", textAlign: "center", marginTop: 3 }}>
                 {okChecks + warnChecks + errChecks} technical checks
@@ -271,7 +281,7 @@ export function MeasureScreen({
             </div>
           </div>
 
-          {/* ── THEMATIC MEASURE CHECKING TOOL (SEMRUSH STANDARD) ── */}
+          {/* ── THEMATIC MEASURE CHECKING TOOL ── */}
           <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
@@ -280,7 +290,7 @@ export function MeasureScreen({
                     Thematic Measure Checking Tool
                   </h4>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
-                    Semrush Standard + AEO
+                    Technical SEO + AEO
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>
@@ -334,8 +344,34 @@ export function MeasureScreen({
                       </span>
                     </div>
 
-                    <div style={{ height: "var(--space-1)", background: "var(--surface-3)", borderRadius: "var(--radius-full)", overflow: "hidden", marginBottom: "var(--space-3)" }}>
-                      <div style={{ width: `${m.score ?? 0}%`, height: "100%", background: t.fg, borderRadius: "var(--radius-full)" }} />
+                    {/*
+                      The distribution, not the average again.
+                      This was a single bar filled to the score, which restates
+                      the number above it and hides the shape: 60% passing looks
+                      identical whether the other 40% is all notices or all
+                      server errors. Sitebulb never shows an average without its
+                      spread, and that is the right rule - the average is what
+                      you report, the spread is what you act on.
+                      Segments are labelled in the title text as well as
+                      coloured, so the information survives greyscale and
+                      colour-vision deficiency (WCAG 1.4.1).
+                    */}
+                    <div
+                      title={m.measured
+                        ? `${m.error} error, ${m.warn} warning, ${m.info} notice, ${m.ok} passing`
+                        : "nothing gradeable ran"}
+                      style={{ display: "flex", height: "var(--space-1)", background: "var(--surface-3)",
+                               borderRadius: "var(--radius-full)", overflow: "hidden",
+                               marginBottom: "var(--space-3)" }}
+                    >
+                      {m.measured && [
+                        { n: m.error, c: "var(--bad)" },
+                        { n: m.warn, c: "var(--warn)" },
+                        { n: m.info, c: "var(--info)" },
+                        { n: m.ok, c: "var(--ok)" },
+                      ].map(({ n, c }, si) => n > 0 && (
+                        <div key={si} style={{ flexGrow: n, background: c }} />
+                      ))}
                     </div>
 
                     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
@@ -535,7 +571,7 @@ export function MeasureScreen({
         );
       })()}
 
-      {/* Sub-tab: Crawl History & Progress Timeline (Semrush Standard + REAI Autonomous Lift) */}
+      {/* Sub-tab: Crawl History & Progress Timeline */}
       {auditSubTab === "progress" && (() => {
         const historicalSnapshots: any[] = [
           // Was a hardcoded fixture: past crawl scores. Real values come from

@@ -21,16 +21,110 @@ export interface ContentToolField {
   /** A long-form input gets a textarea rather than a single line. */
   multiline?: boolean;
   required?: boolean;
+  /**
+   * Derive this field from what the pipeline already measured.
+   *
+   * The product is an automated pipeline, and asking an operator to type a
+   * target keyword it has already measured is the pipeline refusing to do its
+   * own job. Worse, a typed keyword is a GUESS: the operator picks what they
+   * think the page is about, while Search Console knows what it actually ranks
+   * for. Deriving it is both less work and more accurate.
+   *
+   * Returns null when there is genuinely nothing to derive from — then the
+   * field falls back to being typed, and the UI says why it could not be
+   * filled rather than silently presenting an empty box.
+   */
+  suggest?: (ctx: ContentContext) => { value: string; because: string } | null;
+}
+
+/* ── Derivations ─────────────────────────────────────────────────────────────
+ * Shared so every tool derives the same way. Ordered best-evidence first:
+ * a real Search Console query beats a scanner-ranked keyword, which beats the
+ * client's own service description.
+ */
+
+/** The query this page most deserves work on: highest impressions in 5-20. */
+export function suggestTargetQuery(ctx: ContentContext): { value: string; because: string } | null {
+  const qs = (ctx?.queries ?? []).filter((q) => q && q.query);
+  if (!qs.length) return null;
+  const striking = qs
+    .filter((q) => typeof q.position === "number" && q.position >= 5 && q.position <= 20)
+    .sort((a, b) => (b.impressions ?? 0) - (a.impressions ?? 0));
+  if (striking.length) {
+    const q = striking[0];
+    return {
+      value: q.query,
+      because: `ranks #${Math.round(q.position as number)} on ${q.impressions ?? 0} impressions — close enough that content can move it`,
+    };
+  }
+  const busiest = [...qs].sort((a, b) => (b.impressions ?? 0) - (a.impressions ?? 0))[0];
+  return { value: busiest.query, because: `the highest-impression query this page appears for` };
+}
+
+/** Fall back to the strongest keyword the scan itself ranked. */
+export function suggestScannedKeyword(ctx: ContentContext): { value: string; because: string } | null {
+  const fromQuery = suggestTargetQuery(ctx);
+  if (fromQuery) return fromQuery;
+  const kw = (ctx?.keywords ?? []).filter(Boolean);
+  if (!kw.length) return null;
+  return { value: String(kw[0]), because: "the top keyword from the last scan (no Search Console data yet)" };
+}
+
+/** What the business does, for tools that widen rather than target a page. */
+export function suggestTheme(ctx: ContentContext): { value: string; because: string } | null {
+  if (ctx?.business) return { value: ctx.business, because: "the client's own business description" };
+  const kw = suggestScannedKeyword(ctx);
+  return kw ? { value: kw.value, because: kw.because } : null;
 }
 
 export interface ContentTool {
   id: string;
   label: string;
   blurb: string;
-  /** What the operator fills in. */
+  /** What the operator fills in. Optional refinement, never the whole input. */
   fields: ContentToolField[];
-  /** Turns the filled fields into the user turn. */
+  /**
+   * Finding codes this tool argues from. A prefix ending in "." matches the
+   * family, exactly as `reportViews` does. The matching rows are put in front
+   * of the model as evidence, so the tool starts from what the scan measured on
+   * this page rather than from whatever the operator typed.
+   */
+  evidenceCodes?: string[];
+  /**
+   * What controlled testing says about this CLASS of work.
+   *
+   * Not decoration. Roughly 15% of deliberate SEO changes measure as a
+   * significant gain, 7-8% as a significant loss and ~75% as nothing at all
+   * (SearchPilot, 2022-23 corpus). An operator choosing between seven tools
+   * deserves to know which of them is doing work the evidence supports, and
+   * which is doing work that is merely conventional. Naming that is the whole
+   * difference between a content toolbox and a content casino.
+   *
+   * strong  — repeated controlled tests, positive, ideally across programmes
+   * mixed   — real effects measured, but the sign depends on the site
+   * weak    — tested and found null, or the payoff has since been withdrawn
+   */
+  evidence: { strength: "strong" | "mixed" | "weak"; note: string };
+  /** Turns the filled fields plus the scan evidence into the user turn. */
   buildPrompt: (values: Record<string, string>, context: ContentContext) => string;
+}
+
+/** One measured row, as the scanner emits it. */
+export interface EvidenceRow {
+  code?: string;
+  what?: string;
+  why?: string;
+  fix?: string;
+  detail?: string;
+  severity?: string;
+}
+
+/** One Search Console row: a query this site really appears for. */
+export interface QueryRow {
+  query: string;
+  position?: number;
+  clicks?: number;
+  impressions?: number;
 }
 
 export interface ContentContext {
@@ -40,6 +134,44 @@ export interface ContentContext {
   business?: string;
   /** Keyword rows from the last scan, already measured. */
   keywords?: string[];
+  /**
+   * The page being worked on, as the scanner already fetched it. The optimizer
+   * used to ask the operator to paste content the scan was holding all along.
+   */
+  page?: {
+    url?: string;
+    title?: string;
+    description?: string;
+    headings?: string[];
+    wordCount?: number;
+    text?: string;
+  };
+  /** Every finding from the last scan. Tools slice this by `evidenceCodes`. */
+  findings?: EvidenceRow[];
+  /** Search Console rows: measured demand, not a keyword tool's estimate. */
+  queries?: QueryRow[];
+}
+
+/** Does this finding code fall under the pattern? "aeo." matches the family. */
+function matchesCode(code: string, pattern: string): boolean {
+  return pattern.endsWith(".") ? code.startsWith(pattern) : code === pattern;
+}
+
+/**
+ * The findings a tool argues from: its own codes, worst first, passes dropped.
+ *
+ * A passing check is not a thing to fix, and feeding "Content depth: passing"
+ * into a rewrite prompt invites the model to change something that was right.
+ */
+export function evidenceFor(tool: ContentTool, ctx: ContentContext | null | undefined): EvidenceRow[] {
+  const codes = tool.evidenceCodes ?? [];
+  const rows = Array.isArray(ctx?.findings) ? ctx!.findings! : [];
+  if (!codes.length || !rows.length) return [];
+  const rank: Record<string, number> = { error: 0, warn: 1, info: 2 };
+  return rows
+    .filter((r) => r && typeof r === "object" && r.severity !== "ok")
+    .filter((r) => typeof r.code === "string" && codes.some((c) => matchesCode(r.code as string, c)))
+    .sort((a, b) => (rank[a.severity ?? ""] ?? 3) - (rank[b.severity ?? ""] ?? 3));
 }
 
 /**
@@ -62,8 +194,12 @@ Hard rules, in priority order:
    worse than nothing, and the publishing gate will reject it.
 2. Use Title Case for every heading. "Roof Repair In Austin", not "Roof repair
    in austin".
-3. Do not use em dashes in copy intended for a public page. Use a comma, a full
-   stop, or a colon.
+3. Do not use em dashes ANYWHERE in your output, including headings, tables and
+   your own notes back to the editor. Use a comma, a full stop, or a colon.
+   Scoping this to "public copy" was not enough: a draft can be applied into the
+   client's repo as a work item, the em-dash gate runs on every PR, and it
+   accepts no baseline, so a single em dash anywhere in a file blocks that
+   client's pipeline until a human removes it.
 4. Do not use possessive contractions in headings. "Summer Is Around The
    Corner", not "Summer's Around The Corner".
 5. Write plainly. Short sentences. No filler openers, no "in today's digital
@@ -88,20 +224,103 @@ function contextBlock(ctx: ContentContext): string {
   return `Project context (the only facts you may state about this business):\n${lines.join("\n")}`;
 }
 
+/**
+ * The page as the scanner fetched it.
+ *
+ * The optimizer used to ask the operator to paste the content. The scan already
+ * had it, along with the title, the description, the heading tree and the word
+ * count, so the paste was asking a person to re-key a measurement.
+ */
+function pageBlock(ctx: ContentContext): string {
+  const p = ctx.page;
+  if (!p || (!p.url && !p.title && !p.text)) return "";
+  const lines: string[] = [];
+  if (p.url) lines.push(`URL: ${p.url}`);
+  if (p.title) lines.push(`Current <title>: ${p.title}`);
+  lines.push(p.description ? `Current meta description: ${p.description}` : "Current meta description: (none)");
+  if (typeof p.wordCount === "number") lines.push(`Word count: ${p.wordCount}`);
+  if (p.headings?.length) {
+    lines.push("Current heading outline:", ...p.headings.slice(0, 40).map((h) => `  ${h}`));
+  } else {
+    lines.push("Current heading outline: (no subheadings found)");
+  }
+  if (p.text) {
+    const t = p.text.slice(0, 6000);
+    lines.push("Current page copy:", "---", t, "---");
+  }
+  return `The page as the scanner fetched it. This is the real current state; do not invent what is on the page:\n${lines.join("\n")}`;
+}
+
+/**
+ * What the scan measured about this tool's concern.
+ *
+ * Each row is a real finding with its own code, so a draft can be traced back
+ * to the thing that asked for it - and so the model argues from a measurement
+ * rather than from a keyword somebody typed into a box.
+ */
+function evidenceBlock(rows: EvidenceRow[]): string {
+  if (!rows.length) return "";
+  const lines = rows.slice(0, 20).map((r) => {
+    const sev = (r.severity ?? "info").toUpperCase();
+    const detail = r.detail ? ` (${r.detail})` : "";
+    const why = r.why ? `\n    why: ${r.why}` : "";
+    const fix = r.fix && r.fix !== "passing" ? `\n    prescribed fix: ${r.fix}` : "";
+    return `  [${sev}] ${r.what ?? r.code ?? "finding"}${detail}${why}${fix}`;
+  });
+  return [
+    "What the last scan measured about this page. Address these specifically:",
+    ...lines,
+    "",
+    "Every recommendation you make should either resolve one of these findings or",
+    "say plainly which one it cannot resolve and why.",
+  ].join("\n");
+}
+
+/** Queries the site really appears for, from the client's own Search Console. */
+function queryBlock(rows: QueryRow[] | undefined, opts: { min?: number; max?: number } = {}): string {
+  if (!rows?.length) return "";
+  const { min = 0, max = 101 } = opts;
+  const picked = rows
+    .filter((q) => q && typeof q.query === "string" && typeof q.position === "number"
+      && q.position >= min && q.position <= max)
+    .sort((a, b) => (b.impressions ?? 0) - (a.impressions ?? 0))
+    .slice(0, 25);
+  if (!picked.length) return "";
+  const lines = picked.map((q) =>
+    `  - "${q.query}" - position ${Math.round(q.position as number)}`
+    + (typeof q.impressions === "number" ? `, ${q.impressions} impressions` : "")
+    + (typeof q.clicks === "number" ? `, ${q.clicks} clicks` : ""));
+  return [
+    "Measured demand from this site's own Google Search Console. These are real",
+    "queries real people used to reach this site, not a keyword tool's estimate:",
+    ...lines,
+  ].join("\n");
+}
+
+/** Joins the blocks that have content, so an absent one leaves no blank hole. */
+function compose(...blocks: string[]): string {
+  return blocks.filter((b) => b && b.trim()).join("\n\n");
+}
 export const CONTENT_TOOLS: ContentTool[] = [
   {
     id: "brief",
-    label: "SEO Brief Generator",
+    label: "Content Brief",
+    evidence: { strength: "strong", note:
+      "Adding substantive content to a thin page is the largest measured effect in the published corpus: +5% to +50% across ~10 controlled tests, median around +14%." },
     blurb:
-      "A writer-ready brief for one target keyword: angle, structure, headings, entities to cover, and what to link.",
+      "A writer-ready brief for one target keyword, argued from the page's measured gaps and the queries it already appears for.",
+    evidenceCodes: ["content.", "health.thin_content", "aeo.no_answer_structure"],
     fields: [
-      { name: "keyword", label: "Target keyword", placeholder: "roof repair austin", required: true },
+      { name: "keyword", label: "Target keyword", placeholder: "roof repair austin", required: true, suggest: suggestScannedKeyword },
       { name: "audience", label: "Who is it for", placeholder: "homeowners after storm damage" },
     ],
-    buildPrompt: (v, ctx) => `${contextBlock(ctx)}
-
-Write an SEO content brief for the target keyword "${v.keyword}".
-${v.audience ? `Intended reader: ${v.audience}.` : ""}
+    buildPrompt: (v, ctx) => compose(
+      contextBlock(ctx),
+      pageBlock(ctx),
+      evidenceBlock(evidenceFor(contentToolById("brief")!, ctx)),
+      queryBlock(ctx.queries),
+      `Write an SEO content brief for the target keyword "${v.keyword}".${
+        v.audience ? `\nIntended reader: ${v.audience}.` : ""}
 
 Include, in this order:
 - Search intent in one sentence, and what the page must do to satisfy it
@@ -109,110 +328,200 @@ Include, in this order:
 - An H1, then an H2/H3 outline with a one-line note under each on what it covers
 - Entities and subtopics the page should mention to read as authoritative
 - Two or three internal links worth adding, described by their topic
-- What would make this page better than the pages currently ranking`,
+- What would make this page better than the pages currently ranking
+
+Where the evidence above names a specific gap, say which section of your outline
+closes it and name the finding. Where a query above is close to page one, say
+which section targets it.`),
   },
   {
     id: "topics",
-    label: "Topic Finder",
+    label: "Coverage Gaps",
+    evidence: { strength: "mixed", note:
+      "New pages only pay where there is demand to meet. Ground the list in measured queries; a topic nobody searches for cannot rank, whatever it is written like." },
     blurb:
-      "Turns the keywords this site already ranks for into a clustered content plan, so new pages build on measured demand rather than a guess.",
+      "Turns the queries this site already appears for into a clustered content plan, so new pages build on measured demand rather than a guess.",
     fields: [
-      { name: "theme", label: "Theme or service", placeholder: "emergency roofing", required: true },
+      { name: "theme", label: "Theme or service", placeholder: "emergency roofing", required: true, suggest: suggestTheme },
       { name: "count", label: "How many topics", placeholder: "10" },
     ],
-    buildPrompt: (v, ctx) => `${contextBlock(ctx)}
-
-Propose ${v.count || "10"} content topics around "${v.theme}".
+    buildPrompt: (v, ctx) => compose(
+      contextBlock(ctx),
+      queryBlock(ctx.queries),
+      `Propose ${v.count || "10"} content topics around "${v.theme}".
 
 Group them into clusters (a pillar topic and the supporting pages under it).
 For each topic give: the working title, the search intent it serves, the
 one-line reason it earns a page of its own, and whether it should be a new page
-or a section added to an existing one. Prefer topics connected to the keywords
-in the context above, since those are measured demand for this site rather than
-a guess. Mark any topic that is not connected to them as speculative.`,
+or a section added to an existing one.
+
+Anchor every topic you can to the measured demand above, and say which query it
+comes from. Mark any topic with no measured query behind it as speculative, and
+keep those last.`),
   },
   {
     id: "optimize",
-    label: "Content Optimizer",
+    label: "Depth Expansion",
+    evidence: { strength: "strong", note:
+      "Effect scales with how much actually changes: a 100%+ rewrite measured +44%, 31-100% +11%, and a 0-10% tweak +2% (Raptive, 103,000 pages against matched controls). Expand substantially or do not bother." },
     blurb:
-      "Rewrites an existing page against its target keyword, keeping every factual claim the original made and flagging any it cannot verify.",
+      "Rewrites the scanned page against its target keyword, closing the exact findings the audit raised and keeping every factual claim the original made.",
+    evidenceCodes: ["content.", "health.", "aeo.", "eeat."],
     fields: [
-      { name: "keyword", label: "Target keyword", placeholder: "metal roofing installation", required: true },
+      { name: "keyword", label: "Target keyword", placeholder: "metal roofing installation", required: true, suggest: suggestScannedKeyword },
       {
-        name: "content",
-        label: "Current page copy",
-        placeholder: "Paste the page text here",
-        multiline: true,
-        required: true,
+        name: "content", label: "Page content (leave blank to use the scanned page)",
+        placeholder: "Paste only to override what the scan fetched", multiline: true,
       },
     ],
-    buildPrompt: (v, ctx) => `${contextBlock(ctx)}
+    buildPrompt: (v, ctx) => compose(
+      contextBlock(ctx),
+      v.content ? `Page copy supplied by the operator, which overrides the scan:\n---\n${v.content}\n---` : pageBlock(ctx),
+      evidenceBlock(evidenceFor(contentToolById("optimize")!, ctx)),
+      `Rewrite this page for the target keyword "${v.keyword}".
 
-Improve the page copy below for the target keyword "${v.keyword}".
+Rules:
+- Keep every factual claim the original made. Do not add a new one. If a claim
+  looks wrong or unverifiable, leave it and list it under "Flagged claims".
+- Close the findings listed above. For each one, name it and say what you changed.
+- Keep the author's voice. This is an edit, not a replacement.
 
-Rules for this task specifically:
-- Keep every factual claim the original makes. Do not add new ones.
-- If the original states a fact you cannot trace to it or to the context above,
-  leave it exactly as written and list it at the end under "Claims to verify".
-- Keep the author's voice. This is an edit, not a rewrite from scratch.
+Output: the rewritten page in Markdown, then "What changed and why" as a list
+keyed by finding, then "Flagged claims".`),
+  },
+  {
+    id: "answers",
+    label: "Answer-First Rewrite",
+    evidence: { strength: "mixed", note:
+      "Answer-first structure helps a passage get lifted once retrieved, but formatting-only edits showed little effect across 252,000 controlled trials. The facts in the answer carry it, not the shape." },
+    blurb:
+      "Restructures the page so an answer engine can lift and attribute it: question headings, a direct answer under each, and the statistics and tables the AEO checks found missing.",
+    evidenceCodes: ["aeo."],
+    fields: [
+      { name: "focus", label: "Question to lead with (optional)", placeholder: "how much does a new roof cost" },
+    ],
+    buildPrompt: (v, ctx) => compose(
+      contextBlock(ctx),
+      pageBlock(ctx),
+      evidenceBlock(evidenceFor(contentToolById("answers")!, ctx)),
+      queryBlock(ctx.queries),
+      `Restructure this page so an AI answer engine can lift a citable answer from it.
+${v.focus ? `Lead with the question: "${v.focus}".` : "Lead with the question the page most plainly answers."}
 
-Return: the improved copy first, then a short list of what you changed and why,
-then "Claims to verify" if there are any.
+Do this:
+- Turn the main points into interrogative H2/H3 headings, each followed
+  immediately by a direct two-to-three sentence answer. The answer comes first,
+  the elaboration after.
+- Put every comparable fact already in the copy into a table.
+- Surface the concrete figures the page already contains. Do NOT introduce a
+  figure that is not in the copy above; if a section needs one, write
+  [confirm: figure] instead.
+- Where the page cites a source, keep the citation visible.
 
---- CURRENT COPY ---
-${v.content}`,
+Output: the restructured page in Markdown, then a list of the AEO findings above
+and what you did about each. Say plainly which you could not close without facts
+the page does not have.`),
+  },
+  {
+    id: "page2",
+    label: "Striking Distance",
+    evidence: { strength: "strong", note:
+      "The one lane where a content edit is defensibly worth the effort: a page already ranking 5-20 on a query with real impressions. Below 5 it has won; past 20 copy rarely closes the gap." },
+    blurb:
+      "The queries this site ranks 8-20 for: measured demand with a known gap, and the specific content change that moves each one. Needs Search Console.",
+    fields: [],
+    buildPrompt: (_v, ctx) => compose(
+      contextBlock(ctx),
+      pageBlock(ctx),
+      queryBlock(ctx.queries, { min: 8, max: 20 }),
+      `For each query above, in order of impressions:
+
+- Say what the searcher wants that this page does not currently give them.
+- Name the smallest content change that would close it: a section to add, a
+  heading to rewrite, a fact to state, a table to build.
+- Estimate nothing. Do not predict positions, traffic or timelines - you have
+  the current position and impressions and nothing else, and a predicted ranking
+  is exactly the kind of invented figure the publishing gate rejects.
+
+Rank the list by how small the change is against how many impressions it serves,
+and say which three to do first.
+
+If no queries are listed above, say that Search Console returned no query in the
+8-20 band for this page and stop. Do not substitute keywords from elsewhere.`),
   },
   {
     id: "faq",
-    label: "FAQ Builder",
+    label: "Question Coverage",
+    evidence: { strength: "weak", note:
+      "The FAQ rich result was withdrawn from Google Search on 7 May 2026, and removing valid FAQ schema measured no impact. Answering real questions on the page still helps; the schema no longer buys anything." },
     blurb:
-      "Question-and-answer blocks shaped for answer engines, with FAQPage JSON-LD. Directly addresses the answer-structure findings the AEO tool reports.",
+      "Answers to the questions this site is actually being asked in search, written to be lifted verbatim by a reader or an answer engine.",
+    evidenceCodes: ["aeo.answer_schema_missing", "aeo.no_answer_structure"],
     fields: [
-      { name: "topic", label: "Page or topic", placeholder: "gutter replacement", required: true },
-      { name: "count", label: "How many questions", placeholder: "6" },
+      { name: "topic", label: "Topic", placeholder: "roof replacement cost", required: true, suggest: suggestTargetQuery },
+      { name: "count", label: "How many questions", placeholder: "8" },
     ],
-    buildPrompt: (v, ctx) => `${contextBlock(ctx)}
+    buildPrompt: (v, ctx) => compose(
+      contextBlock(ctx),
+      pageBlock(ctx),
+      evidenceBlock(evidenceFor(contentToolById("faq")!, ctx)),
+      queryBlock(ctx.queries),
+      `Write ${v.count || "8"} FAQ entries about "${v.topic}".
 
-Write ${v.count || "6"} frequently asked questions with answers for "${v.topic}".
+Prefer questions that appear in the measured demand above, and mark which query
+each came from. Only invent a question where the demand list has no suitable one,
+and mark those as speculative.
 
-Shape them for answer engines:
-- Each question phrased the way a person would actually type or say it
-- Each answer leading with the direct answer in the first sentence, then detail
-- Answers between 40 and 80 words
-- No invented specifics: use bracketed placeholders for anything about this
-  business you were not given
+Each answer: two to three sentences, direct answer first. Any figure must come
+from the context or the page copy above, otherwise write [confirm: figure].
 
-After the questions, output a FAQPage JSON-LD block in a fenced code block,
-containing exactly the questions and answers above.`,
+Output the questions and answers as Markdown.
+
+Do NOT emit FAQPage JSON-LD. Google withdrew the FAQ rich result from Search on
+7 May 2026, and a controlled test of removing valid FAQ schema measured no
+impact either way. The markup is now dead weight on the page. The value left in
+this work is the answers themselves being on the page, in the words people
+actually searched for.`),
   },
   {
     id: "meta",
-    label: "Meta Writer",
+    label: "Titles & Snippets",
+    evidence: { strength: "mixed", note:
+      "Titles move traffic hard in both directions (-27% to +17.5%), and shortening toward real query language is the one change with cross-programme agreement. Meta descriptions are close to worthless: Google rewrites 61-76% of them, and removing over-long ones measured +4.2%." },
     blurb:
-      "Title tags and meta descriptions for pages the scanner flagged as missing or truncated, written to the length Google actually renders.",
+      "Titles for the pages the audit flagged, written toward the queries they already appear for. Descriptions only where one earns its place.",
+    evidenceCodes: ["health.title_missing", "health.title_length", "health.desc_missing", "health.desc_length"],
     fields: [
-      {
-        name: "pages",
-        label: "Pages",
-        placeholder: "One per line: /services/roofing - Roof repair and replacement",
-        multiline: true,
-        required: true,
-      },
+      { name: "pages", label: "Pages (one per line: URL - topic)", placeholder: "Leave blank to use the scanned page", multiline: true },
     ],
-    buildPrompt: (v, ctx) => `${contextBlock(ctx)}
+    buildPrompt: (v, ctx) => compose(
+      contextBlock(ctx),
+      pageBlock(ctx),
+      evidenceBlock(evidenceFor(contentToolById("meta")!, ctx)),
+      v.pages ? `Additional pages supplied by the operator:\n${v.pages}` : "",
+      `Write a title, and where it is worth having, a meta description.
 
-Write a title tag and meta description for each page listed below.
+The title is the part that matters, so spend the effort there:
+- Shorter beats longer. Removing words that are not in real queries is the one
+  title change with agreement across independent testing programmes.
+- Lead with the term a person would actually type, not a term that describes
+  the page to us. Adding a category name, an internal code or a state name
+  measured negative (-12%, -16%, -4%); adding a word searchers use ("best", a
+  price, a year) measured positive.
+- Under 60 characters. Google rewrites 61-76% of titles outright, and above 70
+  characters it is effectively certain.
+- Never a seasonal or promotional token unless the page is genuinely seasonal:
+  "Book Now", "Easter" and "(video)" all measured negative.
 
-Constraints:
-- Title: under 60 characters, Title Case, the page's primary term near the front
-- Description: under 155 characters, active voice, one concrete reason to click
-- No invented claims, no superlatives you cannot support
-- Do not repeat the business name in every title; use it where it earns space
+The meta description is close to worthless and should be treated that way:
+Google rewrites most of them, and removing over-long ones measured +4.2%. Write
+one only where the page has a clear promise the SERP would otherwise miss, and
+say plainly in the notes column where you would leave it to Google instead.
+- Describe only what the page copy above actually contains.
 
-Return a Markdown table: Page | Title | Characters | Description | Characters
-
---- PAGES ---
-${v.pages}`,
+Output a Markdown table: URL, Title, Character count, Description, Character
+count. Where a finding above named the problem (missing, too long, too short),
+add a final column naming it.`),
   },
 ];
 
@@ -228,4 +537,77 @@ export function missingRequired(
   return tool.fields
     .filter((f) => f.required && !(values[f.name] || "").trim())
     .map((f) => f.label);
+}
+
+/* ── Checking a draft before it goes anywhere ────────────────────────────────
+ *
+ * The gate suite already refuses invented ratings, licence numbers and review
+ * counts on the pull request (`claim_provenance_check`). By then the draft has
+ * been through a human, a commit and a PR. Running the same idea here, on the
+ * text as it is written, is the cheap end of the same discipline: catch the
+ * fabricated figure while the writer is still looking at it.
+ *
+ * This is a lint, not a gate. It cannot know that "4.9 stars" is false — only
+ * that nothing in the source said it. That is exactly the question worth
+ * putting in front of a person.
+ */
+
+export type DraftIssue = {
+  kind: "unsourced-number" | "unresolved-marker" | "dead-schema" | "absolute-claim";
+  text: string;
+  note: string;
+};
+
+const ABSOLUTES = /\b(guaranteed|guarantee|best in|number one|#1|award-winning|the leading|world-class|certified)\b/gi;
+/** Figures a reader would take as fact. Years and small counts are noise. */
+const FIGURES = /\b\d{1,3}(?:,\d{3})+|\b\d+(?:\.\d+)?\s?(?:%|stars?|reviews?|years?|clients?|patients?|projects?)\b|\$\s?\d[\d,.]*/gi;
+
+export function checkDraft(draft: string, sources: string[]): DraftIssue[] {
+  const issues: DraftIssue[] = [];
+  if (!draft?.trim()) return issues;
+  // Compare digits to digits. "12,450" in the draft and "12,450" in the source
+  // are the same figure, but stripping separators from only one side made every
+  // sourced thousands-figure look invented — and a check that cries wolf is one
+  // people learn to click past.
+  const haystack = sources.filter(Boolean).join("\n").toLowerCase();
+  const haystackDigits = haystack.replace(/(\d)[,\s](?=\d{3}\b)/g, "$1");
+
+  // A figure the source never contained. The most common way generated copy
+  // becomes a liability, and the exact class the PR gate refuses.
+  const seen = new Set<string>();
+  for (const m of draft.match(FIGURES) ?? []) {
+    const norm = m.trim().toLowerCase();
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    const bare = norm.replace(/[^\d.]/g, "");
+    if (bare && !haystackDigits.includes(bare) && !haystack.includes(norm)) {
+      issues.push({
+        kind: "unsourced-number", text: m.trim(),
+        note: "This figure does not appear in the page or the measured evidence. Confirm it or cut it — the PR gate refuses claims it cannot trace.",
+      });
+    }
+  }
+
+  // The model was told to flag what it could not source. If those survived into
+  // the draft, they are unfinished, not decorative.
+  for (const m of draft.match(/\[confirm:[^\]]*\]/gi) ?? []) {
+    issues.push({ kind: "unresolved-marker", text: m, note: "The writer could not source this. Resolve it before publishing." });
+  }
+
+  // FAQ rich results were withdrawn from Google Search on 7 May 2026 and
+  // removing valid FAQ schema measured no impact. Shipping it is dead weight.
+  if (/"@type"\s*:\s*"FAQPage"/i.test(draft)) {
+    issues.push({
+      kind: "dead-schema", text: "FAQPage JSON-LD",
+      note: "Google withdrew the FAQ rich result on 7 May 2026. This markup no longer earns anything; the answers on the page still do.",
+    });
+  }
+
+  for (const m of new Set((draft.match(ABSOLUTES) ?? []).map((s) => s.toLowerCase()))) {
+    issues.push({
+      kind: "absolute-claim", text: m,
+      note: "An absolute claim needs a source, and several are on the standard banned-phrase ledger. Soften it or evidence it.",
+    });
+  }
+  return issues;
 }

@@ -73,3 +73,27 @@ def test_plan_endpoint_helper_defaults_bad_input():
     from pipeline.scanner.server import handle_plan
     out = handle_plan({})  # no lists → empty, no crash
     assert out["worklist"] == [] and out["resolved"] == []
+
+
+def test_a_passing_row_resolves_last_month_s_finding():
+    """A check that now passes emits its own code with severity "ok"
+    (`audit._pass_row`). The old rule was "gone from the report", so the pass row
+    kept the finding alive: the code WAS in the current scan, so it counted as
+    neither resolved nor as a work item, and it silently fell out of both lists.
+    """
+    out = build_plan([f("a", "ok")], [f("a", "error")])
+    assert [r["code"] for r in out["resolved"]] == ["a"]
+    assert out["counts"]["RESOLVED"] == 1
+    assert out["worklist"] == []          # an "ok" row is never a work item
+
+
+def test_an_absent_finding_still_resolves():
+    """The weaker inference stays for the codes that have no pass row."""
+    out = build_plan([], [f("a", "error")])
+    assert [r["code"] for r in out["resolved"]] == ["a"]
+
+
+def test_a_still_failing_finding_is_not_resolved():
+    out = build_plan([f("a", "error")], [f("a", "error")])
+    assert out["resolved"] == []
+    assert out["worklist"][0]["status"] == "PERSISTING"

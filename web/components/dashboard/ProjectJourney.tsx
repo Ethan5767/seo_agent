@@ -1,31 +1,26 @@
 "use client";
 
 import React from "react";
-import type { ProjectJourneyStep } from "./types";
+import { deriveJourney, type JourneyInput } from "../../lib/journey";
 
-interface ProjectJourneyProps {
-  currentStep?: number; // 1 to 6
+/**
+ * The six-stage bar. It renders a journey; it does not decide one.
+ *
+ * Every field below is evidence, passed in by the caller. It used to take
+ * `currentStep` and a few booleans, all of which were hardcoded at both call
+ * sites - `currentStep={4}`, and `Overview` also passing `hasClient={true}
+ * hasScan={true}` - so an empty account read "Stage 4 of 6" with three steps
+ * ticked. Taking the evidence instead of the answer is what makes that
+ * impossible to reintroduce: there is no step number to hardcode.
+ */
+interface ProjectJourneyProps extends JourneyInput {
   onStepClick?: (stepId: number) => void;
-  hasClient?: boolean;
-  hasGsc?: boolean;
-  hasScan?: boolean;
 }
 
-export function ProjectJourney({
-  currentStep = 4,
-  onStepClick,
-  hasClient = true,
-  hasGsc = false,
-  hasScan = true,
-}: ProjectJourneyProps) {
-  const steps: ProjectJourneyStep[] = [
-    { id: 1, label: "Create Project", description: "Set domain & targets", status: hasClient ? "completed" : "current" },
-    { id: 2, label: "Connect Google / Add Site", description: "Search Console & domain", status: hasGsc ? "completed" : hasClient ? "current" : "upcoming" },
-    { id: 3, label: "Run Audit", description: "SEO & AI scan", status: hasScan ? "completed" : "upcoming" },
-    { id: 4, label: "Review Top Priorities", description: "Top actionable items", status: currentStep === 4 ? "current" : currentStep > 4 ? "completed" : "upcoming" },
-    { id: 5, label: "Review or Apply Fixes", description: "Staged fixes & schema", status: currentStep === 5 ? "current" : currentStep > 5 ? "completed" : "upcoming" },
-    { id: 6, label: "Track Results Over Time", description: "Rankings & visibility", status: currentStep === 6 ? "current" : "upcoming" },
-  ];
+export function ProjectJourney({ onStepClick, ...evidence }: ProjectJourneyProps) {
+  const { steps, currentStep, complete } = deriveJourney(evidence);
+  const current = steps.find((s) => s.id === currentStep);
+  const next = steps.find((s) => s.id > currentStep && s.status !== "completed");
 
   return (
     <nav
@@ -38,7 +33,7 @@ export function ProjectJourney({
         marginBottom: 16,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#475569" }}>
             Project Journey
@@ -49,16 +44,22 @@ export function ProjectJourney({
               fontWeight: 600,
               padding: "2px 8px",
               borderRadius: 12,
-              background: "#eff6ff",
-              color: "#1d4ed8",
-              border: "1px solid #bfdbfe",
+              background: complete ? "#ecfdf5" : "#eff6ff",
+              color: complete ? "#065f46" : "#1d4ed8",
+              border: `1px solid ${complete ? "#a7f3d0" : "#bfdbfe"}`,
             }}
           >
-            Stage {currentStep} of 6: {steps.find((s) => s.id === currentStep)?.label || "Active"}
+            {complete
+              ? "All Stages Complete"
+              : `Stage ${currentStep} of ${steps.length}: ${current?.label ?? ""}`}
           </span>
         </div>
         <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-          Next: <strong style={{ color: "#0f172a" }}>{steps.find((s) => s.id === currentStep + 1)?.label || "Ongoing Tracking"}</strong>
+          {complete ? (
+            <>Now: <strong style={{ color: "#0f172a" }}>Ongoing Tracking</strong></>
+          ) : next ? (
+            <>Next: <strong style={{ color: "#0f172a" }}>{next.label}</strong></>
+          ) : null}
         </div>
       </div>
 
@@ -82,6 +83,7 @@ export function ProjectJourney({
             <li
               key={step.id}
               onClick={() => onStepClick?.(step.id)}
+              title={step.description}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -110,7 +112,7 @@ export function ProjectJourney({
                   border: isCompleted || isCurrent ? "none" : "1px solid #cbd5e1",
                 }}
               >
-                {isCompleted ? "✓" : step.id}
+                {isCompleted ? "\u2713" : step.id}
               </div>
               <div style={{ overflow: "hidden" }}>
                 <div

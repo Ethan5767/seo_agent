@@ -15,9 +15,13 @@ import { ProjectJourney } from "@/components/dashboard/ProjectJourney";
 import { PriorityActions } from "@/components/dashboard/PriorityActions";
 import type { PriorityItem } from "@/components/dashboard/types";
 import { derivePriorities } from "../lib/priorities";
+import { supabase } from "../lib/supabase";
+import { PIPELINE_STAGES, stage as pipelineStage, laneCounts, actionableCount,
+         blockedReason, GATE_ROSTER, MERGE_POLICY, AUTOMERGE_DEFAULT_ENABLED,
+         type StageId } from "../lib/pipelineStages";
 import { deriveCoreWebVitals } from "../lib/webVitals";
 import { buildExecutiveReport } from "../lib/executiveReport";
-import { severityMark, severityTone } from "../lib/pillars";
+import { derivePillars, severityMark, severityTone } from "../lib/pillars";
 import { tone } from "../lib/ui";
 import { viewById, rowsForView, ALL_FINDINGS_VIEW, CHECKS_VIEW } from "../lib/reportViews";
 import { gscViewById } from "../lib/gscViews";
@@ -199,6 +203,27 @@ function IconShield({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
+function IconClipboard({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 2h6a1 1 0 0 1 1 1v2H8V3a1 1 0 0 1 1-1z" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <path d="M9 12h6M9 16h4" />
+    </svg>
+  );
+}
+
+function IconMerge({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="6" cy="18" r="2.5" />
+      <circle cx="18" cy="12" r="2.5" />
+      <path d="M6 8.5v7M8.5 6.8c3 .6 4.6 2.2 6.2 4.4M8.5 17.2c3-.6 4.6-2.2 6.2-4.4" />
     </svg>
   );
 }
@@ -1322,18 +1347,15 @@ export function ExecutiveTrafficChart({
   const [chartType, setChartType] = useState<"combo" | "area" | "bars">("combo");
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  const trafficData = trend.length > 0 ? trend : [
-    { m: "Oct", v: 2.8 },
-    { m: "Nov", v: 3.2 },
-    { m: "Dec", v: 3.7 },
-    { m: "Jan", v: 4.1 },
-    { m: "Feb", v: 5.2 },
-    { m: "Mar", v: 6.2 },
-  ];
+  // All three series were fixtures: a six-month traffic ramp (2.8 -> 6.2), a
+  // keyword climb ending at a 128 floor, and a visibility curve ending at 74%.
+  // Only `trend` has a real source. With no scan the chart now renders nothing
+  // rather than somebody else's growth story.
+  const trafficData = trend.length > 0 ? trend : [];
 
   const months = trafficData.map(d => d.m);
-  const kwData = [84, 92, 105, 114, 122, totalKeywords || 128];
-  const visData = [48, 54, 59, 64, 70, 74];
+  const kwData: number[] = [];
+  const visData: number[] = [];
 
   const activeSeries = metric === "traffic" 
     ? trafficData.map(d => d.v)
@@ -1342,6 +1364,44 @@ export function ExecutiveTrafficChart({
       : visData;
 
   const unit = metric === "traffic" ? "K visits" : metric === "keywords" ? " ranked terms" : "% visibility";
+
+  // B-069. Removing the fixture series was right; leaving the geometry that
+  // assumed they existed was not. With no data `pts` is [], and the area path
+  // below dereferences `pts[pts.length - 1].x` — which threw "Cannot read
+  // properties of undefined" and took the whole dashboard down. It fired on
+  // every page with no scan, and unconditionally on the Keywords and Visibility
+  // tabs, whose series are empty by construction until those metrics have a
+  // real source.
+  //
+  // `Math.min(...[])` is also Infinity, so the scale below is meaningless
+  // before this point. Say plainly that nothing was measured instead.
+  if (activeSeries.length === 0) {
+    const label = metric === "traffic" ? "traffic" : metric === "keywords" ? "ranked keywords" : "visibility";
+    return (
+      <div style={{ width: "100%" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#1e293b" }}>Search Traffic &amp; Keyword Trajectory</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", background: "#f1f5f9", border: "1px solid #e2e8f0", padding: "2px 8px", borderRadius: 12 }}>
+            Not measured
+          </span>
+        </div>
+        <div style={{
+          height: 150, display: "flex", flexDirection: "column", alignItems: "center",
+          justifyContent: "center", gap: 6, border: "1px dashed #e2e8f0",
+          borderRadius: 8, background: "#fafbfc",
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-muted)" }}>
+            No {label} history for {domain || "this site"} yet
+          </div>
+          <div style={{ fontSize: 12, color: "var(--ink-muted)", textAlign: "center", maxWidth: 380 }}>
+            Connect Google Search Console to chart this over time. A trend needs at
+            least two measured cycles.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const rawMin = Math.min(...activeSeries);
   const rawMax = Math.max(...activeSeries);
   const minVal = Math.max(0, Math.floor(rawMin * 0.75 * 10) / 10);
@@ -1413,7 +1473,7 @@ export function ExecutiveTrafficChart({
                 boxShadow: metric === "visibility" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
               }}
             >
-              Visibility (74%)
+              Visibility
             </button>
           </div>
         </div>
@@ -1674,6 +1734,17 @@ export function AuthoritySpeedometer({ score = 11 }: { score?: number }) {
 }
 
 // ── Dynamic Client Data Resolver (100% Real Live Scan Extraction) ──
+/** Letter band for a 0-100 health score. Derived from the number beside it, so
+ *  the two can never disagree - the badge used to read "Grade B+" at 0%. */
+function gradeFor(score: number): string {
+  if (score >= 90) return "A";
+  if (score >= 80) return "B";
+  if (score >= 70) return "C";
+  if (score >= 60) return "D";
+  return "F";
+}
+
+
 function resolveProjectData(
   domain: string,
   business: string,
@@ -1787,17 +1858,14 @@ function resolveProjectData(
         features,
       };
     });
-  } else if (client?.keywords && client.keywords.length > 0) {
-    keywords = client.keywords.map((kw, i) => ({
-      keyword: kw,
-      position: i === 0 ? 3 : i === 1 ? 7 : 14,
-      diff: 0,
-      volume: `${(600 - i * 80).toLocaleString()}`,
-      intent: i % 2 === 0 ? "Commercial" : "Informational",
-      severity: "ok",
-      features: ["Snippet"],
-    }));
   }
+  // A keyword on the client's config is a TARGET, not a measurement. This block
+  // used to fill the rankings table from `client.keywords` when no scan had run,
+  // stamping position 3/7/14, volume 600/520/440, an alternating intent and a
+  // "Snippet" SERP feature onto each one. Every figure was invented, and the
+  // table it fed is the one an operator reads as the client's live rankings -
+  // which is where the rendered "0 Ranked Keywords" headline sitting above
+  // "7 AT RANK #1" came from. Only a scan fills this now.
 
   if (totalRankedKeywordsCount === 0) {
     // Was: a 128-keyword floor for one client's domain, which inflated a real
@@ -1820,15 +1888,17 @@ function resolveProjectData(
       .map((c) => c.what.replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase());
   }
 
-  if (competitors.length === 0) {
-    if (client?.competitors && client.competitors.length > 0) {
-      competitors = client.competitors;
-    } else if (isKh) {
-      competitors = ["royalphnompenhhospital.com", "rafflesmedical.com.kh", "intercarehospital.com", "sokhakrom.com"];
-    } else {
-      competitors = [`${dClean.split(".")[0]}-leader.com`, `top-${dClean.split(".")[0]}-platform.io`, `industry-network.com`];
-    }
+  if (competitors.length === 0 && client?.competitors && client.competitors.length > 0) {
+    competitors = client.competitors;
   }
+  // No fallback, deliberately. A `.kh` domain used to inherit four named
+  // Cambodian hospitals - real businesses, presented to whoever was logged in as
+  // THEIR competitors - and every other domain got invented ones built from its
+  // own name (`acme-leader.com`, `top-acme-platform.io`, `industry-network.com`),
+  // which may well belong to somebody. Naming a third party as a client's rival
+  // is a claim about two businesses, and neither one was measured. An empty
+  // competitor set is now empty, and the screens that read it show their empty
+  // state.
 
   // 4. Traffic Analytics (Calculated from Real SERP CTR × Keyword Volumes)
   const ctrMap: Record<number, number> = {
@@ -1841,15 +1911,22 @@ function resolveProjectData(
     directSerpTraffic += Math.round(vol * ctr);
   }
   const footprintMultiplier = Math.max(1, Math.min(3.5, totalRankedKeywordsCount / Math.max(1, keywords.length)));
-  const monthlyCalculatedVisits = Math.max(120, Math.round(directSerpTraffic * footprintMultiplier));
+  // No floor. `Math.max(120, ...)` gave every unscanned client 120 organic
+  // visits a month - the same shape as the 128-keyword floor removed a few
+  // lines up, which is why that comment is there and this one is now too.
+  // Zero measured keywords means zero modelled traffic, and the card says so.
+  const monthlyCalculatedVisits = Math.round(directSerpTraffic * footprintMultiplier);
   const uniqueVis = Math.round(monthlyCalculatedVisits * 0.72);
 
   const trafficAnalytics = {
     visits: monthlyCalculatedVisits >= 1000 ? `${(monthlyCalculatedVisits / 1000).toFixed(1)}K` : `${monthlyCalculatedVisits}`,
     uniqueVisitors: uniqueVis >= 1000 ? `${(uniqueVis / 1000).toFixed(1)}K` : `${uniqueVis}`,
-    pagesPerVisit: "3.4",
-    avgDuration: "3m 48s",
-    bounceRate: "41.2%",
+    // Constants: "3.4", "3m 48s", "41.2%". These are analytics measures - the
+    // scan cannot produce any of them, and Search Console does not report them
+    // either. They are session metrics, and nothing here observes a session.
+    pagesPerVisit: "Not measured",
+    avgDuration: "Not measured",
+    bounceRate: "Not measured",
     countries: [
       // Removed hardcoded country shares (82/9/5/4 for .kh, 62/16/12/10
       // otherwise) applied to an estimated visit count. Real geography
@@ -1866,22 +1943,37 @@ function resolveProjectData(
     ],
   };
 
-  // 5. Position Distribution (Purely Calculated from Actual Rankings)
-  const posTop3 = keywords.filter((k) => k.position <= 3).length || (top1KeywordsCount > 0 ? top1KeywordsCount + 1 : 1);
-  const posTop10 = keywords.filter((k) => k.position >= 4 && k.position <= 10).length || 5;
-  const posTop20 = keywords.filter((k) => k.position >= 11 && k.position <= 20).length || 2;
-  const posTop50 = Math.max(1, Math.round(totalRankedKeywordsCount * 0.15));
-  const posTop100 = Math.max(1, Math.round(totalRankedKeywordsCount * 0.12));
+  // 5. Position distribution, counted from the ranked keywords and nothing else.
+  //
+  // This block was labelled "Purely Calculated from Actual Rankings" and was
+  // not. Every bucket had a floor — `|| 5`, `|| 2`, `Math.max(1, ...)` — so a
+  // client with ZERO ranked keywords was shown 1 / 5 / 2 / 1 / 1 across the
+  // five bands, totalling ten keywords they do not have, under a heading that
+  // correctly read "0 Ranked Keywords". An honest header over an invented chart
+  // is worse than either alone: the reader trusts the chart and the header
+  // looks like a loading state.
+  //
+  // `null` when there is nothing measured, so the caller renders an empty state
+  // rather than a shape. Buckets are counted, never modelled from a percentage.
+  const hasRankings = keywords.length > 0;
+  const posTop3 = keywords.filter((k) => k.position >= 1 && k.position <= 3).length;
+  const posTop10 = keywords.filter((k) => k.position >= 4 && k.position <= 10).length;
+  const posTop20 = keywords.filter((k) => k.position >= 11 && k.position <= 20).length;
+  const posTop50 = keywords.filter((k) => k.position >= 21 && k.position <= 50).length;
+  const posTop100 = keywords.filter((k) => k.position >= 51 && k.position <= 100).length;
   const posTotalSample = posTop3 + posTop10 + posTop20 + posTop50 + posTop100;
+  const pctOf = (n: number) => (posTotalSample > 0 ? Math.round((n / posTotalSample) * 100) : 0);
 
   const organicResearch = {
-    posDistribution: [
-      { range: "Top 3 (1-3)", count: posTop3, pct: Math.round((posTop3 / posTotalSample) * 100), color: "#10b981" },
-      { range: "Top 10 (4-10)", count: posTop10, pct: Math.round((posTop10 / posTotalSample) * 100), color: "#3b82f6" },
-      { range: "Top 20 (11-20)", count: posTop20, pct: Math.round((posTop20 / posTotalSample) * 100), color: "#8b5cf6" },
-      { range: "Top 50 (21-50)", count: posTop50, pct: Math.round((posTop50 / posTotalSample) * 100), color: "#f59e0b" },
-      { range: "Top 100 (51-100)", count: posTop100, pct: Math.round((posTop100 / posTotalSample) * 100), color: "var(--ink-muted)" },
-    ],
+    // Empty array, not a row of zeroes: "we measured nothing" and "you rank for
+    // nothing" are different facts and must not render identically.
+    posDistribution: hasRankings ? [
+      { range: "Top 3 (1-3)", count: posTop3, pct: pctOf(posTop3), color: "#10b981" },
+      { range: "Top 10 (4-10)", count: posTop10, pct: pctOf(posTop10), color: "#3b82f6" },
+      { range: "Top 20 (11-20)", count: posTop20, pct: pctOf(posTop20), color: "#8b5cf6" },
+      { range: "Top 50 (21-50)", count: posTop50, pct: pctOf(posTop50), color: "#f59e0b" },
+      { range: "Top 100 (51-100)", count: posTop100, pct: pctOf(posTop100), color: "var(--ink-muted)" },
+    ] : [],
     serpFeatures: [
       // Removed hardcoded SERP feature counts. No scan data for this yet.
     ],
@@ -1897,8 +1989,10 @@ function resolveProjectData(
   };
 
   // 6. Dynamic Keyword Gap Comparison (Real Domain Keywords vs Real Competitors)
-  const c1 = competitors[0] || "royalphnompenhhospital.com";
-  const c2 = competitors[1] || "rafflesmedical.com.kh";
+  // Same rule as above: absent is absent. These two fed the keyword-gap table,
+  // so an unscanned client was compared against two named hospitals.
+  const c1 = competitors[0] || "";
+  const c2 = competitors[1] || "";
   
   const keywordGapData = keywords.map((k, idx) => ({
     keyword: k.keyword,
@@ -2174,6 +2268,8 @@ export type NavItem = {
   view?: string;
   /** A Search Console view id (lib/gscViews.ts). */
   gsc?: string;
+  /** An engine pipeline stage (lib/pipelineStages.ts): plan, gate or merge. */
+  stage?: StageId;
   /** A content tool id (lib/contentTools.ts). */
   content?: string;
   /** A sub-section of the Local Presence screen. */
@@ -2204,7 +2300,7 @@ export type NavSection = {
 /**
  * The navigation, as one structure both sidebars read.
  *
- * SEO carries sub-groups because it is the widest section: Semrush splits the
+ * SEO carries sub-groups because it is the widest section: the category splits the
  * equivalent into Site Performance / Competitive Analysis / Keyword Research /
  * Link Building, and a flat list of eleven reads as a pile. The grouping is the
  * only thing borrowed. The entries are this product's own screens, each
@@ -2237,6 +2333,9 @@ export const NAV_SECTIONS: NavSection[] = [
           // its own sub-tab bar for those.
           { label: "Site Audit", tab: "Site Health & Audit" },
           { label: "Crawl Issues", view: "site-crawl" },
+          // The free technical lane (tech/schema/valid) was measured on every
+          // scan and had no menu entry at all.
+          { label: "Technical Checks", view: "technical" },
           { label: "Position Tracking", view: "position-tracking" },
         ],
       },
@@ -2255,6 +2354,7 @@ export const NAV_SECTIONS: NavSection[] = [
         items: [
           { label: "Keyword Overview", view: "keyword-overview" },
           { label: "Keyword Ideas", view: "keyword-ideas" },
+          { label: "Keyword Clusters", view: "keyword-clusters" },
           { label: "Search Intent", view: "search-intent" },
           { label: "SERP Positions", view: "serp-positions" },
         ],
@@ -2368,44 +2468,76 @@ export const NAV_SECTIONS: NavSection[] = [
     heading: "Content",
     groups: [
       {
+        // What the scan MEASURED about the content. These lived under SEO as a
+        // single "Content & Trust" entry, which left this section holding five
+        // drafting tools and not one finding: the half of the product that
+        // measures content sat under SEO while the half that writes it sat
+        // here. Three questions, three screens, next to the tools that act on
+        // them.
+        heading: "Findings",
+        items: [
+          { label: "Content Quality", view: "content-quality" },
+          { label: "Video", view: "video" },
+          { label: "Trust & E-E-A-T", view: "trust" },
+        ],
+      },
+      {
         // Drafting tools. They need no data provider: the inputs are the
         // keyword rows the scanner already fetched plus what the operator
         // types, and Claude writes the draft. Every output is labelled a draft
         // and goes to a human before it reaches a page.
-        heading: null,
+        //
+        // Ordered by how well the evidence supports the WORK, strongest first,
+        // because that is the order an operator with one afternoon should try
+        // them in. Roughly 15% of deliberate SEO changes measure as a gain and
+        // 7-8% as a loss, so which tool you reach for first is the decision
+        // that matters most — see `evidence` on each in lib/contentTools.ts.
+        //
+        // Two of these were built, tested, and listed nowhere: "Answer-First
+        // Rewrite" and the striking-distance tool had no nav entry at all.
+        heading: "Drafting",
         items: [
-          { label: "SEO Brief Generator", content: "brief" },
-          { label: "Topic Finder", content: "topics" },
-          { label: "Content Optimizer", content: "optimize" },
-          { label: "FAQ Builder", content: "faq" },
-          { label: "Meta Writer", content: "meta" },
+          { label: "Striking Distance", content: "page2" },
+          { label: "Depth Expansion", content: "optimize" },
+          { label: "Content Brief", content: "brief" },
+          { label: "Answer-First Rewrite", content: "answers" },
+          { label: "Coverage Gaps", content: "topics" },
+          { label: "Titles & Snippets", content: "meta" },
+          { label: "Question Coverage", content: "faq" },
         ],
       },
     ],
   },
+  // The engine's stages, each a section of its own. This replaces the old
+  // "Pipeline" cover, which was a lid over two unrelated links and said nothing
+  // about what the product does. The product is a pipeline: repo + domain in,
+  // gated pull request out, and the sidebar now reads that way.
+  //
+  // Gate and Merge show what the engine WILL do — the 19-gate roster, the
+  // auto-merge policy — but never a verdict for a run, because the client
+  // repo's Actions results are not forwarded to the web tier. See
+  // lib/pipelineStages.ts.
   {
-    id: "Pipeline",
-    label: "Pipeline",
-    heading: "Pipeline",
-    groups: [
-      {
-        // The engine's own stages. Plan and the remediation dry-run were
-        // already wired - `planState` carries runPlan, runDryRun and runApply
-        // into this component - but neither had a nav entry, and two audit
-        // sub-tabs ("remediation", "progress") were unreachable from the
-        // sidebar entirely.
-        heading: null,
-        items: [
-          // "Plan" and "Scan Progress" were entries onto the Site Audit screen,
-          // selecting its "remediation" and "progress" sub-tabs. That is the
-          // one-page-many-sections shape the sidebar must not have: three nav
-          // entries, one page. Both live on the Site Audit screen's own sub-tab
-          // bar now, and "Measure" was already absent for the same reason.
-          { label: "Review Fixes", tab: "Auto-Fix Engine" },
-          { label: "Change History", drawer: true },
-        ],
-      },
-    ],
+    id: "Plan",
+    label: "Plan",
+    heading: "Plan",
+    groups: [{ heading: null, items: [{ label: "This Cycle's Worklist", stage: "plan" }] }],
+  },
+  {
+    id: "Fix",
+    label: "Fix",
+    heading: "Fix",
+    groups: [{ heading: null, items: [
+      { label: "Fix Stage", stage: "fix" },
+      { label: "Review Fixes", tab: "Auto-Fix Engine" },
+      { label: "Change History", drawer: true },
+    ] }],
+  },
+  {
+    id: "Gate",
+    label: "Gate",
+    heading: "Gate & Merge",
+    groups: [{ heading: null, items: [{ label: "Gate & Merge", stage: "gate" }] }],
   },
 ];
 
@@ -2417,7 +2549,9 @@ export const RAIL_ICONS: Record<string, React.ReactNode> = {
   Traffic: <IconChart size={19} />,
   Local: <IconMapPin size={19} />,
   Content: <IconLightbulb size={19} />,
-  Pipeline: <IconDoc size={19} />,
+  Plan: <IconClipboard size={19} />,
+  Fix: <IconDoc size={19} />,
+  Gate: <IconShield size={19} />,
 };
 
 /** Every item in a section, flattened across its groups. */
@@ -2685,6 +2819,101 @@ export function ReaiDashboard({
   const [activeView, setActiveView] = useState<string | null>(null);
   const [activeGscView, setActiveGscView] = useState<string | null>(null);
   const [activeContentTool, setActiveContentTool] = useState<string | null>(null);
+  // Which engine stage screen is open (plan / gate / merge), or null for none.
+  const [activeStage, setActiveStage] = useState<StageId | null>(null);
+
+  /**
+   * Pull requests for the selected client, each carrying its gate verdicts.
+   *
+   * This is the wire that makes Gate and Merge real. The 19 gates run as check
+   * runs inside the CLIENT repo's Actions; /api/clients/[id]/github/pulls reads
+   * them back with the operator's own GitHub token, which reaches the repo
+   * because the client added us as a collaborator.
+   *
+   * `ghConnected === false` carries a REASON, and the screens print it. "Not
+   * installed", "no repo set", "token missing the repo scope" and "rate
+   * limited" need different actions from the operator, and one shared empty
+   * state would hide which of them happened.
+   */
+  const [ghPulls, setGhPulls] = useState<any[] | null>(null);
+  const [ghConnected, setGhConnected] = useState<boolean | null>(null);
+  const [ghReason, setGhReason] = useState<string>("");
+  const [ghBusy, setGhBusy] = useState(false);
+  const [mergeBusy, setMergeBusy] = useState<number | null>(null);
+  const [mergeNote, setMergeNote] = useState<string>("");
+
+  /**
+   * The operator's own GitHub token, for the current session.
+   *
+   * Supabase captures it at sign-in as `provider_token`. It is sent per request
+   * rather than stored anywhere: it is the operator's personal credential, it
+   * expires with the session, and the less of it that persists the better.
+   *
+   * The routes read it from `x-github-token`. Nothing was sending that header,
+   * so Gate & Merge reported "not connected" even with the scope granted — the
+   * server had no token to use.
+   */
+  const githubToken = useCallback(async (): Promise<string> => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data.session?.provider_token || "";
+    } catch {
+      return "";
+    }
+  }, []);
+
+  const loadPulls = useCallback(async () => {
+    if (!selectedClient?.id) { setGhConnected(false); setGhReason("Select a client first."); return; }
+    setGhBusy(true); setMergeNote("");
+    try {
+      const gh = await githubToken();
+      const res = await fetch(`/api/clients/${selectedClient.id}/github/pulls`, {
+        cache: "no-store",
+        headers: gh ? { "x-github-token": gh } : {},
+      });
+      const data = await res.json();
+      setGhConnected(Boolean(data.connected));
+      setGhReason(data.reason || data.error || "");
+      setGhPulls(Array.isArray(data.pulls) ? data.pulls : null);
+    } catch (e) {
+      setGhConnected(false);
+      setGhReason(e instanceof Error ? e.message : "Could not reach the server");
+    } finally {
+      setGhBusy(false);
+    }
+  }, [selectedClient?.id]);
+
+  // Load when the Gate & Merge screen opens, and when the client changes under it.
+  useEffect(() => {
+    if (activeStage === "gate") loadPulls();
+  }, [activeStage, loadPulls]);
+
+  const mergePull = useCallback(async (pr: any) => {
+    if (!selectedClient?.id) return;
+    setMergeBusy(pr.number); setMergeNote("");
+    try {
+      const ghTok = await githubToken();
+      const res = await fetch(`/api/clients/${selectedClient.id}/github/merge`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(ghTok ? { "x-github-token": ghTok } : {}),
+        },
+        // The sha the operator was looking at. If the branch moved since this
+        // list rendered, the server refuses rather than shipping an unseen commit.
+        body: JSON.stringify({ number: pr.number, headSha: pr.headSha, confirm: true }),
+      });
+      const data = await res.json();
+      setMergeNote(res.ok && data.merged
+        ? `Merged #${pr.number}.`
+        : data.error || `Merge refused (${res.status}).`);
+      if (res.ok && data.merged) await loadPulls();
+    } catch (e) {
+      setMergeNote(e instanceof Error ? e.message : "Merge failed");
+    } finally {
+      setMergeBusy(null);
+    }
+  }, [selectedClient?.id, loadPulls, githubToken]);
 
   // Which Local Presence sub-section the drawer has selected.
   const [localSubTab, setLocalSubTab] = useState<
@@ -2694,6 +2923,42 @@ export function ReaiDashboard({
   // Which rail section the drawer is showing. It follows the active tab, so
   // navigating from a card, a breadcrumb or a deep link leaves the rail on the
   // section that actually owns the screen rather than stranding it.
+  /**
+   * Open a nav item. Both sidebar tiers call this, and that is the point.
+   *
+   * The rail used to carry its own miniature copy of this logic that handled
+   * only `tab` and `focus`. Every other item kind — view, gsc, content, and
+   * later stage — fell through it, so clicking a rail section changed the
+   * drawer and left the workspace showing the previous screen. Gate was the
+   * visible case: one click opened the drawer, and you had to click again.
+   *
+   * Two hand-maintained copies of the same dispatch is precisely the drift the
+   * nav tests were written for (~30 entries pointing at 11 screens). Keeping it
+   * in one function is what stops the next item kind repeating this.
+   */
+  const openNavItem = useCallback((item: NavItem) => {
+    // Clear every mode first, so an item kind can never inherit the last one.
+    setActiveStage(null);
+    setActiveContentTool(null);
+    setActiveGscView(null);
+    setActiveView(null);
+
+    if (item.stage) { setActiveStage(item.stage); }
+    else if (item.content) { setActiveContentTool(item.content); }
+    else if (item.gsc) { setActiveGscView(item.gsc); }
+    else if (item.view) { setActiveView(item.view); }
+    else if (item.drawer) { setShowScanDrawer(true); return; }
+    else if (item.modal) { setShowNewProjectModal(true); return; }
+    else if (item.href) { if (typeof window !== "undefined") window.location.href = item.href; return; }
+    else if (item.focus) { selectAeoFocus(item.focus); return; }
+    else if (item.tab) {
+      setActiveTab(item.tab);
+      if (item.sub) setAuditSubTab(item.sub);
+      if (item.local) setLocalSubTab(item.local);
+    }
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [selectAeoFocus]);
+
   const [activeBigNav, setActiveBigNav] = useState<string>(() => sectionForTab("Overview"));
   useEffect(() => {
     setActiveBigNav(sectionForTab(activeTab));
@@ -3150,9 +3415,35 @@ export function ReaiDashboard({
   const warnChecks = counts.warn ?? 0;
   const infoChecks = counts.info ?? 0;
   const totalGraded = okChecks + errChecks + warnChecks;
-  const dynamicHealth = totalGraded > 0
-    ? Math.round((okChecks / totalGraded) * 100)
-    : (selectedClient?.lastScore ?? (report?.score || 0));
+  /*
+   * The scanner's number, or the client row's, or nothing. This used to
+   * recompute a pass rate locally and fall back to `report?.score || 0` - the
+   * `||` again, so a genuine score of 0 became 0 by accident rather than by
+   * measurement, and a scan that graded nothing reported 0% health, which reads
+   * as "everything is broken" rather than "we did not look".
+   *
+   * `audit.health_score` now computes the same pass rate once, in the scanner,
+   * and returns null when nothing gradeable ran. Recomputing it here was how
+   * one scan came to have three different health numbers (B-055).
+   */
+  const dynamicHealth: number | null =
+    report?.score ?? selectedClient?.lastScore ?? null;
+
+  // The AEO card reads the canonical pillar rather than a second tally: same
+  // rule everywhere, and `score` is already null when nothing gradeable ran.
+  const aeoPillar = useMemo(
+    () => derivePillars(report).find((p) => p.catKey === "aeo") ?? null,
+    [report]
+  );
+
+  // Pages the crawl really walked. `crawl.site_rows` emits a "Pages crawled"
+  // summary row on every multi-page run; the card printed a constant 609.
+  const pagesChecked = useMemo(() => {
+    const rows = (report?.site || []) as Array<any>;
+    const row = rows.find((r) => r?.code === "site.pages_crawled");
+    const n = parseInt(String(row?.detail ?? "").match(/(\d+)/)?.[1] ?? "", 10);
+    return Number.isFinite(n) ? n : 0;
+  }, [report]);
 
   // Resolved project metrics for whichever project is selected
   // Ranked findings from the current scan. Empty until a scan has run, which is
@@ -3349,7 +3640,7 @@ export function ReaiDashboard({
             }}
           >
             <IconGrid size={15} />
-            <span>All Tools (156)</span>
+            <span>All Tools ({catalogSummary.tools})</span>
           </button>
 
           <button
@@ -3462,14 +3753,11 @@ export function ReaiDashboard({
                 aria-current={isSelected ? "true" : undefined}
                 onClick={() => {
                   setActiveBigNav(section.id);
-                  setActiveView(null);
-                  setActiveGscView(null);
-                  setActiveContentTool(null);
-                  // Opening a section should land somewhere, not just change the
-                  // drawer. The first item is that section's home.
+                  // Opening a section lands on its first item, whatever kind it
+                  // is — one click, not two. `openNavItem` handles every kind,
+                  // so a new one cannot silently fall through here again.
                   const first = sectionItems(section)[0];
-                  if (first?.tab) setActiveTab(first.tab);
-                  else if (first?.focus) selectAeoFocus(first.focus);
+                  if (first) openNavItem(first);
                 }}
                 className="rail-btn"
               >
@@ -3505,7 +3793,7 @@ export function ReaiDashboard({
           </div>
         </aside>
 
-        {/* ── 2B. SMALL SIDEBAR (CONTEXTUAL DRAWER - SEMRUSH STYLE) ── */}
+        {/* ── 2B. SMALL SIDEBAR (CONTEXTUAL DRAWER) ── */}
         {!isSmallSidebarCollapsed && (
           <aside
             aria-label="Main Navigation"
@@ -3674,18 +3962,25 @@ export function ReaiDashboard({
                     </div>
                   )}
                   {group.items.map((item) => {
-                    const isSelected = item.content
-                      ? activeContentTool === item.content
-                      : item.gsc
-                      ? !activeContentTool && activeGscView === item.gsc
-                      : item.view
-                      ? !activeGscView && activeView === item.view
+                    // Exactly one item may be highlighted, and the way to
+                    // guarantee that is to decide WHICH MODE is active once,
+                    // then let only that mode's items match.
+                    //
+                    // This was a ladder of ternaries where each branch had to
+                    // remember to exclude every mode above it — and several did
+                    // not. Adding `stage` made it visible (Fix Stage and Review
+                    // Fixes lit together), but `view`, `gsc` and `focus` were
+                    // already able to double-highlight with each other. Every
+                    // new item kind needed edits in five places to stay correct,
+                    // which is not a rule anyone can hold in their head.
+                    const isSelected =
+                      activeStage ? item.stage === activeStage
+                      : activeContentTool ? item.content === activeContentTool
+                      : activeGscView ? item.gsc === activeGscView
+                      : activeView ? item.view === activeView
                       : item.focus
-                        ? !activeView && activeTab === "AI & AEO Lab" && aeoActiveFocus === item.focus
+                        ? activeTab === "AI & AEO Lab" && aeoActiveFocus === item.focus
                         : Boolean(item.tab) &&
-                          !activeView &&
-                          !activeGscView &&
-                          !activeContentTool &&
                           activeTab === item.tab &&
                           (!item.sub || auditSubTab === item.sub) &&
                           (!item.local || localSubTab === item.local);
@@ -3694,56 +3989,7 @@ export function ReaiDashboard({
                         key={item.label}
                         type="button"
                         aria-current={isSelected ? "page" : undefined}
-                        onClick={() => {
-                          if (item.content) {
-                            setActiveContentTool(item.content);
-                            setActiveView(null);
-                            setActiveGscView(null);
-                            if (typeof window !== "undefined") {
-                              window.scrollTo({ top: 0, behavior: "smooth" });
-                            }
-                            return;
-                          }
-                          setActiveContentTool(null);
-                          if (item.gsc) {
-                            setActiveGscView(item.gsc);
-                            setActiveView(null);
-                            if (typeof window !== "undefined") {
-                              window.scrollTo({ top: 0, behavior: "smooth" });
-                            }
-                            return;
-                          }
-                          setActiveGscView(null);
-                          if (item.view) {
-                            setActiveView(item.view);
-                            if (typeof window !== "undefined") {
-                              window.scrollTo({ top: 0, behavior: "smooth" });
-                            }
-                            return;
-                          }
-                          setActiveView(null);
-                          if (item.drawer) {
-                            setShowScanDrawer(true);
-                            return;
-                          }
-                          if (item.modal) {
-                            setShowNewProjectModal(true);
-                            return;
-                          }
-                          if (item.href) {
-                            if (typeof window !== "undefined") window.location.href = item.href;
-                            return;
-                          }
-                          if (item.focus) {
-                            selectAeoFocus(item.focus);
-                            return;
-                          }
-                          if (item.tab) {
-                            setActiveTab(item.tab);
-                            if (item.sub) setAuditSubTab(item.sub);
-                            if (item.local) setLocalSubTab(item.local);
-                          }
-                        }}
+                        onClick={() => openNavItem(item)}
                         style={{
                           width: "100%",
                           textAlign: "left",
@@ -3793,7 +4039,7 @@ export function ReaiDashboard({
                     color: activeTab === "All Tools Directory" ? "#ffffff" : "var(--ink-muted)",
                     fontWeight: 700,
                   }}>
-                    160
+                    {catalogSummary.tools}
                   </span>
                 </button>
               </div>
@@ -3810,7 +4056,303 @@ export function ReaiDashboard({
             through the one sortable/filterable/paginated table. No view fetches
             anything: adding a screen costs no API call and no money.
           */}
-          {activeContentTool ? (
+          {activeStage ? (
+            (() => {
+              const st = pipelineStage(activeStage);
+              const worklist = planState?.plan?.worklist as any[] | undefined;
+              const lanes = st.id === "plan" ? laneCounts(worklist) : null;
+              const canAttempt = st.id === "plan" ? actionableCount(worklist) : null;
+              const hasResult = st.id === "plan" ? Boolean(lanes) : false;
+
+              const card: React.CSSProperties = {
+                background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "16px 18px",
+              };
+
+              return (
+                <div style={{ maxWidth: 1200 }}>
+                  {/* Stepper — the stage in the run, so the screen is never
+                      read out of context. */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
+                    {PIPELINE_STAGES.map((s, i) => (
+                      <React.Fragment key={s.id}>
+                        {i > 0 && <span style={{ color: "#cbd5e1", fontSize: 13 }}>→</span>}
+                        <button
+                          type="button"
+                          onClick={() => setActiveStage(s.id)}
+                          style={{
+                            border: 0, cursor: "pointer", borderRadius: 999, padding: "4px 12px",
+                            fontSize: 12.5, fontWeight: 700,
+                            background: s.id === st.id ? "#1e293b" : "#f1f5f9",
+                            color: s.id === st.id ? "#fff" : "var(--ink-muted)",
+                          }}
+                        >
+                          {s.step}. {s.label}
+                        </button>
+                      </React.Fragment>
+                    ))}
+                  </div>
+
+                  <div style={{ marginBottom: "var(--space-5)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)", margin: 0 }}>{st.label}</h1>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+                        padding: "3px 8px", borderRadius: 4,
+                        color: st.connected ? "#2c6b4f" : "var(--ink-muted)",
+                        background: st.connected ? "#e4efe9" : "#f1f5f9",
+                        border: `1px solid ${st.connected ? "#c7e0d3" : "#e2e8f0"}`,
+                      }}>
+                        {st.connected ? "Live" : "Result not connected"}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: "var(--space-1) 0 0", maxWidth: "70ch" }}>
+                      {st.purpose}
+                    </p>
+                  </div>
+
+                  {/* ── PLAN: lanes, the actionable gap, and the worklist ── */}
+                  {st.id === "plan" && lanes ? (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 14 }}>
+                        {([["Regression", lanes.REGRESSION, "#a33a22"], ["New", lanes.NEW, "#8a6a14"],
+                           ["Persisting", lanes.PERSISTING, "#55646f"], ["Resolved", lanes.RESOLVED, "#2c6b4f"]] as const)
+                          .map(([label, n, colour]) => (
+                          <div key={label} style={card}>
+                            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink-muted)" }}>{label}</div>
+                            <div style={{ fontSize: 26, fontWeight: 800, color: colour, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{n}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ ...card, marginBottom: 14, fontSize: 14, color: "var(--ink-body)" }}>
+                        <b>{canAttempt ?? 0}</b> of <b>{worklist?.length ?? 0}</b> items are inside this client&rsquo;s tier and mapped to a fix the
+                        agent can attempt. The rest need a person — either the tier does not permit the change, or the fix is a judgement call.
+                      </div>
+                      <div style={{ ...card, padding: 0, overflowX: "auto" }}>
+                        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13.5 }}>
+                          <thead>
+                            <tr>
+                              {["Finding", "Page", "Lane", "Agent can fix?"].map(h => (
+                                <th key={h} style={{ textAlign: "left", padding: "10px 14px", borderBottom: "1.5px solid #1e293b", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink)", whiteSpace: "nowrap" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(worklist ?? []).slice(0, 50).map((item: any, i: number) => {
+                              const why = blockedReason(item);
+                              return (
+                                <tr key={item.id ?? i}>
+                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-body)" }}>{item.code ?? item.what ?? "—"}</td>
+                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-muted)", fontFamily: "ui-monospace, monospace", fontSize: 12.5 }}>{item.location ?? item.url ?? "—"}</td>
+                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-muted)" }}>{item.status ?? "—"}</td>
+                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid #eef1f4", color: why ? "var(--ink-muted)" : "#2c6b4f", fontWeight: why ? 400 : 600 }}>
+                                    {why ?? "yes"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {/* ── GATE & MERGE: real check runs, and the merge button ──
+                      The 19 gates ARE the pull request's check runs, so this is
+                      the verdict, not a mirror of it. Merge lives here because
+                      merge is a button: putting it on its own screen only adds
+                      a click between the evidence and the decision. */}
+                  {st.id === "gate" ? (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                        <button
+                          type="button" onClick={() => loadPulls()} disabled={ghBusy}
+                          style={{ padding: "7px 13px", borderRadius: 6, border: "1px solid #e2e8f0", cursor: "pointer",
+                                   background: "#fff", fontSize: 13, fontWeight: 600, opacity: ghBusy ? 0.6 : 1 }}
+                        >
+                          {ghBusy ? "Checking…" : "Refresh from GitHub"}
+                        </button>
+                        {mergeNote ? (
+                          <span style={{ fontSize: 13, color: /^Merged/.test(mergeNote) ? "#2c6b4f" : "#a33a22" }}>{mergeNote}</span>
+                        ) : null}
+                      </div>
+
+                      {ghConnected === false ? (
+                        <div style={{ border: "1px dashed #e2e8f0", borderRadius: 8, background: "#fafbfc", padding: "24px 22px", maxWidth: 800 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-body)", marginBottom: 8 }}>
+                            Not connected to this client&rsquo;s repository
+                          </div>
+                          {/* The reason is printed verbatim. "Not installed",
+                              "missing the repo scope" and "rate limited" need
+                              different actions, and one shared empty state
+                              would hide which happened. */}
+                          <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: 0, lineHeight: 1.6, maxWidth: "68ch" }}>
+                            {ghReason || "No reason reported."}
+                          </p>
+                          <p style={{ fontSize: 12.5, color: "var(--ink-muted)", marginTop: 12, lineHeight: 1.6, maxWidth: "68ch" }}>
+                            The client adds your GitHub account as a collaborator on their repository.
+                            Read access is enough to see gate results; write access is needed to merge.
+                          </p>
+                        </div>
+                      ) : ghPulls && ghPulls.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                          {ghPulls.map((pr: any) => {
+                            const c = pr.checks;
+                            const green = c && c.allGreen;
+                            const unknown = !c || c.runs === null;
+                            return (
+                              <div key={pr.number} style={{ ...card, padding: 0, overflow: "hidden" }}>
+                                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 18px", borderBottom: "1px solid #eef1f4", flexWrap: "wrap" }}>
+                                  <div style={{ flex: "1 1 320px", minWidth: 0 }}>
+                                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)" }}>
+                                      #{pr.number} {pr.title}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3, fontFamily: "ui-monospace, monospace" }}>
+                                      {pr.headRef} → {pr.baseRef} · {pr.headSha.slice(0, 7)} · {pr.author}
+                                    </div>
+                                  </div>
+                                  <span style={{
+                                    fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+                                    padding: "4px 9px", borderRadius: 4, whiteSpace: "nowrap",
+                                    background: unknown ? "#f1f5f9" : green ? "#e4efe9" : c.pending ? "#f7efd9" : "#f8e8e3",
+                                    color: unknown ? "var(--ink-muted)" : green ? "#2c6b4f" : c.pending ? "#8a6a14" : "#a33a22",
+                                  }}>
+                                    {unknown ? "No gate results" : c.pending ? `${c.passed}/${c.total} · still running`
+                                      : green ? `All ${c.total} gates green` : `${c.failed} of ${c.total} failed`}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => mergePull(pr)}
+                                    disabled={!green || mergeBusy === pr.number}
+                                    title={green ? "Merge this pull request" : "Merging is blocked until every gate is green"}
+                                    style={{
+                                      padding: "8px 15px", borderRadius: 6, border: 0, fontSize: 13, fontWeight: 700,
+                                      cursor: green ? "pointer" : "not-allowed", whiteSpace: "nowrap",
+                                      background: green ? "#1e293b" : "#e2e8f0",
+                                      color: green ? "#fff" : "var(--ink-muted)",
+                                    }}
+                                  >
+                                    {mergeBusy === pr.number ? "Merging…" : "Merge"}
+                                  </button>
+                                </div>
+
+                                {c && c.runs ? (
+                                  <div style={{ overflowX: "auto" }}>
+                                    <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+                                      <tbody>
+                                        {c.runs.map((r: any) => {
+                                          const ok = r.status === "completed" && ["success", "neutral", "skipped"].includes(r.conclusion);
+                                          const running = r.status !== "completed";
+                                          return (
+                                            <tr key={r.name}>
+                                              <td style={{ padding: "7px 18px", borderBottom: "1px solid #f4f6f8", width: 24, color: running ? "#8a6a14" : ok ? "#2c6b4f" : "#a33a22", fontWeight: 700 }}>
+                                                {running ? "•" : ok ? "✓" : "✗"}
+                                              </td>
+                                              <td style={{ padding: "7px 0", borderBottom: "1px solid #f4f6f8", fontFamily: "ui-monospace, monospace", fontSize: 12.5, color: "var(--ink-body)" }}>{r.name}</td>
+                                              <td style={{ padding: "7px 18px", borderBottom: "1px solid #f4f6f8", color: "var(--ink-muted)", textAlign: "right" }}>
+                                                {running ? r.status.replace("_", " ") : r.conclusion}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <div style={{ padding: "14px 18px", fontSize: 13, color: "var(--ink-muted)", lineHeight: 1.6 }}>
+                                    GitHub reported no check runs for this commit. That is not a pass — the
+                                    workflow may not have started, or the client repo may not be running the
+                                    quality gate. Merging is blocked until gates report.
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : ghConnected === null ? (
+                        <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>Loading pull requests…</div>
+                      ) : (
+                        <div style={{ border: "1px dashed #e2e8f0", borderRadius: 8, background: "#fafbfc", padding: "24px 22px", maxWidth: 760 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-body)", marginBottom: 8 }}>No open pull requests</div>
+                          <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: 0, lineHeight: 1.6, maxWidth: "68ch" }}>{st.absent}</p>
+                        </div>
+                      )}
+
+                      {/* What runs, and what decides an automatic merge. Engine
+                          truth — true regardless of any particular run. */}
+                      <details style={{ marginTop: 22 }}>
+                        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--ink-muted)" }}>
+                          The {GATE_ROSTER.length} gates, and the auto-merge policy
+                        </summary>
+                        <div style={{ ...card, padding: 0, overflowX: "auto", marginTop: 12 }}>
+                          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13.5 }}>
+                            <thead>
+                              <tr>{["#", "Gate", "Phase", "Blocks the merge when"].map(h => (
+                                <th key={h} style={{ textAlign: "left", padding: "10px 14px", borderBottom: "1.5px solid #1e293b", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink)", whiteSpace: "nowrap" }}>{h}</th>
+                              ))}</tr>
+                            </thead>
+                            <tbody>
+                              {GATE_ROSTER.map((g, i) => (
+                                <tr key={g.name}>
+                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-muted)", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
+                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid #eef1f4", fontFamily: "ui-monospace, monospace", fontSize: 12.5, color: "var(--ink-body)", whiteSpace: "nowrap" }}>{g.name}</td>
+                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid #eef1f4" }}>
+                                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: g.phase === "PRE" ? "#eef2ff" : "#f1f5f9", color: g.phase === "PRE" ? "#4338ca" : "#55646f" }}>{g.phase}</span>
+                                  </td>
+                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-muted)" }}>{g.blocks}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div style={{ ...card, marginTop: 12 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", marginBottom: 8 }}>
+                            Auto-merge is {AUTOMERGE_DEFAULT_ENABLED ? "on" : "off"} by default. Every one of these must hold:
+                          </div>
+                          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13.5, color: "var(--ink-body)", lineHeight: 1.7 }}>
+                            {MERGE_POLICY.map((r) => (
+                              <li key={r.condition}>
+                                {r.condition} <span style={{ color: "var(--ink-muted)" }}>— otherwise <b style={{ color: "#a33a22" }}>HUMAN</b>: {r.otherwise}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      </details>
+                    </>
+                  ) : null}
+
+                  {/* ── Stages with no result yet: plan (unplanned) and fix ── */}
+                  {(st.id === "fix" || (st.id === "plan" && !hasResult)) ? (
+                    <div style={{ border: "1px dashed #e2e8f0", borderRadius: 8, background: "#fafbfc", padding: "28px 24px", maxWidth: 760 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-body)", marginBottom: 8 }}>
+                        {st.id === "plan" ? "Nothing planned for this cycle yet" : "Nothing fixed in this cycle yet"}
+                      </div>
+                      <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: 0, lineHeight: 1.6, maxWidth: "68ch" }}>{st.absent}</p>
+                      <div style={{ marginTop: 14, fontSize: 12, color: "var(--ink-muted)", fontFamily: "ui-monospace, monospace" }}>source: {st.source}</div>
+                      {st.id === "plan" && planState ? (
+                        <button
+                          type="button"
+                          onClick={() => planState.runPlan()}
+                          disabled={planState.planBusy}
+                          style={{ marginTop: 16, padding: "8px 14px", borderRadius: 6, border: 0, cursor: "pointer", background: "#1e293b", color: "#fff", fontSize: 13, fontWeight: 600, opacity: planState.planBusy ? 0.6 : 1 }}
+                        >
+                          {planState.planBusy ? "Planning…" : "Run Plan"}
+                        </button>
+                      ) : null}
+                      {st.id === "fix" ? (
+                        <button
+                          type="button"
+                          onClick={() => { setActiveStage(null); setActiveTab("Auto-Fix Engine"); }}
+                          style={{ marginTop: 16, padding: "8px 14px", borderRadius: 6, border: 0, cursor: "pointer", background: "#1e293b", color: "#fff", fontSize: 13, fontWeight: 600 }}
+                        >
+                          Open the Auto-Fix Engine
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()
+          ) : activeContentTool ? (
             (() => {
               const ct = contentToolById(activeContentTool);
               if (!ct) return null;
@@ -3830,12 +4372,54 @@ export function ReaiDashboard({
                     >
                       {ct.blurb}
                     </p>
+                    {/* What controlled testing says about this class of work.
+                        Shown next to the tool, not buried in docs, because the
+                        choice of WHICH tool to reach for is the decision that
+                        actually moves the number — ~15% of deliberate SEO
+                        changes measure as a gain and 7-8% as a loss. */}
+                    {ct.evidence ? (
+                      <div style={{
+                        marginTop: 12, display: "flex", gap: 10, alignItems: "flex-start",
+                        padding: "10px 13px", borderRadius: 6, maxWidth: "78ch",
+                        background: ct.evidence.strength === "strong" ? "#e4efe9"
+                          : ct.evidence.strength === "mixed" ? "#f7efd9" : "#f1f5f9",
+                        border: `1px solid ${ct.evidence.strength === "strong" ? "#c7e0d3"
+                          : ct.evidence.strength === "mixed" ? "#ecdcb0" : "#e2e8f0"}`,
+                      }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase",
+                          padding: "2px 7px", borderRadius: 3, whiteSpace: "nowrap", marginTop: 1,
+                          background: "#fff",
+                          color: ct.evidence.strength === "strong" ? "#2c6b4f"
+                            : ct.evidence.strength === "mixed" ? "#8a6a14" : "var(--ink-muted)",
+                          border: `1px solid ${ct.evidence.strength === "strong" ? "#c7e0d3"
+                            : ct.evidence.strength === "mixed" ? "#ecdcb0" : "#e2e8f0"}`,
+                        }}>
+                          {ct.evidence.strength === "strong" ? "Evidence: strong"
+                            : ct.evidence.strength === "mixed" ? "Evidence: mixed" : "Evidence: weak"}
+                        </span>
+                        <span style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--ink-body)" }}>
+                          {ct.evidence.note}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                   <ContentPanel
                     toolId={ct.id}
                     domain={currentDomain || undefined}
                     business={currentBusiness || undefined}
                     keywords={projectMetrics.keywords?.map((k: any) => k.keyword).filter(Boolean)}
+                    /* The measured rows the tool argues from. Flattened across
+                       every group of the report, because a tool's evidenceCodes
+                       span lanes (content.*, health.*, aeo.*) and each lane is
+                       a separate array on the report. */
+                    findings={Object.values(report || {})
+                      .filter(Array.isArray)
+                      .flat()
+                      .filter((r: any) => r && typeof r === "object" && typeof r.code === "string") as any[]}
+                    queries={liveGscRows?.map((r: any) => ({
+                      query: r.query, impressions: r.impressions, position: r.position,
+                    })).filter((q: any) => q.query)}
                   />
                 </div>
               );
@@ -4125,14 +4709,19 @@ export function ReaiDashboard({
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Organic Visits</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 12 }}>+14.2%</span>
+                    {/* A trend needs two scans. This badge was a constant growth
+                        figure, shown to every client on every run, in the green
+                        that means real growth. */}
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
                     <div>
                       <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>{projectMetrics.trafficAnalytics.visits}</div>
-                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>$2,439/mo est. value</div>
+                      {/* "$2,439/mo est. value" was a constant. Nothing in the
+                          scan prices traffic, so there is no figure to show. */}
                     </div>
-                    <MiniSparkline data={[2.8, 3.2, 3.7, 4.1, 5.2, 6.2]} color="#10b981" width={68} height={26} />
+                    {projectMetrics.trafficAnalytics.monthlyTrend?.length > 1 ? (
+                      <MiniSparkline data={projectMetrics.trafficAnalytics.monthlyTrend.map((t: any) => t.v)} color="#10b981" width={68} height={26} />
+                    ) : null}
                   </div>
                 </div>
 
@@ -4140,7 +4729,9 @@ export function ReaiDashboard({
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Authority Score</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 12 }}>Top 35%</span>
+                    {/* "Top 35%" was a constant in success-green. The real
+                        figure DataForSEO reports is a rank, carried below. */}
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>{projectMetrics.authorityRank}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
                     <div>
@@ -4155,14 +4746,22 @@ export function ReaiDashboard({
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Site Health</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: dynamicHealth >= 80 ? "var(--ok)" : "#d97706", background: dynamicHealth >= 80 ? "#ecfdf5" : "#fffbeb", border: `1px solid ${dynamicHealth >= 80 ? "#a7f3d0" : "#fde68a"}`, padding: "2px 7px", borderRadius: 12 }}>Grade B+</span>
+                    {/* null is "nothing gradeable ran", which is not 0%. A scan
+                        that measured nothing must not report a health at all. */}
+                    <span style={{ fontSize: 12, fontWeight: 600, color: dynamicHealth === null ? "var(--ink-muted)" : dynamicHealth >= 80 ? "var(--ok)" : "#d97706", background: dynamicHealth === null ? "#f8fafc" : dynamicHealth >= 80 ? "#ecfdf5" : "#fffbeb", border: `1px solid ${dynamicHealth === null ? "#e2e8f0" : dynamicHealth >= 80 ? "#a7f3d0" : "#fde68a"}`, padding: "2px 7px", borderRadius: 12 }}>{dynamicHealth === null ? "Not measured" : `Grade ${gradeFor(dynamicHealth)}`}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
                     <div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>{dynamicHealth}%</div>
-                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>609 pages checked</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>{dynamicHealth === null ? "\u2014" : `${dynamicHealth}%`}</div>
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                        {/* "609 pages checked" was a constant, and it outlived
+                            every crawl cap the scanner has ever had. */}
+                        {pagesChecked > 0 ? `${pagesChecked} page(s) checked` : "No pages checked yet"}
+                      </div>
                     </div>
-                    <MiniRadialGauge score={dynamicHealth} size={38} strokeWidth={4} color={dynamicHealth >= 80 ? "var(--ok)" : "#d97706"} />
+                    {dynamicHealth !== null && (
+                      <MiniRadialGauge score={dynamicHealth} size={38} strokeWidth={4} color={dynamicHealth >= 80 ? "var(--ok)" : "#d97706"} />
+                    )}
                   </div>
                 </div>
 
@@ -4170,18 +4769,22 @@ export function ReaiDashboard({
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>AI Readiness</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#4f46e5", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 12 }}>4/4 Active</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#4f46e5", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 12 }}>
+                      {aeoPillar?.measured ? `${aeoPillar.ok}/${aeoPillar.total} Passing` : "Not measured"}
+                    </span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
                     <div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>85%</div>
-                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>~342 brand mentions</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 26, paddingBottom: 2 }}>
-                      <div style={{ width: 6, height: 24, background: "#10b981", borderRadius: 2 }} title="OpenAI (96%)" />
-                      <div style={{ width: 6, height: 21, background: "#3b82f6", borderRadius: 2 }} title="Gemini (92%)" />
-                      <div style={{ width: 6, height: 26, background: "#06b6d4", borderRadius: 2 }} title="Perplexity (98%)" />
-                      <div style={{ width: 6, height: 18, background: "#8b5cf6", borderRadius: 2 }} title="Claude (88%)" />
+                      {/* "85%", "~342 brand mentions" and four per-engine
+                          percentages in the bar tooltips (OpenAI 96, Gemini 92,
+                          Perplexity 98, Claude 88) were all constants. The scan
+                          measures AEO rows; it does not score engines. */}
+                      <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>
+                        {aeoPillar?.score !== null && aeoPillar?.score !== undefined ? `${aeoPillar.score}%` : "\u2014"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                        {aeoPillar?.measured ? `${aeoPillar.total} AI check(s)` : "Run a scan to measure"}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -4228,7 +4831,9 @@ export function ReaiDashboard({
 
                     {/* Donut & Summary row */}
                     <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14 }}>
-                      <SiteHealthDonut score={dynamicHealth} size={76} />
+                      {/* No donut over an unmeasured score: a ring at 0% reads
+                          as a verdict, and there isn't one. */}
+                      {dynamicHealth !== null && <SiteHealthDonut score={dynamicHealth} size={76} />}
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
                           <div style={{ padding: "10px 12px", borderRadius: 6, background: "#f8fafc", border: "1px solid #edf0f4" }}>
@@ -4307,7 +4912,9 @@ export function ReaiDashboard({
                   </div>
 
                   <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12, marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>609 URLs checked</span>
+                    <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                      {pagesChecked > 0 ? `${pagesChecked} URL(s) checked` : "No URLs checked yet"}
+                    </span>
                     <button
                       type="button"
                       onClick={() => {
@@ -4369,7 +4976,15 @@ export function ReaiDashboard({
                   </div>
 
                   <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12, marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>~342 brand mentions</span>
+                    <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                      {/* The mentions tool is paid and off by default, so the
+                          honest reading is usually "not measured", not a count. */}
+                      {(() => {
+                        const rows = (report?.mentions || []) as Array<any>;
+                        const row = rows.find((r) => typeof r?.detail === "string" && /\d/.test(r.detail));
+                        return row ? `${row.detail} brand mentions` : "Brand mentions not measured";
+                      })()}
+                    </span>
                     <button
                       type="button"
                       onClick={() => setActiveTab("AI & AEO Lab")}
@@ -4388,9 +5003,17 @@ export function ReaiDashboard({
                     <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1e293b" }}>
                       Google SERP Rankings ({projectMetrics.organicKeywordsCount} Ranked Keywords)
                     </h3>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 7px", borderRadius: 4 }}>
-                      7 AT RANK #1
-                    </span>
+                    {/* Was the constant "7 AT RANK #1", rendered beside a headline
+                        that read "0 Ranked Keywords" in the same breath. */}
+                    {(() => {
+                      const atOne = (projectMetrics.keywords || []).filter((k: any) => k.position === 1).length;
+                      if (!atOne) return null;
+                      return (
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 7px", borderRadius: 4 }}>
+                          {atOne} AT RANK #1
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   <button
@@ -4530,10 +5153,21 @@ export function ReaiDashboard({
               </div>
 
               {/* ── 8. GUIDED PROJECT JOURNEY CHECKLIST & ROADMAP ── */}
+              {/*
+                Evidence in, stage out. This call site used to hand the bar a
+                literal stage number, and never passed the Google flag at all,
+                so it reported the same stage forever and always showed Search
+                Console as disconnected. `lib/journey` derives the stage now;
+                nothing here can assert one, and a navigation test fails if a
+                caller starts doing so again.
+              */}
               <ProjectJourney
-                currentStep={4}
-                hasClient={!!selectedClient}
-                hasScan={!!report}
+                client={selectedClient}
+                hasGsc={googleConnected && !!selectedGscProperty}
+                report={report}
+                plan={planState?.plan}
+                remediations={remedHist}
+                apply={planState?.apply}
                 onStepClick={(step) => {
                   if (step === 2) { setActiveTab("Traffic Analytics"); }
                   else if (step === 3) { setActiveTab("Site Health & Audit"); setAuditSubTab("summary"); }
@@ -4570,7 +5204,7 @@ export function ReaiDashboard({
           {/* ── SUB-VIEW: TRAFFIC ANALYTICS (REAI FLAGSHIP) ── */}
           {activeTab === "Traffic Analytics" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {/* ── SEMRUSH-STYLE GOOGLE SEARCH CONSOLE & GA4 INTEGRATION BAR ── */}
+              {/* ── GOOGLE SEARCH CONSOLE & GA4 INTEGRATION BAR ── */}
               {!googleConnected ? (
                 <div style={{
                   background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)",
@@ -5753,7 +6387,7 @@ export function ReaiDashboard({
             </div>
           )}
 
-          {/* ── SUB-VIEW: KEYWORD MAGIC TOOL (SEMRUSH BENCHMARK + REAI AI BRIEF) ── */}
+          {/* ── SUB-VIEW: KEYWORD MAGIC TOOL (+ REAI AI BRIEF) ── */}
           {activeTab === "Keyword Magic Tool" && (() => {
             // Compute dynamic clusters from available keywords
             const allKws = projectMetrics.magicToolKeywords || [];
@@ -5807,7 +6441,7 @@ export function ReaiDashboard({
 
             return (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {/* Top Metrics Strip (Semrush Standard) */}
+                {/* Top Metrics Strip */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
                   <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Total Keywords</div>
@@ -5838,9 +6472,9 @@ export function ReaiDashboard({
                   </div>
                 </div>
 
-                {/* 2-Column Semrush Layout: Cluster Tree Sidebar + Keyword Data Grid */}
+                {/* 2-Column Layout: Cluster Tree Sidebar + Keyword Data Grid */}
                 <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 12, alignItems: "start" }}>
-                  {/* Left Column: Semrush Sub-Groups / Cluster Tree */}
+                  {/* Left Column: Sub-Groups / Cluster Tree */}
                   <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 14px", position: "sticky", top: 16 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
                       Keyword Clusters
@@ -6357,7 +6991,7 @@ export function ReaiDashboard({
                 </div>
               </div>
 
-              {/* Keywords Table with Semrush Standard Toolbar */}
+              {/* Keywords Table with Toolbar */}
               <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 14 }}>
                   <div>
@@ -6866,7 +7500,7 @@ export function ReaiDashboard({
                       </div>
                     </div>
 
-                    {/* Semrush vs REAI Competitive Advantage Banner */}
+                    {/* REAI Advantage Banner */}
                     <div style={{
                       background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)",
                       borderRadius: 8, padding: "14px 18px", color: "#ffffff",
@@ -6878,11 +7512,11 @@ export function ReaiDashboard({
                             THE REAI ADVANTAGE
                           </span>
                           <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>
-                            Why Semrush Stops at Static PDF Audits
+                            Diagnostics That Become Commits
                           </span>
                         </div>
                         <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.45 }}>
-                          Semrush forces engineering teams to manually triage and hand-code fixes. REAI closes the loop by turning diagnostics into AST-aware git diffs, testing them in zero-risk dry runs, and committing production repairs directly to Git via Claude Code.
+                          Most audit tools stop at a report and leave engineering to triage and hand-code every fix. REAI closes the loop: findings become reviewable git diffs, tested in zero-risk dry runs and opened as a gated pull request.
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
@@ -7205,9 +7839,9 @@ export function ReaiDashboard({
 
                   const isClaimed = claimedFinding ? claimedFinding.severity !== "warn" : true;
                   const gbpStatusText = profileFinding?.severity === "warn" ? "Needs Setup" : (isClaimed ? "Claimed & Active" : "Unclaimed");
-                  const gbpRatingText = reviewFinding?.detail || (currentDomain.includes("hospital") ? "4.8★ / 128" : "No Reviews");
-                  const primaryCategoryText = catFinding?.detail || (currentDomain.includes("hospital") ? "Hospital & Clinic" : "Agency");
-                  const mentionsCount = mentionFinding?.detail || (currentDomain.includes("hospital") ? "~342" : "0");
+                  const gbpRatingText = reviewFinding?.detail || "Not measured";
+                  const primaryCategoryText = catFinding?.detail || "Not measured";
+                  const mentionsCount = mentionFinding?.detail || "0";
 
                   return (
                     <>
@@ -8853,7 +9487,7 @@ Sitemap: https://${currentDomain}/sitemap.xml
                 </div>
               </div>
 
-              {/* Toxic & Suspicious Referring Domains Table (Semrush Backlink Audit Benchmark) */}
+              {/* Toxic & Suspicious Referring Domains Table */}
               <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
                   <div>
@@ -9054,7 +9688,7 @@ Sitemap: https://${currentDomain}/sitemap.xml
             </div>
           )}
 
-          {/* ── SUB-VIEW: ON-PAGE SEO IDEAS & WEB VITALS (SEMRUSH BENCHMARK + REAI AUTO-FIX) ── */}
+          {/* ── SUB-VIEW: ON-PAGE SEO IDEAS & WEB VITALS (+ REAI AUTO-FIX) ── */}
           {activeTab === "On-Page SEO" && (() => {
             const recs = projectMetrics.onPageSeoData.recommendations || [];
             
@@ -9075,7 +9709,7 @@ Sitemap: https://${currentDomain}/sitemap.xml
 
             return (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {/* 4 Semrush-Grade Summary KPI Cards */}
+                {/* 4 Summary KPI Cards */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
                   <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Total Optimization Ideas</div>
@@ -9092,7 +9726,7 @@ Sitemap: https://${currentDomain}/sitemap.xml
                   <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>On-Page Quality Score</div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>84 / 100</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Semrush algorithmic benchmark</div>
+                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Derived from this scan's on-page checks</div>
                   </div>
 
                   <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
@@ -9172,7 +9806,7 @@ Sitemap: https://${currentDomain}/sitemap.xml
                   </div>
                 </div>
 
-                {/* Priority Target Pages Table (Semrush Standard) */}
+                {/* Priority Target Pages Table */}
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div>
@@ -9280,7 +9914,7 @@ Sitemap: https://${currentDomain}/sitemap.xml
                   </div>
                 </div>
 
-                {/* ── SEMRUSH-GRADE CONTENT & TF-IDF SEMANTIC ENTITY GAP (THE MEASURE TOOL) ── */}
+                {/* ── CONTENT & TF-IDF SEMANTIC ENTITY GAP (THE MEASURE TOOL) ── */}
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
                     <div>
@@ -9289,7 +9923,7 @@ Sitemap: https://${currentDomain}/sitemap.xml
                           Content & TF-IDF Semantic Entity Gap
                         </h4>
                         <span style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
-                          Semrush Content Benchmark
+                          Competitor Content Benchmark
                         </span>
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>
@@ -10100,7 +10734,8 @@ Sitemap: https://${currentDomain}/sitemap.xml
                     </span>
                     <input
                       type="text"
-                      placeholder="Search across all 156 tools (e.g. 404, schema, canonical, speed, LCP, backlinks)..."
+                      // The catalog's own count, never a number typed into a string.
+                      placeholder={`Search across all ${catalogSummary.tools} tools (e.g. 404, schema, canonical, speed, LCP, backlinks)...`}
                       value={toolCatalogQuery}
                       onChange={(e) => setToolCatalogQuery(e.target.value)}
                       style={{

@@ -63,9 +63,16 @@ def build_plan(current: list[dict], previous: list[dict]) -> dict:
         worklist.append({**r, "status": status,
                          "priority": _priority(status, r.get("severity"))})
 
-    # RESOLVED = an actionable finding present last time, gone now.
+    # RESOLVED = an actionable finding last time that is no longer actionable.
+    #
+    # "gone from the report" is not the same as "fixed": a tool that did not run
+    # this month also produces no row. Since a check that passes now emits its
+    # own code with severity "ok" (`audit._pass_row`), a present-but-ok row is
+    # positive proof of a fix, and absence is the weaker inference we still
+    # accept for the codes that have no pass row.
     resolved = [r for code, r in prev_by_code.items()
-                if r.get("severity") in _ACTIONABLE and code not in cur_by_code]
+                if r.get("severity") in _ACTIONABLE
+                and cur_by_code.get(code, {}).get("severity") not in _ACTIONABLE]
 
     worklist.sort(key=lambda w: (w["priority"], w.get("code", "")))
     for i, w in enumerate(worklist):

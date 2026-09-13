@@ -37,7 +37,8 @@ def changed_paths(project, base: str, head: str = "HEAD") -> tuple:
     `automerge.risk_level` treats any create as high-risk. Renames (R) count as a
     create of the new path, since a new URL is a new page to the crawler.
     """
-    out = _git(project, "diff", "--name-status", f"{base}..{head}")
+    out = _git(project, "-c", "core.quotePath=false",
+           "diff", "--name-status", f"{base}..{head}")
     created, modified = [], []
     for line in out.splitlines():
         parts = line.split("\t")

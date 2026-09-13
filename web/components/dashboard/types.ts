@@ -127,9 +127,9 @@ export interface PriorityItem {
   technicalDetails: TechnicalDetailBlock;
 }
 
-export interface ProjectJourneyStep {
-  id: number;
-  label: string;
-  description: string;
-  status: "completed" | "current" | "upcoming";
-}
+/**
+ * Re-exported from `lib/journey`, which owns both the step shape and the rules
+ * that assign a status to one. Two definitions would let a status exist here
+ * that nothing can derive.
+ */
+export type { JourneyStep as ProjectJourneyStep } from "../../lib/journey";

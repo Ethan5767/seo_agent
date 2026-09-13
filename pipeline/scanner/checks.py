@@ -27,7 +27,12 @@ STATIC_CHECKS: dict[str, list[str]] = {
         # "Business schema" was "LocalBusiness schema": the check now accepts any
         # schema.org business type, so a dentist or clinic using the correct
         # subtype is no longer reported as having none.
-        "AI crawlers allowed", "AI training crawlers allowed", "Business schema",
+        # "AI crawlers allowed"/"AI training crawlers allowed" named the passing
+        # outcome, and the failing rows called themselves "AI crawlers blocked"
+        # and "AI training crawlers blocked". One check must not answer to two
+        # names: anything grouping by label saw two, and the catalog could only
+        # ever list one of them. The name is the check; the severity is the news.
+        "AI citation crawlers", "AI training crawlers", "Business schema",
         "Answer-engine schema", "Answer-first structure",
         "Statistics and data", "Quotes and citations", "Data tables",
     ],
@@ -37,6 +42,18 @@ STATIC_CHECKS: dict[str, list[str]] = {
     "eeat": [
         "Author / expertise", "Contact / trust", "Policy links", "Social proof",
         "Authoritativeness", "Citation-ready formatting",
+    ],
+    # The 28 deep single-page checks. Fixed labels, so the drift test asserts
+    # every one of them is really emitted.
+    "onpage": [
+        "Charset", "Doctype", "Single title", "Single meta description",
+        "Single canonical", "Meta refresh", "Legacy meta keywords",
+        "Apple touch icon", "URL length", "URL underscores", "URL case",
+        "URL parameters", "Mixed content", "External link safety",
+        "Render-blocking scripts", "Image dimensions", "Deprecated HTML",
+        "DOM size", "Link volume", "hreflang", "Semantic main", "Subheadings",
+        "Heading order", "Placeholder text", "Flash", "Iframe count",
+        "Inline styles", "Empty links",
     ],
     "tech": [
         "HTTPS", "Mobile viewport", "Language declared", "Open Graph tags", "Twitter/X card",

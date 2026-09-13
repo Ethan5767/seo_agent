@@ -232,22 +232,37 @@ test("Priority Actions: renders findings from the scan, never a fixture", () => 
   );
 });
 
-test("Project Journey: Step-by-step 6-stage guidance is present", () => {
-  const journeyPath = path.join(webDir, "components", "dashboard", "ProjectJourney.tsx");
-  assert.ok(fs.existsSync(journeyPath), "ProjectJourney.tsx must exist");
-  const content = fs.readFileSync(journeyPath, "utf-8");
+test("Project Journey: Step-by-step 6-stage guidance is present", async () => {
+  // Asserts the exported steps, not the text of a file. The labels moved to
+  // `lib/journey` when the bar stopped deciding its own stage, and a grep over
+  // the component would have gone on passing against a comment.
+  const { JOURNEY_STEPS } = await import("../lib/journey.ts");
+  assert.deepEqual(
+    JOURNEY_STEPS.map((s) => s.label),
+    [
+      "Create Project",
+      "Connect Google / Add Site",
+      "Run Audit",
+      "Review Top Priorities",
+      "Review or Apply Fixes",
+      "Track Results Over Time",
+    ]
+  );
+});
 
-  const expectedSteps = [
-    "Create Project",
-    "Connect Google / Add Site",
-    "Run Audit",
-    "Review Top Priorities",
-    "Review or Apply Fixes",
-    "Track Results Over Time",
-  ];
-
-  for (const step of expectedSteps) {
-    assert.ok(content.includes(step), `Expected project step '${step}' missing in ProjectJourney.tsx`);
+test("Project Journey: no caller may assert a stage the evidence does not support", () => {
+  // The whole defect: `currentStep={4}` hardcoded at both call sites, and
+  // Overview also passing `hasClient={true} hasScan={true}`, so an empty
+  // account read "Stage 4 of 6" with three steps ticked green. The prop no
+  // longer exists; this fails if anything reintroduces a literal stage.
+  for (const file of ["app/ReaiDashboard.tsx", "components/dashboard/Overview.tsx"]) {
+    const content = fs.readFileSync(path.join(webDir, file), "utf-8");
+    for (const banned of [/currentStep=\{\d/, /hasClient=\{true\}/, /hasScan=\{true\}/]) {
+      assert.ok(
+        !banned.test(content),
+        `${file} asserts a journey stage (${banned}) instead of passing evidence`
+      );
+    }
   }
 });
 

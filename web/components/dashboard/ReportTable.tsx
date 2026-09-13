@@ -22,6 +22,21 @@ type SortDir = "asc" | "desc";
 
 const SEVERITY_ORDER: Record<string, number> = { error: 0, warn: 1, info: 2, ok: 3 };
 
+/**
+ * How many pages a finding affects, from the row's own `pages` list.
+ *
+ * `merge_by_code` has attached the affected URLs to every multi-page row since
+ * the free crawl shipped, and `onpage_audit` attaches them per DataForSEO flag.
+ * Nothing rendered them. Every competitor puts this count on the row - it is
+ * the difference between "canonical mismatch" and "canonical mismatch on 340
+ * pages", and it is what makes a list of findings sortable by consequence
+ * rather than by severity label alone.
+ */
+function affected(row: ReportRow): number {
+  const pages = (row as { pages?: unknown }).pages;
+  return Array.isArray(pages) ? pages.length : 0;
+}
+
 const SEVERITY_TONE: Record<string, { fg: string; bg: string; border: string; label: string }> = {
   error: { fg: "var(--bad)", bg: "var(--bad-tint)", border: "var(--bad-border)", label: "Error" },
   warn: { fg: "var(--warn)", bg: "var(--warn-tint)", border: "var(--warn-border)", label: "Warning" },
@@ -115,6 +130,10 @@ export function ReportTable({ view, rows, onRunAudit }: ReportTableProps) {
       let cmp: number;
       if (sortKey === "severity") {
         cmp = (SEVERITY_ORDER[a.severity || "info"] ?? 9) - (SEVERITY_ORDER[b.severity || "info"] ?? 9);
+      } else if (sortKey === "affected") {
+        // Sorting by consequence rather than by severity label: a warning on
+        // 340 pages usually outranks an error on one.
+        cmp = affected(a) - affected(b);
       } else {
         const av = String(a[sortKey as keyof ReportRow] ?? "");
         const bv = String(b[sortKey as keyof ReportRow] ?? "");
@@ -134,6 +153,10 @@ export function ReportTable({ view, rows, onRunAudit }: ReportTableProps) {
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const visible = sorted.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  // Shown only when some row actually carries pages: a single-page scan would
+  // otherwise get a column of em dashes, which is worse than no column.
+  const anyAffected = useMemo(() => rows.some((r) => affected(r) > 0), [rows]);
 
   function toggleSort(key: string) {
     if (key === sortKey) {
@@ -294,6 +317,20 @@ export function ReportTable({ view, rows, onRunAudit }: ReportTableProps) {
                   onClick={() => toggleSort("severity")}
                 />
               </th>
+              {anyAffected && (
+                <th
+                  scope="col"
+                  style={{ ...headStyle, width: "6rem", textAlign: "right" }}
+                  aria-sort={sortKey === "affected" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <SortButton
+                    label="Pages"
+                    active={sortKey === "affected"}
+                    dir={sortDir}
+                    onClick={() => toggleSort("affected")}
+                  />
+                </th>
+              )}
               {view.columns.map((col) => (
                 <th
                   key={col.key}
@@ -338,6 +375,16 @@ export function ReportTable({ view, rows, onRunAudit }: ReportTableProps) {
                       {tone.label}
                     </span>
                   </td>
+                  {anyAffected && (
+                    <td style={{ ...cellStyle, textAlign: "right", fontVariantNumeric: "tabular-nums",
+                                 color: "var(--ink-muted)", whiteSpace: "nowrap" }}>
+                      {affected(row) > 0 ? (
+                        <span title={((row as { pages?: string[] }).pages || []).slice(0, 10).join("\n")}>
+                          {affected(row).toLocaleString()}
+                        </span>
+                      ) : "\u2014"}
+                    </td>
+                  )}
                   {view.columns.map((col) => (
                     <td
                       key={col.key}

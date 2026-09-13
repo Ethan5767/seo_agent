@@ -1465,45 +1465,59 @@ export function LocalBusinessManager({
                 Verified customer actions and local discovery queries (Last 28 Days).
               </p>
             </div>
-            <span style={{ fontSize: 12, background: "#dcfce7", color: "#166534", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>
-              +18.4% vs Previous Period
-            </span>
           </div>
 
-          {/* Action Metrics Grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>📞 Phone Calls</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
-                {insights?.breakdown?.calls?.count || 142}
-              </div>
-              <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>+14.5% call inquiries</div>
-            </div>
+          {/*
+            These four tiles read `insights?.breakdown?.<x>?.count`. The API
+            returns a FLAT `metrics` object and has no `breakdown` key at all,
+            so the left side was always undefined and 142 / 318 / 784 / 40
+            rendered unconditionally — connected or not, real location or not —
+            under a heading reading "Verified customer actions". The deltas
+            beside them (+14.5%, +22.1%, +19.3%, +33.3%, +18.4%) were string
+            literals with nothing behind them.
 
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>🗺️ Direction Requests</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
-                {insights?.breakdown?.directionRequests?.count || 318}
-              </div>
-              <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>+22.1% GPS routes</div>
-            </div>
-
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>🌐 Website Visits</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
-                {insights?.breakdown?.websiteClicks?.count || 784}
-              </div>
-              <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>+19.3% click-throughs</div>
-            </div>
-
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>📅 Appointments</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
-                {insights?.breakdown?.bookings?.count || 40}
-              </div>
-              <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>+33.3% bookings</div>
-            </div>
-          </div>
+            Read the real shape, and where Google returned nothing, say so.
+            A dash is a fact; 142 is a claim.
+          */}
+          {(() => {
+            const m = insights?.metrics;
+            const tiles: Array<[string, number | null | undefined]> = [
+              ["\u{1F4DE} Phone Calls", m?.calls],
+              ["\u{1F5FA}\uFE0F Direction Requests", m?.directionRequests],
+              ["\u{1F310} Website Visits", m?.websiteClicks],
+              ["\u{1F4C5} Appointments", m?.bookings],
+            ];
+            return (
+              <>
+                {!m ? (
+                  <div style={{ fontSize: 12.5, color: "var(--ink-muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
+                    {insights?.dataStatus
+                      || "No customer-action data for this location. Connect the Google Business Profile to measure calls, direction requests, website visits and bookings."}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12.5, color: "var(--ink-muted)", margin: "0 0 12px" }}>
+                    {insights?.dataStatus} · {m.period}
+                  </div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
+                  {tiles.map(([label, value]) => (
+                    <div key={label} style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>{label}</div>
+                      <div style={{
+                        fontSize: 20, fontWeight: 800, marginTop: 4,
+                        color: typeof value === "number" ? "#0f172a" : "var(--ink-muted)",
+                      }}>
+                        {typeof value === "number" ? value.toLocaleString() : "\u2014"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
+                        {typeof value === "number" ? "last 28 days" : "not measured"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
 
           {/* Top Search Queries */}
           <div>

@@ -122,12 +122,19 @@ def analyze_source(files: dict, tree: list | None = None) -> list[dict]:
                      "keep it" if has_sitemap else "add a sitemap.xml, an app/sitemap.ts, or the next-sitemap package",
                      detail="next-sitemap" if next_sitemap and not sitemap_route else ("route" if sitemap_route else "")))
 
-    # llms.txt — the AEO signpost for AI answer engines (optional but a plus).
+    # llms.txt — reported, not recommended. No search or answer engine documents
+    # reading one, and Google's AI-features documentation says the opposite in
+    # as many words: "You don't need to create new machine readable files, AI
+    # text files, or markup to appear in these features." Publishing it costs
+    # nothing and proves nothing, so the row states presence and stops. Selling
+    # it as a visibility lever would be the invention the provenance gate exists
+    # to refuse.
     has_llms = _has_file(paths, files, "llms.txt")
-    rows.append(_row("Source: llms.txt", "ok" if has_llms else "info",
-                     "llms.txt is present — a curated signpost for AI answer engines." if has_llms
-                     else "No llms.txt — an emerging (optional) way to guide AI engines to your key pages.",
-                     "keep it" if has_llms else "consider adding public/llms.txt for AEO"))
+    rows.append(_row("Source: llms.txt", "info",
+                     "llms.txt is present. No engine documents reading one, so treat it as optional housekeeping."
+                     if has_llms
+                     else "No llms.txt. No engine documents reading one, and Google states no AI text file is needed, so this is not a gap.",
+                     "no action needed"))
 
     # middleware — edge control over headers / redirects / i18n (a bonus signal).
     if any(p in paths for p in ("middleware.ts", "middleware.js", "src/middleware.ts", "src/middleware.js")):

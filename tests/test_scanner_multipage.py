@@ -76,3 +76,37 @@ def test_merge_all_ok_stays_single_ok_no_pages():
     ]
     rows = merge_by_code(per_page)
     assert len(rows) == 1 and rows[0]["severity"] == "ok" and rows[0]["pages"] == []
+
+
+def test_a_passing_check_survives_the_multi_page_merge():
+    """`merge_by_code` skips codeless rows, and every passing check used to be
+    emitted with `code: ""`. So on a multi-page crawl - `seo`, `schema`,
+    `content`, `video`, `eeat` and `internal` all run per page - every pass was
+    dropped at the merge and the scan reported failures only. Now that a pass
+    carries its check's code (`audit._pass_row`), it merges like any other row.
+    """
+    per_page = [
+        ("https://x.com/", [{"code": "health.title_missing", "what": "Page title",
+                             "severity": "ok", "why": "", "fix": "passing", "detail": ""}]),
+        ("https://x.com/a", [{"code": "health.title_missing", "what": "Page title",
+                              "severity": "ok", "why": "", "fix": "passing", "detail": ""}]),
+    ]
+    merged = merge_by_code(per_page)
+    assert [r["code"] for r in merged] == ["health.title_missing"]
+    assert merged[0]["severity"] == "ok"
+    assert merged[0]["pages"] == []      # an all-ok check names no failing page
+
+
+def test_one_failing_page_outranks_the_pages_that_passed():
+    """Worst severity wins, and only the failing pages are named - the reason a
+    pass row can safely share the failure's code."""
+    per_page = [
+        ("https://x.com/", [{"code": "health.title_missing", "what": "Page title",
+                             "severity": "ok", "why": "", "fix": "passing", "detail": ""}]),
+        ("https://x.com/a", [{"code": "health.title_missing", "what": "Page title",
+                              "severity": "error", "why": "", "fix": "add one", "detail": ""}]),
+    ]
+    merged = merge_by_code(per_page)
+    assert len(merged) == 1
+    assert merged[0]["severity"] == "error"
+    assert merged[0]["pages"] == ["https://x.com/a"]

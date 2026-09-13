@@ -10,9 +10,12 @@
  *
  * The scanner declares what it actually has at `GET /api/tools`, which proxies
  * the Python catalog in `pipeline/scanner/server.py`. That is 23 tools running
- * 115 individual checks across 12 categories. Every one of them executes.
+ * 117 individual checks across 12 categories. Every one of them executes.
  *
- * 115 checks is a good number to claim precisely because it is true.
+ * The count is a count, never a constant: `summarize()` sums the catalog the
+ * scanner returns, so this comment is the only place a number is written down
+ * and the UI cannot inherit a stale one. It said 115 while the catalog returned
+ * 117 from the day it was written.
  */
 
 export interface ScannerTool {

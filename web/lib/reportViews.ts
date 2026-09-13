@@ -3,7 +3,7 @@
  *
  * The scanner already emits 25 distinct row codes on every run, but almost all
  * of them collapsed into one "Keywords" card, which is why the SEO menu had a
- * handful of destinations where Semrush has eighteen. Nothing new is fetched
+ * handful of destinations where a big-suite tool has eighteen. Nothing new is fetched
  * here. Each view is a named slice of rows the report already contains, so
  * adding a screen costs no API call and no money.
  *
@@ -74,7 +74,7 @@ export const REPORT_VIEWS: ReportView[] = [
     codes: ["dfs.domain_overview"],
     blurb: "Headline organic figures for the domain, as reported by DataForSEO.",
     columns: FINDING_COLUMNS,
-    emptyHint: "The Domain Overview tool is not part of the scan yet.",
+    emptyHint: "Run a scan with the Keywords tool enabled; the domain overview comes with it.",
   },
   {
     id: "organic-rankings",
@@ -107,6 +107,17 @@ export const REPORT_VIEWS: ReportView[] = [
     blurb: "Search volume and difficulty for the terms tracked on this project.",
     columns: KEYWORD_COLUMNS,
     emptyHint: "Add keywords to the project, then run a scan with the Keywords tool.",
+  },
+  {
+    // The big suites call the equivalent a Keyword Strategy Builder. Derived from the
+    // keyword rows the scan already paid for, so it adds no API call.
+    id: "keyword-clusters",
+    label: "Keyword Clusters",
+    codes: ["cluster."],
+    blurb:
+      "The measured keywords grouped into the pages they want to become. A cluster usually wants one page covering all of it rather than a page per keyword, which competes with itself.",
+    columns: KEYWORD_COLUMNS,
+    emptyHint: "Run a scan with the Keywords tool enabled; the clusters come with it.",
   },
   {
     id: "keyword-ideas",
@@ -153,10 +164,19 @@ export const REPORT_VIEWS: ReportView[] = [
       "dfs.redirect",
       "dfs.canonical_chain",
       "dfs.image_alt_missing",
+      // The DataForSEO per-page flags, one row per check with a page count
+      // (onpage_audit.aggregate_checks). Emitted on every Site Health run and
+      // reachable from no screen until now.
+      "dfs.op.",
+      // The free multi-page crawl's own site-wide rows (crawl.site_rows):
+      // duplicate titles/descriptions, orphans, broken internal links, and the
+      // pages-crawled summary. Free, on by default, and likewise unscreened.
+      "site.",
     ],
-    blurb: "Structural problems found crawling the site: duplicates, depth, orphans, redirects.",
+    blurb:
+      "Structural problems found crawling the site: duplicates, depth, orphans, redirects and broken internal links. Both crawls report here - the free multi-page walk and the paid Site Health audit.",
     columns: FINDING_COLUMNS,
-    emptyHint: "Run a scan with the Site Health tool enabled to populate this.",
+    emptyHint: "Run a scan. The multi-page crawl is free; the Site Health tool adds the paid rows.",
   },
   {
     id: "serp-positions",
@@ -177,7 +197,14 @@ export const REPORT_VIEWS: ReportView[] = [
   {
     id: "aeo-answers",
     label: "Answer Readiness",
-    codes: ["aeo.no_answer_structure", "aeo.statistics", "aeo.data_tables"],
+    codes: [
+      "aeo.no_answer_structure",
+      "aeo.statistics",
+      "aeo.data_tables",
+      // FAQPage/QAPage/HowTo/Article is what tells an engine what kind of
+      // answer the page holds, so it belongs with answer readiness.
+      "aeo.answer_schema_missing",
+    ],
     blurb:
       "Whether pages are written so an answer engine can lift a direct answer: question-and-answer blocks, stated statistics, and data in tables.",
     columns: FINDING_COLUMNS,
@@ -188,7 +215,14 @@ export const REPORT_VIEWS: ReportView[] = [
     label: "Crawler Findings",
     // "aeo.robots" is not a real code: it was a prefix match on
     // "aeo.robots_missing". The scanner emits only these two.
-    codes: ["aeo.crawler_blocked", "aeo.robots_missing"],
+    codes: [
+      "aeo.crawler_blocked",
+      "aeo.robots_missing",
+      // Reported as info, never as a defect: blocking training crawlers is a
+      // business decision and does not affect citation. The screen that covers
+      // robots.txt is still the only honest place for it.
+      "aeo.training_crawler_blocked",
+    ],
     blurb:
       "What robots.txt allows at the edge for GPTBot, ClaudeBot, PerplexityBot and Google-Extended. A blocked crawler cannot cite the site at all.",
     columns: FINDING_COLUMNS,
@@ -197,7 +231,9 @@ export const REPORT_VIEWS: ReportView[] = [
   {
     id: "aeo-citations",
     label: "Citation Signals",
-    codes: ["aeo.citations"],
+    // Authorship is a citation signal, not an answer-structure one: engines
+    // weigh who wrote a thing when deciding what to attribute.
+    codes: ["aeo.citations", "aeo.article_author_missing"],
     blurb:
       "Quoted experts, cited studies and named sources on the page: the material answer engines reuse when they attribute.",
     columns: FINDING_COLUMNS,
@@ -226,10 +262,68 @@ export const REPORT_VIEWS: ReportView[] = [
   {
     id: "on-page",
     label: "On-Page Checks",
-    codes: ["health."],
-    blurb: "Per-page checks the crawler ran: titles, descriptions, headings, canonicals.",
+    // `health.` is the universal checklist (title, description, H1, canonical,
+    // indexability). `onpage.` is the deep pass over the same page: URL shape,
+    // DOM weight, mixed content, heading order, filler text left in. Two
+    // families, one screen, because an operator fixing a page wants both at
+    // once and neither is a separate job.
+    codes: ["health.", "onpage."],
+    blurb:
+      "Everything measurable in one page and its URL: titles, descriptions and canonicals, plus URL shape, DOM weight, mixed content, heading order, and filler text that reached production.",
     columns: FINDING_COLUMNS,
     emptyHint: "Run a scan to populate this. The on-page checks are free.",
+  },
+  {
+    // Three free tools - Technical, Schema validation, Sitemap & hreflang - run
+    // on every scan and had no sectioned screen of their own. Their rows landed
+    // only on the combined audit list, so the whole technical lane was
+    // unreachable from the menu while being measured every time.
+    id: "technical",
+    label: "Technical Checks",
+    codes: ["tech.", "schema.", "valid."],
+    blurb:
+      "Crawlability and markup: HTTPS, robots.txt, sitemap, hreflang, structured-data validity. Free, and every one of them runs by default.",
+    columns: FINDING_COLUMNS,
+    emptyHint: "Run a scan to populate this. The technical checks are free.",
+  },
+  /*
+   * The content lane, three screens rather than one.
+   *
+   * These began as a single "Content & Trust" view parked under SEO, which was
+   * enough to stop the rows being invisible but wrong as a home: the Content
+   * section of the menu held five drafting tools and not one finding, so the
+   * part of the product that MEASURES content lived under SEO while the part
+   * that WRITES it lived under Content. They are three different questions and
+   * they answer to three different people, so they get three entries, all in
+   * Content, next to the tools that act on them.
+   */
+  {
+    id: "content-quality",
+    label: "Content Quality",
+    codes: ["content."],
+    blurb:
+      "Depth and information gain: how much substance the page carries, whether it offers original data, how broadly it covers the topic, whether it is dated, and whether it can be skimmed.",
+    columns: FINDING_COLUMNS,
+    emptyHint: "Run a scan to populate this. The content checks are free.",
+  },
+  {
+    id: "video",
+    label: "Video",
+    codes: ["video."],
+    blurb:
+      "Embedded video and how well it is described: VideoObject schema, plus live title/description/duration/thumbnail metadata read from the YouTube Data API for every video found on the page.",
+    columns: FINDING_COLUMNS,
+    emptyHint:
+      "Run a scan. The schema check is free; the metadata rows need YOUTUBE_API_KEY. A page with no video reports that, which is a pass, not a gap.",
+  },
+  {
+    id: "trust",
+    label: "Trust & E-E-A-T",
+    codes: ["eeat."],
+    blurb:
+      "Who stands behind the page: named authorship and credentials, reachable contact details, policy links, social proof, external validation, and whether facts are formatted so an answer engine can lift and attribute them.",
+    columns: FINDING_COLUMNS,
+    emptyHint: "Run a scan to populate this. The trust checks are free.",
   },
 ];
 

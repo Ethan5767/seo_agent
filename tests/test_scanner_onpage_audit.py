@@ -2,7 +2,7 @@ from pipeline.scanner.onpage_audit import parse_onpage_checks, site_audit_full, 
 
 
 def test_map_has_many_checks():
-    assert len(CHECKS) >= 35  # Semrush-parity breadth
+    assert len(CHECKS) >= 35  # site-wide audit breadth
 
 
 def test_parse_flags_problems_and_counts_pages():

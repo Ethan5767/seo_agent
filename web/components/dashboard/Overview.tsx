@@ -18,6 +18,10 @@ interface OverviewProps {
   scanTools?: any[];
   liveLogs?: string[];
   report?: any;
+  /** Journey evidence. Passed through, never assumed - see lib/journey. */
+  client?: { scans?: number } | null;
+  plan?: { worklist?: unknown[] } | null;
+  remediations?: unknown[] | null;
 }
 
 export function Overview({
@@ -31,6 +35,9 @@ export function Overview({
   scanTools = [],
   liveLogs = [],
   report,
+  client = null,
+  plan = null,
+  remediations = null,
 }: OverviewProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -38,10 +45,11 @@ export function Overview({
     <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
       {/* 1. PROJECT JOURNEY PROGRESS BAR */}
       <ProjectJourney
-        currentStep={4}
-        hasClient={true}
+        client={client}
         hasGsc={hasGsc}
-        hasScan={true}
+        report={report}
+        plan={plan}
+        remediations={remediations}
         onStepClick={(step) => {
           if (step === 2) onNavigate("Traffic Analytics", "Google Search Console");
           if (step === 3) onNavigate("Site Health & Audit");

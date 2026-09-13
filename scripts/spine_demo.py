@@ -124,7 +124,7 @@ def main() -> int:
     print(f"\n   ►  {d.action}   — {d.reason}")
 
     rule("SUMMARY")
-    print("   Semrush would stop at step 2 (here are your problems).")
+    print("   A report-only tool would stop at step 2 (here are your problems).")
     print("   This pipeline went 2→6: found, fixed, gated, and decided — no human.")
     print(f"\n   demo tree left at: {project}")
     return 0

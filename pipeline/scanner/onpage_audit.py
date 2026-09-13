@@ -1,4 +1,4 @@
-"""DataForSEO on-page full audit — the ~40-check, site-wide layer (Semrush-parity).
+"""DataForSEO on-page full audit — the ~40-check, site-wide layer.
 
 DataForSEO's on-page crawl returns a `checks` object of ~40 boolean flags per
 page. This crawls the site (task_post -> poll summary -> pull /pages), then maps

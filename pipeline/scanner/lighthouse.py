@@ -19,14 +19,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from pipeline.scanner.rows import make_row
+
 PSI = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 CATEGORIES = [("performance", "Performance"), ("seo", "SEO"),
               ("accessibility", "Accessibility"), ("best-practices", "Best practices")]
 
 
-def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict:
-    return {"code": "lh." + what.lower().replace(" ", "_").replace(":", ""), "what": what,
-            "why": why, "fix": fix, "detail": detail, "severity": severity}
+_row = make_row("lh")
 
 
 def _score_row(cat: dict, label: str) -> dict | None:

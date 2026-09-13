@@ -7,7 +7,10 @@ def test_tree_route_checks():
     by = {r["what"]: r for r in analyze_source({}, tree)}
     assert by["Source: robots.txt"]["severity"] == "ok"      # satisfied by app/robots.ts route
     assert by["Source: sitemap.xml"]["severity"] == "ok"     # satisfied by app/sitemap.ts route
-    assert by["Source: llms.txt"]["severity"] == "ok"        # AEO
+    # Present, but reported as info rather than a pass. No engine documents
+    # reading an llms.txt, and Google's AI-features doc says the opposite in as
+    # many words, so "we found one" is an observation and not an achievement.
+    assert by["Source: llms.txt"]["severity"] == "info"
     assert by["Source: router"]["detail"] == "app router"
     assert by["Source: middleware"]["severity"] == "ok"
 
@@ -17,7 +20,10 @@ def test_tree_missing_seo_files():
     by = {r["what"]: r for r in analyze_source(files, ["src/index.js", "package.json"])}
     assert by["Source: robots.txt"]["severity"] == "warn"
     assert by["Source: sitemap.xml"]["severity"] == "warn"
-    assert by["Source: llms.txt"]["severity"] == "info"      # optional
+    # Absent is also info, and explicitly not a gap. Same severity either way:
+    # the check reports a fact it cannot grade.
+    assert by["Source: llms.txt"]["severity"] == "info"
+    assert "not a gap" in by["Source: llms.txt"]["why"]
 
 
 def test_next_sitemap_dep_satisfies_sitemap():

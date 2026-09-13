@@ -81,13 +81,29 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
         if on_page:
             on_page(len(fetched) + 1, max_pages, url)
     entry = _norm(entry_url)
-    sitemap_urls = {_norm(u) for u in _LOC.findall(sitemap_text or "")
-                    if _host(u) == _host(entry)}
+    # Same rule for the sitemap: compare on the canonical form, fetch the URL the
+    # sitemap actually published. A <loc> of /a must be requested as /a.
+    _sitemap_real: dict[str, str] = {}
+    for u in _LOC.findall(sitemap_text or ""):
+        if _host(u) == _host(entry):
+            _sitemap_real.setdefault(_norm(u), u.strip())
+    sitemap_urls = set(_sitemap_real)
 
     reachable: set[str] = {entry}          # discovered by following links
     queue: list[str] = [entry]
     fetched: dict[str, dict] = {}
     capped = False
+
+    # `_norm` is a CANONICAL form for comparison - it appends a trailing slash so
+    # `/a` and `/a/` count as one page. It is not a fetchable URL: asking a
+    # server for `/a/` when it publishes `/a` gets a redirect at best and a 404
+    # at worst, and the crawl would then report a broken page that works fine.
+    # So the normalised string is the dedup KEY and the URL as written is what
+    # gets fetched and reported. Nothing caught this because, until the scan
+    # wired this crawler in, nothing called it outside its own tests, whose
+    # fixtures happened to use trailing slashes throughout.
+    real: dict[str, str] = dict(_sitemap_real)
+    real[entry] = entry_url.split("#")[0] or entry
 
     # BFS over links from the entry.
     while queue:
@@ -97,15 +113,18 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
         url = queue.pop(0)
         if url in fetched:
             continue
-        _tick(url)
-        html, status = fetch(url)
-        links = links_in(url, html) if status == 200 else set()
-        fetched[url] = {"url": url, "status": status, "title": title_of(html),
-                        "desc": desc_of(html), "links": sorted(links)}
+        target = real.get(url, url)
+        _tick(target)
+        html, status = fetch(target)
+        links = links_in(target, html) if status == 200 else set()
+        fetched[url] = {"url": target, "status": status, "title": title_of(html),
+                        "desc": desc_of(html), "links": sorted(_norm(l) for l in links)}
         for l in links:
-            reachable.add(l)
-            if l not in fetched and l not in queue:
-                queue.append(l)
+            key = _norm(l)
+            reachable.add(key)
+            real.setdefault(key, l)
+            if key not in fetched and key not in queue:
+                queue.append(key)
 
     # Also fetch sitemap URLs we never reached by link (needed to SEE orphans and
     # to compare titles), within the remaining budget.
@@ -115,10 +134,12 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
             break
         if url in fetched:
             continue
-        _tick(url)
-        html, status = fetch(url)
-        fetched[url] = {"url": url, "status": status, "title": title_of(html),
-                        "desc": desc_of(html), "links": sorted(links_in(url, html) if status == 200 else set())}
+        target = real.get(url, url)
+        _tick(target)
+        html, status = fetch(target)
+        fetched[url] = {"url": target, "status": status, "title": title_of(html),
+                        "desc": desc_of(html),
+                        "links": sorted(_norm(l) for l in links_in(target, html)) if status == 200 else []}
 
     return {"pages": list(fetched.values()), "reachable": reachable,
             "sitemap_urls": sitemap_urls, "capped": capped}

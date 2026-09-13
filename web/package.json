@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "db:check": "node scripts/db-check.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.116.0",

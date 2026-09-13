@@ -6,6 +6,54 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **`npm run db:check` — is the live database what the schema says it is?**
+  (`web/scripts/db-check.mjs`). "I think there are a lot more migrations to run"
+  should not be a thing anyone has to guess at, and when measured the answer was
+  much narrower than the fear: **every table and column is in sync except one.**
+
+  It compares the schema file against the live PostgREST definition table by
+  table and column by column, **and then probes RLS from outside with the public
+  anon key** - which is the only half that would have caught B-091, where the
+  policy existed, was named `traffic_snapshots_owner`, and granted every row to
+  everybody. Reading the schema file alone would have called it fine.
+
+  Read-only: no `method:` on any fetch, no subprocess. Exit 0 in sync, 1 drift,
+  **2 could not check** - because "I could not ask" must never exit 0, the same
+  rule the gates run on. 6 tests, including one asserting the read-only property
+  on what it executes rather than on substrings (the script parses
+  `supabase-schema.sql`, so the literal "alter table" appears in a regex and a
+  naive grep flags it - that false positive is in the test as a comment).
+
+  First run, against the live database:
+
+  ```
+  TABLE                  SCHEMA      ANON READ
+  clients                ok          0 (ok)
+  scans                  ok          0 (ok)
+  findings               ok          0 (ok)
+  remediations           MISSING
+  traffic_snapshots      ok          170 ROWS - LEAK
+  ...
+  2 problem(s):
+    - remediations: table is missing from the database
+    - traffic_snapshots: the PUBLIC anon key reads 170 row(s)
+  ```
+
+- **`web/migrations/2026-09-13-apply-outstanding.sql`** — one idempotent file
+  covering both. It supersedes the B-091-only migration, and ends with two
+  `pg_policy` queries that must return zero rows, so the fix proves itself
+  rather than being asserted.
+
+  **The `remediations` table has never existed.** `web/lib/db.ts:remediationHistory`
+  swallows error codes `42P01` and `PGRST205` on purpose so the UI degrades
+  rather than throwing - which is why nothing ever complained. The Change
+  History screen has been showing "no remediations" for every client, and "the
+  table is not there" and "this client has had no fixes applied" look identical
+  from the outside. The same quiet-absence class as B-089.
+
+
 ### Fixed
 
 - **B-095: the AEO sub-screens invented their numbers, and the crawler table was

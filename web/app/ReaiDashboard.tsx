@@ -2163,7 +2163,7 @@ export interface ReaiDashboardProps {
   onSaveNewClient?: (profile: any) => Promise<void>;
   /** `tools` scopes the scan to one section's concern. Omitted = the full scan. */
   onTriggerScan?: (url: string, tools?: string[]) => Promise<void>;
-  scanState?: { busy: boolean; phaseLine: string; live: string[]; tools: any[] };
+  scanState?: { busy: boolean; phaseLine: string; live: string[]; tools: any[]; error?: string | null };
   toolPicker?: {
     catalog: any[];
     selected: Set<string>;
@@ -4538,6 +4538,7 @@ export function ReaiDashboard({
                       domain={currentDomain}
                       tools={toolPicker?.catalog}
                       busy={scanState?.busy}
+                      error={scanState?.error}
                       onScan={(u, keys) => onTriggerScan?.(u, keys)}
                       hasProjects={clients.length > 0}
                       onCreateProject={() => setShowNewProjectModal(true)}

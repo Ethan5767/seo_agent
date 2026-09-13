@@ -3,8 +3,8 @@
 // the fix prompts, EDITS NOTHING). Same reasoning as /api/remediate.
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, checkRateLimit, readJsonBodyWithLimit } from "@/lib/server-security";
+import { scannerPost, PYTHON_API, ScannerUnconfigured } from "@/lib/scannerFetch";
 
-const PYTHON_API = process.env.PYTHON_API || "http://127.0.0.1:8765";
 
 export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req);
@@ -27,18 +27,14 @@ export async function POST(req: NextRequest) {
   }
   const body = JSON.stringify(bodyData || {});
   try {
-    const res = await fetch(`${PYTHON_API}/remediate/dryrun`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
+    const res = await scannerPost("/remediate/dryrun", body);
     return new NextResponse(res.body, {
       status: res.status,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
     });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: `backend unreachable at ${PYTHON_API} (${e})`, items: [], unbridged: [], prompts: [] },
+      { ok: false, error: e instanceof ScannerUnconfigured ? e.message : `backend unreachable at ${PYTHON_API} (${e})`, items: [], unbridged: [], prompts: [] },
       { status: 200 },
     );
   }

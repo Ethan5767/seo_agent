@@ -11,8 +11,8 @@ import {
   readJsonBodyWithLimit,
 } from "@/lib/server-security";
 import { applyBudget, dailyBudgetUsd } from "@/lib/budget";
+import { scannerPost, PYTHON_API, ScannerUnconfigured } from "@/lib/scannerFetch";
 
-const PYTHON_API = process.env.PYTHON_API || "http://127.0.0.1:8765";
 
 /**
  * What a user has already spent on scans today (UTC).
@@ -127,14 +127,7 @@ export async function POST(req: NextRequest) {
   const bodyToSend = JSON.stringify(parsed);
 
   try {
-    const res = await fetch(`${PYTHON_API}/scan`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: bodyToSend,
-      // @ts-expect-error - Node fetch streaming duplex flag
-      duplex: "half",
-      signal: AbortSignal.timeout(10000),
-    });
+    const res = await scannerPost("/scan", bodyToSend);
     // Pass the ndjson stream straight through so the browser gets live events.
     return new NextResponse(res.body, {
       status: res.status,
@@ -152,7 +145,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     return NextResponse.json(
-      { error: `backend unreachable at ${PYTHON_API} — is wf-scan-web running? (${e})` },
+      { error: e instanceof ScannerUnconfigured ? e.message : `backend unreachable at ${PYTHON_API} — is wf-scan-web running? (${e})` },
       { status: 200 },
     );
   }

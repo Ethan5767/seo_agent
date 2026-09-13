@@ -19,7 +19,7 @@ import { sectionById, toolsForSection, sectionCost, type ToolLike } from "@/lib/
  * quietly reinstate the behaviour this replaces.
  */
 export function SectionScanButton({
-  sectionId, domain, tools, busy, onScan, hasProjects, onCreateProject,
+  sectionId, domain, tools, busy, onScan, hasProjects, onCreateProject, error,
 }: {
   sectionId: string;
   domain: string | null | undefined;
@@ -29,6 +29,13 @@ export function SectionScanButton({
   /** Does this account have ANY project? Distinct from "none selected". */
   hasProjects?: boolean;
   onCreateProject?: () => void;
+  /**
+   * Why the last run produced nothing. B-104: a scan that the backend refused
+   * left the screen identical to a scan that had not been started, so the
+   * operator pressed the button again instead of reading an error. A failure
+   * has to be visible where the button is.
+   */
+  error?: string | null;
 }) {
   const section = sectionById(sectionId);
   const keys = toolsForSection(sectionId, tools);
@@ -102,6 +109,19 @@ export function SectionScanButton({
               : `${cost?.free ?? 0} free · ${paid.length} paid: ${paid.map((t) => `${t.label}${t.cost ? ` ${t.cost}` : ""}`).join(", ")}`}
         </div>
       </div>
+
+      {error && !busy && (
+        <div
+          role="alert"
+          style={{
+            flexBasis: "100%", fontSize: 12, lineHeight: 1.5,
+            color: "#991b1b", background: "#fef2f2",
+            border: "1px solid #fecaca", borderRadius: 6, padding: "8px 10px",
+          }}
+        >
+          <b>The last scan did not run.</b> {error}
+        </div>
+      )}
     </div>
   );
 }

@@ -587,7 +587,15 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       openReport={openReport}
       onSaveNewClient={handleSaveNewClient}
       onTriggerScan={handleTriggerScan}
-      scanState={{ busy, phaseLine, live, tools }}
+      /*
+       * B-104. `error` was missing here, and that is why a broken scan looked
+       * like nothing at all: `run()` writes the failure into `data`, `data` is
+       * not a dashboard prop, so a 403 from the scanner set busy true, then busy
+       * false, and drew no message anywhere. The operator could not tell a
+       * refusal from a site with no findings. A run that could not run must say
+       * so on the screen the button is on.
+       */
+      scanState={{ busy, phaseLine, live, tools, error: data?.error ? String(data.error) : null }}
       toolPicker={{
         catalog, selected, estCost,
         onToggle: toggleTool,

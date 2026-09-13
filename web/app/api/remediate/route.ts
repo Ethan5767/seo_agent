@@ -3,8 +3,8 @@
 // reasoning as /api/plan: the browser never talks to the Python port directly.
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, checkRateLimit, readJsonBodyWithLimit } from "@/lib/server-security";
+import { scannerPost, PYTHON_API, ScannerUnconfigured } from "@/lib/scannerFetch";
 
-const PYTHON_API = process.env.PYTHON_API || "http://127.0.0.1:8765";
 
 export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req);
@@ -27,18 +27,14 @@ export async function POST(req: NextRequest) {
   }
   const body = JSON.stringify(bodyData || {});
   try {
-    const res = await fetch(`${PYTHON_API}/remediate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
+    const res = await scannerPost("/remediate", body);
     return new NextResponse(res.body, {
       status: res.status,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
     });
   } catch (e) {
     return NextResponse.json(
-      { error: `backend unreachable at ${PYTHON_API} (${e})`, steps: [], lanes: [], counts: {} },
+      { error: e instanceof ScannerUnconfigured ? e.message : `backend unreachable at ${PYTHON_API} (${e})`, steps: [], lanes: [], counts: {} },
       { status: 200 },
     );
   }

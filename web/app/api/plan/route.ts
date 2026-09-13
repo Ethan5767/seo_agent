@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, checkRateLimit, readJsonBodyWithLimit } from "@/lib/server-security";
+import { scannerPost, PYTHON_API, ScannerUnconfigured } from "@/lib/scannerFetch";
 
-const PYTHON_API = process.env.PYTHON_API || "http://127.0.0.1:8765";
 
 const SEV_RANK: Record<string, number> = { error: 2, warn: 1, info: 0, ok: 0 };
 const ACTIONABLE = new Set(["error", "warn"]);
@@ -131,12 +131,7 @@ export async function POST(req: NextRequest) {
 
   // 1. Try forwarding to Python API if running
   try {
-    const pyRes = await fetch(`${PYTHON_API}/plan`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ current, previous }),
-      signal: AbortSignal.timeout(1200),
-    });
+    const pyRes = await scannerPost("/plan", { current, previous }, { headerTimeoutMs: 1200 });
     if (pyRes.ok) {
       const pyData = await pyRes.json();
       if (pyData.worklist && pyData.worklist.length > 0) {

@@ -4,8 +4,8 @@
 // and refuses without `claude` on PATH.
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, checkRateLimit, readJsonBodyWithLimit } from "@/lib/server-security";
+import { scannerPost, PYTHON_API, ScannerUnconfigured } from "@/lib/scannerFetch";
 
-const PYTHON_API = process.env.PYTHON_API || "http://127.0.0.1:8765";
 
 export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req);
@@ -28,11 +28,7 @@ export async function POST(req: NextRequest) {
   }
   const body = JSON.stringify(bodyData || {});
   try {
-    const res = await fetch(`${PYTHON_API}/remediate/apply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
+    const res = await scannerPost("/remediate/apply", body);
     // The backend streams newline-delimited JSON: {"log": "..."} per line as
     // Claude writes it, then one {"result": {...}}. Pass it through unbuffered
     // so the browser can render progress. It used to be declared
@@ -50,7 +46,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: `backend unreachable at ${PYTHON_API} (${e})` },
+      { ok: false, error: e instanceof ScannerUnconfigured ? e.message : `backend unreachable at ${PYTHON_API} (${e})` },
       { status: 200 },
     );
   }

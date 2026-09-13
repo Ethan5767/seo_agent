@@ -121,6 +121,7 @@ minutes/month are gone, so the repo costs nothing to expose.
 | `ANTHROPIC_API_KEY` in the environment | The only thing the container needs baked in from you. `wf-site-remediate` drives Claude Code with it |
 | `git` and `gh` config mounted into the container | The image bakes in no credentials at all (`Dockerfile`) |
 | `gh auth status` working against the client repo | Onboard clones and remediate pushes with it |
+| **`SCAN_TOKEN`, the SAME value in repo-root `.env` AND `web/.env.local`** | **Required for the web console to scan anything (B-104).** `wf-scan-web` refuses every POST without the matching `X-Scan-Token` — scan, plan and all three remediate endpoints — because each of them spends money, writes to a repository, or starts an AI agent inside one (B-079). With `SCAN_TOKEN` unset the scanner mints a random token per run, which the Next server cannot know, so **every audit is answered 403**. Generate once with `python3 -c "import secrets;print(secrets.token_urlsafe(24))"`, put the same line in both files, restart both servers. Both files are gitignored. The web server refuses loudly at the call site if it is missing, so the failure names itself instead of arriving as a bare 403. |
 
 ---
 

@@ -6,6 +6,65 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The web UI could not run a scan, a plan, or a remediation at all (B-104)**
+  (`web/lib/scannerFetch.ts`, the five scanner proxy routes, `web/app/ScannerApp.tsx`,
+  `web/components/dashboard/SectionScanButton.tsx`).
+  *"I click audit and it like loading for 500ms then nothing happen."*
+
+  Three defects, one class: **a failure that produces no evidence of itself.**
+
+  1. **Every POST to the scanner was answered 403.** B-079 gave the scanner an
+     `X-Scan-Token` guard — every POST it serves spends money, writes to a
+     repository, or starts an AI agent inside one — and no Next proxy route was
+     ever given the token. All five POST proxies (`/api/scan`, `/api/plan`,
+     `/api/remediate`, `/api/remediate/dryrun`, `/api/remediate/apply`) were
+     refused for the whole life of the guard. B-007 again, in the direction that
+     hurts most: the wiring was removed from under working code.
+
+     ```
+     $ curl -s -o /dev/null -w '%{http_code}' -XPOST 127.0.0.1:8765/scan -d '{"url":"https://example.com"}'
+     403
+     ```
+
+  2. **It failed silently.** The 403 body is `{"error": "..."}` — one
+     NDJSON-parseable line — so the browser read it as a stream event rather than
+     an error. `run()` wrote it into `ScannerApp`'s `data`, and `data` is not a
+     dashboard prop. `busy` went true, then false, and nothing was drawn.
+     `scanState` now carries `error`, and `SectionScanButton` renders it in a
+     `role="alert"` beside the button that failed.
+
+  3. **`AbortSignal.timeout(10000)` bounded the scan stream, not the handshake.**
+     On a streaming fetch that signal also aborts the body, so a scan was torn
+     down 10 seconds in, mid-run, with a truncated result and no error. The
+     timeout now covers the response headers and is cleared once they arrive.
+
+  The fix is one chokepoint: `scannerPost()` / `scannerGet()` in
+  `web/lib/scannerFetch.ts` are the only way the Next server reaches the Python
+  scanner, and `web/tests/scannerFetch.test.mjs` asserts no route does otherwise
+  — the token-on-the-wire test runs against a real socket, because the bug was in
+  what went over the wire. A missing `SCAN_TOKEN` is now refused here with a
+  message naming the fix, rather than sent as `""` (which the guard fails closed
+  on, reproducing the silent 403).
+
+  **Operator action:** `SCAN_TOKEN` must be set to the SAME value in the repo-root
+  `.env` (read by `wf-scan-web`) and in `web/.env.local`. Without it the scanner
+  mints a random per-run token that the web server cannot know. Both files are
+  gitignored. See `docs/ADMIN-CHECKLIST.md`.
+
+  Proof, real token from `.env.local` against the running scanner:
+
+  ```
+  $ node --env-file=.env.local -e '... scannerPost("/scan", {...})'
+  HTTP 200
+  first event: {"log": "Opened the page — 559 bytes, loaded OK."}
+  streamed bytes: 5458
+
+  $ npm test        → 388 pass, 0 fail
+  $ npx tsc --noEmit → clean
+  ```
+
 ### Added
 
 - **Each section audits only its own concern**

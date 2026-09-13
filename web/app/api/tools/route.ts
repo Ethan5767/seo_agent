@@ -2,12 +2,12 @@
 // Measure checklist renders. Same reasoning as /api/scan: the browser never
 // talks to the Python port directly. Set PYTHON_API to override the default.
 import { NextResponse } from "next/server";
+import { PYTHON_API, scannerGet } from "@/lib/scannerFetch";
 
-const PYTHON_API = process.env.PYTHON_API || "http://127.0.0.1:8765";
 
 export async function GET() {
   try {
-    const res = await fetch(`${PYTHON_API}/tools`, { cache: "no-store" });
+    const res = await scannerGet("/tools");
     return new NextResponse(res.body, {
       status: res.status,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },

@@ -5,7 +5,7 @@ import { listPullRequests, checksFor, isGhError } from "@/lib/githubServer";
 /**
  * Open pull requests for a client's repo, each with its gate verdicts.
  *
- * This is what makes the Gate and Merge screens real. The 19 gates run as check
+ * This is what makes the Gate and Merge screens real. The 20 gates run as check
  * runs in the CLIENT repo's Actions, and until now nothing carried their result
  * back here — so those screens could only say "not connected". This is the wire.
  *

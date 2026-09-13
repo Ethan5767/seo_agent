@@ -2798,7 +2798,7 @@ export function ReaiDashboard({
   /**
    * Pull requests for the selected client, each carrying its gate verdicts.
    *
-   * This is the wire that makes Gate and Merge real. The 19 gates run as check
+   * This is the wire that makes Gate and Merge real. The 20 gates run as check
    * runs inside the CLIENT repo's Actions; /api/clients/[id]/github/pulls reads
    * them back with the operator's own GitHub token, which reaches the repo
    * because the client added us as a collaborator.
@@ -4130,7 +4130,7 @@ export function ReaiDashboard({
                   ) : null}
 
                   {/* ── GATE & MERGE: real check runs, and the merge button ──
-                      The 19 gates ARE the pull request's check runs, so this is
+                      The 20 gates ARE the pull request's check runs, so this is
                       the verdict, not a mirror of it. Merge lives here because
                       merge is a button: putting it on its own screen only adds
                       a click between the evidence and the decision. */}

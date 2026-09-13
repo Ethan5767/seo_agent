@@ -1,6 +1,6 @@
 """Auto-merge decision layer.
 
-The pipeline can already scan -> plan -> fix -> run the 19 gates. This module
+The pipeline can already scan -> plan -> fix -> run the 20 gates. This module
 decides whether a passing change is safe to merge automatically, or must be
 routed to a human. The safety philosophy is escalate-when-unsure: anything that
 is not plainly low-risk goes to a human.

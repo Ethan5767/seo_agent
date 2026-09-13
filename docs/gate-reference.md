@@ -139,7 +139,7 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 | `llms-sales-purge` | yes | CTA copy in llms.txt — content debt (fingerprinted on phrase + line text). |
 | `audit-built` | yes | The 30-point per-page audit (titles, metas, alt text, FAQ, schema) — content debt (fingerprinted per page URL + check key). |
 
-**Eight** gates accept `--baseline`. Nine are never-baselineable: the six inherited plus the three phase-4 authorship gates. Two are in neither list. 8 + 9 + 2 = 19. (`pages-are-data-check` was a tenth never-baselineable entry until 2026-08-06 — it went with the emitter in v3 §3 and its entry was dead.)
+**Eight** gates accept `--baseline`. **Ten** are never-baselineable: the six inherited, the three phase-4 authorship gates, and `e2e_check` (added 2026-09-13 — see below). Two are in neither list. 8 + 10 + 2 = **20** gate modules. (`pages-are-data-check` was an eleventh never-baselineable entry until 2026-08-06 — it went with the emitter in v3 §3 and its entry was dead.)
 
 > Counted from the code on 2026-08-10, not remembered: `BASELINEABLE` and `NEVER_BASELINEABLE` in `pipeline/lib/baseline.py:132-171`. This line said **Seven** from B-008 (2026-08-07, which moved `em-dash` in and made it eight) until 2026-08-10, so a reader trusting the prose would have been one out for three days. If you change either set, re-count here in the same commit.
 
@@ -147,14 +147,37 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 
 Everything still not listed — `robots-aicrawler`, `client-docs-check`, `proof-assert`, the live post-deploy checks — is in a **third category**: neither baselineable nor declared never-baselineable, because on the pilot they were already clean. That is a property of the pilot, not of the gates, and each is a decision waiting to be made rather than a decision already made.
 
-### `e2e-check` — a 20th gate, implemented but NOT yet wired (2026-09-12)
+### `e2e-check` — the 20th gate, wired 2026-09-13
 
-`pipeline/gates/e2e_check.py` (`wf-e2e-check`, exit 21 broken / 4 cannot-judge / 0 intact) asserts the `findings → worklist → changelog` handoff chain is internally consistent. It is **never-baselineable by design** — a broken provenance chain is a live invariant break, and an empty/partial chain is exit 4, not a pass. But two things are deliberately **not done**, so the counts above still read 8 + 9 + 2 = 19:
+`pipeline/gates/e2e_check.py` (`wf-e2e-check`, exit 21 broken / 4 cannot-judge / 0 intact) asserts the `findings → worklist → changelog` handoff chain is internally consistent: every planned item traces to a measured finding, every claimed fix to a planned item, and all three schema strings match. Every other gate judges one artifact at a time, and each artifact can be valid on its own while the chain between them is already broken — which is why no per-file check could ever see this.
 
-1. It is **not registered** in `NEVER_BASELINEABLE` in `pipeline/lib/baseline.py`. When it is, re-count this line to 8 + 10 + 2 = 20.
-2. It is **not invoked** by `quality-gate.reusable.yml`. It ships UNVERIFIED (no tests, `pytest` not run this session), and wiring an untested gate into the path that blocks every client's production PR is exactly the risk B-018 / the never-green rule warn about. Wire it only after it has tests and a green run — that is a separate, deliberate step (the B-007 "implemented is not wired" lesson, applied on purpose this time).
+It is **never-baselineable by design.** A broken provenance chain is not a defect count that ages into acceptable debt; it is the moment the provenance every other gate assumes stops existing.
 
-So: **20 gate implementations exist; 19 are wired.** The gap is intentional and tracked here.
+On 2026-09-12 it shipped UNVERIFIED and deliberately unwired: wiring an untested gate into the path that blocks every client's production PR is exactly the risk B-018 and the never-green rule warn about. Both preconditions are now met, in this order:
+
+1. **Tests.** `tests/test_e2e_check.py` (19 cases) and `tests/test_e2e_wiring.py` (10 cases). The second exists because a green unit test proves the function works and nothing about whether CI calls it — B-007.
+2. **Registered** in `NEVER_BASELINEABLE` in `pipeline/lib/baseline.py`, which is what moved the count above from 8 + 9 + 2 to 8 + 10 + 2.
+3. **Invoked** by `quality-gate.reusable.yml` as the `CHAIN` step, read by both the report and the Evaluate loop.
+
+**`--only-if-claimed` is what makes it safe to run on every PR.** Three ways a chain can be absent, and they are three different facts:
+
+| State | Verdict | Why |
+|---|---|---|
+| no `changelog.json` | **not applicable**, exit 0 | An ordinary human PR claims no remediation. There is nothing to trace. |
+| `changelog.json` present, `findings.json` or `worklist.json` absent | **BROKEN**, exit 21 | A fix that traces to no measurement and no plan. The artifacts ship *inside* the PR (Model A), so their absence is not "we cannot see them" — it is that they were never there. Deleting the two upstream files must never buy a green. |
+| all three present, `findings.json` empty | **cannot judge**, exit 4 | Nothing to reconcile either way. Sharp edge #4. |
+
+Without the flag the first row is exit 4, which is right for a human running the command against one cycle and wrong for CI running it against every PR.
+
+### `client-docs-check` — wired advisory, 2026-09-13
+
+`wf-client-docs-check` checks that the client repo carries the standard docs tree (`docs/seo-work-log.md`, `docs/cycle-logs/`, `docs/intake-archive/`, `docs/INDEX.md`, `docs/seo-progress.md`, `docs/client-config.yml`). Not a check on the diff — a check that this repo has somewhere durable for a cycle to land. One client had none of them on 2026-07-28 and could ship work that nothing anywhere recorded.
+
+It runs on every PR with `--warn-only`, and the caller opts into blocking with `client_docs_blocking: true`. The default is not laziness: the contract post-dates most of the fleet, so blocking on day one would turn every existing client red for a missing directory rather than for anything wrong with the change under review. The remedy is one idempotent, additive command, printed in the failure output.
+
+### The count, as of 2026-09-13
+
+**21 checks run on every client PR: the 20 gate modules in `pipeline/gates/`, plus `tsc --noEmit`. Twenty of them block. The client-docs contract is the one advisory check, until a client opts in.**
 
 ### Wiring, not just implementation (B-007, 2026-08-06)
 

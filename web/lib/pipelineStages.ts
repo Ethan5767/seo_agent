@@ -12,7 +12,7 @@
  *
  *   plan   — live. `planState` carries worklist + lane counts; /api/plan wired.
  *   fix    — live. The Auto-Fix Engine screen already exists.
- *   gate   — live once the client's repo is connected. The 19 gates ARE the
+ *   gate   — live once the client's repo is connected. The 20 gates ARE the
  *            pull request's check runs, so reading them is reading the verdict.
  *            Merging lives on this screen too: merge is a button, not a stage —
  *            you look at what the gates said and then you act on it, and
@@ -70,7 +70,7 @@ export const PIPELINE_STAGES: PipelineStage[] = [
     label: "Gate & Merge",
     step: 3,
     purpose:
-      "19 checks run on the pull request the agent opened, and merging happens here. A red gate makes the merge impossible, not merely discouraged.",
+      "21 checks run on the pull request the agent opened - the 20 gates plus a typecheck - and merging happens here. A red gate makes the merge impossible, not merely discouraged.",
     connected: true,
     absent:
       "No pull requests open for this client. The agent opens one when it has fixes to propose; connect the client's repository if you expect to see something here.",
@@ -90,11 +90,13 @@ export function stage(id: StageId): PipelineStage {
  * truth: it says what WILL run, never what did.
  *
  * `phase` matters to a reader. PRE gates judge the diff and the source before
- * anything is built; OUT gates judge the built HTML tree. An OUT gate with no
- * tree to read reports "cannot judge" (exit 4) rather than passing — the rule
- * that B-018 and B-027 were both filed under.
+ * anything is built; OUT gates judge the built HTML tree; the one CHAIN gate
+ * judges neither — it reads the three JSON artifacts the PR carries and asserts
+ * each is a strict refinement of the last. An OUT gate with no tree to read
+ * reports "cannot judge" (exit 4) rather than passing — the rule that B-018 and
+ * B-027 were both filed under.
  */
-export type GatePhase = "PRE" | "OUT";
+export type GatePhase = "PRE" | "OUT" | "CHAIN";
 export type GateSpec = { name: string; phase: GatePhase; blocks: string };
 
 export const GATE_ROSTER: GateSpec[] = [
@@ -102,6 +104,7 @@ export const GATE_ROSTER: GateSpec[] = [
   { name: "claim-provenance", phase: "PRE", blocks: "a rating, licence number, year-count or review count with no source" },
   { name: "audit-ssr", phase: "PRE", blocks: "document/window used unguarded where it breaks server rendering" },
   { name: "rules-selftest", phase: "PRE", blocks: "the client's own rule ledger fails its fixtures" },
+  { name: "client-docs", phase: "PRE", blocks: "the repo has no durable place for a cycle to land (advisory until the client opts in)" },
   { name: "tsc --noEmit", phase: "PRE", blocks: "the change does not typecheck" },
   { name: "check-headings", phase: "OUT", blocks: "a heading that is not Title Case" },
   { name: "orphan-check", phase: "OUT", blocks: "a page no other page links to" },
@@ -117,6 +120,7 @@ export const GATE_ROSTER: GateSpec[] = [
   { name: "image-budget", phase: "OUT", blocks: "an image over its tier's byte budget" },
   { name: "lcp-hygiene", phase: "OUT", blocks: "a hero image that will hurt LCP or CLS" },
   { name: "acceptance-check", phase: "OUT", blocks: "a fix the agent claimed did not actually land" },
+  { name: "e2e-check", phase: "CHAIN", blocks: "a claimed fix that traces to no measurement, or to a plan item nobody planned" },
 ];
 
 /* ── Merge policy ───────────────────────────────────────────────────────────

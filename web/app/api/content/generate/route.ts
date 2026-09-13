@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { spawn } from "node:child_process";
 import {
   authenticateRequest,
   checkRateLimit,
@@ -13,18 +13,33 @@ import {
 } from "@/lib/contentTools";
 
 /**
- * Content drafting, through Claude.
+ * Content drafting, through the Claude Code CLI.
+ *
+ * **The CLI, not the API.** This route used to call `@anthropic-ai/sdk` with an
+ * `ANTHROPIC_API_KEY`, which is a separate metered account. Everything else in
+ * this product that reaches a model shells out to `claude` instead -
+ * `pipeline/audit/remediate.py:run_agent` and `pipeline/audit/seed_queries.py`
+ * both do - so it runs on the operator's Claude subscription and costs nothing
+ * per draft. One generator, one account, one place to change the model.
  *
  * Streams so a long draft cannot hit an HTTP timeout, and so the operator sees
  * text arriving rather than a spinner. The response is plain text, not JSON:
  * the client appends chunks straight into the editor.
  *
- * No DataForSEO, no cost against the scan budget. The only inputs are what the
- * operator typed and keyword rows the last scan already paid for.
+ * No DataForSEO, nothing against the scan budget. The inputs are the findings
+ * and page copy the last scan already produced, plus what the operator typed.
  */
 
-// Long-form drafts, streamed, so there is room to finish a thought.
-const MAX_TOKENS = 16000;
+// Spawning a process needs the Node runtime; the edge runtime has no child_process.
+export const runtime = "nodejs";
+
+// Drafting only. The agent may not read or write the filesystem from here -
+// remediation is the lane that edits a repo, and it runs under a tier with the
+// gates watching. This one returns text.
+const ALLOWED_TOOLS = "";
+
+// A draft is long but bounded. Past this the request is wedged, not working.
+const TIMEOUT_MS = 180_000;
 
 export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req);
@@ -64,74 +79,93 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // An unset key is a configuration gap, not a failure to hide behind a
-  // generic 500. Say which variable is missing.
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      {
-        error:
-          "Content tools need ANTHROPIC_API_KEY in the web environment. The pipeline's Claude Code runs on its own credentials; this route calls the API directly and needs its own key.",
-      },
-      { status: 501 },
-    );
-  }
-
   const context: ContentContext = {
     domain: typeof body?.context?.domain === "string" ? body.context.domain : undefined,
     business: typeof body?.context?.business === "string" ? body.context.business : undefined,
     keywords: Array.isArray(body?.context?.keywords)
       ? body.context.keywords.filter((k: unknown) => typeof k === "string").slice(0, 30)
       : undefined,
+    // The scan's own output. These are what make a tool argue from a
+    // measurement instead of from whatever was typed into the form.
+    page: body?.context?.page && typeof body.context.page === "object" ? body.context.page : undefined,
+    findings: Array.isArray(body?.context?.findings)
+      ? body.context.findings.filter((f: unknown) => f && typeof f === "object").slice(0, 200)
+      : undefined,
+    queries: Array.isArray(body?.context?.queries)
+      ? body.context.queries.filter((q: any) => q && typeof q.query === "string").slice(0, 200)
+      : undefined,
   };
 
-  const client = new Anthropic();
+  // The prompt goes on STDIN, not argv: it opens with a markdown document and
+  // the CLI's option parser reads a leading `---` as a malformed flag. Learned
+  // the same way in remediate.run_agent, whose comment says so.
+  const prompt = `${CONTENT_SYSTEM_PROMPT}\n\n---\n\n${tool.buildPrompt(values, context)}`;
 
   try {
-    const stream = client.messages.stream({
-      model: "claude-opus-5",
-      max_tokens: MAX_TOKENS,
-      // The system prompt is identical on every request, so caching it means
-      // only the operator's own input is billed at full rate.
-      system: [
-        {
-          type: "text",
-          text: CONTENT_SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      thinking: { type: "adaptive" },
-      messages: [{ role: "user", content: tool.buildPrompt(values, context) }],
-    });
+    const child = spawn(
+      "claude",
+      ["-p", "--model", "sonnet", "--allowedTools", ALLOWED_TOOLS],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
 
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        try {
-          for await (const event of stream) {
-            if (
-              event.type === "content_block_delta" &&
-              event.delta.type === "text_delta"
-            ) {
-              controller.enqueue(encoder.encode(event.delta.text));
-            }
+      start(controller) {
+        let stderr = "";
+        let wrote = false;
+        let closed = false;
+        const close = () => {
+          if (!closed) {
+            closed = true;
+            controller.close();
           }
-          const final = await stream.finalMessage();
-          // A safety decline arrives as a 200 with stop_reason "refusal", so it
-          // has to be checked rather than assumed away.
-          if (final.stop_reason === "refusal") {
-            controller.enqueue(
-              encoder.encode(
-                "\n\n_Claude declined this request. Rephrase the brief, or write this section by hand._",
-              ),
-            );
+        };
+
+        // Closing the tab kills the agent rather than leaving it running with
+        // nobody reading - the same reason /remediate/apply streams.
+        const timer = setTimeout(() => {
+          child.kill("SIGTERM");
+          controller.enqueue(encoder.encode("\n\n_Generation timed out after 3 minutes._"));
+          close();
+        }, TIMEOUT_MS);
+
+        child.stdout.on("data", (chunk: Buffer) => {
+          wrote = true;
+          controller.enqueue(encoder.encode(chunk.toString()));
+        });
+        // stderr is kept for the failure message rather than streamed into the
+        // draft: CLI progress notes are not content.
+        child.stderr.on("data", (chunk: Buffer) => {
+          stderr = (stderr + chunk.toString()).slice(-2000);
+        });
+
+        child.on("error", (err: NodeJS.ErrnoException) => {
+          clearTimeout(timer);
+          controller.enqueue(encoder.encode(
+            err.code === "ENOENT"
+              ? "\n\n_`claude` is not on PATH for the web server. Install the Claude Code CLI and sign in; this product drafts through your Claude subscription, not an API key._"
+              : `\n\n_Generation failed: ${err.message}_`,
+          ));
+          close();
+        });
+
+        child.on("close", (code: number | null) => {
+          clearTimeout(timer);
+          // A non-zero exit having produced nothing is the case worth naming:
+          // an empty 200 reads as "Claude had nothing to say".
+          if (code !== 0 && !wrote) {
+            controller.enqueue(encoder.encode(
+              `\n\n_Generation failed (claude exited ${code}). ${stderr.trim().slice(-400) || "No output."}_`,
+            ));
           }
-        } catch (err: any) {
-          controller.enqueue(
-            encoder.encode(`\n\n_Generation failed: ${err?.message || "unknown error"}_`),
-          );
-        } finally {
-          controller.close();
-        }
+          close();
+        });
+
+        child.stdin.on("error", () => { /* the child died first; `close` reports it */ });
+        child.stdin.end(prompt);
+      },
+      cancel() {
+        child.kill("SIGTERM");
       },
     });
 
@@ -143,26 +177,9 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: any) {
-    if (err instanceof Anthropic.AuthenticationError) {
-      return NextResponse.json(
-        { error: "ANTHROPIC_API_KEY was rejected. Check the key in the web environment." },
-        { status: 401 },
-      );
-    }
-    if (err instanceof Anthropic.RateLimitError) {
-      return NextResponse.json(
-        { error: "Claude is rate limiting this key. Try again shortly." },
-        { status: 429 },
-      );
-    }
-    if (err instanceof Anthropic.APIConnectionError) {
-      return NextResponse.json(
-        { error: "Could not reach the Claude API. Check network access." },
-        { status: 502 },
-      );
-    }
+    // Spawn failures that are not ENOENT (no shell, EPERM) land here.
     return NextResponse.json(
-      { error: err?.message || "Generation failed." },
+      { error: err?.message || "Could not start the Claude CLI." },
       { status: 500 },
     );
   }

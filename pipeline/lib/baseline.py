@@ -142,6 +142,12 @@ NEVER_BASELINEABLE = {
     "claim_provenance_check": "legal exposure — an invented credential is a live falsehood however old the run that wrote it",
     "tier_check": "authority — accepting a past out-of-tier edit as debt is how the tier stops meaning anything",
     "acceptance_check": "proof — a fix that never landed is not fixed; baselining it would grandfather the lie",
+    # Gate #20, wired 2026-09-13. A broken findings -> worklist -> changelog chain
+    # is not a defect count that can age into acceptable debt; it is the moment
+    # the provenance every other gate assumes stops existing. There is nothing
+    # here to grandfather — a fix that traces to no measurement is not old debt,
+    # it is an unsourced change.
+    "e2e_check": "provenance — a fix that traces to no measurement has no history to grandfather",
 }
 
 BASELINEABLE = {

@@ -85,7 +85,7 @@ repo + domain
    ↓  PLAN       wf-site-plan        RESOLVED / PERSISTING / NEW / REGRESSION → worklist.json + report.md
    ↓  REMEDIATE  wf-site-remediate   Claude Code edits, inside the tier → changelog.json
    ───────────── everything above runs locally, or in the container ─────────────
-   ↓  GATES      19 gates on the client's PR, in Actions on the client repo
+   ↓  GATES      20 gates on the client's PR, in Actions on the client repo
    ↓  HUMAN MERGE  always. the only path to production.
    ───────────── THE PIPELINE ENDS HERE. deployment is the operator's, on the
                  client's own platform. `deploy.reusable.yml` still exists and is
@@ -164,7 +164,7 @@ Then **tell the other side what changed** — do not assume they will read the l
 | `docs/HOW-IT-WORKS.md` | Plain-language walkthrough of the whole v3 flow, onboarding to proof |
 | `docs/HANDOFF-<date>.md` | Session narratives for the other operator. Newest first, and **dated records** — read the newest, then the ledger. An older one is what was true that day, not now |
 | `pipeline/audit/` | The rail: `onboard` · `measure` · `plan` · `remediate` · `providers`, plus client bootstrap/preflight |
-| `pipeline/gates/` | The 19 gates |
+| `pipeline/gates/` | The 20 gates |
 | `pipeline/lib/` | `common.py` (config + tiering), `baseline.py` (the ratchet), `client_docs.py` |
 | `pipeline/dashboard/` | `wf-dashboard` — a 127.0.0.1 console over the client-repo artifacts. No database, no accounts, no merge action. |
 | `skills/site-remediation/` | The doctrine inlined into every remediation prompt |
@@ -195,7 +195,7 @@ That is why bumping one tag upgrades every client at once. Edit **only** the `wi
 
 | Client workflow | Standard? | Trigger | Does |
 |---|---|---|---|
-| `quality-gate.yml` | **yes** | every PR | build once, run 19 gates, sticky comment. Set it as a **required status check** — red gate = un-clickable Merge = prod blocked by construction. |
+| `quality-gate.yml` | **yes** | every PR | build once, run 20 gates + `tsc --noEmit` (21 checks, 20 blocking), sticky comment. Set it as a **required status check** — red gate = un-clickable Merge = prod blocked by construction. |
 | `seo-health.yml` | **yes** | daily + `workflow_dispatch` | live routes, sitemap count, and AI citation-crawler access at the edge. Never blocks. **The only thing watching production**, so a client without it is gated but unwatched. Press Run workflow right after deploying. |
 | `preview.yml` | opt-in, **CF only** | every PR | Cloudflare preview URL + Lighthouse. Monitoring only. Its real job was feeding `render_url` to the quality gate for a repo with no static export — that input is host-agnostic, so on another platform feed it that platform's PR preview URL instead. |
 | `deploy-prod.yml` | opt-in, **CF only** | push to main (= the merge) | build, capture, `wrangler pages deploy`, verify live, auto-rollback, proof, IndexNow. Hard-depends on three `CLOUDFLARE_*` secrets; there is no Vercel or Netlify path here. |

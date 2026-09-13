@@ -62,7 +62,7 @@ Ordered by cost to close.
 
 - **REAI fixes the site. Semrush only reports on it.** The remediation rail runs
   Claude Code inside the client's checkout, inside a declared tier, and opens a
-  gated PR: 19 gates, `tier_check` on the diff, `claim_provenance_check` on the
+  gated PR: 20 gates, `tier_check` on the diff, `claim_provenance_check` on the
   copy, human merge. Semrush has no path that edits a customer's repository.
   This is the product.
 - **Answer-engine visibility per page.** Crawler access checked at the edge for

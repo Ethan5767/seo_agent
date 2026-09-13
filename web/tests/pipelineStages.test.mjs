@@ -116,9 +116,11 @@ test("the Pipeline cover section is gone, its links rehomed", () => {
 test("the gate roster matches what the workflow actually runs", () => {
   // Engine truth, mirrored. If the workflow gains or loses a gate this drifts,
   // so it is asserted against the real count rather than left to rot.
-  assert.equal(GATE_ROSTER.length, 19, "19 gates run on a client PR");
-  assert.equal(GATE_ROSTER.filter((g) => g.phase === "PRE").length, 5);
+  // 21 checks: the 20 gate modules in pipeline/gates/, plus `tsc --noEmit`.
+  assert.equal(GATE_ROSTER.length, 21, "21 checks run on a client PR");
+  assert.equal(GATE_ROSTER.filter((g) => g.phase === "PRE").length, 6);
   assert.equal(GATE_ROSTER.filter((g) => g.phase === "OUT").length, 14);
+  assert.equal(GATE_ROSTER.filter((g) => g.phase === "CHAIN").length, 1);
   for (const g of GATE_ROSTER) {
     assert.ok(g.blocks.length > 10, `${g.name}: say what it blocks on, in words a client reads`);
   }

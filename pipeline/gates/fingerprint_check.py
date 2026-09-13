@@ -68,6 +68,9 @@ import re
 import sys
 import unicodedata
 
+from pipeline.lib.common import refuse_empty_scan
+
+GATE = "fingerprint_check"
 BOM = 0xFEFF
 
 INVISIBLE: set[int] = {
@@ -192,6 +195,8 @@ def main() -> int:
     for pat in (g.strip() for g in args.include.split(",") if g.strip()):
         files.extend(glob.glob(os.path.join(out_dir, pat), recursive=True))
     files = sorted({f for f in files if os.path.isfile(f)})
+    if not files:
+        return refuse_empty_scan(GATE, f"files matching {args.include!r}", out_dir)
 
     total = 0
     flagged_files = 0

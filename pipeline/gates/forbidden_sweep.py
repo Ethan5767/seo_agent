@@ -36,7 +36,8 @@ except ImportError:
     print("[ERROR] PyYAML required. Run: pip3 install pyyaml", file=sys.stderr)
     sys.exit(2)
 
-from pipeline.lib.common import load_config, ruleset_declared_empty
+from pipeline.lib.common import (load_config, refuse_empty_scan,
+                                 ruleset_declared_empty)
 
 # Blank <script>/<style> bodies so RSC flight payloads and inline JS/CSS are not
 # scanned. Kept line-preserving so reported line numbers match the real file.
@@ -354,18 +355,33 @@ def scan_source(project: Path, forbidden: list, cfg: dict, extra: list) -> int:
 def scan_built(project: Path, forbidden: list, cfg: dict, build_dir_override: str | None) -> int:
     repo = cfg.get("repo", {})
     if build_dir_override:
-        build_dir = Path(build_dir_override).resolve()
+        # Relative to the PROJECT, not the process CWD. `--build-dir out` with
+        # `project` pointing elsewhere used to resolve against wherever the gate
+        # happened to be invoked from, find nothing, and return 1 — which `main`
+        # then printed as "1 forbidden-phrase hits". A test asserted exit 3 and
+        # passed on that, believing it had caught a banned phrase.
+        override = Path(build_dir_override)
+        build_dir = override.resolve() if override.is_absolute() else (project / override).resolve()
     else:
         name = repo.get("build_output_dir") or repo.get("build_dir") or "out"
         build_dir = project / name
     # Tolerate being handed the build output directly (e.g. `built ./out`).
     if not build_dir.exists() and list(project.glob("*.html")):
         build_dir = project
+    # Both of the "we could not look" cases return None, which `main` maps to
+    # exit 4. They must not return an int: this function's return value is a HIT
+    # COUNT, so `return 1` for a missing build dir was reported to the operator
+    # as "[BLOCKED] 1 forbidden-phrase hits" — the wrong reason at the wrong
+    # severity, and indistinguishable from a real legal hit.
     if not build_dir.exists():
-        print(f"[FAIL] build dir {build_dir} missing — run `next build` first.")
-        return 1
+        print(f"[FAIL] build dir {build_dir} missing — run `next build` first.",
+              file=sys.stderr)
+        return None
 
     htmls = list(build_dir.rglob("*.html"))
+    if not htmls:
+        refuse_empty_scan("forbidden_sweep", "HTML files", build_dir)
+        return None
     print(f"[BUILT] scanning {len(htmls)} html files under {build_dir}")
     compiled = [(rule, re.compile(rule["pattern"])) for rule in forbidden]
     hits = 0
@@ -415,6 +431,8 @@ def main():
         hits = scan_source(project, forbidden, cfg, args.extra)
     else:
         hits = scan_built(project, forbidden, cfg, args.build_dir)
+        if hits is None:          # could not look; scan_built said why
+            sys.exit(4)
 
     if hits:
         print(f"\n[BLOCKED] {hits} forbidden-phrase hits in {args.mode} mode."); sys.exit(3)

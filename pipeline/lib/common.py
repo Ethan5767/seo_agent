@@ -10,6 +10,79 @@ except ImportError:
     sys.exit(2)
 
 
+# ── git path quoting (B-065) ──────────────────────────────────────────────────
+_C_ESCAPES = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11,
+              "\\": 92, '"': 34}
+
+
+def unquote_git_path(path: str) -> str:
+    """Undo git's C-style quoting of a pathname.
+
+    With `core.quotePath` at its default, git wraps any path containing a
+    non-ASCII byte in double quotes and octal-escapes the bytes:
+
+        .github/workflows/déploy.yml  ->  ".github/workflows/d\\303\\251ploy.yml"
+
+    Every consumer of `--name-status` in this repo compared that literal string
+    against a deny glob, so it matched nothing. A T3 agent creating
+    `.github/workflows/déploy.yml` — arbitrary CI, running with the repo's token
+    — was waved through by `tier_check`, and `claim_provenance_check` skipped any
+    file on a non-ASCII path outright because `Path(path).suffix` came out as
+    `.md"` and never matched a prose suffix.
+
+    Callers should ALSO pass `-c core.quotePath=false` so this never fires on
+    git's own output; it stays here for diff text that arrives from elsewhere,
+    such as `--diff-file`.
+    """
+    if len(path) < 2 or not (path.startswith('"') and path.endswith('"')):
+        return path
+    body, out, i = path[1:-1], bytearray(), 0
+    while i < len(body):
+        ch = body[i]
+        if ch != "\\" or i + 1 >= len(body):
+            out.extend(ch.encode("utf-8"))
+            i += 1
+            continue
+        nxt = body[i + 1]
+        if nxt in "01234567" and i + 3 < len(body) + 1:
+            try:
+                out.append(int(body[i + 1:i + 4], 8))
+                i += 4
+                continue
+            except ValueError:
+                pass
+        if nxt in _C_ESCAPES:
+            out.append(_C_ESCAPES[nxt])
+            i += 2
+        else:
+            out.extend(("\\" + nxt).encode("utf-8"))
+            i += 2
+    return out.decode("utf-8", "replace")
+
+
+# ── "scanned nothing" is not a pass (B-018 / B-027 / B-064) ───────────────────
+CANNOT_JUDGE = 4
+
+
+def refuse_empty_scan(gate: str, what: str, where) -> int:
+    """Print the refusal and return exit 4, for a gate whose input set is empty.
+
+    `audit_ssr` gave a silent green to every `create-next-app` layout because it
+    looked only in `src/`, and the fix was this exit code. The same shape sat in
+    seven more gates: `build_output_dir` pointed at `.next` makes a directory
+    that exists, that `build-site` accepts as non-empty, and that every OUT gate
+    globs to zero files — so the never-baselineable legal sweep printed
+    "clean — 0 hits (2 patterns enforced)" and exited 0.
+
+    Zero files scanned is not evidence of compliance. It is the absence of
+    evidence, and the two must not share an exit code.
+    """
+    print(f"[CANNOT JUDGE] {gate}: found no {what} under {where}. Nothing was "
+          f"scanned, so this is not a pass — check build_output_dir, or use "
+          f"wf-render-snapshot for a client with no static export.", file=sys.stderr)
+    return CANNOT_JUDGE
+
+
 def load_config(project_dir: str) -> dict:
     path = Path(project_dir) / "docs" / "client-config.yml"
     if not path.exists():
@@ -276,6 +349,17 @@ DEFAULT_DENY = [
     # waves through as a cycle artifact at every tier, making the B-025 claim
     # ("the agent cannot suppress its own work") false in code while true in prose.
     "docs/human-worklist.md",
+    # The ratchet's memory, and the same class of file as client-config.yml: one
+    # the agent must never be able to rewrite in its own favour. `wf-gate-baseline`
+    # ships in the container, so at T3 the agent could run
+    # `--refresh --accept-new` and every one of the eight baselineable gates would
+    # then read its own fresh violations as inherited legacy debt. Verified: a real
+    # `check_headings` failure at exit 1 became "PASS: 1 pre-existing accepted as
+    # legacy debt" at exit 0 after a single recorder run. `NEVER_BASELINEABLE`
+    # keeps the six structural gates out of reach, which is why this was survivable
+    # rather than total — but a baseline you can re-record is not a ratchet.
+    # Recording one stays a human step, on the default branch, as it always was.
+    "docs/gate-baseline.json",
 ]
 
 NEXT_CONFIG_NAMES = ("next.config.mjs", "next.config.js", "next.config.ts")

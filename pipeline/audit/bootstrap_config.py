@@ -203,6 +203,10 @@ text_paths:                       # EXISTING files the agent may rewrite
                                   # must never be a way to disarm forbidden_sweep
   - docs/human-worklist.md        # the fix queue's skip list; writing it would let the
                                   # agent permanently dequeue its own work
+  - docs/gate-baseline.json       # the ratchet's memory. wf-gate-baseline ships in the
+                                  # container, so an agent that could write this could
+                                  # re-record its OWN violations as inherited debt and
+                                  # every baselineable gate would then pass them
 """
 
 

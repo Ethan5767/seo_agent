@@ -79,9 +79,22 @@ def dest_for(out: Path, route: str) -> Path:
     globs for `index.html` specifically. Writing the flat form would produce a tree
     those three cannot read — a snapshot that satisfies some gates and silently
     starves others.
+
+    Pinned under `out`. The route comes from a `<loc>` in the SCANNED SITE'S OWN
+    sitemap, which is third-party input, and `pathlib` does not collapse `..` —
+    so `<loc>https://x/../../../../etc/foo/</loc>` produced a path outside the
+    output tree that the caller then created with `mkdir(parents=True)` and wrote
+    the response body into. `scanner/server.py` already pins its `cycle` argument
+    this way; this is the same guard on the other untrusted path.
     """
     rel = route.strip("/")
-    return (out / rel / "index.html") if rel else (out / "index.html")
+    dest = ((out / rel / "index.html") if rel else (out / "index.html"))
+    resolved, root = dest.resolve(), out.resolve()
+    if root != resolved and root not in resolved.parents:
+        raise SnapshotError(
+            f"refusing to write outside the snapshot tree: route {route!r} from the "
+            f"site's sitemap resolves to {resolved}, which is not under {root}")
+    return dest
 
 
 # Files the gates read out of the build tree that are NOT routes. A static export

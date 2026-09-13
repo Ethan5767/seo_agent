@@ -58,6 +58,7 @@ import sys
 from pathlib import Path
 
 from pipeline.lib import baseline as bl
+from pipeline.lib.common import refuse_empty_scan
 
 GATE = "em_dash_check"
 SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
@@ -118,6 +119,8 @@ def main() -> int:
 
     forms = list(EM_FORMS) + (EN_FORMS if args.also_en else [])
     files = sorted(glob.glob(os.path.join(out_dir, "**", "*.html"), recursive=True))
+    if not files:
+        return refuse_empty_scan(GATE, "HTML files", out_dir)
 
     findings = []
     for path in files:

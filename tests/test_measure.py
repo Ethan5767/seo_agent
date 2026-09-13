@@ -487,3 +487,38 @@ def test_with_serp_passes_the_configs_seed_queries_to_the_provider(tmp_path, mon
                       date.today().strftime("%Y-%m") / "findings.json").read_text())
     assert doc["providers"]["serp"] == "ok: 2/2 queries measured", \
         "the status string must land in the artifact, or a skip reads as a pass"
+
+
+# ── an unfetched page must not manufacture content findings (B-075) ──────────
+#
+# check_page correctly emitted health.status_not_200 for an unreachable page,
+# and then emitted nine MORE findings derived from the empty body: title
+# missing, desc missing, h1 count, canonical mismatch, og image missing, two
+# schema findings, thin content, csr empty shell.
+#
+# Those nine flow into findings.json -> worklist.json -> the agent, which edits
+# the client's repo to "fix" a missing title on a page that has one. Next cycle
+# the page is reachable, the nine vanish, and the ratchet reports nine items
+# RESOLVED. The client is billed for progress that never happened.
+#
+# The run-level guard (`[REFUSED] all URLs unreachable`) is all-or-nothing and
+# does not fire when only SOME pages fail — the common case: one route 403s
+# behind a WAF while the rest are fine.
+
+def test_an_unreachable_page_emits_one_finding_not_ten():
+    f = m.check_page("https://ex.com/gone/", "", 0, {})
+    assert codes(f) == ["health.status_not_200"], (
+        f"expected only the status finding, got {codes(f)}")
+
+
+def test_a_200_with_an_empty_body_is_also_not_measurable():
+    f = m.check_page("https://ex.com/blank/", "", 200, {})
+    assert codes(f) == ["health.unfetchable"], (
+        "a 200 carrying nothing is not a page with nine content problems")
+
+
+def test_a_real_page_still_reports_its_content_findings():
+    html = "<html><head></head><body><p>short</p></body></html>"
+    found = codes(m.check_page("https://ex.com/thin/", html, 200, {}))
+    assert "health.title_missing" in found
+    assert "health.thin_content" in found

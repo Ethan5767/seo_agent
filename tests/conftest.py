@@ -8,6 +8,7 @@ fresh under pytest's tmp_path via the `make_project` factory.
 """
 from __future__ import annotations
 
+import socket
 import textwrap
 from pathlib import Path
 
@@ -15,6 +16,50 @@ import pytest
 import yaml
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+# ── hermetic for real (B-077) ────────────────────────────────────────────────
+#
+# The docstring above promised "no network" and the suite did not deliver it.
+# `test_measure.py` calls `measure.main()`, which calls `load_env()`, which
+# pushes the DEVELOPER'S real .env into os.environ for the remainder of the
+# process. Everything downstream then inherits live credentials, and
+# `lighthouse.py` picks up PAGESPEED_API_KEY and makes a real PageSpeed call —
+# against a URL this project does not own.
+#
+# Measured: three live requests to www.googleapis.com per run, and 54 of the
+# suite's 65 seconds spent waiting on them. The tests pass identically with the
+# network blocked, so the calls bought nothing at all.
+#
+# The leak also made four DataForSEO tests fail in-suite while passing alone:
+# the leaked DATAFORSEO_PAUSE_SPEND=1 reached code that was asserting retry
+# behaviour. Those four were then hidden by an `addopts` exclusion, which is how
+# a red test becomes invisible.
+#
+# Two guards, both autouse, both failing loudly rather than silently allowing.
+
+@pytest.fixture(autouse=True)
+def _no_real_dotenv(monkeypatch, tmp_path):
+    """Point the .env loader at an empty temp dir.
+
+    A test that wants a credential sets it explicitly with monkeypatch.setenv,
+    which is visible in the test. Inheriting one from whoever happens to be
+    running the suite is not a fixture, it is a coincidence.
+    """
+    import pipeline.lib.env as env
+    monkeypatch.setattr(env, "REPO_ROOT", tmp_path, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """Any real socket is a test bug. Say which host, so it is findable."""
+    def refuse(address, *a, **k):
+        host = address[0] if isinstance(address, (tuple, list)) and address else address
+        raise AssertionError(
+            f"this test tried to reach {host} — the suite is hermetic. "
+            f"Stub the boundary (curl, urlopen, the provider function) instead."
+        )
+    monkeypatch.setattr(socket, "create_connection", refuse)
 
 
 # ── the reference forbidden-phrase rules (mirror config/client-config.starter.yml) ──

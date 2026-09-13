@@ -51,6 +51,25 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
 
     if status != 200:
         add("health.status_not_200", detail=f"status={status}")
+        # B-075. Stop here. Every check below reads `html`, and on an
+        # unreachable page that is "" — which looks exactly like a page that
+        # genuinely has no title, no description, no h1 and no schema. Nine
+        # fabricated findings then flowed into findings.json, became a
+        # worklist, and sent the agent to "fix" a missing title on a page that
+        # has one. Worse, next cycle the page is reachable, those nine vanish,
+        # and the ratchet reports nine items RESOLVED — the client is billed for
+        # progress that never happened.
+        #
+        # The run-level refusal in main() only fires when EVERY url is
+        # unreachable. One route 403ing behind a WAF is the common case and it
+        # sailed straight through.
+        return out
+
+    if not (html or "").strip():
+        # A 200 carrying nothing. Same blindness, different cause, and it must
+        # not read as a page with nine content problems.
+        add("health.unfetchable", detail="200 with an empty body")
+        return out
 
     # title — missing and out-of-band are mutually exclusive
     t = re.search(r"<title[^>]*>([^<]+)</title>", html)

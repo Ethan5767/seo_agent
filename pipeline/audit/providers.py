@@ -70,6 +70,15 @@ CWV_CODES = {
 GSC_MIN_IMPRESSIONS = 100       # below this, CTR is noise
 GSC_LOW_CTR = 0.02
 GSC_CANNIBAL_MIN_IMPRESSIONS = 50
+# Decay: the page must have had real demand to lose, or a big percentage drop on
+# a tiny base reads as a crisis and spends the client's one content edit badly.
+GSC_DECAY_MIN_PREV = 100
+GSC_DECAY_MIN_DROP = 0.30
+# Striking distance: already on page one's shoulder, not already won, and with
+# enough demand that moving it is worth a person's afternoon.
+GSC_STRIKING_MIN_POS = 5.0
+GSC_STRIKING_MAX_POS = 15.0
+GSC_STRIKING_MIN_IMPRESSIONS = 50
 DFS_MAX_CLICK_DEPTH = 3
 # Named by intent, not by page count: at ten results a page, "page two" would end
 # at 20, and 30 is page three's boundary. The bands are "already visible" and
@@ -294,10 +303,164 @@ def parse_gsc_cannibalization(rows: list) -> list:
     return out
 
 
-def gsc_findings(domain: str, urls=None, days: int = 28) -> tuple:
-    token = os.environ.get("GSC_ACCESS_TOKEN")
+def _form_post(url: str, payload: dict, headers: dict) -> tuple:
+    """(json, error) for an `application/x-www-form-urlencoded` POST.
+
+    Separate from `_request`, which sends JSON. Google's token endpoint accepts
+    form encoding only. Kept as its own function so the tests can replace it.
+    """
+    data = urllib.parse.urlencode(payload).encode()
+    hdrs = {"Content-Type": "application/x-www-form-urlencoded", **(headers or {})}
+    req = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode()), None
+    except urllib.error.HTTPError as exc:
+        return None, f"HTTP {exc.code} from {url.split('?')[0]}"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+GSC_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+
+
+def gsc_access_token() -> tuple:
+    """(access_token, error). Prefers a refresh token so this can run unattended.
+
+    `GSC_ACCESS_TOKEN` is an OAuth ACCESS token: it dies after about an hour.
+    That is the whole reason the GSC lane has never run on a schedule — by the
+    time a monthly cycle fires, whatever an operator pasted has expired, and the
+    lane reports a skip that reads like "nothing to see here". A refresh token
+    does not expire, so with GSC_REFRESH_TOKEN + GSC_CLIENT_ID +
+    GSC_CLIENT_SECRET the cycle can mint its own access token every run.
+
+    A direct GSC_ACCESS_TOKEN still wins when set, because it is what an
+    operator uses to try one run by hand.
+
+    Every failure path returns a NAMED error rather than an empty result: sharp
+    edge #6 — a provider that returned nothing because it was never asked must
+    never be indistinguishable from a site with nothing wrong.
+    """
+    direct = os.environ.get("GSC_ACCESS_TOKEN")
+    if direct:
+        return direct, None
+
+    refresh = os.environ.get("GSC_REFRESH_TOKEN")
+    if not refresh:
+        return None, "skipped: neither GSC_ACCESS_TOKEN nor GSC_REFRESH_TOKEN is set"
+
+    missing = [name for name in ("GSC_CLIENT_ID", "GSC_CLIENT_SECRET")
+               if not os.environ.get(name)]
+    if missing:
+        return None, (f"skipped: GSC_REFRESH_TOKEN is set but {' and '.join(missing)} "
+                      f"{'is' if len(missing) == 1 else 'are'} missing, so it cannot be exchanged")
+
+    doc, err = _form_post(GSC_TOKEN_ENDPOINT, {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh,
+        "client_id": os.environ["GSC_CLIENT_ID"],
+        "client_secret": os.environ["GSC_CLIENT_SECRET"],
+    }, {})
+    if err:
+        return None, f"failed: refreshing the GSC token: {err}"
+    token = (doc or {}).get("access_token")
     if not token:
-        return [], "skipped: GSC_ACCESS_TOKEN unset"
+        return None, "failed: the token endpoint returned no access_token"
+    return token, None
+
+
+def _path_of(page: str) -> str:
+    """A GSC `page` key -> the site-relative path the rest of the pipeline uses."""
+    return "/" + page.split("//", 1)[-1].split("/", 1)[-1] if "//" in page else page
+
+
+def parse_gsc_decay(prev_rows: list, curr_rows: list) -> list:
+    """Pages whose impressions fell materially between two equal windows.
+
+    This is the highest-value content finding available, and it is the one the
+    content lane could never produce: a page losing demand is invisible in its
+    own HTML. Nothing about the markup changes when a page starts dying.
+
+    Two guards, both deliberate. A page must have had real volume BEFORE
+    (`GSC_DECAY_MIN_PREV`) — a 90% fall on 30 impressions is noise, and pointing
+    a client at it burns the one content edit they were going to make this month.
+    And a page absent from the previous window is new, not decayed.
+    """
+    prev = {_path_of((r.get("keys") or [""])[0]): (r.get("impressions") or 0)
+            for r in prev_rows}
+    out = []
+    for row in curr_rows:
+        path = _path_of((row.get("keys") or [""])[0])
+        before = prev.get(path, 0)
+        if before < GSC_DECAY_MIN_PREV:
+            continue
+        after = row.get("impressions") or 0
+        drop = (before - after) / before
+        if drop >= GSC_DECAY_MIN_DROP:
+            out.append(Finding("gsc", "gsc.impressions_decay", path,
+                               detail=f"impressions {int(before)} -> {int(after)} "
+                                      f"({drop * 100:.0f}% down)"))
+    return out
+
+
+def parse_gsc_striking_distance(rows: list) -> list:
+    """Query/page pairs already ranking 5-15 on a query with real demand.
+
+    The band is the point. Below 5 the page has already won and an edit risks
+    what it has; beyond ~20 the gap is rarely closed by copy, so recommending a
+    rewrite there is selling work that will not pay. This is the only lane in
+    which "improve this content" is a defensible instruction, and until now the
+    pipeline had no way to identify it.
+
+    `context` is the QUERY, never the position: position moves weekly, and
+    fingerprinting it would make every one of these findings NEW on every cycle
+    and empty the ratchet of meaning. The number goes in `detail`, which is
+    never fingerprinted.
+    """
+    out = []
+    for row in rows:
+        keys = row.get("keys") or []
+        if len(keys) < 2:
+            continue
+        query, page = keys[0], keys[1]
+        position = row.get("position") or 999
+        impressions = row.get("impressions") or 0
+        if impressions < GSC_STRIKING_MIN_IMPRESSIONS:
+            continue
+        if not (GSC_STRIKING_MIN_POS <= position <= GSC_STRIKING_MAX_POS):
+            continue
+        out.append(Finding("gsc", "gsc.striking_distance", _path_of(page),
+                           context=query,
+                           detail=f"position {position:.1f}, {int(impressions)} impressions"))
+    return out
+
+
+def queries_for_page(rows: list) -> dict:
+    """{path: [(query, impressions), ...]} highest-impression first.
+
+    The grounding layer. Every content and AEO check in the scanner judges a
+    page's HTML without knowing what the page is FOR — so "1,200 words" is
+    reported as a fact about the markup rather than as short or long for the
+    thing the page is actually trying to answer. This is the cheapest way to
+    close that gap: GSC already knows, per page, the real queries and their
+    volume, and it costs nothing.
+    """
+    by_path: dict = {}
+    for row in rows:
+        keys = row.get("keys") or []
+        if len(keys) < 2:
+            continue
+        query, page = keys[0], keys[1]
+        by_path.setdefault(_path_of(page), []).append((query, row.get("impressions") or 0))
+    for path in by_path:
+        by_path[path].sort(key=lambda qi: qi[1], reverse=True)
+    return by_path
+
+
+def gsc_findings(domain: str, urls=None, days: int = 28) -> tuple:
+    token, auth_err = gsc_access_token()
+    if not token:
+        return [], auth_err
     site = os.environ.get("GSC_SITE_URL") or f"sc-domain:{domain}"
 
     from datetime import date, timedelta
@@ -313,11 +476,33 @@ def gsc_findings(domain: str, urls=None, days: int = 28) -> tuple:
         return [], f"failed: {err}"
     queries, err2 = _request(endpoint, dict(window, dimensions=["query", "page"],
                                             rowLimit=5000), headers)
+
+    # The window immediately before this one, same length, so decay is measured
+    # against a like-for-like period rather than against "last month" as a vague
+    # idea. Its failure is not fatal: a first cycle has no prior data to compare
+    # against and must still return everything else.
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=days)
+    prev, err3 = _request(endpoint, {"startDate": prev_start.isoformat(),
+                                     "endDate": prev_end.isoformat(),
+                                     "dimensions": ["page"], "rowLimit": 5000}, headers)
+
     findings = parse_gsc_pages((pages or {}).get("rows") or [], urls)
     if not err2:
-        findings += parse_gsc_cannibalization((queries or {}).get("rows") or [])
+        query_rows = (queries or {}).get("rows") or []
+        findings += parse_gsc_cannibalization(query_rows)
+        findings += parse_gsc_striking_distance(query_rows)
+    if not err3:
+        findings += parse_gsc_decay((prev or {}).get("rows") or [],
+                                    (pages or {}).get("rows") or [])
+
     status = f"ok: {len((pages or {}).get('rows') or [])} page rows, {window['startDate']}..{window['endDate']}"
-    return assign_ordinals(findings), status + (f" (query dimension failed: {err2})" if err2 else "")
+    notes = []
+    if err2:
+        notes.append(f"query dimension failed: {err2}")
+    if err3:
+        notes.append(f"no prior window, decay not measured: {err3}")
+    return assign_ordinals(findings), status + (f" ({'; '.join(notes)})" if notes else "")
 
 
 # ── DataForSEO On-Page ───────────────────────────────────────────────────────

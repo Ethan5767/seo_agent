@@ -103,7 +103,15 @@ wf-client-profile = "pipeline.audit.client_profile:main"
 minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-ra --strict-markers --ignore=tests/test_dataforseo_retry.py -k 'not dataforseo'"
+# B-050 closed. The DataForSEO tests were excluded because they failed in-suite
+# while passing alone — the cause was the .env leak in tests/conftest.py, not
+# the tests. With the suite genuinely hermetic they pass, and 34 tests that
+# nobody could see (including the named-skip guarantee CLAUDE.md sharp edge #6
+# rests on, and a wiring test) are back in the run.
+#
+# Every test runs. An excluded test is an invisible one, and four of these were
+# red the whole time.
+addopts = "-ra --strict-markers"
 python_files = ["test_*.py"]
 
 [tool.setuptools.packages.find]

@@ -123,6 +123,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from pipeline.lib.html import sitemap_locs
+
 SCHEMA = "meridian-gate-baseline/1"
 
 # ── the safety boundary (see module docstring for the reasoning) ──────────────
@@ -456,7 +458,7 @@ def _sitemap_urls(build: Path) -> list:
     sm = build / "sitemap.xml"
     if not sm.is_file():
         return []
-    return re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", sm.read_text(errors="replace"))
+    return sitemap_locs(sm.read_text(errors="replace"))
 
 
 def gate_argv(gate: str, project: Path) -> list:

@@ -15,6 +15,8 @@ from urllib.parse import urlsplit
 
 from pipeline.lib.common import visible_text_ratio  # canonical home; re-exported
 from pipeline.scanner.rows import make_row
+
+from pipeline.lib.html import sitemap_locs
 _row = make_row("tech")
 
 
@@ -91,8 +93,12 @@ def tech_rows(url: str, html: str, status: int, sitemap: str | None) -> list[dic
                          "passing", detail=f"{words} words"))
 
     # Sitemap
-    if sitemap and sitemap.strip() and "<loc>" in sitemap.lower():
-        n = len(re.findall(r"<loc>", sitemap, re.IGNORECASE))
+    # Counted through the shared parser, not by counting opening tags: an empty
+    # `<loc></loc>` names no URL, and a sitemap of ten of them reported "10 URLs
+    # so crawlers can find every page" over a sitemap that lists nothing.
+    sitemap_urls = sitemap_locs(sitemap)
+    if sitemap_urls:
+        n = len(sitemap_urls)
         rows.append(_row("XML sitemap", "ok", f"A sitemap.xml is served ({n} URLs) so crawlers can find every page.",
                          "passing", detail=f"{n} URLs"))
     else:

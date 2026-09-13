@@ -6,6 +6,60 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed
+
+- **Eight `<loc>` parsers and four `<title>` parsers became one
+  (`pipeline/lib/html.py`).** They did not agree with each other:
+
+  ```
+  <loc>\s*([^<]+?)\s*</loc>          orphan_check, parity_check  (IGNORECASE)
+  <loc>\s*([^<\s][^<]*?)\s*</loc>    measure                     (case-sensitive)
+  <loc>\s*([^<\s]+)\s*</loc>         baseline                    (case-sensitive)
+  <loc>\s*([^<\s]+)\s*</loc>         crawl, multipage            (IGNORECASE)
+  <loc>\s*([^<\s]+)                  validate      (no closing tag at all)
+  <loc>https?://[^/]+(/[^<]*)</loc>  bootstrap_config            (path only)
+  <loc>                              extra_checks    (counts open tags)
+  ```
+
+  Eight answers to one question is eight chances to be wrong, and three of the
+  ways they were wrong were real defects - see B-086, B-087 and B-088.
+
+  Still regex-based, deliberately: this repo is stdlib-only by constraint,
+  `xml.etree` refuses a sitemap carrying a stray undeclared entity (real ones
+  do), and an HTML parser cannot be strict about a `<title>` in what may be a
+  fragment. What changed is that the awkward cases are handled once.
+
+  `page_title` deliberately does NOT strip markup, because a title's content is
+  RCDATA and a browser renders a `<span>` in there literally - reporting it
+  stripped would report a title the page does not have. `inner_text` is the
+  separate function for elements that really do contain markup, which is the
+  `<h1>` case `seed_queries` needs. 28 tests, plus a guard that fails the build
+  if any module under `pipeline/` grows its own `<loc>` or `<title>` regex
+  again. **The guard found two of the eight** - `multipage` and `extra_checks` -
+  that a manual sweep had missed.
+
+### Fixed
+
+- **B-086: nothing decoded XML entities, so every escaped URL was fetched
+  wrong.** A sitemap is *required* to escape `&` as `&amp;`, which means every
+  paginated or filtered URL on a real site arrives escaped. All eight parsers
+  handed back the literal `&amp;`, and it then got fetched (404), compared
+  against the route list (mismatch) and reported as broken or orphaned. Titles
+  had the matching bug: `Roof &amp; Gutter` was measured at 17 characters
+  against a 30-60 window instead of 13, and two pages whose titles differ only
+  in escaping compared as different in the duplicate-title check.
+
+- **B-087: `validate.py` accepted half a tag as a URL.** Its pattern had no
+  closing `</loc>`, so a truncated or malformed sitemap matched and the gate
+  reported it as valid.
+
+- **B-088: `bootstrap_config.py` read topology as "TODO" for any site with a
+  site-relative sitemap.** Its pattern required `https?://[^/]+` before the
+  path. Site-relative `<loc>` values are legal and several static generators
+  emit them, and on those sites the pattern matched nothing, so every one of
+  them onboarded with an undetected topology.
+
+
 ### Security
 
 - **The Google OAuth flow, rebuilt around one policy module

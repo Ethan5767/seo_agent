@@ -11,6 +11,8 @@ from pathlib import Path
 from pipeline.lib import baseline as bl
 from pipeline.lib.common import load_config, audit_log_dir
 
+from pipeline.lib.html import page_title
+
 GATE = "audit_built"
 
 
@@ -61,8 +63,7 @@ def strip_to_text(html: str) -> str:
 
 def audit_page(html: str, url: str, cfg: dict, project: Path, build: Path, all_built_texts: dict) -> dict:
     checks = {}
-    t = re.search(r"<title[^>]*>([^<]+)</title>", html)
-    title = (t.group(1) if t else "").strip()
+    title = page_title(html) or ""
     d = re.search(r'<meta[^>]*name="description"[^>]*content="([^"]*)"', html)
     desc = d.group(1) if d else ""
     # Match H1 even when it contains nested elements (spans, etc.) — common in modern Tailwind layouts.

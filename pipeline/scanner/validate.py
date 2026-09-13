@@ -12,6 +12,8 @@ import re
 
 from pipeline.scanner.rows import make_row
 
+from pipeline.lib.html import sitemap_locs
+
 _row = make_row("valid")
 
 
@@ -23,7 +25,7 @@ def sitemap_validation_rows(sitemap: str | None) -> list[dict]:
         n = len(re.findall(r"<sitemap>", low))
         return [_row("Sitemap index", "ok", f"A sitemap index with {n} child sitemap(s) — good for large sites.",
                      "passing", detail=f"{n} child sitemaps")]
-    locs = re.findall(r"<loc>\s*([^<\s]+)", sitemap)
+    locs = sitemap_locs(sitemap)
     if not locs:
         return [_row("Sitemap valid", "error", "sitemap.xml has no <loc> entries — it isn't a valid sitemap.",
                      "fix the sitemap to list <url><loc> entries")]

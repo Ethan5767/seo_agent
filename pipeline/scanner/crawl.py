@@ -14,10 +14,10 @@ from __future__ import annotations
 import re
 from urllib.parse import urldefrag, urljoin, urlsplit
 
-_TITLE = re.compile(r"<title[^>]*>([^<]*)</title>", re.IGNORECASE)
+from pipeline.lib.html import page_title, sitemap_locs
+
 _DESC = re.compile(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']*)', re.IGNORECASE)
 _HREF = re.compile(r'<a\b[^>]*\bhref=["\']([^"\']+)["\']', re.IGNORECASE)
-_LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
 
 
 def _norm(url: str) -> str:
@@ -36,8 +36,7 @@ def _host(url: str) -> str:
 
 
 def title_of(html: str) -> str:
-    m = _TITLE.search(html or "")
-    return m.group(1).strip() if m else ""
+    return page_title(html) or ""
 
 
 def desc_of(html: str) -> str:
@@ -84,7 +83,7 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
     # Same rule for the sitemap: compare on the canonical form, fetch the URL the
     # sitemap actually published. A <loc> of /a must be requested as /a.
     _sitemap_real: dict[str, str] = {}
-    for u in _LOC.findall(sitemap_text or ""):
+    for u in sitemap_locs(sitemap_text):
         if _host(u) == _host(entry):
             _sitemap_real.setdefault(_norm(u), u.strip())
     sitemap_urls = set(_sitemap_real)

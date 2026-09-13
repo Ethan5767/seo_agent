@@ -11,7 +11,8 @@ from __future__ import annotations
 import re
 from urllib.parse import urljoin, urlsplit
 
-_LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
+from pipeline.lib.html import sitemap_locs
+
 _HREF = re.compile(r'href=["\']([^"\'#]+)["\']', re.IGNORECASE)
 _SEV_RANK = {"error": 3, "warn": 2, "info": 1, "ok": 0}
 _ACTIONABLE = ("error", "warn")
@@ -29,7 +30,7 @@ def discover_pages(homepage: str, sitemap_text: str, html: str, limit: int = 10)
     out: list[str] = [homepage]
     seen = {homepage.rstrip("/")}
 
-    candidates = _LOC.findall(sitemap_text or "")
+    candidates = sitemap_locs(sitemap_text)
     if not candidates:
         candidates = [urljoin(homepage, h) for h in _HREF.findall(html or "")]
 

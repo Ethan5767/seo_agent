@@ -23,6 +23,8 @@ from pipeline.audit.providers import (crux_findings, dataforseo_findings,
 from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
 from pipeline.lib.common import curl, curl_status, load_config, visible_text_ratio
 
+from pipeline.lib.html import page_title, sitemap_locs
+
 GATE = "site_health"
 SCHEMA = "site-health/1"
 
@@ -72,8 +74,7 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
         return out
 
     # title — missing and out-of-band are mutually exclusive
-    t = re.search(r"<title[^>]*>([^<]+)</title>", html)
-    title = t.group(1) if t else ""
+    title = page_title(html) or ""
     if not title:
         add("health.title_missing")
     elif not TITLE_MIN <= len(title) <= TITLE_MAX:
@@ -188,9 +189,6 @@ class UsageError(RuntimeError):
     """Bad arguments, or a sitemap that answered but was not a sitemap. Exit 2."""
 
 
-_LOC_RE = re.compile(r"<loc>\s*([^<\s][^<]*?)\s*</loc>")
-
-
 def _absolute(u: str, domain: str) -> str:
     """Normalize one URL or site-relative path to an absolute, trailing-slash URL."""
     if u.startswith("http"):
@@ -222,7 +220,7 @@ def discover_urls(cfg: dict, url_args: list, limit: int | None = None) -> list:
         if not xml.strip():
             raise Unreachable(f"https://{domain}/sitemap.xml is unreachable "
                               f"and no --url was given: nothing to measure")
-        locs = _LOC_RE.findall(xml)
+        locs = sitemap_locs(xml)
         if not locs:
             raise UsageError(f"https://{domain}/sitemap.xml answered but contains "
                              f"no <loc> entries: not a sitemap")

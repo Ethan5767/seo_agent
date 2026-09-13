@@ -572,7 +572,47 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                f"Cost this run: ${cost:.4f}.")
     report = A.assemble(groups, reachable=reachable)
     report["cost"] = round(cost, 4)
+
+    # The page AS FETCHED. Every row builder has had the HTML all along and the
+    # report carried only verdicts about it, never the text itself - so two
+    # features downstream were fabricating what they could have read:
+    #
+    #   * the SERP preview simulated a title and description, and shipped one
+    #     pilot client's hospital copy to every account because it had nothing
+    #     real to show;
+    #   * `ContentContext.page` was declared, read by five content tools, and
+    #     populated by nobody - so "rewrite the scanned page" rewrote nothing.
+    #
+    # Pass/fail is a judgement. This is the evidence the judgement was made on,
+    # and both of those features need the evidence, not the verdict.
+    report["page"] = page_facts(url, html, status) if reachable else None
     return report
+
+
+
+def page_facts(url: str, html: str, status: int) -> dict:
+    """What the page actually says, for features that need the text and not a
+    verdict about it. Read-only over HTML already in hand; costs nothing."""
+    from pipeline.lib.html import page_title, inner_text
+
+    h = html or ""
+    desc = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']*)', h, re.I)
+    canonical = re.search(r'<link[^>]*rel=["\']canonical["\'][^>]*href=["\']([^"\']+)', h, re.I)
+    headings = [f"H{m.group(1)} {inner_text(m.group(2))[:120]}"
+                for m in re.finditer(r"<h([1-3])\b[^>]*>(.*?)</h\1>", h, re.I | re.S)][:40]
+    text = inner_text(re.sub(r"(?is)<(script|style|noscript)\b.*?</\1>", " ", h))
+    return {
+        "url": url,
+        "status": status,
+        "title": page_title(h),
+        "description": desc.group(1).strip() if desc else None,
+        "canonical": canonical.group(1).strip() if canonical else None,
+        "headings": headings,
+        "wordCount": len(text.split()),
+        # Capped: this rides in every scan response and the whole page is not
+        # needed to rewrite it. The content tools slice to 6000 anyway.
+        "text": text[:12000],
+    }
 
 
 def _human_size(n: int) -> str:

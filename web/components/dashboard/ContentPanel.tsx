@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { contentToolById, missingRequired, evidenceFor, checkDraft } from "@/lib/contentTools";
+import { authedFetch } from "@/lib/authedFetch";
+import type { ContentContext } from "@/lib/contentTools";
 
 /**
  * A content tool: the operator's inputs on the left, the streamed draft on the
@@ -19,13 +21,15 @@ export interface ContentPanelProps {
   business?: string;
   /** Keyword rows from the last scan, so drafts build on measured demand. */
   keywords?: string[];
+  /** The page as the scanner fetched it. Five of the seven tools read this. */
+  page?: ContentContext["page"];
   /** Findings from the last scan. The tool argues from the ones it matches. */
   findings?: Array<{ code?: string; what?: string; detail?: string; severity?: string }>;
   /** Real Search Console queries for this page, highest impressions first. */
   queries?: Array<{ query: string; impressions?: number; position?: number }>;
 }
 
-export function ContentPanel({ toolId, domain, business, keywords, findings, queries }: ContentPanelProps) {
+export function ContentPanel({ toolId, domain, business, keywords, findings, queries, page }: ContentPanelProps) {
   const tool = contentToolById(toolId);
   const [values, setValues] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState("");
@@ -33,16 +37,19 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  if (!tool) return null;
-
-  const missing = missingRequired(tool, values);
+  const missing = tool ? missingRequired(tool, values) : [];
+  // `page` was declared on ContentContext, read by five of the seven tools via
+  // `pageBlock()`, and passed by NOBODY - so "Rewrites the scanned page"
+  // received an empty string and rewrote nothing unless the operator pasted the
+  // content in by hand, which is the exact step the tool was built to remove.
+  // B-007 again: the unit test passed because it constructed `page` itself.
   const ctx = useMemo(
-    () => ({ domain, business, keywords, findings, queries }) as any,
-    [domain, business, keywords, findings, queries],
+    () => ({ domain, business, keywords, findings, queries, page }) as any,
+    [domain, business, keywords, findings, queries, page],
   );
 
   // The findings this tool declares it argues from, matched against the scan.
-  const evidence = evidenceFor(tool, ctx);
+  const evidence = evidenceFor(tool as any, ctx);
 
   /**
    * Fields the pipeline filled in for itself, and why.
@@ -92,13 +99,18 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
     });
   }, [derived]);
 
+  // AFTER every hook, never before. This guard used to sit above the four
+  // useMemo/useEffect calls, so an unknown toolId changed the hook count between
+  // renders - a rules-of-hooks violation that React only punishes intermittently.
+  if (!tool) return null;
+
   async function generate() {
     if (!tool) return;
     setError("");
     setDraft("");
     setBusy(true);
     try {
-      const res = await fetch("/api/content/generate", {
+      const res = await authedFetch("/api/content/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

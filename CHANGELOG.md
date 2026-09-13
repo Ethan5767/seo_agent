@@ -6,6 +6,110 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Security
+
+- **B-098: a traffic forecast computed from the number of to-do items, shipped
+  in the client-facing plan** (`web/app/api/plan/route.ts`).
+
+  ```js
+  projectedLift: `+${Math.min(28, Math.max(6, sprintItems.length * 2.2)).toFixed(1)}% Organic Visibility`
+  ```
+
+  An empty plan promised **+6.0%**. Fifty items promised **+28.0%**. It rode in
+  the same response as the executive summary and the developer brief, which
+  makes it **the most publishable fabrication in the codebase** - a number a
+  client puts in a deck. Removed rather than replaced: forecasting organic lift
+  needs a baseline, a control and a measured outcome, and this product has none
+  of the three. Nothing consumed it.
+
+- **B-099: fabricated data written into the database**
+  (`web/app/api/traffic/snapshot/route.ts`). `devices = { mobile: 68, desktop: 32 }`
+  was a default destructure that was then **INSERTed** into `traffic_snapshots`
+  and read back later as history. Every other fabrication in this codebase is a
+  render-time lie you can delete; this one was durable. Now `{}`.
+
+  The UI half matched: `gscDeviceSplit` initialised to the same 68/32 and its
+  setter only fires inside `if (sum > 0)`, so a failed or empty device query
+  left the invented split on screen **under a green "Google GSC Verified"
+  badge**, above a hardcoded "Mobile-first indexing compliant ✓ Verified" that
+  nothing measures. Now `null`, and when it is null **no donut and no bars are
+  drawn at all** - a chart is a claim.
+
+- **B-100: one pilot client's copy rendered for every account.** Eleven
+  occurrences of "Phnom Penh", plus `"Ministry of Health Cambodia"` named as a
+  client's semantic entity, `"50+ board-certified international consultant
+  physicians"`, `MedicalOrganization`, NICU and obstetrics copy.
+
+  The SERP Optimizer simulated *"Best Hospital & Medical Center in Phnom Penh"*
+  for every client on a screen whose entire purpose is showing the operator what
+  Google displays for **their** page. This is a confidentiality problem as much
+  as a fabrication one.
+
+- **B-101: guessed file paths in the developer brief.** `targetFile` was derived
+  from the finding code - `components/SEOHead.tsx`, `src/app/layout.tsx`, and for
+  anything mentioning schema, `components/MedicalBusinessSchema.tsx`. Nothing
+  reads the client's repository, so the brief told a developer to edit files that
+  may not exist. Now `null`, with the brief saying so.
+
+### Added
+
+- **The scan now carries the page it fetched** (`page_facts` in
+  `pipeline/scanner/server.py`). Every row builder has had the HTML all along
+  and the report carried only *verdicts* about it, so two features downstream
+  were fabricating what they could have read:
+
+  * the SERP preview invented a title and description - hence the hospital copy;
+  * **`ContentContext.page` was declared, read by five of the seven content
+    tools, and populated by nobody**, so *"Rewrites the scanned page"* rewrote
+    nothing unless the operator pasted the content in by hand - the exact step
+    the tool exists to remove. B-007 again, and the unit test passed because it
+    constructed `page` itself.
+
+  `report.page` now carries the real title, description, canonical, heading
+  outline, word count and text. Free - it is read from HTML already in hand.
+
+- **"AI CTR Optimizer" now contains AI.** It was a lookup table of four
+  hardcoded hospital titles keyed by URL, including the invented credential
+  claim *"50+ board-certified"*. It calls the same Claude route as every other
+  feature, grounded in the scanned page, and is disabled when there is no page.
+
+### Fixed
+
+- **Every content tool returned 401 in production.** `ContentPanel` used a plain
+  `fetch` while the session lives in `localStorage`. Verified live:
+  `POST /api/content/generate` with no auth header -> **401**. Now `authedFetch`,
+  like the fixer.
+- **`/api/content/generate` had no refusal guard.** `missingRequired` checks
+  *typed* fields, so the two tools with no required fields spawned a model from a
+  domain and a business name. Now refuses unless there are findings, queries, or
+  a scanned page - **before** the spawn, so saying no costs nothing.
+- **Rules-of-hooks violation** in `ContentPanel`: `if (!tool) return null` sat
+  above four `useMemo`/`useEffect` calls, so an unknown tool id changed the hook
+  count between renders.
+- **Four hardcoded sparklines removed.** The most deceptive appended the one
+  real number to five invented history points, so it read as a measured climb.
+- **Four invented "High impact" recommendations** shown whenever a scan found
+  nothing, one citing *"Top 3 SERP competitors average 1,150 words"* - a
+  measurement nothing here performs.
+
+### Notes
+
+A five-agent audit of the whole web surface found **~32 fabrications** beyond the
+seven fixed by hand earlier in the session. The previous cleanup had a shape:
+someone emptied every fabricated **array** and left honest comments, and never
+touched fabricated **scalars**, `.map()` bodies, or object-literal return values.
+That boundary is greppable, which is why the operator kept finding these by eye
+and my own sweeps missed them - a scalar is one line in a 12,877-line file and
+reads like configuration.
+
+`web/tests/fabricationSweep.test.mjs` (9 tests) now walks every `.ts`/`.tsx`
+under `app/`, `lib/` and `components/`, strips comments first, and fails the
+build on: a traffic forecast, a guessed repository path, any pilot-client
+vertical, a persisted invented measurement, a model route that writes without
+evidence, a missing page context, a plain `fetch` to a model route, an early
+return above a hook, and any chart fed a literal series.
+
+
 ## [v3.2.0] — 2026-09-13
 
 **Every client on `@v3.1.3` or `@v3.1.4` must bump to `@v3.2.0`.** Both of those

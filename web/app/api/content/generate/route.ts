@@ -96,6 +96,34 @@ export async function POST(req: NextRequest) {
       : undefined,
   };
 
+  // REFUSE ON NO EVIDENCE, the same way `/api/fix/advise` does.
+  //
+  // `missingRequired` above checks TYPED fields, not measured ones - so the two
+  // tools with no required fields at all (`page2`, `meta`) passed every guard
+  // and spawned a model with a domain and a business name. The tool with the
+  // least input had the least protection, and a model asked to work from
+  // nothing produces something that reads exactly like real work.
+  //
+  // A tool is allowed to run when it has SOMETHING real: findings it can argue
+  // from, queries the site genuinely ranks for, or the page as fetched. Typed
+  // input alone is not evidence.
+  const hasEvidence =
+    (context.findings?.length ?? 0) > 0 ||
+    (context.queries?.length ?? 0) > 0 ||
+    Boolean(context.page?.title || context.page?.text);
+
+  if (!hasEvidence) {
+    return NextResponse.json(
+      {
+        error:
+          "Nothing measured to write from. Run a scan first, or connect Search Console - " +
+          "a draft written with no findings, no queries and no page is a guess with a " +
+          "model's confidence behind it.",
+      },
+      { status: 400 },
+    );
+  }
+
   // The prompt goes on STDIN, not argv: it opens with a markdown document and
   // the CLI's option parser reads a leading `---` as a malformed flag. Learned
   // the same way in remediate.run_agent, whose comment says so.

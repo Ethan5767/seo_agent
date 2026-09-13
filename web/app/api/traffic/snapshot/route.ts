@@ -97,7 +97,13 @@ export async function POST(req: NextRequest) {
       avgPosition = 0,
       topQueries = [],
       countries = [],
-      devices = { mobile: 68, desktop: 32 },
+      // `devices` used to default to `{ mobile: 68, desktop: 32 }`. Every other
+      // fabrication in this codebase is a render-time lie you can delete; this
+      // one was WRITTEN INTO THE DATABASE and read back later as history, so a
+      // caller that never sent a device split durably stored an invented one.
+      //
+      // `{}` is the honest default: the caller sent no split, so we have none.
+      devices = {},
       dateTrend = [],
     } = body || {};
 

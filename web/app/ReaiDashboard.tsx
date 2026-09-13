@@ -2085,12 +2085,15 @@ function resolveProjectData(
           desc: `${s.why} Affected: ${s.detail}. Fix: ${s.fix}`,
           impact: s.severity === "error" ? "High" : "Medium",
         }))
-      : [
-          { cat: "strategy", title: "Target High-Intent Regional Searches", desc: `Optimize landing pages for bottom-of-funnel conversion keywords.`, impact: "High" },
-          { cat: "content", title: "Expand Thin Departmental Pages", desc: "Top 3 SERP competitors average 1,150 words with verified entity schema.", impact: "High" },
-          { cat: "semantic", title: "Enrich Local Schema & Organization JSON-LD", desc: "Embed LocalBusiness and MedicalOrganization schema with geo-coordinates.", impact: "High" },
-          { cat: "tech", title: "Optimize WebP Hero Image Compression", desc: "Compress above-the-fold media to reduce Largest Contentful Paint payload.", impact: "Medium" },
-        ],
+      // Was four invented recommendations, each chipped "High" impact, shown
+      // whenever the scan produced no site findings. One of them cited "Top 3
+      // SERP competitors average 1,150 words" - a measurement nothing in this
+      // codebase performs - and another named MedicalOrganization schema, one
+      // pilot client's vertical, for every account.
+      //
+      // An empty list renders an empty state. Recommendations with nothing
+      // behind them are the thing this product exists to refuse.
+      : [],
   };
 
   // 11. Referring Domains Matrix
@@ -2971,7 +2974,10 @@ export function ReaiDashboard({
   const [isGscLoading, setIsGscLoading] = useState<boolean>(false);
   const [gscDateTrend, setGscDateTrend] = useState<Array<{ m: string; v: number }>>([]);
   const [gscCountrySplit, setGscCountrySplit] = useState<Array<{ code: string; country: string; share: number; visits: string }>>([]);
-  const [gscDeviceSplit, setGscDeviceSplit] = useState<{ mobile: number; desktop: number }>({ mobile: 68, desktop: 32 });
+  // null, not `{ mobile: 68, desktop: 32 }`. The setter only fires inside
+  // `if (sum > 0)`, so a failed or empty device query left the fabricated
+  // default on screen - under a green "Google GSC Verified" badge.
+  const [gscDeviceSplit, setGscDeviceSplit] = useState<{ mobile: number; desktop: number } | null>(null);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<"30s" | "60s" | "5m" | "off">(() => {
     if (typeof window !== "undefined") {
       return (localStorage.getItem("reai_traffic_autorefresh") as any) || "30s";
@@ -3358,43 +3364,39 @@ export function ReaiDashboard({
     return { clicks: 0, impressions: 0, ctr: 0, avgPosition: 0, topQueries: [] };
   }, [liveGscRows]);
 
-  // Default Meta Tag Presets for Target Pages
-  const pageMetaPresets: Record<string, { title: string; description: string; targetKw: string }> = useMemo(() => ({
-    "/": {
-      title: `${currentBusiness} | Best Hospital & Medical Center in Phnom Penh`,
-      description: `Accredited international hospital providing 24/7 emergency care, modern inpatient wards, diagnostic imaging, and direct insurance billing in Phnom Penh.`,
-      targetKw: "hospital phnom penh",
-    },
-    "/services/maternity": {
-      title: `Maternity & Obstetrics Care | ${currentBusiness}`,
-      description: `Comprehensive maternity care, 24/7 obstetric monitoring, NICU facilities, and prenatal screening packages by board-certified specialists.`,
-      targetKw: "maternity care",
-    },
-    "/doctors": {
-      title: `Specialist Physicians & Medical Staff Directory | ${currentBusiness}`,
-      description: `Meet our board-certified international consultant physicians and surgeons. Convenient 24/7 online specialist appointment booking available.`,
-      targetKw: "specialist physicians",
-    },
-    "/emergency-24-7": {
-      title: `24/7 Emergency Care & Trauma Resuscitation | ${currentBusiness}`,
-      description: `Rapid emergency trauma resuscitation, on-site ambulance hotline, and intensive care available 24/7. Immediate triage assessment in Phnom Penh.`,
-      targetKw: "emergency care 24/7",
-    },
-  }), [currentBusiness]);
 
-  // Current active meta for the selected page (supports live user edits & AI optimization)
+
+  // Dynamic counts: use report counts, fallback to client lastCounts, fallback to baseline
+  const [serpAiBusy, setSerpAiBusy] = useState(false);
+  const [serpAiDraft, setSerpAiDraft] = useState("");
+  const [serpAiError, setSerpAiError] = useState("");
+  const report = openReport?.report;
+
+  // What the SERP preview shows.
+  //
+  // This used to be `pageMetaPresets` - four hardcoded entries titled "Best
+  // Hospital & Medical Center in Phnom Penh", with maternity, physician and
+  // emergency descriptions, plus a catch-all asserting "healthcare services and
+  // clinical facilities" for any URL on any site. One pilot client's copy,
+  // simulated for every account, on a screen whose whole purpose is showing the
+  // operator what Google displays for THEIR page.
+  //
+  // The scan now carries the page as fetched (`report.page`), so there is a real
+  // title and description to show. When there is not, the preview says so
+  // instead of inventing one - an invented preview is worse than an empty one,
+  // because the operator optimises against it.
+  const scannedPage = (report as any)?.page as
+    { url?: string; title?: string | null; description?: string | null } | null | undefined;
+
   const activeSerpMeta = useMemo(() => {
     const custom = serpCustomMeta[selectedOnPageUrl];
     if (custom) return custom;
-    return pageMetaPresets[selectedOnPageUrl] || {
-      title: `${selectedOnPageUrl} | ${currentBusiness}`,
-      description: `Official page for ${selectedOnPageUrl} at ${currentBusiness}. Learn more about our specialized healthcare services and clinical facilities.`,
-      targetKw: "medical services",
+    return {
+      title: scannedPage?.title || "",
+      description: scannedPage?.description || "",
+      targetKw: "",
     };
-  }, [selectedOnPageUrl, serpCustomMeta, pageMetaPresets, currentBusiness]);
-
-  // Dynamic counts: use report counts, fallback to client lastCounts, fallback to baseline
-  const report = openReport?.report;
+  }, [selectedOnPageUrl, serpCustomMeta, scannedPage]);
   const counts = report?.counts || selectedClient?.lastCounts || {};
   const okChecks = counts.ok ?? 0;
   const errChecks = counts.error ?? 0;
@@ -4453,6 +4455,18 @@ export function ReaiDashboard({
                     queries={liveGscRows?.map((r: any) => ({
                       query: r.query, impressions: r.impressions, position: r.position,
                     })).filter((q: any) => q.query)}
+                    // The page as the scan fetched it. Five of the seven tools
+                    // read this and it was passed by nobody, so "Rewrites the
+                    // scanned page" rewrote nothing.
+                    page={scannedPage as any}
+                  />
+                  {/* Parity with every report view: the Findings screens could
+                      fix themselves and the Drafting screens could not. */}
+                  <FixWithClaude
+                    findings={Object.values(report || {}).filter(Array.isArray).flat() as any[]}
+                    business={currentBusiness}
+                    domain={currentDomain}
+                    label="Fix the findings behind this draft"
                   />
                 </div>
               );
@@ -5664,57 +5678,63 @@ export function ReaiDashboard({
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                           <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1e293b" }}>Device Breakdown</h4>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 4 }}>
-                            Google GSC Verified
+                          <span style={{
+                            fontSize: 12, fontWeight: 700,
+                            color: gscDeviceSplit ? "#047857" : "#64748b",
+                            background: gscDeviceSplit ? "#ecfdf5" : "#f1f5f9",
+                            border: `1px solid ${gscDeviceSplit ? "#a7f3d0" : "#e2e8f0"}`,
+                            padding: "2px 7px", borderRadius: 4,
+                          }}>
+                            {gscDeviceSplit ? "Google GSC Verified" : "Not measured"}
                           </span>
                         </div>
 
-                        <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14 }}>
-                          <MiniDonut
-                            size={68}
-                            strokeWidth={6.5}
-                            slices={[
-                              { pct: gscDeviceSplit.mobile, color: "#10b981" },
-                              { pct: gscDeviceSplit.desktop, color: "#6366f1" },
-                            ]}
-                          />
-                          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
-                            <div>
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#334155" }}>
-                                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981" }} />
-                                  Mobile Devices
-                                </span>
-                                <span style={{ fontWeight: 700, color: "#0f172a" }}>
-                                  {gscDeviceSplit.mobile}%
-                                </span>
-                              </div>
-                              <div style={{ height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
-                                <div style={{ width: `${gscDeviceSplit.mobile}%`, height: "100%", background: "#10b981", borderRadius: 3 }} />
-                              </div>
-                            </div>
-
-                            <div>
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#334155" }}>
-                                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#6366f1" }} />
-                                  Desktop Browsers
-                                </span>
-                                <span style={{ fontWeight: 700, color: "#0f172a" }}>
-                                  {gscDeviceSplit.desktop}%
-                                </span>
-                              </div>
-                              <div style={{ height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
-                                <div style={{ width: `${gscDeviceSplit.desktop}%`, height: "100%", background: "#6366f1", borderRadius: 3 }} />
-                              </div>
+                        {gscDeviceSplit ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14 }}>
+                            <MiniDonut
+                              size={68}
+                              strokeWidth={6.5}
+                              slices={[
+                                { pct: gscDeviceSplit.mobile, color: "#10b981" },
+                                { pct: gscDeviceSplit.desktop, color: "#6366f1" },
+                              ]}
+                            />
+                            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+                              {([["Mobile Devices", gscDeviceSplit.mobile, "#10b981"],
+                                 ["Desktop Browsers", gscDeviceSplit.desktop, "#6366f1"]] as const).map(([label, pct, colour]) => (
+                                <div key={label}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                                    <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#334155" }}>
+                                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: colour }} />
+                                      {label}
+                                    </span>
+                                    <span style={{ fontWeight: 700, color: "#0f172a" }}>{pct}%</span>
+                                  </div>
+                                  <div style={{ height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+                                    <div style={{ width: `${pct}%`, height: "100%", background: colour, borderRadius: 3 }} />
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                        </div>
+                        ) : (
+                          /* No donut, no bars. A chart is a claim, and drawing one
+                             from a default is how 68/32 ended up under a green
+                             "GSC Verified" badge on every account. */
+                          <div style={{ padding: "18px 2px", fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.55 }}>
+                            Search Console returned no device breakdown for this property and date range.
+                            Nothing is shown rather than a default split.
+                          </div>
+                        )}
                       </div>
 
-                      <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>Mobile-first indexing compliant</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)" }}>✓ Verified</span>
+                      <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 10, fontSize: 12, color: "var(--ink-muted)" }}>
+                        {/* Was "Mobile-first indexing compliant · ✓ Verified" -
+                            a hardcoded pair. Nothing in this codebase measures
+                            mobile-first indexing. */}
+                        {gscDeviceSplit
+                          ? "Share of clicks by device, from Search Console."
+                          : "Mobile-first indexing is not measured by this product."}
                       </div>
                     </div>
                   </div>
@@ -6846,7 +6866,14 @@ export function ReaiDashboard({
                             https://{currentDomain}{activeMagicBrief.slug}
                           </div>
                           <div style={{ color: "#545454", fontSize: 12, lineHeight: 1.4 }}>
-                            Looking for high quality {activeMagicBrief.keyword}? {currentBusiness} offers international standards, 24/7 care, and specialized medical consultations in Phnom Penh.
+                            {/* Was medical copy with a Cambodian city, shipped to
+                                every client under "Google SERP Snippet Preview" -
+                                and it sat directly below a comment claiming the
+                                hardcoded hospital copy had been removed. It had
+                                been removed from the headings and the entities,
+                                and left in the snippet body. */}
+                            {scannedPage?.description
+                              || `No meta description was read for this page. Run a scan, or write one with Claude.`}
                           </div>
                         </div>
 
@@ -6940,7 +6967,7 @@ export function ReaiDashboard({
                       <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>{projectMetrics.keywords.length}</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>Indexed queries</div>
                     </div>
-                    <MiniSparkline data={[65, 78, 88, 98, 112, projectMetrics.keywords.length]} color="#10b981" width={58} height={24} />
+                    {/* A sparkline was here, fed a hardcoded series. A trend needs two scans; this product stores one. The most deceptive of them appended the ONE real number to five invented history points, so it read as a measured climb. */}
                   </div>
                 </div>
 
@@ -6970,7 +6997,7 @@ export function ReaiDashboard({
                       <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>{projectMetrics.totalVolume}</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>Search demand</div>
                     </div>
-                    <MiniSparkline data={[12000, 14200, 16800, 18500, 20400, 24000]} color="var(--ok)" width={58} height={24} />
+                    {/* A sparkline was here, fed a hardcoded series. A trend needs two scans; this product stores one. The most deceptive of them appended the ONE real number to five invented history points, so it read as a measured climb. */}
                   </div>
                 </div>
 
@@ -7260,19 +7287,25 @@ export function ReaiDashboard({
                                             intent: k.intent,
                                             h1: `Expert Guide: ${k.keyword.charAt(0).toUpperCase() + k.keyword.slice(1)}`,
                                             slug: `/${k.keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-                                            headings: [
-                                              `What is ${k.keyword}?`,
-                                              `Key Benefits & Specialized Procedures`,
-                                              `Why Choose ${currentBusiness}`,
-                                              `Pricing, Consultations & Emergency Support`,
-                                            ],
-                                            entities: [
-                                              currentBusiness,
-                                              "Phnom Penh",
-                                              "Ministry of Health Cambodia",
-                                              "Clinical Consultation",
-                                            ],
-                                            schemaType: "MedicalWebPage",
+                                            // Headings and entities were one
+                                            // client's vertical for every
+                                            // account: "Specialized Procedures",
+                                            // "Emergency Support", and an
+                                            // entity list naming a real
+                                            // government ministry - the
+                                            // Ministry of Health Cambodia - as
+                                            // this client's semantic entity.
+                                            // `schemaType` asserted
+                                            // MedicalWebPage whatever the
+                                            // industry.
+                                            //
+                                            // Only the keyword is known here.
+                                            // Everything else is the drafting
+                                            // tools' job, which argue from the
+                                            // scan.
+                                            headings: [`What is ${k.keyword}?`],
+                                            entities: [currentBusiness].filter(Boolean),
+                                            schemaType: null,
                                           });
                                         }}
                                         style={{
@@ -8896,7 +8929,7 @@ export function ReaiDashboard({
                         {projectMetrics.refDelta} change
                       </div>
                     </div>
-                    <MiniSparkline data={[14, 18, 19, 23, 24, 28, 31, 35, 38, 42]} color="var(--ok)" width={68} height={28} />
+                    {/* A sparkline was here, fed a hardcoded series. A trend needs two scans; this product stores one. The most deceptive of them appended the ONE real number to five invented history points, so it read as a measured climb. */}
                   </div>
 
                   <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff", height: 82, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -8907,7 +8940,7 @@ export function ReaiDashboard({
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2, fontWeight: 500 }}>82% DoFollow ratio</div>
                     </div>
-                    <MiniSparkline data={[80, 85, 92, 110, 115, 128, 140, 148, 160, 180]} color="#3b82f6" width={68} height={28} />
+                    {/* A sparkline was here, fed a hardcoded series. A trend needs two scans; this product stores one. The most deceptive of them appended the ONE real number to five invented history points, so it read as a measured climb. */}
                   </div>
                 </div>
               </div>
@@ -10329,38 +10362,59 @@ export function ReaiDashboard({
                           <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                             <button
                               type="button"
-                              onClick={() => {
-                                const aiTitles: Record<string, { title: string; description: string; targetKw: string }> = {
-                                  "/": {
-                                    title: `${currentBusiness} | Best Hospital & Medical Center in Phnom Penh (2026)`,
-                                    description: `Leading accredited international hospital in Phnom Penh. Providing 24/7 emergency care, modern inpatient wards, diagnostic imaging, and direct insurance billing.`,
-                                    targetKw: "hospital phnom penh",
-                                  },
-                                  "/services/maternity": {
-                                    title: `Best Maternity & Obstetrics Hospital in Phnom Penh | ${currentBusiness}`,
-                                    description: `Award-winning maternity care, 24/7 obstetric monitoring, and Level III NICU. Transparent prenatal screening packages by board-certified obstetricians.`,
-                                    targetKw: "maternity care",
-                                  },
-                                  "/doctors": {
-                                    title: `Top Doctors & Specialist Physicians in Phnom Penh | ${currentBusiness}`,
-                                    description: `Consult with 50+ board-certified international consultant physicians and surgeons. Multilingual care in English, Khmer & French. 24/7 online booking.`,
-                                    targetKw: "specialist physicians",
-                                  },
-                                  "/emergency-24-7": {
-                                    title: `24/7 Emergency Hospital & ICU Ambulance Hotline | ${currentBusiness}`,
-                                    description: `Immediate emergency trauma resuscitation and 24/7 mobile ICU ambulance dispatch. Zero wait-time triage protocols and direct insurance billing in Phnom Penh.`,
-                                    targetKw: "emergency care 24/7",
-                                  },
-                                };
-                                const opt = aiTitles[selectedOnPageUrl] || {
-                                  title: `Top Medical Services & Clinic | ${currentBusiness}`,
-                                  description: `Explore specialized clinical departments at ${currentBusiness}. Modern inpatient wards, rapid diagnostic imaging, and dedicated physician care.`,
-                                  targetKw: "medical services",
-                                };
-                                setSerpCustomMeta((prev) => ({
-                                  ...prev,
-                                  [selectedOnPageUrl]: opt,
-                                }));
+                              // This button said "AI CTR Optimizer" and contained
+                              // no AI. It was a lookup table of four hardcoded
+                              // hospital titles keyed by URL, with a catch-all for
+                              // every other page - including the description
+                              // "Consult with 50+ board-certified international
+                              // consultant physicians", an invented credential
+                              // claim of exactly the kind `claim_provenance_check`
+                              // refuses on a client's site.
+                              //
+                              // It now calls the same Claude route every other
+                              // feature uses, grounded in the page the scan
+                              // actually fetched, and refuses when there is no
+                              // page to rewrite.
+                              disabled={!scannedPage?.title || serpAiBusy}
+                              onClick={async () => {
+                                if (!scannedPage?.title) return;
+                                setSerpAiBusy(true);
+                                setSerpAiError("");
+                                try {
+                                  const res = await authedFetch("/api/content/generate", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      tool: "meta",
+                                      values: { pages: `${scannedPage.url || selectedOnPageUrl} - ${scannedPage.title}` },
+                                      context: {
+                                        domain: currentDomain,
+                                        business: currentBusiness,
+                                        page: scannedPage,
+                                        findings: Object.values(report || {})
+                                          .filter(Array.isArray).flat(),
+                                      },
+                                    }),
+                                  });
+                                  if (!res.ok || !res.body) {
+                                    const j = await res.json().catch(() => ({}));
+                                    setSerpAiError(j.error || `Request failed (${res.status}).`);
+                                    return;
+                                  }
+                                  const reader = res.body.getReader();
+                                  const dec = new TextDecoder();
+                                  let out = "";
+                                  for (;;) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    out += dec.decode(value, { stream: true });
+                                  }
+                                  setSerpAiDraft(out);
+                                } catch (e: any) {
+                                  setSerpAiError(e?.message || "Could not reach Claude.");
+                                } finally {
+                                  setSerpAiBusy(false);
+                                }
                               }}
                               style={{
                                 flex: 1, minWidth: 140, background: "#ffffff", border: "1px solid #c7d2fe",
@@ -10368,7 +10422,7 @@ export function ReaiDashboard({
                                 fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                               }}
                             >
-                              <span>🪄</span> AI CTR Optimizer
+                              <span>🪄</span> {serpAiBusy ? "Claude is writing…" : "Write titles with Claude"}
                             </button>
 
                             <button
@@ -10385,6 +10439,29 @@ export function ReaiDashboard({
                               <span>⚡</span> Apply via Claude Code
                             </button>
                           </div>
+
+                          {!scannedPage?.title && (
+                            <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--ink-muted)", lineHeight: 1.5 }}>
+                              No page scanned yet, so there is no title to rewrite. The preview above shows
+                              the page as fetched; run a scan to fill it.
+                            </div>
+                          )}
+                          {serpAiError && (
+                            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, border: "1px solid #fecaca", background: "#fef2f2", fontSize: 11.5, color: "#991b1b" }}>
+                              {serpAiError}
+                            </div>
+                          )}
+                          {serpAiDraft && (
+                            <pre style={{
+                              marginTop: 8, padding: "10px 12px", borderRadius: 6,
+                              border: "1px solid #e2e8f0", background: "#0f172a", color: "#e2e8f0",
+                              fontSize: 11.5, lineHeight: 1.55, whiteSpace: "pre-wrap",
+                              maxHeight: 260, overflowY: "auto",
+                              fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                            }}>
+                              {serpAiDraft}
+                            </pre>
+                          )}
                         </div>
 
                         {/* ── RIGHT COLUMN: AUTHENTIC SERP & SOCIAL PREVIEW CANVAS ── */}
@@ -11301,7 +11378,10 @@ export function ReaiDashboard({
                   Auto-Fix Action: Schema Injector
                 </span>
                 <h3 style={{ margin: "6px 0 0", fontSize: 17, fontWeight: 700, color: "#1e293b" }}>
-                  LocalBusiness / MedicalOrganization JSON-LD
+                  {/* Was "LocalBusiness / MedicalOrganization JSON-LD" - the
+                      second type is one client's vertical, on every account's
+                      schema generator. */}
+                  LocalBusiness JSON-LD
                 </h3>
               </div>
               <button

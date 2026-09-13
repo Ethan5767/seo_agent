@@ -74,9 +74,9 @@ Every change has been evaluated for maximum search engine rankings (SEO) and mod
   worklist.forEach((item, idx) => {
     md += `### ${idx + 1}. [${item.tierLabel}] ${item.what}
 - **Impact Level:** ${item.impact} (${item.severity.toUpperCase()})
-- **Target File / Location:** \`${item.targetFile || "components/SEOHead.tsx"}\`
-- **Why It Matters:** ${item.why || "Improves organic visibility and indexing efficiency."}
-- **Recommended Action:** ${item.fix || "Update the specified tag or configuration."}
+- **Target File / Location:** ${item.targetFile ? `\`${item.targetFile}\`` : "_Not known from the scan. The finding is on the live page; locate the source that renders it._"}
+- **Why It Matters:** ${item.why || "_No reason recorded for this finding._"}
+- **Recommended Action:** ${item.fix || "_No fix recorded for this finding._"}
 
 \`\`\`html
 <!-- Proposed Fix / Target Code -->
@@ -150,13 +150,17 @@ export async function POST(req: NextRequest) {
             ...impInfo,
             inScope: tInfo.tier <= Number(tier),
             selectedForSprint: tInfo.tier <= Number(tier),
-            targetFile: w.code?.includes("robots")
-              ? "public/robots.txt"
-              : w.code?.includes("schema")
-              ? "components/MedicalBusinessSchema.tsx"
-              : w.code?.includes("canonical") || w.code?.includes("meta")
-              ? "components/SEOHead.tsx"
-              : "src/app/layout.tsx",
+            // `targetFile` used to GUESS a path from the finding code -
+            // "components/SEOHead.tsx", "src/app/layout.tsx", and for anything
+            // mentioning schema, "components/MedicalBusinessSchema.tsx" (one
+            // pilot client's vertical, for every account). Nothing here reads
+            // the client's repository, so every one of those was a file the
+            // brief told a developer to edit that may not exist.
+            //
+            // null is the truth. `wf-site-remediate` knows the real path
+            // because it works inside the checkout and measures the git diff;
+            // this route does not.
+            targetFile: null,
           };
         });
 
@@ -230,15 +234,10 @@ export async function POST(req: NextRequest) {
       ...impInfo,
       inScope,
       selectedForSprint: inScope,
-      targetFile: code.includes("robots")
-        ? "public/robots.txt"
-        : code.includes("schema")
-        ? "components/MedicalBusinessSchema.tsx"
-        : code.includes("canonical") || code.includes("meta") || code.includes("title")
-        ? "components/SEOHead.tsx"
-        : code.includes("crux") || code.includes("perf")
-        ? "src/app/layout.tsx"
-        : "components/SEOHead.tsx",
+      // See the note on the other targetFile above. A guessed path in a
+      // developer brief is worse than no path: it sends someone to a file that
+      // may not exist, and reads as though we looked.
+      targetFile: null,
     });
   }
 
@@ -278,7 +277,15 @@ export async function POST(req: NextRequest) {
     resolved,
     counts,
     executiveSummary,
-    projectedLift: `+${Math.min(28, Math.max(6, sprintItems.length * 2.2)).toFixed(1)}% Organic Visibility`,
+    // `projectedLift` was here: `+${Math.min(28, Math.max(6, sprintItems.length * 2.2))}% Organic Visibility`.
+    // A traffic forecast computed from the NUMBER OF TO-DO ITEMS, floored at 6%
+    // so an empty plan still promised a gain. It shipped in the client-facing
+    // plan response, which makes it the most publishable fabrication in the
+    // codebase - a figure a client puts in a deck.
+    //
+    // Nothing consumes it, and nothing can honestly produce it: forecasting
+    // organic lift needs a baseline, a control and a measured outcome, none of
+    // which this product has. Removed rather than replaced.
     developerBriefMarkdown: brief,
   });
 }

@@ -6,6 +6,60 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **ADD CLIENT lists your GitHub repositories instead of asking you to type one
+  (`web/components/dashboard/RepoPicker.tsx`, `web/app/api/github/repos/route.ts`,
+  `listRepositories` in `web/lib/githubServer.ts`).** The field was a free-text
+  box reading `owner/repo or local path` while the app was already holding a
+  GitHub token with the `repo` scope, requested at sign-in.
+
+  A typo there does not fail where it is made. It writes a client row pointing at
+  a repository that does not exist, and the operator meets it later, on the Gate
+  screen, as **"not found"** - which reads like a permissions problem rather than
+  a misspelling, and sends them hunting for a secret instead of a letter.
+
+  `affiliation=owner,collaborator,organization_member` is the part that matters:
+  **the repositories this product is about are mostly ones the operator does not
+  own.** A client adds them as a collaborator on the client's own repo, so a
+  default listing would miss every real one.
+
+  Three states, rendered as three different things, because they are three
+  different facts:
+
+  | State | Shown as |
+  |---|---|
+  | `repos === null` | we could not ask - with the reason, a retry, and "type it instead" |
+  | `repos === []` | "This GitHub account is not a collaborator on any repository." |
+  | a list | searchable, with Private / Archived / **Read only** badges |
+
+  An empty dropdown that actually means "we never looked" is the same class of
+  lie as a gate that scanned nothing and reported a pass.
+
+  **Read-only is surfaced at selection time.** A client may add the operator with
+  read access only, which is a normal and supported outcome - but finding out at
+  merge time, three screens and one saved client row later, is the bad version of
+  learning it.
+
+  Typing a path by hand stays available and is one click away, including from the
+  failure state: a local checkout is a supported target and no GitHub listing
+  will ever contain one.
+
+  The route takes **no request input at all**, lists only what the operator's own
+  token can already see, authenticates and rate-limits before calling GitHub, and
+  never persists the token - it arrives per-request in `x-github-token`, as the
+  pulls and merge routes already take it. Pagination is bounded at 500 with a
+  `truncated` flag, because silently offering a partial list is how an operator
+  concludes their repo is not there.
+
+  15 tests. **The extraction was forced by a guard, not chosen:** the inline
+  version pushed `ReaiDashboard.tsx` to 13,138 lines and
+  `measure.test.mjs::the dashboard shrank below 13,000 lines` went red. Raising
+  the number would have disarmed a ratchet that exists to drive the file toward
+  AGENTS.md's 1,000-line rule, so the picker moved into its own component
+  instead. The file is now **12,972 lines**.
+
+
 ### Security
 
 - **B-091: `traffic_snapshots` was readable by the entire internet**

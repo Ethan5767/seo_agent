@@ -223,3 +223,80 @@ export async function mergePullRequest(
   }
   return { merged: Boolean(res.merged), sha: res.sha, message: res.message ?? "" };
 }
+
+/* ── Repository listing ─────────────────────────────────────────────────────
+ *
+ * The ADD CLIENT panel asked the operator to TYPE `owner/repo` into a free-text
+ * box, while the app was already holding a GitHub token with the `repo` scope.
+ * Every wrong character produced a client row pointing at a repository that does
+ * not exist, and the failure surfaced later and somewhere else - the Gate screen
+ * reporting "not found", which reads as a permissions problem rather than a typo.
+ *
+ * `affiliation` is the whole point: `collaborator` is how this product works.
+ * A client adds the operator to THEIR repo, so the repositories that matter are
+ * mostly ones the operator does not own and would never find under a list of
+ * their own. `organization_member` covers the agency-owned case.
+ */
+
+export type RepoSummary = {
+  fullName: string;
+  name: string;
+  owner: string;
+  private: boolean;
+  defaultBranch: string;
+  updatedAt: string;
+  description: string | null;
+  /** False for a repo the operator can read but not write. Merging needs push. */
+  canPush: boolean;
+  /** True when the operator can change branch protection and secrets. */
+  isAdmin: boolean;
+  archived: boolean;
+};
+
+/**
+ * Every repository this token can reach, newest activity first.
+ *
+ * Paginated to a hard ceiling rather than "all": an operator on a large org can
+ * have thousands, and a picker that waits for all of them is a picker nobody
+ * waits for. The response says whether it was truncated so the UI can tell the
+ * operator to type the name instead of silently offering a partial list - the
+ * same rule the gates run on, that an incomplete scan must not look complete.
+ */
+export async function listRepositories(
+  token: string, opts: { maxPages?: number } = {},
+): Promise<{ repos: RepoSummary[]; truncated: boolean } | GhError> {
+  const perPage = 100;
+  const maxPages = Math.min(Math.max(opts.maxPages ?? 5, 1), 10);
+  const out: RepoSummary[] = [];
+  let truncated = false;
+
+  for (let page = 1; page <= maxPages; page++) {
+    const raw = await gh<any[]>(
+      `/user/repos?per_page=${perPage}&page=${page}&sort=updated&direction=desc` +
+      `&affiliation=owner,collaborator,organization_member`,
+      token,
+    );
+    if (isGhError(raw)) return raw;
+    if (!Array.isArray(raw)) break;
+
+    for (const r of raw) {
+      out.push({
+        fullName: r.full_name ?? "",
+        name: r.name ?? "",
+        owner: r.owner?.login ?? "",
+        private: Boolean(r.private),
+        defaultBranch: r.default_branch ?? "main",
+        updatedAt: r.pushed_at || r.updated_at || "",
+        description: r.description ?? null,
+        canPush: Boolean(r.permissions?.push),
+        isAdmin: Boolean(r.permissions?.admin),
+        archived: Boolean(r.archived),
+      });
+    }
+
+    if (raw.length < perPage) return { repos: out, truncated: false };
+    if (page === maxPages) truncated = true;
+  }
+
+  return { repos: out, truncated };
+}

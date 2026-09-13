@@ -30,6 +30,7 @@ import { ContentPanel } from "@/components/dashboard/ContentPanel";
 import { GscPanel } from "@/components/dashboard/GscPanel";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
+import { RepoPicker } from "@/components/dashboard/RepoPicker";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import { MeasureScreen } from "@/components/dashboard/MeasureScreen";
 import {
@@ -11200,18 +11201,12 @@ Sitemap: https://${currentDomain}/sitemap.xml
               </div>
 
               {newModel === "B" && (
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                    GitHub Repository (owner/repo)
-                  </label>
-                  <input
-                    type="text"
-                    value={newRepo}
-                    onChange={(e) => setNewRepo(e.target.value)}
-                    placeholder="owner/repo or local path"
-                    style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-                  />
-                </div>
+                <RepoPicker
+                  value={newRepo}
+                  onChange={setNewRepo}
+                  getToken={githubToken}
+                  open={showNewProjectModal}
+                />
               )}
 
               <div style={{ marginBottom: 16 }}>

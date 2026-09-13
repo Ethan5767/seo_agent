@@ -6,6 +6,29 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Security
+
+- **B-091 is closed on the live database, not just in the repo.** The operator
+  ran `web/migrations/RUN-THIS.sql` in the Supabase SQL editor on 2026-09-13.
+  Verified from outside immediately afterwards, with the PUBLIC anon key, which
+  is the only check that would have caught the original defect:
+
+  ```
+                       BEFORE            AFTER
+  traffic_snapshots    anon 0-2/170      anon */0
+  orphan rows          170               0
+  remediations         PGRST205 MISSING  HTTP 200
+  ```
+
+  All ten per-user tables now return `*/0` to the anon key. Real data untouched:
+  clients 2, scans 2, findings 94, scan_tools 22. `npm run db:check` prints
+  **In sync. No migrations outstanding.**
+
+  `remediations` existing also means Change History stops being permanently
+  empty: `lib/db.ts` swallowed `42P01`/`PGRST205` so a missing table and a client
+  with no fixes applied looked identical.
+
+
 ### Added
 
 - **`npm run db:check` — is the live database what the schema says it is?**

@@ -6,6 +6,78 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **"Fix with Claude" — findings in, the actual fix out**
+  (`web/lib/fixAdvisor.ts`, `web/app/api/fix/advise/route.ts`,
+  `web/components/dashboard/FixWithClaude.tsx`). The operator's argument, and it
+  settles the design: *"everything should use Claude, that's why it's automate -
+  if a human does it anyway, why call it automate."*
+
+  Every screen measured something and then stopped. The Local screen could say
+  there is no `PostalAddress` in the structured data; it could not write the
+  JSON-LD. That gap is where the automation claim died, because the operator
+  still had to go and do the work by hand.
+
+  **Deliberately generic.** It takes findings, not a screen, so Local, AEO,
+  Technical and Content get one component rather than four that drift apart. A
+  test asserts the component never names a screen.
+
+  Three rules, and they are the ones that stop it becoming the most convincing
+  fabrication in the product - a model will happily write a detailed, confident
+  fix plan for a site nobody has measured:
+
+  1. **No findings, no advice.** An empty list is *refused*, and refused before
+     the model is spawned, so saying no costs nothing.
+  2. **Derivation, never invention.** Address, phone, hours, coordinates,
+     rating, review count, licence number, price, year founded - each named
+     individually in the system prompt, each returned as `[confirm: ...]` when
+     absent. *"A block with placeholders is useful and safe. A block with an
+     invented address sends a real customer to the wrong building."*
+  3. **Findings are data, not instructions.** `detail` routinely quotes the
+     scanned page, so a finding row is untrusted text wearing a measurement's
+     clothes. Same fencing as `contentTools.ts`, with tests for a forged end
+     marker and a newline injection.
+
+  Two more constraints worth naming: the output must be **the fix, not advice
+  about it** ("Consider adding..." is a failed answer), and a finding that lives
+  in Google Business Profile rather than the repo must say so rather than being
+  dressed up as a code change. `--allowedTools ""`, because editing a repo is
+  remediation's lane - inside a declared tier, with the gates watching.
+
+  22 tests. **One of them caught its own prompt:** "opening hours" was split
+  across a line wrap, which is weaker instruction to a model and unassertable
+  from a test. Every banned term is now contiguous.
+
+### Fixed
+
+- **B-097: the Google Business Profile matrix claimed four things it had not
+  measured** (`web/components/dashboard/GbpMatrix.tsx`).
+
+  ```js
+  const isClaimed = claimedFinding ? claimedFinding.severity !== "warn" : true;
+  ```
+
+  **Absence meant claimed.** An account that had never run the Local tool was
+  told its profile was claimed and active. Alongside it: `"Verified"` printed
+  unconditionally beside a status that could read *Needs Setup*; `"Trust Signal"`
+  beside a rating that could read *Not measured*; `"Rank #1"` beside a primary
+  category, when nothing measures a category's rank and a category is not a
+  ranking; a radial gauge fed **100-or-50 from a boolean**; a hardcoded `🏥` on
+  every client; and a `MiniSparkline` fed `[4.1, 4.3, 4.5, 4.6, 4.7, 4.8]` - **an
+  invented rating trend, drawn as a real chart.** One scan is a point, not a
+  line, and nothing stores a rating history to draw one from.
+
+  Also the `Live Signals` badge, green whether or not anything had been measured.
+
+  Three states everywhere now, never two. Nothing unmeasured is green, and
+  nothing unmeasured is *drawn* - the gauge and the sparkline are absent rather
+  than fed a placeholder.
+
+  The extraction into `GbpMatrix` was forced: mounting Fix with Claude pushed
+  `ReaiDashboard.tsx` to 13,031 and the ratchet went red. Now **12,829**.
+
+
 ### Changed
 
 - **The four directories nobody can check are gone from the Local screen, and

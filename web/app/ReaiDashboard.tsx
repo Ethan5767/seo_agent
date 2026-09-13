@@ -36,6 +36,8 @@ import { AeoAccessPanel } from "@/components/dashboard/AeoAccessPanel";
 import { AeoCrawlerTable } from "@/components/dashboard/AeoCrawlerTable";
 import { deriveDirectories, directoryLabel, directoryColor, directorySummary } from "@/lib/localSignals";
 import { GateActivity } from "@/components/dashboard/GateActivity";
+import { FixWithClaude } from "@/components/dashboard/FixWithClaude";
+import { GbpMatrix } from "@/components/dashboard/GbpMatrix";
 import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import { MeasureScreen } from "@/components/dashboard/MeasureScreen";
@@ -7759,9 +7761,24 @@ export function ReaiDashboard({
                       <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "#1e293b" }}>
                         Local SEO & Google Business Profile (GBP) Matrix
                       </h4>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "1px 6px", borderRadius: 3 }}>
-                        Live Signals
-                      </span>
+                      {(() => {
+                        // Read "Live Signals" in green whether or not anything had
+                        // been measured. The badge IS the claim.
+                        const live = ((report?.gbp || []) as any[]).length
+                          || ((report?.mentions || []) as any[]).length
+                          || ((report?.local || []) as any[]).length;
+                        return (
+                          <span style={{
+                            fontSize: 12, fontWeight: 700,
+                            color: live ? "var(--ok)" : "#64748b",
+                            background: live ? "#ecfdf5" : "#f1f5f9",
+                            border: `1px solid ${live ? "#a7f3d0" : "#e2e8f0"}`,
+                            padding: "1px 6px", borderRadius: 3,
+                          }}>
+                            {live ? "Live signals" : "Nothing measured yet"}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
                       Local search presence, Map Pack rank, NAP consistency, and citations for <b>{currentBusiness}</b>
@@ -7801,195 +7818,24 @@ export function ReaiDashboard({
                   const sentimentFinding = mentionsRows.find((r) => r.what?.toLowerCase().includes("sentiment"));
                   const schemaBizFinding = aeoRows.find((r) => r.what?.toLowerCase().includes("localbusiness") || r.code?.includes("schema_business"));
 
-                  const isClaimed = claimedFinding ? claimedFinding.severity !== "warn" : true;
-                  const gbpStatusText = profileFinding?.severity === "warn" ? "Needs Setup" : (isClaimed ? "Claimed & Active" : "Unclaimed");
+                  // B-097. `claimedFinding ? ... : true` - absence meant CLAIMED, so
+                  // an account that had never run the Local tool was told its
+                  // Google Business Profile was claimed and active. Three states,
+                  // and "we did not ask" is one of them.
+                  const gbpMeasured = Boolean(profileFinding || claimedFinding);
+                  const gbpStatusText = !gbpMeasured ? "Not measured"
+                    : profileFinding?.severity === "warn" ? "Needs setup"
+                    : claimedFinding?.severity === "warn" ? "Unclaimed"
+                    : "Claimed & active";
+                  const gbpOk = gbpStatusText === "Claimed & active";
+                  const gbpColor = !gbpMeasured ? "#64748b" : gbpOk ? "var(--ok)" : "#d97706";
                   const gbpRatingText = reviewFinding?.detail || "Not measured";
                   const primaryCategoryText = catFinding?.detail || "Not measured";
                   const mentionsCount = mentionFinding?.detail || "0";
 
                   return (
                     <>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
-                        <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 82 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>GBP Status</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: gbpStatusText.includes("Active") ? "var(--ok)" : "#d97706" }}>Verified</span>
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 4 }}>
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 700, color: gbpStatusText.includes("Active") ? "var(--ok)" : "#d97706", lineHeight: 1.1 }}>
-                                {gbpStatusText}
-                              </div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>Google Maps listed</div>
-                            </div>
-                            <MiniRadialGauge score={gbpStatusText.includes("Active") ? 100 : 50} size={30} color={gbpStatusText.includes("Active") ? "var(--ok)" : "#d97706"} />
-                          </div>
-                        </div>
-
-                        <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 82 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Rating & Reviews</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)" }}>Trust Signal</span>
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 4 }}>
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", lineHeight: 1.1 }}>
-                                {gbpRatingText}
-                              </div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>Active reviews</div>
-                            </div>
-                            <MiniSparkline data={[4.1, 4.3, 4.5, 4.6, 4.7, 4.8]} color="var(--ok)" width={52} height={22} />
-                          </div>
-                        </div>
-
-                        <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 82 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Primary Category</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5" }}>Rank #1</span>
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 4 }}>
-                            <div>
-                              <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                {primaryCategoryText}
-                              </div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>Core category</div>
-                            </div>
-                            <span style={{ fontSize: 16 }}>🏥</span>
-                          </div>
-                        </div>
-
-                        <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 82 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Web Mentions</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5" }}>Reach</span>
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 4 }}>
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", lineHeight: 1.1 }}>
-                                {mentionsCount}
-                              </div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>
-                                {sentimentFinding?.detail || "Positive-leaning"}
-                              </div>
-                            </div>
-                            <MiniSegmentBar
-                              height={5}
-                              segments={[] /* was a hardcoded sentiment split */}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 2-Column Deep Dive */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                        {/* Column 1: Map Pack & Schema */}
-                        <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", background: "#ffffff" }}>
-                          <h4 style={{ margin: "0 0 10px", fontSize: 13.5, fontWeight: 700, color: "#1e293b", display: "flex", alignItems: "center", gap: 6 }}>
-                            <IconMapPin size={16} /> Map Pack & On-Page Signals
-                          </h4>
-
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #edf0f4" }}>
-                              <div>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>NAP Consistency (Name, Address, Phone)</div>
-                                <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                                  Consistent across Google Maps and footer
-                                </div>
-                              </div>
-                              <span style={{
-                                fontSize: 12, fontWeight: 700,
-                                color: napFinding?.severity === "warn" ? "#d97706" : "#047857",
-                                background: napFinding?.severity === "warn" ? "#fffbeb" : "#ecfdf5",
-                                border: `1px solid ${napFinding?.severity === "warn" ? "#fde68a" : "#a7f3d0"}`,
-                                padding: "2px 6px", borderRadius: 4,
-                              }}>
-                                {napFinding?.severity === "warn" ? "Attention" : "Verified ✓"}
-                              </span>
-                            </div>
-
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #edf0f4" }}>
-                              <div>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>LocalBusiness JSON-LD Schema</div>
-                                <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                                  Physical address & geo coordinates schema
-                                </div>
-                              </div>
-                              <span style={{
-                                fontSize: 12, fontWeight: 700,
-                                color: schemaBizFinding?.severity === "warn" || schemaBizFinding?.code?.includes("missing") ? "#d97706" : "#047857",
-                                background: schemaBizFinding?.severity === "warn" || schemaBizFinding?.code?.includes("missing") ? "#fffbeb" : "#ecfdf5",
-                                border: `1px solid ${schemaBizFinding?.severity === "warn" || schemaBizFinding?.code?.includes("missing") ? "#fde68a" : "#a7f3d0"}`,
-                                padding: "2px 6px", borderRadius: 4,
-                              }}>
-                                {schemaBizFinding?.severity === "warn" || schemaBizFinding?.code?.includes("missing") ? "Needs Schema" : "Implemented ✓"}
-                              </span>
-                            </div>
-
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #edf0f4" }}>
-                              <div>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>Google Map Embed & Coordinates</div>
-                                <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                                  {/* B-096. Read "Ready ✓" unconditionally. Nothing
-                                      reads a geo value or looks for a Maps iframe. */}
-                                  No coordinates have been read for this site
-                                </div>
-                              </div>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b", background: "#f1f5f9", border: "1px solid #e2e8f0", padding: "2px 6px", borderRadius: 4 }}>
-                                Not measured
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Column 2: Web Mentions & Sentiment */}
-                        <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", background: "#ffffff" }}>
-                          <h4 style={{ margin: "0 0 10px", fontSize: 13.5, fontWeight: 700, color: "#1e293b", display: "flex", alignItems: "center", gap: 6 }}>
-                            <IconGlobe size={16} /> Brand Mentions & Sentiment
-                          </h4>
-
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            <div style={{ padding: "8px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #edf0f4" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>Brand Reach Analysis</span>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5" }}>{mentionsCount} web sources</span>
-                              </div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                                News, blogs, and local directory mentions for {currentBusiness}.
-                              </div>
-                            </div>
-
-                            <div style={{ padding: "8px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #edf0f4" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>Sentiment Distribution</span>
-                                <span style={{
-                                  fontSize: 12, fontWeight: 700,
-                                  color: sentimentFinding?.detail ? "var(--ok)" : "#64748b",
-                                  background: sentimentFinding?.detail ? "#ecfdf5" : "#f1f5f9",
-                                  border: `1px solid ${sentimentFinding?.detail ? "#a7f3d0" : "#e2e8f0"}`,
-                                  padding: "1px 6px", borderRadius: 3,
-                                }}>
-                                  {sentimentFinding?.detail || "Not measured"}
-                                </span>
-                              </div>
-                              <MiniSegmentBar
-                                height={6}
-                                segments={[] /* was a hardcoded sentiment split */}
-                              />
-                              {/* B-096. These three read 85% / 12% / 3% as literals.
-                                  The bar above them was emptied in an earlier pass
-                                  with a comment saying so, and the labels under it
-                                  were left behind - so the chart was honest and the
-                                  numbers beside it were not. Nothing computes a
-                                  sentiment split. */}
-                              <div style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.45 }}>
-                                {sentimentFinding?.detail
-                                  ? "From the brand-mentions tool."
-                                  : "No sentiment split is measured. The mentions tool reports how many sources mention the brand, not how they feel about it."}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      <GbpMatrix gbpRows={gbpRows} mentionsRows={mentionsRows} />
 
                       {/* Directory Citations & NAP Sync Matrix */}
                       <div style={{ marginTop: 14, marginBottom: 14, border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", background: "#f8fafc" }}>
@@ -8149,6 +7995,19 @@ export function ReaiDashboard({
                             </div>
                           );
                         })()}
+
+                        {/* The half that was missing. Every screen measured
+                            something and then stopped, leaving the operator to do
+                            the work by hand - which is the definition of not
+                            automated. Fed the SAME rows the table above shows, so
+                            it can never advise on something the reader cannot
+                            see. */}
+                        <FixWithClaude
+                          findings={[...gbpRows, ...mentionsRows, ...((report?.local || []) as any[])]}
+                          business={currentBusiness}
+                          domain={currentDomain}
+                          label="Fix these local issues with Claude"
+                        />
                       </div>
                     </>
                   );

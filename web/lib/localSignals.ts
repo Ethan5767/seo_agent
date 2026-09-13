@@ -20,21 +20,35 @@
  * dashboard. The category and the country code were one pilot client's, shown to
  * every account.
  *
- * THE HONEST MATRIX. Four of those six directories cannot be checked by anyone,
- * at any price, because they publish no read API:
+ * WHAT SHIPS, AND WHY THE OTHER FOUR ARE GONE.
  *
  *   Google Business Profile   CHECKABLE  - DataForSEO Business Data (paid), or
  *                                          Google's own API via OAuth (free,
  *                                          but Google must allowlist the app)
+ *   On-page local signals     CHECKABLE  - free, from the HTML already fetched:
+ *                                          Maps embed, click-to-call, address,
+ *                                          geo coordinates, opening hours
+ *                                          (`local.*` rows from the scanner)
  *   Yelp                      BUILDABLE  - Yelp Fusion API, free tier, read
  *                                          only. Not built; needs a key.
+ *
  *   Bing Places               NO API     - management only, no public read
  *   Apple Business Connect    NO API     - management only, no public read
  *   Waze                      NO API     - listings come from Google data
  *   YellowPages               NO API     - scraping only, and unreliable
  *
- * Saying "no public API" is not a failure to report. It is the only honest thing
- * to say, and it stops an operator promising a client a sync that cannot exist.
+ * Those last four were first shown honestly as "No public API", then REMOVED on
+ * the operator's call: a tile that can only ever say "nobody can check this" is
+ * four-sixths of a screen spent on things no one can act on.
+ *
+ * The list is kept here on purpose. It is the answer to "why is Bing missing",
+ * and without it the next person to ask will add the tiles back - which is
+ * exactly how six fabricated "Synced" badges got here in the first place.
+ *
+ * Removing a lie leaves a gap. `local.*` is what fills it: five signals that
+ * cost nothing, need no credential, and are true of the page we fetched. What a
+ * third-party directory says is between the client and that directory. What the
+ * client's own page says is ours to check, and ours to fix.
  */
 
 export type LocalRow = { code?: string; what?: string; detail?: string; severity?: string; why?: string; fix?: string };
@@ -63,10 +77,27 @@ function gbpVerdict(rows: LocalRow[]): "ok" | "problem" | null {
   return gbp.every((r) => r.severity === "ok") ? "ok" : "problem";
 }
 
+/** The free, page-derived local signals. Same three-state rule as the rest. */
+function pageVerdict(rows: LocalRow[]): "ok" | "problem" | null {
+  const local = rows.filter((r) => (r.code || "").startsWith("local."));
+  if (local.length === 0) return null;
+  // `info` is a fact, not a verdict - geo coordinates are optional, so an
+  // absent one must not make the whole tile read as a failure.
+  const graded = local.filter((r) => r.severity !== "info");
+  if (graded.length === 0) return null;
+  return graded.every((r) => r.severity === "ok") ? "ok" : "problem";
+}
+
 export function deriveDirectories(rows: LocalRow[] | null | undefined): Directory[] {
   const list = Array.isArray(rows) ? rows.filter((r) => r && typeof r === "object") : [];
   const google = gbpVerdict(list);
+  const page = pageVerdict(list);
 
+  // Bing Places, Apple Business Connect, Waze and YellowPages were removed
+  // outright on the operator's call: a tile that can only ever say "no public
+  // API" is four-sixths of a screen spent on things nobody can do anything
+  // about. The reason is kept in this module's docstring so a future session
+  // cannot "restore" them as green tiles - which is exactly how they got here.
   return [
     {
       name: "Google Business Profile",
@@ -74,10 +105,21 @@ export function deriveDirectories(rows: LocalRow[] | null | undefined): Director
       state: google === null ? "unchecked" : google,
       note:
         google === null
-          ? "Run the Local tool, or connect Google, to read the live profile."
+          ? "Run a scan with the Local tool, or connect Google, to read the live profile."
           : google === "ok"
             ? "Profile read: rating, category and NAP all present."
             : "The profile is missing something. See the checklist below.",
+    },
+    {
+      name: "On-page local signals",
+      icon: "🗺️",
+      state: page === null ? "unchecked" : page,
+      note:
+        page === null
+          ? "Free with every scan: Maps embed, click-to-call, address, geo coordinates and opening hours."
+          : page === "ok"
+            ? "Map embed, click-to-call and structured address, geo and hours all present."
+            : "Something a local searcher looks for is missing from the page. See the checklist below.",
     },
     {
       name: "Yelp",
@@ -85,14 +127,6 @@ export function deriveDirectories(rows: LocalRow[] | null | undefined): Director
       state: "not-built",
       note: "Checkable through the Yelp Fusion API (free, read-only). Not built yet - it needs an API key.",
     },
-    { name: "Bing Places", icon: "🌐", state: "no-api",
-      note: "No public read API. Bing Places is management-only; no tool can verify this listing." },
-    { name: "Apple Business Connect", icon: "🍏", state: "no-api",
-      note: "No public read API. Apple publishes no way to query a listing's state." },
-    { name: "Waze", icon: "🚗", state: "no-api",
-      note: "No public API, and Waze listings are sourced from Google data anyway." },
-    { name: "YellowPages", icon: "📞", state: "no-api",
-      note: "No public API. Only scraping, which is unreliable and not worth reporting on." },
   ];
 }
 
@@ -122,6 +156,5 @@ export function directorySummary(dirs: Directory[]): string {
   const checkable = dirs.filter((d) => d.state === "ok" || d.state === "problem");
   if (checkable.length === 0) return "None checked yet";
   const ok = checkable.filter((d) => d.state === "ok").length;
-  const impossible = dirs.filter((d) => d.state === "no-api").length;
-  return `${ok}/${checkable.length} verified · ${impossible} cannot be checked by any tool`;
+  return `${ok}/${checkable.length} verified`;
 }

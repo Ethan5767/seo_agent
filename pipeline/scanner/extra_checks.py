@@ -176,6 +176,80 @@ def video_rows(html: str) -> list[dict]:
                  detail=f"{n} video(s)")]
 
 
+#: Local signals we can read from the page itself, for free, on every scan.
+#:
+#: B-096 removed four directory tiles that claimed "Synced" for Apple Maps, Bing
+#: Places, Waze and YellowPages - none of which publishes a read API, so no tool
+#: can verify them at any price. Removing a lie leaves a gap, and the honest way
+#: to fill it is with signals that ARE readable: the page is already fetched, so
+#: these cost nothing and need no credential.
+#:
+#: They are deliberately about the SITE, not about a directory listing. What a
+#: third-party directory says is between the client and that directory; what the
+#: client's own page says is ours to check and ours to fix.
+_local_row = make_row("local")
+
+_MAPS_EMBED_RE = re.compile(
+    r"<iframe[^>]+src=[\"'][^\"']*(?:google\.[a-z.]+/maps/embed|maps\.google\.[a-z.]+)", re.IGNORECASE)
+_TEL_RE = re.compile(r'href=[\"\']tel:([^\"\']+)', re.IGNORECASE)
+_POSTAL_RE = re.compile(r'"@type"\s*:\s*"PostalAddress"', re.IGNORECASE)
+_GEO_RE = re.compile(r'"@type"\s*:\s*"GeoCoordinates"', re.IGNORECASE)
+_OPENING_RE = re.compile(r'"openingHours(?:Specification)?"\s*:', re.IGNORECASE)
+
+
+def local_rows(html: str) -> list[dict]:
+    """Local-intent signals on the page. Free, and true of the page we fetched.
+
+    Every row is derived from the HTML in hand. Nothing here asks a directory
+    what it thinks, because four of the six directories this product used to
+    display cannot be asked.
+    """
+    h = html or ""
+    rows: list[dict] = []
+
+    has_map = _MAPS_EMBED_RE.search(h) is not None
+    rows.append(_local_row(
+        "Google Maps embed", "ok" if has_map else "warn",
+        "A Google Maps embed is on the page, which confirms a physical location and gives visitors directions."
+        if has_map else
+        "No Google Maps embed found. A map is the clearest signal to a visitor - and to Google - that this is a real place.",
+        "passing" if has_map else "embed the Google Maps iframe for the business location on the contact page"))
+
+    tel = _TEL_RE.search(h)
+    rows.append(_local_row(
+        "Click-to-call link", "ok" if tel else "warn",
+        "A tel: link is present, so a phone tap dials directly." if tel else
+        "No tel: link. A phone number that is only text cannot be tapped to dial on a phone, which is where most local searches happen.",
+        "passing" if tel else "wrap the phone number in a tel: link",
+        detail=(tel.group(1).strip()[:40] if tel else "")))
+
+    has_addr = _POSTAL_RE.search(h) is not None
+    rows.append(_local_row(
+        "Address in structured data", "ok" if has_addr else "warn",
+        "A PostalAddress is declared in JSON-LD, so search engines can read the address as an address rather than guessing at text."
+        if has_addr else
+        "No PostalAddress in the page's structured data. Search engines have to infer the address from prose, which they often get wrong.",
+        "passing" if has_addr else "add a PostalAddress to the LocalBusiness JSON-LD"))
+
+    has_geo = _GEO_RE.search(h) is not None
+    rows.append(_local_row(
+        "Geo coordinates", "ok" if has_geo else "info",
+        "GeoCoordinates are declared, which is what 'near me' matching reads."
+        if has_geo else
+        "No GeoCoordinates in the structured data. Optional, but it is the most direct input to 'near me' proximity matching.",
+        "passing" if has_geo else "add GeoCoordinates (latitude, longitude) to the LocalBusiness JSON-LD"))
+
+    has_hours = _OPENING_RE.search(h) is not None
+    rows.append(_local_row(
+        "Opening hours", "ok" if has_hours else "warn",
+        "Opening hours are declared in structured data, so Google can show open/closed state in results."
+        if has_hours else
+        "No opening hours in structured data. Google cannot show an open/closed state, which is what a local searcher is usually checking.",
+        "passing" if has_hours else "add openingHoursSpecification to the LocalBusiness JSON-LD"))
+
+    return rows
+
+
 # ── Internal link structure (SOP Measure) — page-level anchor quality ────────
 
 _A_FULL = re.compile(r'<a\b([^>]*)>(.*?)</a>', re.IGNORECASE | re.DOTALL)

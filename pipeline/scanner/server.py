@@ -26,7 +26,7 @@ from pipeline.audit.providers import crux_metrics
 from pipeline.scanner import audit as A
 from pipeline.scanner import recommendations
 from pipeline.scanner import dataforseo
-from pipeline.scanner.extra_checks import tech_rows, internal_link_rows
+from pipeline.scanner.extra_checks import tech_rows, internal_link_rows, local_rows
 from pipeline.scanner import onpage
 from pipeline.scanner import source_audit
 from pipeline.scanner import onpage_audit
@@ -128,6 +128,12 @@ TOOLS = [
          lambda c: youtube.video_rows_full(c.html, key=os.environ.get("YOUTUBE_API_KEY", ""))),
     Tool("Trust (E-E-A-T)", "eeat", "Trust & E-E-A-T", "free", "free", 0.0, None,
          lambda c: (eeat_rows(c.html), None, 0.0)),
+    # Free local signals, read from the page we already fetched. Added when
+    # B-096 removed four directory tiles that claimed "Synced" for Apple Maps,
+    # Bing Places, Waze and YellowPages - none of which publishes a read API.
+    # Removing a lie leaves a gap; these fill it with things that are true.
+    Tool("Local signals", "local", "Local", "free", "free", 0.0, None,
+         lambda c: (local_rows(c.html), None, 0.0)),
     Tool("AI visibility (AEO)", "aeo", "AEO (AI search)", "free", "free", 0.0, None,
          lambda c: (A.aeo_rows(c.robots, c.html), None, 0.0)),
     Tool("AI citations (DataForSEO)", "ai", "AEO (AI search)", "dataforseo", "~$0.11", 0.11, None,

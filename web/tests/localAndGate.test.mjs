@@ -17,16 +17,32 @@ const { deriveDirectories, directoryLabel, directoryColor, directorySummary } =
 
 /* ── Local: what can be checked, and what nobody can ─────────────────────── */
 
-test("a directory nobody can query is never reported as synced", () => {
-  // Apple Maps, Bing Places, Waze and YellowPages all read "Synced" as literals.
-  // None of them publishes a read API, so no tool at any price can verify them.
-  const dirs = deriveDirectories([]);
+test("the directories nobody can query are not shown at all", () => {
+  // They were literals reading "Synced". Then they were honest "No public API"
+  // tiles. Then they were removed on the operator's call: a tile that can only
+  // ever say "nobody can check this" is screen spent on nothing actionable.
+  const names = deriveDirectories([]).map((d) => d.name);
+  for (const gone of ["Bing Places", "Apple Business Connect", "Waze", "YellowPages",
+                      "Apple Maps", "Google Maps", "Yelp Biz"]) {
+    assert.ok(!names.includes(gone), `${gone} is back on the screen`);
+  }
+  assert.deepEqual(names, ["Google Business Profile", "On-page local signals", "Yelp"]);
+});
+
+test("the reason they are gone survives in the source", () => {
+  // Without it the next person to ask "where is Bing?" adds the tiles back -
+  // which is exactly how six fabricated "Synced" badges got here.
+  const src = read("lib/localSignals.ts");
   for (const name of ["Bing Places", "Apple Business Connect", "Waze", "YellowPages"]) {
-    const d = dirs.find((x) => x.name === name);
-    assert.ok(d, `${name} missing from the matrix`);
-    assert.equal(d.state, "no-api", `${name} claims a checkable state`);
-    assert.equal(directoryLabel(d.state), "No public API");
-    assert.notEqual(directoryColor(d.state), "#047857", "never green for the unmeasurable");
+    assert.ok(src.includes(name), `${name}'s reason is not recorded anywhere`);
+  }
+  assert.match(src, /NO API/);
+});
+
+test("nothing unmeasured is ever coloured as a pass", () => {
+  for (const d of deriveDirectories([])) {
+    if (d.state === "ok") continue;
+    assert.notEqual(directoryColor(d.state), "#047857", `${d.name} is green without a measurement`);
   }
 });
 
@@ -53,9 +69,46 @@ test("Yelp is honest about being buildable but not built", () => {
 test("the count never implies a denominator it did not check", () => {
   // The badge was the literal "5/6 Verified Active".
   assert.equal(directorySummary(deriveDirectories([])), "None checked yet");
-  const s = directorySummary(deriveDirectories([{ code: "gbp.nap", severity: "ok" }]));
-  assert.match(s, /^1\/1 verified/);
-  assert.match(s, /4 cannot be checked by any tool/);
+  assert.equal(directorySummary(deriveDirectories([{ code: "gbp.nap", severity: "ok" }])), "1/1 verified");
+  assert.equal(
+    directorySummary(deriveDirectories([
+      { code: "gbp.nap", severity: "ok" },
+      { code: "local.google_maps_embed", severity: "warn" },
+    ])),
+    "1/2 verified",
+  );
+});
+
+test("the free page signals are their own tile, and grade themselves", () => {
+  const none = deriveDirectories([]).find((d) => d.name === "On-page local signals");
+  assert.equal(none.state, "unchecked");
+
+  const ok = deriveDirectories([
+    { code: "local.google_maps_embed", severity: "ok" },
+    { code: "local.opening_hours", severity: "ok" },
+  ]).find((d) => d.name === "On-page local signals");
+  assert.equal(ok.state, "ok");
+
+  const bad = deriveDirectories([
+    { code: "local.google_maps_embed", severity: "ok" },
+    { code: "local.opening_hours", severity: "warn" },
+  ]).find((d) => d.name === "On-page local signals");
+  assert.equal(bad.state, "problem");
+});
+
+test("an optional signal does not fail the tile on its own", () => {
+  // Geo coordinates are emitted as `info`, not `warn`: they are genuinely
+  // optional, and grading them would make a good page read as broken.
+  const t = deriveDirectories([
+    { code: "local.google_maps_embed", severity: "ok" },
+    { code: "local.geo_coordinates", severity: "info" },
+  ]).find((d) => d.name === "On-page local signals");
+  assert.equal(t.state, "ok");
+
+  const onlyInfo = deriveDirectories([{ code: "local.geo_coordinates", severity: "info" }])
+    .find((d) => d.name === "On-page local signals");
+  assert.equal(onlyInfo.state, null === onlyInfo.state ? onlyInfo.state : "unchecked",
+    "info alone is a fact, not a verdict");
 });
 
 test("every directory note says why, not just what", () => {

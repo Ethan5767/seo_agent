@@ -43,6 +43,14 @@ STATIC_CHECKS: dict[str, list[str]] = {
         "Author / expertise", "Contact / trust", "Policy links", "Social proof",
         "Authoritativeness", "Citation-ready formatting",
     ],
+    # Free local signals, read from the page itself. Added when B-096 removed
+    # four directory tiles that claimed "Synced" for Apple Maps, Bing Places,
+    # Waze and YellowPages - none of which publishes a read API, so nothing
+    # could ever have verified them. These are the things that ARE readable.
+    "local": [
+        "Google Maps embed", "Click-to-call link", "Address in structured data",
+        "Geo coordinates", "Opening hours",
+    ],
     # The 28 deep single-page checks. Fixed labels, so the drift test asserts
     # every one of them is really emitted.
     "onpage": [

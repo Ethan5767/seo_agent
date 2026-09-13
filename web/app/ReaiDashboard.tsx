@@ -7788,7 +7788,7 @@ export function ReaiDashboard({
                 {(() => {
                   const gbpRows = (report?.gbp || []) as Array<any>;
                   // B-096. What can actually be checked, and what nobody can.
-                  const localDirectories = deriveDirectories([...(report?.gbp || []), ...(report?.mentions || [])] as any[]);
+                  const localDirectories = deriveDirectories([...(report?.gbp || []), ...(report?.mentions || []), ...(report?.local || [])] as any[]);
                   const mentionsRows = (report?.mentions || []) as Array<any>;
                   const aeoRows = (report?.aeo || []) as Array<any>;
 
@@ -8064,7 +8064,7 @@ export function ReaiDashboard({
                           // with no source is the exact claim
                           // claim_provenance_check refuses on a CLIENT's site,
                           // printed by our own dashboard.
-                          const activeLocalRows = [...gbpRows, ...mentionsRows];
+                          const activeLocalRows = [...gbpRows, ...mentionsRows, ...((report?.local || []) as any[])];
                           if (activeLocalRows.length === 0) {
                             return (
                               <div style={{

@@ -163,3 +163,68 @@ def test_every_video_tool_row_reaches_the_video_view():
          "contentDetails": {"duration": "PT1M"}},
     ]}, None), key="fake-key-not-used-by-the-stub")
     assert {r["code"] for r in rows} == {"video.video_snippets", "video.video_metadata"}
+
+
+# ── B-096: free local signals, read from the page ────────────────────────────
+
+def test_local_rows_are_stamped_for_the_local_view():
+    from pipeline.scanner.extra_checks import local_rows
+    for html in ["", "<p>nothing</p>", '<iframe src="https://www.google.com/maps/embed?pb=1"></iframe>']:
+        for row in local_rows(html):
+            assert row["code"].startswith("local."), (
+                f"{row['code']} will not reach the Local Signals view, which filters on `local.`"
+            )
+
+
+def test_every_local_check_is_actually_emitted():
+    """`checks.py` promises five named checks for this tool. A promise the tool
+    does not keep is how a UI ends up listing a check nobody runs."""
+    from pipeline.scanner.checks import checks_for
+    from pipeline.scanner.extra_checks import local_rows
+    emitted = {r["what"] for r in local_rows("<p>x</p>")}
+    promised = set(checks_for("local"))
+    assert promised == emitted, (
+        f"promised but not emitted: {promised - emitted}; "
+        f"emitted but not promised: {emitted - promised}"
+    )
+
+
+def test_a_bare_page_fails_the_local_checks_rather_than_passing_them():
+    """The empty case must not read as a pass. A page with no map, no tel: link
+    and no structured address is missing all three, and the whole point of the
+    tool is to say so."""
+    from pipeline.scanner.extra_checks import local_rows
+    rows = {r["what"]: r for r in local_rows("<html><body><h1>Roofing</h1></body></html>")}
+    for name in ["Google Maps embed", "Click-to-call link", "Address in structured data", "Opening hours"]:
+        assert rows[name]["severity"] == "warn", f"{name} passed on a page that has none"
+
+
+def test_geo_coordinates_are_information_not_a_defect():
+    """Optional by design. Grading them would make a perfectly good local page
+    read as broken, and the tile derived from these rows treats `info` as a fact
+    rather than a verdict."""
+    from pipeline.scanner.extra_checks import local_rows
+    rows = {r["what"]: r for r in local_rows("<p>x</p>")}
+    assert rows["Geo coordinates"]["severity"] == "info"
+
+
+def test_a_real_local_page_passes_every_graded_check():
+    from pipeline.scanner.extra_checks import local_rows
+    html = (
+        '<iframe src="https://www.google.com/maps/embed?pb=!1m18"></iframe>'
+        '<a href="tel:+85512345678">Call us</a>'
+        '<script type="application/ld+json">{"@type":"LocalBusiness",'
+        '"address":{"@type":"PostalAddress","streetAddress":"1 Main St"},'
+        '"geo":{"@type":"GeoCoordinates","latitude":11.5,"longitude":104.9},'
+        '"openingHoursSpecification":[{"opens":"09:00"}]}</script>'
+    )
+    for row in local_rows(html):
+        assert row["severity"] == "ok", f"{row['what']} failed on a page that has it"
+
+
+def test_the_maps_check_does_not_match_any_old_iframe():
+    """A YouTube embed is not a map. Matching loosely here would report every
+    page with any iframe as having a verified physical location."""
+    from pipeline.scanner.extra_checks import local_rows
+    rows = {r["what"]: r for r in local_rows('<iframe src="https://www.youtube.com/embed/abc"></iframe>')}
+    assert rows["Google Maps embed"]["severity"] == "warn"

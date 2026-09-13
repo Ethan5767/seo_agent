@@ -317,6 +317,16 @@ export const REPORT_VIEWS: ReportView[] = [
       "Run a scan. The schema check is free; the metadata rows need YOUTUBE_API_KEY. A page with no video reports that, which is a pass, not a gap.",
   },
   {
+    id: "local",
+    label: "Local Signals",
+    codes: ["local."],
+    blurb:
+      "What a local searcher looks for, read from the page itself: a Google Maps embed, a tappable phone number, and a structured address, geo coordinates and opening hours. Free with every scan, and true of the page we fetched - unlike a directory listing, which only the directory can confirm.",
+    columns: FINDING_COLUMNS,
+    emptyHint:
+      "Run a scan. These five checks are free and need no credential. They cover the site's own local signals; the Google Business Profile itself is a separate, paid tool.",
+  },
+  {
     id: "trust",
     label: "Trust & E-E-A-T",
     codes: ["eeat."],

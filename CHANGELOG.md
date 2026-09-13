@@ -6,6 +6,53 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed
+
+- **The four directories nobody can check are gone from the Local screen, and
+  five signals that DO work took their place** (`pipeline/scanner/extra_checks.py`,
+  `web/lib/localSignals.ts`). On the operator's call: a tile whose only possible
+  message is "no public API" is four-sixths of a screen spent on things no one
+  can act on.
+
+  Removed: Bing Places, Apple Business Connect, Waze, YellowPages. **The reason
+  is kept in the module docstring on purpose** - it is the answer to "why is Bing
+  missing", and without it the next person to ask will add the tiles back, which
+  is exactly how six fabricated "Synced" badges got there in the first place.
+
+  **Removing a lie leaves a gap.** New free `local` tool, five checks, read from
+  the HTML already fetched, no credential and no cost:
+
+  | Check | Why it is the one worth reading |
+  |---|---|
+  | Google Maps embed | confirms a physical location to a visitor and to Google |
+  | Click-to-call link | a phone number that is only text cannot be tapped, and local search is a phone |
+  | Address in structured data | `PostalAddress`, so engines read an address rather than guessing at prose |
+  | Geo coordinates | the direct input to "near me" proximity. Emitted as **info**, not a defect - it is genuinely optional |
+  | Opening hours | what lets Google show open/closed, which is what a local searcher is usually checking |
+
+  These are about the SITE, not a listing. What a third-party directory says is
+  between the client and that directory; what the client's own page says is ours
+  to check and ours to fix.
+
+  The matrix is now Google Business Profile (paid tool or OAuth), On-page local
+  signals (free), and Yelp (buildable, needs a key) - three tiles, all of which
+  can actually produce a verdict.
+
+  6 Python tests + 4 web tests. One asserts the five names in `checks.py` match
+  the five rows the tool emits exactly, in both directions: a UI listing a check
+  nobody runs is the same defect in a smaller form.
+
+### Fixed
+
+- **A test I wrote would have broken CI on Python 3.10 and 3.11, and `pytest`
+  could not tell me.** Nested same-quote f-strings are 3.12+ syntax; local
+  Python is 3.14, so the suite went green while `ci.yml`'s 3.10 and 3.11 jobs
+  would both have failed to parse the file. `ruff` caught it in the same run it
+  was written. This is the second time in one session the linter has caught
+  something the tests structurally could not - the first was a rename that left
+  `Path(path)` undefined on a branch no test exercised.
+
+
 ### Added
 
 - **Watch the gates run, step by step, from inside the app**

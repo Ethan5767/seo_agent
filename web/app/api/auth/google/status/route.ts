@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { PRIMARY_COOKIES, SECONDARY_COOKIES } from "@/lib/oauthCookies";
 
 export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
@@ -43,8 +44,9 @@ export async function GET(request: NextRequest) {
         sites = siteEntries.map((s: any) => s.siteUrl || "");
         gscConnected = true;
       } else {
-        const errText = await sitesRes.text();
-        gscError = `Status ${sitesRes.status}`;
+        gscError = sitesRes.status === 401
+          ? "The Google connection expired. Reconnect to keep reading Search Console."
+          : `Search Console returned HTTP ${sitesRes.status}`;
       }
     } catch (e: any) {
       gscError = e?.message || "GSC lookup failed";
@@ -58,7 +60,10 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     connected: Boolean(token || gbpSecondaryToken),
-    userEmail: userEmail || gbpSecondaryEmail || "connected@google.account",
+    // No placeholder. An account whose email we never received is an account
+    // with no email to show, and "connected@google.account" looked to an
+    // operator exactly like a real address they had signed in with.
+    userEmail: userEmail || gbpSecondaryEmail || null,
     sites,
     siteEntries,
     services: {
@@ -71,7 +76,10 @@ export async function GET(request: NextRequest) {
         connected: Boolean(activeGbpToken),
         accountEmail: activeGbpEmail,
         isSecondary: isGbpSecondary,
-        hasLocations: true, // Auto-probed
+        // Never probed. This said `true` with the comment "Auto-probed" beside
+        // it, so the UI reported locations on an account that may have none.
+        // null is "we have not asked", which is the truth until something does.
+        hasLocations: null,
       },
       analytics: {
         connected: Boolean(token),
@@ -89,19 +97,14 @@ export async function DELETE(request: NextRequest) {
   const cookieStore = await cookies();
   const service = request.nextUrl.searchParams.get("service") || "all";
 
+  // One list, in lib/oauthCookies.ts, so a cookie added to the flow cannot be
+  // forgotten here and leave a disconnected account still holding a token.
   if (service === "gbp_secondary" || service === "all") {
-    cookieStore.delete("gbp_secondary_access_token");
-    cookieStore.delete("gbp_secondary_refresh_token");
-    cookieStore.delete("gbp_secondary_user_email");
-    cookieStore.delete("gbp_secondary_connected");
+    for (const c of SECONDARY_COOKIES) cookieStore.delete(c);
   }
 
   if (service === "primary" || service === "all") {
-    cookieStore.delete("gsc_access_token");
-    cookieStore.delete("gsc_refresh_token");
-    cookieStore.delete("gsc_user_email");
-    cookieStore.delete("gsc_connected");
-    cookieStore.delete("gbp_connected");
+    for (const c of PRIMARY_COOKIES) cookieStore.delete(c);
   }
 
   return NextResponse.json({

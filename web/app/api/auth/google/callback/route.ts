@@ -1,21 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import {
+  FLOW_COOKIES,
+  ONE_YEAR,
+  THIRTY_DAYS,
+  nonceMatches,
+  oauthCookie,
+  safeReturnPath,
+  safeService,
+} from "@/lib/oauthCookies";
 
+/**
+ * The Google OAuth callback.
+ *
+ * Everything in the query string was handed to us by the browser and may have
+ * been written by someone else. The nonce check below is what makes this a
+ * continuation of a flow WE started; before it existed, a victim's browser could
+ * be walked through a callback carrying an attacker's authorization code, and
+ * the attacker's Google account would be bound into the victim's session.
+ *
+ * The tokens this route stores are bearer credentials for a client's Search
+ * Console and Business Profile. They are httpOnly, and `oauthCookie` does not
+ * take that as a parameter — see `lib/oauthCookies.ts`.
+ */
 export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
   const error = searchParams.get("error");
-
-  if (error) {
-    return NextResponse.redirect(`${origin}/integrations/google?error=${encodeURIComponent(error)}`);
-  }
-
-  if (!code) {
-    return NextResponse.redirect(`${origin}/integrations/google?error=missing_authorization_code`);
-  }
-
   const cookieStore = await cookies();
+
+  const fail = (reason: string) => {
+    for (const c of FLOW_COOKIES) cookieStore.delete(c);
+    return NextResponse.redirect(`${origin}/integrations/google?error=${encodeURIComponent(reason)}`);
+  };
+
+  if (error) return fail(error);
+  if (!code) return fail("missing_authorization_code");
+
+  // CSRF. One comparison, before the code is spent: an authorization code is
+  // exchanged exactly once, so a forged callback that reaches the token endpoint
+  // has already burned the real user's code even if we reject the result.
+  const expected = cookieStore.get("google_oauth_state")?.value;
+  if (!nonceMatches(searchParams.get("state") || undefined, expected)) {
+    return fail("state_mismatch_please_start_the_connection_again");
+  }
+
+  // Service and destination come from OUR cookies, never from `state`.
+  const stateService = safeService(cookieStore.get("google_auth_service")?.value);
+  const cookieReturnTo = safeReturnPath(cookieStore.get("google_auth_return_to")?.value);
+  const destination = cookieReturnTo ?? (stateService === "gbp_secondary" ? "/local-seo" : "/profile");
+
   const storedClientId = cookieStore.get("google_client_id")?.value;
   const storedClientSecret = cookieStore.get("google_client_secret")?.value;
 
@@ -40,7 +75,7 @@ export async function GET(request: NextRequest) {
 
     if (!tokenResponse.ok || !tokenData.access_token) {
       const errMsg = tokenData.error_description || tokenData.error || "failed_token_exchange";
-      return NextResponse.redirect(`${origin}/integrations/google?error=${encodeURIComponent(errMsg)}`);
+      return fail(errMsg);
     }
 
     const accessToken = tokenData.access_token;
@@ -60,118 +95,36 @@ export async function GET(request: NextRequest) {
       // non-critical
     }
 
-    // Fetch verified sites to verify ownership of target domain
-    let userSites: string[] = [];
-    try {
-      const sitesRes = await fetch("https://www.googleapis.com/webmasters/v3/sites", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (sitesRes.ok) {
-        const sitesData = await sitesRes.json();
-        userSites = (sitesData.siteEntry || []).map((s: any) => s.siteUrl || "");
-      }
-    } catch {
-      // non-critical
-    }
-
-    const rawState = searchParams.get("state") || "unified";
-    let stateService = rawState;
-    let stateReturnTo = "";
-    if (rawState.includes(":::")) {
-      const parts = rawState.split(":::");
-      stateService = parts[0];
-      stateReturnTo = decodeURIComponent(parts[1] || "");
-    }
-
-    const cookieReturnTo = cookieStore.get("google_auth_return_to")?.value || "";
-    let destination = stateReturnTo || cookieReturnTo;
-
-    // Default destinations based on service
-    if (!destination || destination.startsWith("/integrations/google") || destination.startsWith("/api/auth")) {
-      destination = stateService === "gbp_secondary" ? "/local-seo" : "/profile";
-    }
-
-    // Clean up temporary cookie
-    cookieStore.delete("google_auth_return_to");
+    // The flow is over; nothing downstream should be able to replay the nonce.
+    for (const c of FLOW_COOKIES) cookieStore.delete(c);
 
     if (stateService === "gbp_secondary") {
-      cookieStore.set("gbp_secondary_access_token", accessToken, {
-        path: "/",
-        httpOnly: false,
-        sameSite: "lax",
-        maxAge: 3600 * 24 * 30,
-      });
+      cookieStore.set("gbp_secondary_access_token", accessToken, oauthCookie(THIRTY_DAYS));
       if (refreshToken) {
-        cookieStore.set("gbp_secondary_refresh_token", refreshToken, {
-          path: "/",
-          httpOnly: true,
-          sameSite: "lax",
-          maxAge: 3600 * 24 * 365,
-        });
+        cookieStore.set("gbp_secondary_refresh_token", refreshToken, oauthCookie(ONE_YEAR));
       }
       if (userEmail) {
-        cookieStore.set("gbp_secondary_user_email", userEmail, {
-          path: "/",
-          httpOnly: false,
-          sameSite: "lax",
-          maxAge: 3600 * 24 * 30,
-        });
+        cookieStore.set("gbp_secondary_user_email", userEmail, oauthCookie(THIRTY_DAYS));
       }
-      cookieStore.set("gbp_secondary_connected", "true", {
-        path: "/",
-        httpOnly: false,
-        sameSite: "lax",
-        maxAge: 3600 * 24 * 30,
-      });
+      cookieStore.set("gbp_secondary_connected", "true", oauthCookie(THIRTY_DAYS));
 
       const sep = destination.includes("?") ? "&" : "?";
       return NextResponse.redirect(`${origin}${destination}${sep}connected=gbp_secondary`);
     }
 
-    // Set secure cookies for unified primary connection
-    cookieStore.set("gsc_access_token", accessToken, {
-      path: "/",
-      httpOnly: false,
-      sameSite: "lax",
-      maxAge: 3600 * 24 * 30, // 30 days
-    });
-
+    cookieStore.set("gsc_access_token", accessToken, oauthCookie(THIRTY_DAYS));
     if (refreshToken) {
-      cookieStore.set("gsc_refresh_token", refreshToken, {
-        path: "/",
-        httpOnly: true,
-        sameSite: "lax",
-        maxAge: 3600 * 24 * 365,
-      });
+      cookieStore.set("gsc_refresh_token", refreshToken, oauthCookie(ONE_YEAR));
     }
-
     if (userEmail) {
-      cookieStore.set("gsc_user_email", userEmail, {
-        path: "/",
-        httpOnly: false,
-        sameSite: "lax",
-        maxAge: 3600 * 24 * 30,
-      });
+      cookieStore.set("gsc_user_email", userEmail, oauthCookie(THIRTY_DAYS));
     }
-
-    cookieStore.set("gsc_connected", "true", {
-      path: "/",
-      httpOnly: false,
-      sameSite: "lax",
-      maxAge: 3600 * 24 * 30,
-    });
-
-    cookieStore.set("gbp_connected", "true", {
-      path: "/",
-      httpOnly: false,
-      sameSite: "lax",
-      maxAge: 3600 * 24 * 30,
-    });
+    cookieStore.set("gsc_connected", "true", oauthCookie(THIRTY_DAYS));
+    cookieStore.set("gbp_connected", "true", oauthCookie(THIRTY_DAYS));
 
     const sep = destination.includes("?") ? "&" : "?";
     return NextResponse.redirect(`${origin}${destination}${sep}connected=google_unified`);
   } catch (err: any) {
-    return NextResponse.redirect(`${origin}/profile?google_error=${encodeURIComponent(err?.message || "network_error")}`);
+    return fail(err?.message || "network_error");
   }
 }
-

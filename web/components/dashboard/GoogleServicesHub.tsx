@@ -8,7 +8,10 @@ interface GoogleServiceStatus {
   sites: string[];
   services: {
     searchConsole: { connected: boolean; properties: string[]; error?: string };
-    businessProfile: { connected: boolean; accountEmail: string | null; isSecondary: boolean; hasLocations: boolean };
+    // null = nothing has asked Google whether this account has locations. The
+    // status route used to answer `true` unconditionally with the comment
+    // "Auto-probed" beside it.
+    businessProfile: { connected: boolean; accountEmail: string | null; isSecondary: boolean; hasLocations: boolean | null };
     analytics: { connected: boolean };
   };
   secondaryGbp: {
@@ -58,7 +61,7 @@ export function GoogleServicesHub({ compact = false, onStatusChange }: GoogleSer
         sites: [],
         services: {
           searchConsole: { connected: false, properties: [] },
-          businessProfile: { connected: false, accountEmail: null, isSecondary: false, hasLocations: false },
+          businessProfile: { connected: false, accountEmail: null, isSecondary: false, hasLocations: null },
           analytics: { connected: false },
         },
         secondaryGbp: { connected: false, email: null },

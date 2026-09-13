@@ -6,6 +6,69 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Security
+
+- **The Google OAuth flow, rebuilt around one policy module
+  (`web/lib/oauthCookies.ts`, four routes under `web/app/api/auth/google/`).**
+  Five defects, all in the same flow, all live. Details and reproduction in
+  `docs/BUG-LEDGER.md` B-081 through B-085; the short version:
+
+  * **B-081** `gsc_access_token` and `gbp_secondary_access_token` were
+    `httpOnly: false`. They are bearer credentials for a client's Search Console
+    and Google Business Profile, and a listing anyone can see is a listing anyone
+    with the token can edit. Nothing ever read them from the browser -
+    `document.cookie` appears nowhere in this codebase and connection state comes
+    from a server route - so the flag bought nothing and cost everything.
+  * **B-082** `state` was `service:::returnTo`, a value an attacker writes out in
+    full. With no unguessable component tied to the browser that began the flow,
+    a victim could be walked through a callback they never started and an
+    attacker's Google account bound into their session. It is now a 256-bit
+    nonce, checked against an httpOnly cookie **before** the authorization code
+    is spent.
+  * **B-083** the redirect destination came out of that same attacker-written
+    state and was interpolated as `${origin}${destination}`. `@evil.com` makes
+    `https://app.example.com@evil.com`, whose host is evil.com - an open redirect
+    off the back of a successful sign-in.
+  * **B-084** `save-token` had no authentication, no origin check and no rate
+    limit, and one of its actions stores this deployment's OAuth **client
+    secret**. Anyone on the internet could overwrite it and point the next
+    Connect click at their own OAuth app.
+  * **B-085** the status route answered `"connected@google.account"` when it had
+    no email, and `hasLocations: true` with the comment `// Auto-probed` beside
+    it, having probed nothing.
+
+  `oauthCookie()` takes only a max-age. `httpOnly` is not a parameter, because
+  there is no cookie in this flow page script has any business reading and making
+  it an argument is how one of them ends up false again. `secure` is set outside
+  development. The cookie names live in three exported lists so a disconnect
+  cannot miss one and leave a "disconnected" account still holding a token.
+  18 tests in `web/tests/oauth.test.mjs`.
+
+- **`next` 15.0.3 -> 15.5.25, `@supabase/supabase-js` 2.45.4 -> 2.116.0.**
+  `npm audit` reported 5 vulnerabilities, one CRITICAL: the pinned Next carried
+  34 advisories including unauthenticated RCE in the Image Optimization API
+  (GHSA-2xp9-vwfh-vxw4), authorization bypass in middleware (GHSA-f82v-jwr5-mffw)
+  and several SSRF and cache-poisoning issues. `npm audit fix` was a no-op
+  because both were pinned to exact versions, so the pins were moved by hand.
+
+  Now 2 remaining, both requiring Next 16 (semver-major): one moderate, one high
+  in a transitive `postcss`. A major framework upgrade is not a drive-by and is
+  left as its own piece of work.
+
+  Verified after the bump: `npx tsc --noEmit` clean, `npm test` 229 passed,
+  `npm run build` succeeds.
+
+### Fixed
+
+- **The production build was tracing the wrong workspace root
+  (`web/next.config.mjs`).** Next resolves the tracing root by walking up for a
+  lockfile and was selecting `/Users/both/package-lock.json` - an unrelated file
+  in the developer's home directory - warning about it on every build. File
+  tracing decides what ships in a standalone bundle, so a root that far up traces
+  the wrong tree and fails at runtime in a deployed build rather than here.
+  Pinned to the app directory.
+
+
 ### Added
 
 - **The 20th gate is wired: `findings -> worklist -> changelog` provenance

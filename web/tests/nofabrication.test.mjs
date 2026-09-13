@@ -203,3 +203,28 @@ test("the position distribution is counted, never modelled from a percentage", (
     "buckets must be counted from real positions, not derived as a share of the total");
   assert.ok(/hasRankings/.test(src), "there must be an explicit no-rankings state");
 });
+
+test("nothing a client publishes is seeded with invented data", () => {
+  // These are not display bugs. Each one ends up on a real property: a disavow
+  // file uploaded to Search Console, a rich-result rating on a live SERP, a QR
+  // code printed on counter signage, JSON-LD pasted into a client's site.
+  const dash = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
+  const local = readFileSync(new URL("../components/dashboard/LocalBusinessManager.tsx", import.meta.url), "utf8");
+  const code = (s) => s.replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  const banned = [
+    ["spammy-directory-network.xyz", "a disavow file seeded with a domain that does not link to the client"],
+    ["cheap-backlink-farms.biz", "same"],
+    ["Rating: 4.9", "a rich-result rating nobody measured, on by default"],
+    ["128 reviews", "a review count nobody measured"],
+    ["ChIJN1t_tDeuEmsRUsoyG83frY4", "Google's own Sydney sample Place ID, printed on client QR codes"],
+    ["30.2523", "downtown Austin, emitted as every client's coordinates"],
+    ["-97.7495", "same"],
+  ];
+  const found = [];
+  for (const [needle, why] of banned) {
+    if (code(dash).includes(needle)) found.push(`ReaiDashboard: ${needle} — ${why}`);
+    if (code(local).includes(needle)) found.push(`LocalBusinessManager: ${needle} — ${why}`);
+  }
+  assert.deepEqual(found, [], `publishable fabrication:\n  ${found.join("\n  ")}`);
+});

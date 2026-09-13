@@ -117,7 +117,11 @@ export function LocalBusinessManager({
   const [publishingPost, setPublishingPost] = useState(false);
 
   // Review Boost state
-  const [placeId, setPlaceId] = useState("ChIJN1t_tDeuEmsRUsoyG83frY4");
+  // ChIJN1t_tDeuEmsRUsoyG83frY4 is Google's own documentation sample (a Sydney
+  // address). It was rendered into the live review link the client prints on
+  // counter signage, so every printed QR code pointed at Google's example
+  // business.
+  const [placeId, setPlaceId] = useState("");
   const [reviewCopied, setReviewCopied] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState<"sms" | "email" | "receipt">("sms");
 
@@ -1390,11 +1394,12 @@ export function LocalBusinessManager({
                         postalCode: postalCode,
                         addressCountry: "US",
                       },
-                      geo: {
-                        "@type": "GeoCoordinates",
-                        latitude: 30.2523,
-                        longitude: -97.7495,
-                      },
+                      // No geo block. It was hardcoded to 30.2523/-97.7495 —
+                      // downtown Austin — for every client, and "Copy Script"
+                      // copied it while the on-screen <pre> omitted it, so what
+                      // the client pasted onto their site differed from what
+                      // they had just reviewed. Nothing here measures a
+                      // latitude, so emitting one is inventing a location.
                       areaServed: serviceAreas,
                     },
                     null,

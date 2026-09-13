@@ -2045,44 +2045,12 @@ function resolveProjectData(
     tldDist: [
       // Removed hardcoded referring-domain TLD split.
     ],
-    toxicDomainList: [
-      {
-        domain: "spammy-directory-network.xyz",
-        toxicityScore: 88,
-        category: "Link Farm / Spam Network",
-        markers: ["Sitewide Footer Links", "High Inbound Velocity", "Zero Domain Trust"],
-        backlinks: 42,
-        firstSeen: "Jul 14, 2026",
-        action: "Disavow Recommended",
-      },
-      {
-        domain: "cheap-backlink-farms.biz",
-        toxicityScore: 79,
-        category: "PBN / Low Authority",
-        markers: ["Zero Organic Traffic", "Suspicious Anchor Pattern"],
-        backlinks: 18,
-        firstSeen: "Aug 02, 2026",
-        action: "Disavow Recommended",
-      },
-      {
-        domain: "auto-scraped-aggregator.top",
-        toxicityScore: 64,
-        category: "Scraped Aggregator",
-        markers: ["Duplicate Content", "Non-regional Host"],
-        backlinks: 9,
-        firstSeen: "Aug 21, 2026",
-        action: "Review / Monitor",
-      },
-      {
-        domain: "phnom-penh-health-reviews.info",
-        toxicityScore: 48,
-        category: "Unindexed Directory",
-        markers: ["Low Indexation Rate"],
-        backlinks: 5,
-        firstSeen: "Sep 01, 2026",
-        action: "Review / Monitor",
-      },
-    ],
+    // Four invented domains with toxicity scores, backlink counts and "first
+    // seen" dates, rendered under "Algorithmic toxic link detection" and driving
+    // the "N Domains Flagged" badge. Its neighbours (anchors, tldDist,
+    // referringDomainsList, topOrganicPages) were all emptied in the same
+    // cleanup; this one was missed.
+    toxicDomainList: [] as any[],
   };
 
   // 10. Core Web Vitals, read from the scan's own CrUX rows.
@@ -2736,10 +2704,11 @@ export function ReaiDashboard({
   const [onPageFilter, setOnPageFilter] = useState<"all" | "strategy" | "content" | "semantic" | "tech">("all");
   const [savedKeywords, setSavedKeywords] = useState<string[]>([]);
   const [disavowDownloaded, setDisavowDownloaded] = useState(false);
-  const [disavowedDomains, setDisavowedDomains] = useState<string[]>([
-    "spammy-directory-network.xyz",
-    "cheap-backlink-farms.biz",
-  ]);
+  // Seeded with two invented domains, rendered as "Manage Disavow File (2)",
+  // and the download button emitted them into a file the modal instructs the
+  // client to upload to Google Search Console — disavowing links that do not
+  // exist, on a real property. Empty is the only defensible start.
+  const [disavowedDomains, setDisavowedDomains] = useState<string[]>([]);
   const [whitelistedDomains, setWhitelistedDomains] = useState<string[]>([]);
   const [showDisavowModal, setShowDisavowModal] = useState<boolean>(false);
   const [disavowCopied, setDisavowCopied] = useState<boolean>(false);
@@ -2777,7 +2746,11 @@ export function ReaiDashboard({
   // Live Google SERP & Social Snippet Simulator State
   const [serpPreviewMode, setSerpPreviewMode] = useState<"desktop" | "mobile" | "social">("desktop");
   const [serpCustomMeta, setSerpCustomMeta] = useState<Record<string, { title: string; description: string; targetKw: string }>>({});
-  const [serpShowRating, setSerpShowRating] = useState<boolean>(true);
+  // Defaulted to true, so every client saw a Google preview of their own page
+  // carrying "Rating: 4.9 · 128 reviews" — a review count and a rating nobody
+  // measured, for a rich result they may not even be eligible for. Off, and the
+  // figures now come from the scan or not at all.
+  const [serpShowRating, setSerpShowRating] = useState<boolean>(false);
   const [serpShowSitelinks, setSerpShowSitelinks] = useState<boolean>(true);
   const [showSerpMetaModal, setShowSerpMetaModal] = useState<boolean>(false);
   const [serpMetaCopied, setSerpMetaCopied] = useState<boolean>(false);
@@ -10544,7 +10517,14 @@ Sitemap: https://${currentDomain}/sitemap.xml
                               {serpShowRating && (
                                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 12.5, color: "#4d5156" }}>
                                   <span style={{ color: "#e37400", letterSpacing: 1, fontSize: 13 }}>★★★★★</span>
-                                  <span>Rating: 4.9 · ‎128 reviews · In-stock / Available 24/7</span>
+                                  {/* Was "Rating: 4.9 · 128 reviews", on by
+                                      default for every client. Nothing in the
+                                      dashboard measures a rating or a review
+                                      count, so there is nothing to render here
+                                      but the reason. */}
+                                  <span>
+                                    No rating measured — connect Google Business Profile to preview one
+                                  </span>
                                 </div>
                               )}
 

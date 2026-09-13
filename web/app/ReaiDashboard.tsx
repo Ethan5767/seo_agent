@@ -31,6 +31,8 @@ import { GscPanel } from "@/components/dashboard/GscPanel";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
 import { RepoPicker } from "@/components/dashboard/RepoPicker";
+import { deriveAeoTiles, aeoVerdictColor, aeoMatrixRows } from "@/lib/aeo";
+import { AeoAccessPanel } from "@/components/dashboard/AeoAccessPanel";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import { MeasureScreen } from "@/components/dashboard/MeasureScreen";
 import {
@@ -4906,48 +4908,7 @@ export function ReaiDashboard({
                 {/* ── RIGHT COLUMN: AI SEARCH CITATIONS & EXTRACTION ── */}
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                   <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                      <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1e293b" }}>AI Search Citations</h4>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#4f46e5", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 8px", borderRadius: 4 }}>
-                        4/4 Ready
-                      </span>
-                    </div>
-
-                    {/* AI Engine Status Grid */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                      {[
-                        { engine: "ChatGPT / OpenAI", status: "Indexed", color: "#10b981", icon: "🤖" },
-                        { engine: "Google AI Overviews", status: "Snapshot", color: "#3b82f6", icon: "✨" },
-                        { engine: "Perplexity AI", status: "Direct", color: "#06b6d4", icon: "⚡" },
-                        { engine: "Claude / Anthropic", status: "Compliant", color: "#8b5cf6", icon: "💎" },
-                      ].map((item, idx) => (
-                        <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderRadius: 6, background: "#f8fafc", border: "1px solid #edf0f4" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 14 }}>{item.icon}</span>
-                            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1e293b" }}>{item.engine}</span>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: item.color, background: "#ffffff", border: "1px solid #e2e8f0", padding: "2px 7px", borderRadius: 4 }}>
-                              {item.status}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* AEO Signal Progress Meters */}
-                    <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        <div style={{ padding: "10px 14px", borderRadius: 6, background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
-                          <div style={{ fontSize: 12, color: "#065f46", fontWeight: 600 }}>Robots.txt AI Crawlers</div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#047857", marginTop: 2 }}>4/4 Allowed (100%)</div>
-                        </div>
-                        <div style={{ padding: "10px 14px", borderRadius: 6, background: "#fef3c7", border: "1px solid #fde68a" }}>
-                          <div style={{ fontSize: 12, color: "#92400e", fontWeight: 600 }}>LocalBusiness JSON-LD</div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309", marginTop: 2 }}>Missing (Action Req.)</div>
-                        </div>
-                      </div>
-                    </div>
+                    <AeoAccessPanel aeoRows={(report?.aeo || []) as any[]} />
                   </div>
 
                   <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12, marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -8178,9 +8139,12 @@ export function ReaiDashboard({
                 const aeoRows = (report?.aeo || []) as Array<any>;
                 const aiRows = (report?.ai || []) as Array<any>;
                 const realLlm = aiRows.find((r) => r.code === "dfs.llm_mentions" || r.what?.toLowerCase().includes("cited"));
-                const crawlerBlocked = aeoRows.find((r) => r.code?.includes("crawler_blocked") || (r.severity === "warn" && r.what?.toLowerCase().includes("crawler")));
                 const schemaBiz = aeoRows.find((r) => r.what?.toLowerCase().includes("localbusiness") || r.code?.includes("schema_business"));
-                const answerStruct = aeoRows.find((r) => r.what?.toLowerCase().includes("answer"));
+                // B-094. Each tile used to be a binary on a `.find()` result, and
+                // `undefined` - the check never ran - fell through to the PASS
+                // branch. A signed-in operator who had never scanned anything was
+                // shown three green ticks over zero measurements.
+                const aeoTiles = deriveAeoTiles(aeoRows);
 
                 const aeoPassed = aeoRows.filter((r) => r.severity === "ok").length;
                 const aeoTotal = Math.max(aeoRows.length, 1);
@@ -8366,68 +8330,32 @@ Sitemap: https://${currentDomain}/sitemap.xml
 
                         {/* 3 Interactive Quick-Jump Stat Cards */}
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                          <div
-                            onClick={() => selectAeoFocus("crawlers")}
-                            style={{
-                              border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff",
-                              cursor: "pointer", transition: "all 0.15s ease",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 700, textTransform: "uppercase" }}>AI Crawler Access</div>
-                              <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600 }}>Manage →</span>
+                          {aeoTiles.map((tile) => (
+                            <div
+                              key={tile.id}
+                              onClick={() => selectAeoFocus(tile.id)}
+                              style={{
+                                border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff",
+                                cursor: "pointer", transition: "all 0.15s ease",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 700, textTransform: "uppercase" }}>
+                                  {tile.label}
+                                </div>
+                                <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600 }}>
+                                  {tile.verdict === null ? "" : tile.id === "crawlers" ? "Manage →" : tile.id === "schema" ? "Inspect →" : "Optimize →"}
+                                </span>
+                              </div>
+                              {/* No tick when nothing measured it. The tick IS the
+                                  claim, and a grey "Not measured" is the only
+                                  honest thing to print over an empty scan. */}
+                              <div style={{ fontSize: 18, fontWeight: 800, color: aeoVerdictColor(tile.verdict), marginTop: 4 }}>
+                                {tile.value}{tile.verdict === "ok" ? " ✓" : tile.verdict === "problem" ? " ⚠️" : ""}
+                              </div>
+                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>{tile.note}</div>
                             </div>
-                            <div style={{ fontSize: 18, fontWeight: 800, color: crawlerBlocked ? "#dc2626" : "var(--ok)", marginTop: 4 }}>
-                              {crawlerBlocked ? "Blocked ⚠️" : "Allowed ✓"}
-                            </div>
-                            <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                              {crawlerBlocked ? "robots.txt blocks AI bots" : "GPTBot, ClaudeBot, PerplexityBot open"}
-                            </div>
-                          </div>
-
-                          <div
-                            onClick={() => selectAeoFocus("schema")}
-                            style={{
-                              border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff",
-                              cursor: "pointer", transition: "all 0.15s ease",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 700, textTransform: "uppercase" }}>LocalBusiness JSON-LD</div>
-                              <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600 }}>Inspect →</span>
-                            </div>
-                            <div style={{
-                              fontSize: 18, fontWeight: 800,
-                              color: schemaBiz && schemaBiz.severity !== "ok" ? "#d97706" : "var(--ok)", marginTop: 4,
-                            }}>
-                              {schemaBiz && schemaBiz.severity !== "ok" ? "Needs Fix ⚠️" : "Valid Schema ✓"}
-                            </div>
-                            <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                              Entity resolution & rich snippets for AI
-                            </div>
-                          </div>
-
-                          <div
-                            onClick={() => selectAeoFocus("answers")}
-                            style={{
-                              border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff",
-                              cursor: "pointer", transition: "all 0.15s ease",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 700, textTransform: "uppercase" }}>Answer Structure</div>
-                              <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600 }}>Optimize →</span>
-                            </div>
-                            <div style={{
-                              fontSize: 18, fontWeight: 800,
-                              color: answerStruct && answerStruct.severity !== "ok" ? "#d97706" : "var(--ok)", marginTop: 4,
-                            }}>
-                              {answerStruct && answerStruct.severity !== "ok" ? "Needs Headers ⚠️" : "Detected ✓"}
-                            </div>
-                            <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                              Q&A extraction readiness for AI answers
-                            </div>
-                          </div>
+                          ))}
                         </div>
 
                         {/* Detailed AEO Checklist Table */}
@@ -8467,13 +8395,31 @@ Sitemap: https://${currentDomain}/sitemap.xml
                           </div>
 
                           {(() => {
-                            const displayAeoRows = aeoRows.length > 0 ? aeoRows : [
-                              { severity: "ok", what: "AI Crawler Access (GPTBot & ClaudeBot)", why: "Allows OpenAI and Anthropic to read site content for direct answers.", fix: "Verified in robots.txt.", targetFocus: "crawlers" },
-                              { severity: "ok", what: "Perplexity AI Indexability", why: "PerplexityBot can fetch live documentation and pricing.", fix: "Verified in robots.txt.", targetFocus: "crawlers" },
-                              { severity: "warn", what: "llms.txt Answer File Missing", why: "llms.txt standardizes markdown summaries for LLM citation context.", fix: "Generate /llms.txt with core business entities and key services.", isLlmsAction: true, targetFocus: "answers" },
-                              { severity: "warn", what: "LocalBusiness Schema Entity Graph", why: "AI models require structured JSON-LD to confirm business identity.", fix: "Inject schema.org structured data into head.", isSchemaAction: true, targetFocus: "schema" },
-                              { severity: "ok", what: "Direct Answer H2 / FAQ Headings", why: "Concise Q&A format enables Google AI Overview snapshot selection.", fix: "Maintain clear 40-word summary answers under H2s.", targetFocus: "answers" },
-                            ];
+                            // B-094. This used to substitute FIVE INVENTED ROWS
+                            // whenever there were no real ones - three of them
+                            // marked PASS, one reading "Verified in robots.txt"
+                            // for a robots.txt nobody had fetched. A signed-in
+                            // operator who had never run a scan was shown a
+                            // completed audit of a site nothing had looked at.
+                            //
+                            // null now means null: the table does not render.
+                            const displayAeoRows = aeoMatrixRows(aeoRows);
+                            if (!displayAeoRows) {
+                              return (
+                                <div style={{
+                                  border: "1px dashed #cbd5e1", borderRadius: 8, padding: "22px 18px",
+                                  textAlign: "center", background: "#f8fafc",
+                                }}>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>
+                                    No AEO signals measured yet
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.55 }}>
+                                    These checks read the live page and its robots.txt. Run a scan and every
+                                    row below fills in with what was actually found.
+                                  </div>
+                                </div>
+                              );
+                            }
 
                             return (
                               <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
@@ -8562,19 +8508,36 @@ Sitemap: https://${currentDomain}/sitemap.xml
                         <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
                           <div style={{ marginBottom: 12 }}>
                             <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1e293b" }}>
-                              AI Search Citations & Extraction Rates
+                              AI Crawler Access By Engine
                             </h4>
+                            {/* Was "AI Search Citations & Extraction Rates" over
+                                "Real-time extraction and citation probabilities".
+                                Nothing here computes a probability or measures a
+                                citation - this card reads robots.txt. Naming it
+                                for what it does is the fix; the citation question
+                                is answered by the paid DataForSEO tool below. */}
                             <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                              Real-time extraction and citation probabilities across generative search engines
+                              Whether each engine&rsquo;s crawler is permitted in robots.txt. Access is a precondition for citation, not a measure of it.
                             </div>
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-                            {[
-                              { engine: "ChatGPT / OpenAI", bot: "GPTBot", color: "#10b981", status: crawlerBlocked ? "Blocked" : "Indexed" },
-                              { engine: "Google AI Overviews", bot: "Googlebot", color: "#3b82f6", status: "Snapshot Ready" },
-                              { engine: "Perplexity AI", bot: "PerplexityBot", color: "#06b6d4", status: crawlerBlocked ? "Blocked" : "Direct" },
-                              { engine: "Claude / Anthropic", bot: "ClaudeBot", color: "#8b5cf6", status: crawlerBlocked ? "Blocked" : "Compliant" },
-                            ].map((e) => (
+                            {(() => {
+                              // B-094. Three of these read `crawlerBlocked ? ... : ...`,
+                              // so "never scanned" printed Indexed / Direct /
+                              // Compliant. The fourth was the literal string
+                              // "Snapshot Ready" with no input at all - a claim
+                              // about Google AI Overview eligibility that nothing
+                              // in this product measures.
+                              const v = aeoTiles.find((t) => t.id === "crawlers")?.verdict ?? null;
+                              const status = v === null ? "Not measured" : v === "ok" ? "Allowed" : "Blocked";
+                              const tone = v === null ? "#64748b" : undefined;
+                              return [
+                                { engine: "ChatGPT / OpenAI", bot: "GPTBot", color: tone ?? "#10b981", status },
+                                { engine: "Google AI Overviews", bot: "Googlebot", color: tone ?? "#3b82f6", status },
+                                { engine: "Perplexity AI", bot: "PerplexityBot", color: tone ?? "#06b6d4", status },
+                                { engine: "Claude / Anthropic", bot: "ClaudeBot", color: tone ?? "#8b5cf6", status },
+                              ];
+                            })().map((e) => (
                               <div key={e.engine} style={{ padding: "10px 14px", border: "1px solid #edf0f4", borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc" }}>
                                 <div>
                                   <div style={{ fontWeight: 600, fontSize: 12.5, color: "#1e293b" }}>{e.engine}</div>

@@ -8,6 +8,62 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **B-094: the AI Search Visibility screen certified a site nobody had scanned
+  (`web/lib/aeo.ts`, `web/components/dashboard/AeoAccessPanel.tsx`,
+  `web/app/ReaiDashboard.tsx`).** Reported by the operator: sign in, scan
+  nothing, and the screen reads **Allowed ✓ / Valid Schema ✓ / Detected ✓** with
+  a five-row PASS/WARN audit underneath.
+
+  Four separate fabrications, one cause. Every verdict was a binary over a
+  `.find()` result, and `undefined` - the check never ran - fell through to the
+  happy branch:
+
+  ```js
+  {crawlerBlocked ? "Blocked" : "Allowed ✓"}
+  {schemaBiz && schemaBiz.severity !== "ok" ? "Needs Fix" : "Valid Schema ✓"}
+  {answerStruct && answerStruct.severity !== "ok" ? "Needs Headers" : "Detected ✓"}
+  ```
+
+  * **The three tiles** printed green ticks over zero measurements.
+  * **The signals matrix** substituted five invented rows whenever there were no
+    real ones - three marked PASS, including *"Verified in robots.txt"* for a
+    robots.txt nobody had fetched.
+  * **The per-engine grid** on the AEO screen drove three statuses off the same
+    falsy check and hardcoded the fourth: `"Google AI Overviews"` carried the
+    literal string **`"Snapshot Ready"`**, a claim about AI Overview eligibility
+    that nothing in this product measures. Its heading read "AI Search Citations
+    & Extraction Rates" over "Real-time extraction and citation probabilities" -
+    it reads robots.txt and computes neither.
+  * **A second copy on the Overview** was hardcoded outright: a `4/4 Ready`
+    badge, four engine statuses (Indexed / Snapshot / Direct / Compliant),
+    `Robots.txt AI Crawlers 4/4 Allowed (100%)` and `LocalBusiness JSON-LD
+    Missing (Action Req.)`.
+
+  This is the engine's own rule broken at the last mile. `forbidden_sweep` and
+  `audit_ssr` exit **4** for "cannot judge" rather than green-over-empty (B-018,
+  B-027) - and then the UI rendered a tick anyway. **A check that scanned
+  nothing must never report a pass**, and the screen is where that actually
+  reaches a person.
+
+  `deriveAeoTiles` replaces every binary with three states - `null` (nothing
+  measured it), `"ok"`, `"problem"` - and `null` renders grey, unticked, with the
+  sentence that would produce a verdict. A tile is green only when **every** row
+  under it is `ok`, and only the literal `"ok"` passes, so a new or misspelled
+  severity cannot fall through. The matrix renders an empty state instead of a
+  substitute table. The engine card is renamed **AI Crawler Access By Engine**,
+  with "Access is a precondition for citation, not a measure of it".
+
+  12 tests in `web/tests/aeo.test.mjs`, including the exact original shape: a
+  scan that measured crawlers but not answer structure must leave the answer tile
+  unmeasured rather than certifying it.
+
+  The extraction into `AeoAccessPanel` was forced, not chosen: the derived
+  version pushed `ReaiDashboard.tsx` to 13,004 lines and the
+  `shrank below 13,000` ratchet went red. Now **12,935**.
+
+
+### Fixed
+
 - **B-093: the Video view was empty on exactly the pages that have video
   (`pipeline/scanner/extra_checks.py`).** Reported by the operator: the Video
   section said "Run a scan..." with a valid `YOUTUBE_API_KEY` configured and the

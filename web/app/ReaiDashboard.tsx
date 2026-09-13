@@ -33,6 +33,8 @@ import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManage
 import { RepoPicker } from "@/components/dashboard/RepoPicker";
 import { deriveAeoTiles, aeoVerdictColor, aeoMatrixRows } from "@/lib/aeo";
 import { AeoAccessPanel } from "@/components/dashboard/AeoAccessPanel";
+import { AeoCrawlerTable } from "@/components/dashboard/AeoCrawlerTable";
+import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import { MeasureScreen } from "@/components/dashboard/MeasureScreen";
 import {
@@ -8222,25 +8224,14 @@ export function ReaiDashboard({
 - Official Website: https://${currentDomain || "[confirm: domain]"}
 `;
 
-                const robotsTxtSnippet = `# robots.txt recommendations for AI Search Visibility
-User-agent: GPTBot
-Allow: /
-
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-# Manage Bulk LLM Training Scrapers
-User-agent: CCBot
-Disallow: /
-
-User-agent: Bytespider
-Disallow: /
-
-Sitemap: https://${currentDomain}/sitemap.xml
-`;
+                // B-095. The old snippet allowed GPTBot and ClaudeBot - both
+                // TRAINING crawlers - and named not one of the bots that actually
+                // produce a citation. A client pasting it got a file that said
+                // nothing about OAI-SearchBot, Claude-SearchBot, Googlebot or
+                // Bingbot, which are the four that decide whether the site can be
+                // cited at all. It also emitted `Sitemap: https:///sitemap.xml`
+                // when no client was selected - a broken line, into a live file.
+                const robotsTxtSnippet = buildRobotsSnippet(currentDomain);
 
                 const handleDownloadLlmsTxt = () => {
                   if (typeof window === "undefined") return;
@@ -8756,22 +8747,59 @@ Sitemap: https://${currentDomain}/sitemap.xml
                             </button>
                           </div>
 
+                          {/* B-095. These three tiles read "84% Ready / 12 Question
+                              Headings Detected", "42 Words / Optimal for Direct LLM
+                              Quoting" and "Enabled / Enables Google Accordions" -
+                              all six strings literals, on every account, scanned or
+                              not. Two of them could not have been real even in
+                              principle: the scanner reports answer structure as a
+                              BOOLEAN and measures no heading count and no answer
+                              length at all, so there was no number to show. They now
+                              report the two verdicts that do exist, and say plainly
+                              which measurements do not. */}
                           <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>H2/H3 Q&A Coverage</div>
-                              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--ok)", marginTop: 2 }}>84% Ready</div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>12 Question Headings Detected</div>
-                            </div>
-                            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>Average Answer Length</div>
-                              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--ok)", marginTop: 2 }}>42 Words</div>
-                              <div style={{ fontSize: 12, color: "var(--ok)" }}>Optimal for Direct LLM Quoting</div>
-                            </div>
-                            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>FAQ Schema</div>
-                              <div style={{ fontSize: 16, fontWeight: 800, color: "#4f46e5", marginTop: 2 }}>Enabled</div>
-                              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Enables Google Accordions</div>
-                            </div>
+                            {(() => {
+                              const rows = (report?.aeo || []) as Array<any>;
+                              const byCode = (code: string) => rows.find((r) => r?.code === code);
+                              const verdict = (code: string): null | "ok" | "problem" => {
+                                const r = byCode(code);
+                                return !r ? null : r.severity === "ok" ? "ok" : "problem";
+                              };
+                              const cards = [
+                                {
+                                  label: "Answer-first structure",
+                                  v: verdict("aeo.no_answer_structure"),
+                                  ok: "Present", bad: "Missing",
+                                  okNote: "Question headings or FAQ schema an engine can lift.",
+                                  badNote: "No question headings and no FAQ schema to quote from.",
+                                },
+                                {
+                                  label: "Answer-engine schema",
+                                  v: verdict("aeo.answer_schema_missing"),
+                                  ok: "Present", bad: "Missing",
+                                  okNote: byCode("aeo.answer_schema_missing")?.why || "Marked up for answer engines.",
+                                  badNote: "No FAQPage, HowTo or QAPage markup on the page.",
+                                },
+                                {
+                                  label: "Heading count & answer length",
+                                  v: null as null | "ok" | "problem",
+                                  ok: "", bad: "",
+                                  okNote: "", badNote: "",
+                                  never: "Not measured. The scan reports answer structure as present or absent; it does not count headings or average answer length.",
+                                },
+                              ];
+                              return cards.map((c) => (
+                                <div key={c.label} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
+                                  <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>{c.label}</div>
+                                  <div style={{ fontSize: 16, fontWeight: 800, marginTop: 2, color: aeoVerdictColor(c.v) }}>
+                                    {c.v === null ? "Not measured" : c.v === "ok" ? c.ok : c.bad}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2, lineHeight: 1.45 }}>
+                                    {c.v === null ? (c as any).never || "Run a scan to measure this." : c.v === "ok" ? c.okNote : c.badNote}
+                                  </div>
+                                </div>
+                              ));
+                            })()}
                           </div>
                         </div>
 
@@ -8854,28 +8882,12 @@ Sitemap: https://${currentDomain}/sitemap.xml
                             </a>
                           </div>
 
-                          {/* Crawlers Table */}
-                          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                            {[
-                              { bot: "GPTBot", engine: "OpenAI / SearchGPT", status: "Allowed", color: "var(--ok)", desc: "Required for ChatGPT citations" },
-                              { bot: "ClaudeBot", engine: "Anthropic Claude", status: "Allowed", color: "var(--ok)", desc: "Required for Claude Search" },
-                              { bot: "PerplexityBot", engine: "Perplexity AI", status: "Allowed", color: "var(--ok)", desc: "Required for Perplexity answers" },
-                              { bot: "Google-Extended", engine: "Google Gemini Training", status: "Controlled", color: "#d97706", desc: "Search permitted, training managed" },
-                              { bot: "Applebot-Extended", engine: "Apple Intelligence", status: "Controlled", color: "#d97706", desc: "Siri & Spotlight answers" },
-                              { bot: "CCBot", engine: "Common Crawl Scraper", status: "Blocked", color: "#dc2626", desc: "Mass scraping protected" },
-                            ].map((c) => (
-                              <div key={c.bot} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                  <div style={{ fontWeight: 700, color: "#1e293b", fontSize: 13 }}>{c.bot}</div>
-                                  <span style={{ fontSize: 12, fontWeight: 700, color: c.color, background: "#ffffff", border: "1px solid #cbd5e1", padding: "1px 6px", borderRadius: 4 }}>
-                                    {c.status}
-                                  </span>
-                                </div>
-                                <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>{c.engine}</div>
-                                <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>{c.desc}</div>
-                              </div>
-                            ))}
-                          </div>
+                          {/* B-095. Six hardcoded verdicts used to live here,
+                              rendered without reading any robots.txt, and two of
+                              them described training crawlers as required for
+                              citations. Now derived, and grouped by what blocking
+                              each one actually costs. */}
+                          <AeoCrawlerTable aeoRows={(report?.aeo || []) as any[]} />
                         </div>
 
                         {/* Recommended robots.txt Snippet */}

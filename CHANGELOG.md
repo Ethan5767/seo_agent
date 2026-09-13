@@ -8,6 +8,57 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **B-095: the AEO sub-screens invented their numbers, and the crawler table was
+  wrong about what the bots do (`web/lib/aeoCrawlers.ts`,
+  `web/components/dashboard/AeoCrawlerTable.tsx`, `web/app/ReaiDashboard.tsx`).**
+  Reported by the operator alongside B-094; the same screen, two views deeper.
+
+  **Answer Content** showed three tiles: `84% Ready / 12 Question Headings
+  Detected`, `42 Words / Optimal for Direct LLM Quoting`, `Enabled / Enables
+  Google Accordions`. Six literal strings, identical on every account, scanned or
+  not. Two of them **could not have been real even in principle**: the scanner
+  reports answer structure as a boolean (`aeo.no_answer_structure`) and measures
+  no heading count and no answer length at all, so there was no number to show.
+
+  **AI Crawler Access** listed six bots with verdicts, rendered without reading
+  any robots.txt. Worse than fabricated - **wrong, in the direction that costs a
+  client money**:
+
+  ```
+  "GPTBot     - Required for ChatGPT citations"
+  "ClaudeBot  - Required for Claude Search"
+  ```
+
+  Neither is true. `GPTBot` and `ClaudeBot` are **training** crawlers. The bots
+  that fetch a page to answer a question and cite it are `OAI-SearchBot` and
+  `Claude-SearchBot`, governed by separate directives. A client reading that
+  screen would believe opting out of model training costs them ChatGPT and Claude
+  citations. It does not, and that invented fear is exactly what stops an
+  operator making a choice they are entitled to make. The engine has known the
+  correct classification since B-080; the UI contradicted it.
+
+  The **recommended robots.txt** had the same fault plus a broken line: it
+  allowed `GPTBot` and `ClaudeBot`, named **none** of the four bots that decide
+  whether the site can be cited, actively `Disallow`ed training crawlers on the
+  client's behalf, and emitted `Sitemap: https:///sitemap.xml` when no client was
+  selected - a broken URL, into a file that goes live.
+
+  `lib/aeoCrawlers.ts` mirrors the gate's three classes, derives each bot's
+  status from the scan rows (`null` when unmeasured, and a missing robots.txt is
+  not an allow), states the real consequence of blocking each one, and **never
+  colours a blocked training crawler as a failure**. `buildRobotsSnippet` is
+  generated from that list, so it cannot drift: citation bots allowed, training
+  bots commented out as a choice for the client to make, and no Sitemap line at
+  all when there is no domain to write.
+
+  13 more tests in `web/tests/aeo.test.mjs` (25 total), including that
+  `OAI-SearchBot` is citation and `GPTBot` is training, that a blocked crawler is
+  read from the row detail while its siblings are not, and that the snippet never
+  contains `https:///`.
+
+
+### Fixed
+
 - **B-094: the AI Search Visibility screen certified a site nobody had scanned
   (`web/lib/aeo.ts`, `web/components/dashboard/AeoAccessPanel.tsx`,
   `web/app/ReaiDashboard.tsx`).** Reported by the operator: sign in, scan

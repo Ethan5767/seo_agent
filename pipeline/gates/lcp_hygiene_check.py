@@ -233,7 +233,7 @@ def main() -> int:
         for line, kind, detail, ref in block:
             findings.append(bl.Finding(GATE, kind, rel, context=ref,
                                        detail=f"line {line}: {detail}"))
-        for line, kind, detail, ref in warn:
+        for _line, kind, detail, _ref in warn:
             warnings.append((rel, kind, detail))
 
     verdict, early = bl.resolve(GATE, findings, args)

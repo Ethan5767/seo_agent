@@ -184,7 +184,11 @@ def audit_page(html: str, url: str, cfg: dict, project: Path, build: Path, all_b
     # Conversion + links (6)
     tel = cfg["nap"]["phone_tel"]
     checks["21_tel_link_present"] = f"tel:{tel}" in html
-    phone_display = cfg["nap"]["phone"]
+    # `cfg["nap"]["phone"]` - the DISPLAYED number, as opposed to the `tel:` href
+    # above - was read into a local here and never used. There is no NAP-
+    # consistency check in the 30, so this was a check someone started and did
+    # not finish rather than a leftover from one that was removed. Left as a note
+    # rather than invented: a 31st check is a decision, not a lint fix.
     # CTA sections: count anchor elements with tel: or "contact" or "quote" — rough but useful
     ctas = len(re.findall(r'<a[^>]*(?:tel:|/contact|quote|Get\s+[A-Z])', html, re.I))
     checks["22_cta_present"] = ctas >= 3

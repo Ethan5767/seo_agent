@@ -119,3 +119,33 @@ include = ["pipeline*"]
 
 [tool.setuptools.package-data]
 "pipeline.deploy" = ["*.sh"]
+
+# ── Lint ─────────────────────────────────────────────────────────────────────
+# 30k lines of Python had no linter at all. The rule set here is deliberately
+# narrow: real defects, not style. `ruff format` is NOT run and no formatting
+# rules are selected, because reflowing the whole tree would bury every future
+# diff and this repo is the sync point between two people who never see each
+# other's screens.
+#
+# What it found on its first run, none of which any test caught:
+#   * a test function DEFINED TWICE in tests/test_dashboard.py, so the first
+#     never ran - and the one that never ran was the stronger of the two (F811)
+#   * a variable read into `phone_display` in audit_built and never used: a
+#     31st check someone started and did not finish (F841)
+#   * 29 unused imports, two of them mine from an hour earlier (F401)
+#   * 10 `raise X(...)` inside `except` with no `from`, which discards the cause
+#     from the traceback (B904)
+#
+# It also caught me breaking working code MID-FIX: renaming a loop variable to
+# `_path` hit two loops instead of one and left `Path(path)` undefined in
+# noncommodity_check. F821 named it immediately; the test suite would have
+# caught it only if that branch were exercised.
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# E9  syntax and indentation errors that stop the file running at all
+# F   pyflakes: undefined names, unused imports and variables, redefinitions
+# B   bugbear: mutable defaults, except-without-from, zip without strict
+select = ["E9", "F", "B"]

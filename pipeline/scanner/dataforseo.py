@@ -33,7 +33,9 @@ def _location_default() -> int:
     try:
         return int(raw)
     except ValueError:
-        raise SystemExit(f"DFS_LOCATION_CODE must be a DataForSEO location code, got {raw!r}")
+        # `from None`: this is an operator's typo in an env var, and a chained
+        # int() traceback in front of the fix instruction only buries it.
+        raise SystemExit(f"DFS_LOCATION_CODE must be a DataForSEO location code, got {raw!r}") from None
 
 
 LOCATION_CODE = _location_default()

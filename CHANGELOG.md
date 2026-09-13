@@ -6,6 +6,52 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **A linter, on 30,000 lines of Python that had none (`ruff`, wired into
+  `ci.yml`).** The rule set is deliberately narrow - `E9`, `F`, `B`: syntax
+  errors, pyflakes, bugbear. **No formatting rules, and `ruff format` is not
+  run**, because reflowing the tree would bury every future diff and this repo is
+  the sync point between two developers who never see each other's screens.
+
+  What it found on the first run, none of which any test caught:
+
+  * **A test function defined twice in `tests/test_dashboard.py` (F811).** Python
+    bound the name to the second, so the first never ran - and the first was the
+    stronger of the two: it round-tripped a real sample value through
+    `build_argv` for every declared argument type, where the surviving one only
+    checked the type name was in a hardcoded set. It also predated the `url` and
+    `text-list` types, so it would have **failed** the moment it was collected.
+    A shadowed test is worse than a missing one: the name is in the file, so
+    nobody notices it is gone. Merged into one test that does both.
+  * **A dead `phone_display` in `audit_built` (F841).** `cfg["nap"]["phone"]` -
+    the displayed number, as against the `tel:` href beside it - read into a
+    local and never used. There is no NAP-consistency check among the 30, so this
+    is a check someone started and did not finish rather than a leftover from one
+    that was removed. Left as a comment, not invented: a 31st check is a
+    decision, not a lint fix.
+  * 29 unused imports (F401), two of them mine from an hour earlier.
+  * 10 `raise X(...)` inside an `except` with no `from` (B904), each discarding
+    the cause from the traceback. Now `from exc`, or `from None` where the
+    message already carries the detail and the chained traceback would only bury
+    the fix instruction.
+  * 2 `zip(x, x[1:])` without `strict=` (B905) - both intentionally pairwise, now
+    saying so with `strict=False` instead of leaving the reader to work it out.
+
+  It also caught me breaking working code mid-fix: renaming a loop variable to
+  `_path` hit two loops instead of one and left `Path(path)` undefined in
+  `noncommodity_check`. `F821` named it in under a second; the test suite would
+  have caught it only if that branch were exercised.
+
+  Runs on one Python version rather than all three - the selected rules are
+  version-independent - and as its own step, so a lint failure and a test failure
+  are distinguishable at a glance in the run list.
+
+  **Not added: `mypy`.** Type-checking 83 largely unannotated modules produces
+  thousands of errors on day one, and a check nobody can get to zero is a check
+  everyone learns to ignore. That is its own piece of work, module by module.
+
+
 ### Documentation
 
 Five claims in the docs that were false against the code. Each was verified by

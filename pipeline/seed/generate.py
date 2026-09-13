@@ -46,7 +46,7 @@ def parse_result(raw: str) -> dict:
         envelope = json.loads(raw)
         text = envelope["result"]
     except (json.JSONDecodeError, KeyError, TypeError) as e:
-        raise ValueError(f"unparseable claude envelope: {e}")
+        raise ValueError(f"unparseable claude envelope: {e}") from e
     text = text.strip()
     if text.startswith("```"):
         # strip ```json ... ``` fence
@@ -55,7 +55,7 @@ def parse_result(raw: str) -> dict:
     try:
         inner = json.loads(text)
     except json.JSONDecodeError as e:
-        raise ValueError(f"claude result is not JSON: {e}")
+        raise ValueError(f"claude result is not JSON: {e}") from e
     if not all(k in inner for k in ("title", "body", "brand_mention")):
         raise ValueError(f"claude result missing keys: {inner.keys()}")
     return inner

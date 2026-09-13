@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 try:
-    import yaml
+    import yaml  # noqa: F401  - imported to PROVE it is installed; the message below is the point
 except ImportError:
     print("[ERROR] PyYAML required. Run: pip3 install pyyaml", file=sys.stderr)
     sys.exit(2)

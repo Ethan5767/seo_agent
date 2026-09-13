@@ -43,7 +43,6 @@ Exit: 0 pages written · 2 usage · 19 REFUSED (nothing fetched, nothing written
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import sys
 from datetime import date, datetime, timezone
@@ -53,7 +52,7 @@ from urllib.parse import urlsplit
 from pipeline.audit.measure import discover_urls
 from pipeline.lib.common import curl, curl_final_host, curl_status, load_config
 
-from pipeline.lib.atomic import write_atomic, write_json_atomic
+from pipeline.lib.atomic import write_json_atomic
 
 SCHEMA = "render-snapshot/1"
 MANIFEST = "snapshot.json"

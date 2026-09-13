@@ -8,7 +8,6 @@ import json
 
 from pipeline.seed.gaps import Gap
 from pipeline.seed.generate import Draft
-from pipeline.seed.posters import PostResult
 from pipeline.seed.run import dispatch, run_seed
 
 

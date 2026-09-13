@@ -293,7 +293,8 @@ def _body_rows(url: str, html: str) -> list[dict]:
 
     # 19. Heading order — a level skipped on the way down.
     levels = [int(m) for m in re.findall(r"<h([1-6])\b", h, re.I)]
-    skips = [(a, b) for a, b in zip(levels, levels[1:]) if b > a + 1]
+    # Adjacent pairs; the second list is short by one by design.
+    skips = [(a, b) for a, b in zip(levels, levels[1:], strict=False) if b > a + 1]
     rows.append(_row("Heading order", "ok" if not skips else "warn",
                      "Heading levels descend without skipping." if not skips else
                      f"{len(skips)} place(s) where a heading level is skipped, e.g. h{skips[0][0]} straight to h{skips[0][1]}. Screen readers announce the outline, and a gap reads as a missing section.",

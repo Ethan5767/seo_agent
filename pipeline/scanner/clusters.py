@@ -92,7 +92,9 @@ def plan_clusters(rows: list[dict], min_cluster: int = MIN_CLUSTER,
     freq: dict[str, set[str]] = defaultdict(set)
     for kw in by_kw:
         terms = _terms(kw)
-        for a, b in zip(terms, terms[1:]):
+        # Adjacent pairs, so the tail is short by one BY DESIGN; strict=False
+        # says that rather than leaving the reader to work it out.
+        for a, b in zip(terms, terms[1:], strict=False):
             freq[f"{a} {b}"].add(kw)
         for t in terms:
             freq[t].add(kw)

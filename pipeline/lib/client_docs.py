@@ -236,7 +236,7 @@ def append_work_log(repo: Path, entry: str) -> Path:
     before the first existing entry, so history is never rewritten.
     """
     p = repo / "docs" / "seo-work-log.md"
-    body = p.read_text() if p.is_file() else f"# SEO Work Log\n\nLatest run at top. **Append-only.**\n\n---\n"
+    body = p.read_text() if p.is_file() else "# SEO Work Log\n\nLatest run at top. **Append-only.**\n\n---\n"
     marker = "\n---\n"
     i = body.find(marker)
     if i == -1:

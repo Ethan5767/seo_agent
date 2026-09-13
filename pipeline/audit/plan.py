@@ -150,9 +150,11 @@ def read_findings(project, cycle: str) -> dict:
     try:
         doc = json.loads(path.read_text())
     except FileNotFoundError:
-        raise PlanError(f"no findings.json in {path.parent} — run wf-site-health first")
+        # `from None`: the message already says what is missing and what to run,
+        # and a chained FileNotFoundError traceback adds nothing an operator uses.
+        raise PlanError(f"no findings.json in {path.parent} — run wf-site-health first") from None
     except json.JSONDecodeError as exc:
-        raise PlanError(f"{path} is not valid JSON: {exc}")
+        raise PlanError(f"{path} is not valid JSON: {exc}") from exc
     if not isinstance(doc, dict) or not isinstance(doc.get("findings"), list):
         raise PlanError(f"{path} is not a site-health findings document")
     return doc

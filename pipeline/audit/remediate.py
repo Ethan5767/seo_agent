@@ -73,7 +73,7 @@ from pathlib import Path
 
 from pipeline.lib.common import client_profile, load_config, tier_verdict
 
-from pipeline.lib.atomic import write_atomic, write_json_atomic
+from pipeline.lib.atomic import write_json_atomic
 
 SCHEMA = "site-remediate-changelog/1"
 REFUSED_EXIT = 9
@@ -406,7 +406,7 @@ def load_worklist(project, cycle: str | None) -> tuple:
     try:
         return target, json.loads((audit / target / "worklist.json").read_text())
     except json.JSONDecodeError as exc:
-        raise RemediateError(f"{audit / target}/worklist.json is not valid JSON: {exc}")
+        raise RemediateError(f"{audit / target}/worklist.json is not valid JSON: {exc}") from exc
 
 
 def read_changelog(project, cycle: str) -> dict:

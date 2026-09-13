@@ -113,10 +113,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import glob
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -125,7 +123,7 @@ from pathlib import Path
 
 from pipeline.lib.html import sitemap_locs
 
-from pipeline.lib.atomic import write_atomic, write_json_atomic
+from pipeline.lib.atomic import write_json_atomic
 
 SCHEMA = "meridian-gate-baseline/1"
 
@@ -314,7 +312,7 @@ class Baseline:
         try:
             data = json.loads(p.read_text())
         except json.JSONDecodeError as e:
-            raise BaselineError(f"baseline file is not valid JSON: {p} ({e})")
+            raise BaselineError(f"baseline file is not valid JSON: {p} ({e})") from e
         if data.get("schema") != SCHEMA:
             raise BaselineError(
                 f"baseline schema mismatch in {p}: expected {SCHEMA!r}, got {data.get('schema')!r}")
@@ -599,7 +597,7 @@ def main() -> int:
                     print(f"    FIXED  {e['gate']}  {e['code']}  {e['location']}")
                 if len(fixed) > 40:
                     print(f"    ... and {len(fixed) - 40} more")
-                print(f"  Refresh so the count can only go down:")
+                print("  Refresh so the count can only go down:")
                 print(f"    wf-gate-baseline --project {project} --out {bl_path} --refresh")
 
             if new:
@@ -665,9 +663,9 @@ def main() -> int:
             dropped = len([fp for fp in prior.entries if fp not in current])
             print(f"  dropped (fixed): {dropped}   added (accepted): {len(added)}")
         else:
-            print(f"  NOTE: this is the INITIAL baseline — every current finding is now accepted "
-                  f"as legacy debt. From here it may only shrink.")
-        print(f"  Commit this file to the CLIENT repo (it is client state, per Model A).")
+            print("  NOTE: this is the INITIAL baseline — every current finding is now accepted "
+                  "as legacy debt. From here it may only shrink.")
+        print("  Commit this file to the CLIENT repo (it is client state, per Model A).")
         return 0
 
     except BaselineError as e:

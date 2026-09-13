@@ -13,7 +13,7 @@ Never overwrites an existing config.
 Usage: python3 bootstrap-config.py [PROJECT_DIR] [DOMAIN]
 """
 import argparse
-import sys, re, json
+import sys, re
 from pathlib import Path
 from pipeline.lib.common import TierRefused, curl, resolve_tier, yaml
 

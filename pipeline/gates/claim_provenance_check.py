@@ -137,7 +137,7 @@ def build_corpus(project, cycle: str | None) -> tuple:
         try:
             doc = json.loads((audit / target / "worklist.json").read_text())
         except json.JSONDecodeError as exc:
-            raise ProvenanceError(f"{audit / target}/worklist.json is not valid JSON: {exc}")
+            raise ProvenanceError(f"{audit / target}/worklist.json is not valid JSON: {exc}") from exc
         # Evidence contributes its WORDS but never its NUMERALS (B-034).
         #
         # A work item's evidence is a measurement OF THE PAGE — `len=106`,

@@ -65,8 +65,8 @@ def resolve_base(project, base: str | None) -> str:
     if base:
         try:
             _git(project, "rev-parse", "--verify", f"{base}^{{commit}}")
-        except DiffError:
-            raise DiffError(f"--base {base!r} is not a commit in this repo")
+        except DiffError as exc:
+            raise DiffError(f"--base {base!r} is not a commit in this repo") from exc
         return base
     for cand in _BASE_CANDIDATES:
         try:
@@ -140,9 +140,9 @@ def main() -> int:
     tier = profile.get("tier")
     label = f"T{tier}" if tier else "no tier declared"
 
-    for op, path, reason in refused:
+    for _op, _path, reason in refused:
         print(f"[REFUSED] {reason}")
-    for op, path, reason in allowed:
+    for _op, _path, reason in allowed:
         print(f"[ok] {reason}")
 
     if refused:

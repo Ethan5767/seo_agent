@@ -8,7 +8,6 @@ is flagged rather than silently gating nothing.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -232,7 +231,7 @@ def test_add_tier_is_a_no_op_when_a_tier_already_exists(tmp_path):
 # and wf-onboard writes this into a commit on the default branch. What changed is
 # WHEN the human declares it.
 
-from pipeline.audit.bootstrap_config import build_parser, registry_paths, tier_block
+from pipeline.audit.bootstrap_config import build_parser, registry_paths
 from pipeline.lib.common import TierRefused, UnsafePath
 
 

@@ -80,7 +80,7 @@ def test_site_audit_empty_crawl_is_clean_not_crash():
 
 # ── Task 4: Rankings (domain overview + SERP position + aggregator) ──────────
 from pipeline.scanner.dataforseo import (
-    parse_domain_overview, domain_overview, parse_serp_rank, serp_rank, rankings,
+    parse_domain_overview, parse_serp_rank, rankings,
 )
 
 OVERVIEW_DOC = {"cost": 0.002, "tasks": [{"result": [{"items": [
@@ -215,7 +215,7 @@ def test_backlinks_caller_injected():
 
 
 # ── Measure-completion: Historical rank trend (#11) ──────────────────────────
-from pipeline.scanner.dataforseo import parse_historical_rank, historical_rank
+from pipeline.scanner.dataforseo import parse_historical_rank
 
 
 def test_historical_rank_trend_up_is_ok():

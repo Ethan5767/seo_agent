@@ -1,5 +1,5 @@
 """Shared helpers for SEO pipeline v3 scripts."""
-import sys, os, re, json, subprocess
+import sys, os, re, subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
 

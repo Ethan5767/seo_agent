@@ -11,7 +11,6 @@ network and no filesystem, so the whole suite runs offline.
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from datetime import date
@@ -25,7 +24,7 @@ from pipeline.lib.common import curl, curl_status, load_config, visible_text_rat
 
 from pipeline.lib.html import page_title, sitemap_locs
 
-from pipeline.lib.atomic import write_atomic, write_json_atomic
+from pipeline.lib.atomic import write_json_atomic
 
 GATE = "site_health"
 SCHEMA = "site-health/1"

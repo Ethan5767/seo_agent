@@ -1,4 +1,4 @@
-from pipeline.scanner.validate import sitemap_validation_rows, hreflang_rows, validate_rows
+from pipeline.scanner.validate import sitemap_validation_rows, hreflang_rows
 
 
 def test_valid_sitemap():

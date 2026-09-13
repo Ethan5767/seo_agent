@@ -18,7 +18,6 @@ import json
 from datetime import date
 from pathlib import Path
 
-import pytest
 
 from tests import e2e_fixture as fx
 

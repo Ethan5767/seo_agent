@@ -5,7 +5,6 @@ that each check fires on a page that really has the defect, and that it does NOT
 fire on a clean page. A check that only ever warns is noise, and a check that
 never warns is decoration.
 """
-import re
 
 from pipeline.scanner.onpage import onpage_rows, DEPRECATED_TAGS
 

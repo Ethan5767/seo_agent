@@ -11,7 +11,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from pipeline.lib.atomic import write_atomic, write_json_atomic
+from pipeline.lib.atomic import write_json_atomic
 
 SCHEMA = "outreach-linkbank/1"
 

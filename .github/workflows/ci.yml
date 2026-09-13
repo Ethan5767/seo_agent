@@ -56,6 +56,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e . -r requirements-dev.txt
 
+      # Runs BEFORE pytest, and on one Python only - the rules selected are
+      # version-independent, so running it three times just triples the noise on
+      # a failure. It is a separate step rather than folded into pytest so a lint
+      # failure and a test failure are distinguishable at a glance in the run
+      # list. See [tool.ruff] in pyproject.toml for what is selected and why.
+      - name: Lint (ruff, real defects only)
+        if: matrix.python-version == '3.12'
+        run: ruff check pipeline tests
+
       - name: Run the gate/emitter test suite
         run: pytest -q
 

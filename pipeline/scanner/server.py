@@ -38,7 +38,7 @@ from pipeline.scanner.remediate import build_remediation
 from pipeline.scanner.remediate_bridge import bridge_worklist
 from pipeline.scanner.checks import checks_for
 from pipeline.scanner.crawl import crawl_site, site_rows
-from pipeline.scanner.multipage import discover_pages, merge_by_code
+from pipeline.scanner.multipage import merge_by_code
 from pipeline.scanner import lighthouse
 from pipeline.scanner.eeat import eeat_rows
 from pipeline.scanner.schema_check import schema_rows

@@ -40,7 +40,7 @@ from pathlib import Path
 
 from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
 
-from pipeline.lib.atomic import write_atomic, write_json_atomic
+from pipeline.lib.atomic import write_json_atomic
 
 GATE = "site_health"
 SCHEMA = "site-logs/1"

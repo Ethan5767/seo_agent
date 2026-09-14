@@ -4,7 +4,6 @@ import React, { useState, useMemo, useEffect, useCallback, type ReactNode } from
 import Link from "next/link";
 import type { ClientWithStats, ScanRow, RemediationRow } from "../lib/db";
 import { latestTwoReports } from "../lib/db";
-import { projectLabel, projectSubLabel } from "../lib/scanTarget";
 import {
   fetchTools,
   summarize,
@@ -3183,11 +3182,11 @@ export function ReaiDashboard({
                     color: "#ffffff", display: "grid", placeItems: "center",
                     fontWeight: 800, fontSize: 12, flexShrink: 0,
                   }}>
-                    {(projectLabel(selectedClient) || "P")[0].toUpperCase()}
+                    {(currentBusiness || "P")[0].toUpperCase()}
                   </div>
                   <div style={{ minWidth: 0, overflow: "hidden" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {selectedClient ? projectLabel(selectedClient) : "Select a project"}
+                      {currentBusiness}
                     </div>
                   </div>
                 </div>
@@ -3222,13 +3221,11 @@ export function ReaiDashboard({
                       >
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: 12, fontWeight: isCur ? 700 : 600, color: isCur ? "#047857" : "#1e293b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {projectLabel(c)}
+                            {c.business || c.domain}
                           </div>
-                          {projectSubLabel(c) && (
-                            <div style={{ fontSize: 12, color: "var(--ink-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {projectSubLabel(c)}
-                            </div>
-                          )}
+                          <div style={{ fontSize: 12, color: "var(--ink-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {c.website || c.domain}
+                          </div>
                         </div>
                         {isCur && <span style={{ fontSize: 12, fontWeight: 800, color: "var(--ok)" }}>✓</span>}
                       </div>
@@ -4091,7 +4088,7 @@ export function ReaiDashboard({
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div style={{ fontSize: 13.5, fontWeight: 600, color: c.id === selectedClient?.id ? "#1e293b" : "#334155" }}>
-                            {projectLabel(c)}
+                            {c.business || c.domain}
                           </div>
                           {c.lastCounts && (
                             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)", background: "#ecfdf5", padding: "2px 8px", borderRadius: 10 }}>
@@ -4101,7 +4098,7 @@ export function ReaiDashboard({
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 3, gap: 10 }}>
                           <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                            {projectSubLabel(c) ? `${projectSubLabel(c)} · ` : ""}{c.scans} scan{c.scans !== 1 ? "s" : ""}
+                            {c.domain} · {c.scans} scan{c.scans !== 1 ? "s" : ""}
                           </div>
                           {/*
                             The domain is right here, which is where a wrong one
@@ -4113,7 +4110,7 @@ export function ReaiDashboard({
                           {onUpdateClient && (
                             <button
                               type="button"
-                              title={`Edit ${projectLabel(c)}`}
+                              title={`Edit ${c.business || c.domain}`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setDomainDropdown(false);

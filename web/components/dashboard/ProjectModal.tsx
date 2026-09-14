@@ -67,6 +67,19 @@ export function ProjectModal({
           <form onSubmit={onSubmit}>
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
+                Business Name
+              </label>
+              <input
+                type="text"
+                value={biz}
+                onChange={(e) => setBiz(e.target.value)}
+                placeholder="e.g. Acme Studio"
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
                 Website URL *
               </label>
               <input
@@ -75,19 +88,6 @@ export function ProjectModal({
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://example.com"
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                Business Name <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional, defaults to the domain)</span>
-              </label>
-              <input
-                type="text"
-                value={biz}
-                onChange={(e) => setBiz(e.target.value)}
-                placeholder={(url || "").replace(/^https?:\/\//i, "").replace(/[/?#].*$/, "").replace(/^www\./i, "") || "e.g. Acme Studio"}
                 style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
               />
             </div>

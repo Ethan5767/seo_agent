@@ -69,18 +69,3 @@ export function duplicateDomain<T extends ProjectLike>(
   if (!d) return null;
   return (projects ?? []).find((p) => p.id !== exceptId && projectDomain(p) === d) ?? null;
 }
-
-/**
- * How a project is named on screen: its domain. One domain is one project
- * (B-134), so the domain identifies it; a free-text business name ("Test Test")
- * did not, and two projects could look identical or unrelated to their site.
- * The business name, when it says something the domain does not, is secondary.
- */
-export function projectLabel(p: (ProjectLike & { business?: string | null }) | null | undefined): string {
-  return projectDomain(p) || String(p?.business || "").trim() || "Untitled project";
-}
-
-export function projectSubLabel(p: (ProjectLike & { business?: string | null }) | null | undefined): string {
-  const b = String(p?.business || "").trim();
-  return b && normDomain(b) !== projectDomain(p) ? b : "";
-}

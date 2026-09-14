@@ -6,6 +6,26 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **Backlink Gap works (B-116).** New `backlink_gap` scanner tool on DataForSEO
+  `backlinks/domain_intersection/live` and a Backlink Gap tool page. Live on the
+  hospital vs its saved competitor `https://royalphnompenhhospital.com/`:
+
+  ```
+  PROGRESS the backlink gap answered {'ms': 1823, 'cost': 0.0276}
+  DONE backlink gap vs royalphnompenhhospital.com: 338 domains · $0.0276
+     info  bdms.co.th        | rank 311 · 11 links · spam 25 · since 2023-04-09
+     info  edi-cambodia.org  | rank 192 · 6462 links · spam 2 · since 2025-05-03
+  ```
+
+  Competitor URLs are normalised to bare domains (Keyword Gap too).
+
+### Fixed
+
+- **Core Web Vitals blamed a blocked Google key on low traffic (B-135).**
+
+
 ### Changed
 
 - **Every tool checks the live domain; Source Code is hidden** (operator request).

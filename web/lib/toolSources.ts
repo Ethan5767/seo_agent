@@ -100,6 +100,7 @@ export const TOOL_SOURCES: Record<string, ToolSources> = {
   // ── Links ──
   backlinks: { dataforseo: dfs("backlinks", ["backlinks"]), ours: { disabled: NO_LINK_INDEX } },
   "backlink-audit": { dataforseo: dfs("backlink-audit", ["backlinks"]), ours: { disabled: NO_LINK_INDEX } },
+  "backlink-gap": { dataforseo: dfs("backlink-gap", ["backlink_gap"]), ours: { disabled: NO_LINK_INDEX } },
   // ── On-page ──
   "on-page": {
     dataforseo: { tools: ["site"], codes: op(DFS_FLAGS.onPage) },

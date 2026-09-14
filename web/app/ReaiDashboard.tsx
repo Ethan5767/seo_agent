@@ -1569,7 +1569,9 @@ export const NAV_SECTIONS: NavSection[] = [
           { label: "Organic Rankings", view: "organic-rankings" },
           { label: "Compare Domains", view: "compare-domains" },
           { label: "Keyword Gap", view: "keyword-gap" },
-          { label: "Backlink Gap", tab: "Backlink Gap" },
+          // Was an old tab over a hardcoded empty list (B-116); now a tool page on
+          // DataForSEO backlinks/domain_intersection.
+          { label: "Backlink Gap", view: "backlink-gap" },
         ],
       },
       {

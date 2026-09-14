@@ -285,6 +285,17 @@ def perf_rows(crux) -> list[dict]:
             "why": r["why"], "fix": r["fix"], "detail": "", "severity": "info",
         }]
     metrics, status = crux
+    if not metrics and str(status or "").startswith("error:"):
+        # A refused or failed request is not "not enough traffic". A 403 from a
+        # key whose restrictions exclude the Chrome UX Report API was shown as
+        # "CrUX only has field data for pages with enough Chrome traffic",
+        # blaming the site for a key setting (2026-09-14).
+        reason = str(status).removeprefix("error: ")
+        if "403" in reason:
+            reason += (" (the API key is not allowed to call the Chrome UX Report API: in Google Cloud, "
+                       "APIs & Services > Credentials > this key > API restrictions, add Chrome UX Report API)")
+        from pipeline.scanner.rows import unavailable_row
+        return [unavailable_row("perf", f"CrUX request failed: {reason}", "Core Web Vitals (CrUX)")]
     if not metrics:
         return [{
             "code": "crux.nodata", "what": "core web vitals — no field data",

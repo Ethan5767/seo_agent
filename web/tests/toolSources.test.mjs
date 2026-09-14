@@ -202,3 +202,11 @@ test("every tool checks the live domain: no Source Code page, no repo sent to a 
   const modal = read("web", "components", "dashboard", "ProjectModal.tsx");
   assert.match(modal, /<details[\s\S]{0,300}Advanced: source code repository/);
 });
+
+test("Backlink Gap is a real tool page on DataForSEO, not the old empty tab (B-116)", () => {
+  const dash = read("web", "app", "ReaiDashboard.tsx");
+  assert.match(dash, /\{ label: "Backlink Gap", view: "backlink-gap" \}/);
+  assert.doesNotMatch(dash, /\{ label: "Backlink Gap", tab: "Backlink Gap" \}/);
+  assert.deepEqual(TOOL_SOURCES["backlink-gap"].dataforseo.tools, ["backlink_gap"]);
+  assert.ok(viewById("backlink-gap"));
+});

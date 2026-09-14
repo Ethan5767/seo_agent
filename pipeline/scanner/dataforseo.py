@@ -10,6 +10,7 @@ Everything degrades honestly: no creds -> a "skipped" status, never faked data.
 from __future__ import annotations
 
 import base64
+import re
 import http.client
 import json
 import os
@@ -93,6 +94,7 @@ _LABELS = {
     "on_page/task_post": "start the site crawl",
     "on_page/pages": "the crawled page results",
     "backlinks/summary": "the backlink summary",
+    "backlinks/domain_intersection": "the backlink gap",
     "dataforseo_labs/google/ranked_keywords": "the keywords this site ranks for",
     "dataforseo_labs/google/domain_rank_overview": "the domain overview",
     "dataforseo_labs/google/competitors_domain": "competing domains",
@@ -542,6 +544,94 @@ def competitors(domain: str, call=call) -> tuple:
                  parse_competitors, call=call)
 
 
+def bare_domain(value: str) -> str:
+    """'https://www.Rival.com/en?x=1' -> 'rival.com'. DataForSEO's backlinks and
+    Labs endpoints want targets without scheme or www; projects store competitors
+    however they were typed (the hospital's is 'https://royalphnompenhhospital.com/')."""
+    v = str(value or "").strip().lower()
+    v = re.sub(r"^[a-z]+://", "", v)
+    v = re.split(r"[/?#]", v, maxsplit=1)[0]
+    return v.split(":")[0].removeprefix("www.")
+
+
+#: Referring domains with a DataForSEO spam score at or above this are shown
+#: with a warning rather than as an opportunity.
+SPAM_WARN = 50
+
+
+def parse_backlink_gap(doc: dict, competitors: list[str], top: int = TOP_ROWS) -> list[dict]:
+    """Rows from backlinks/domain_intersection: each item's `target` is a domain
+    linking to the competitor(s) and not to you."""
+    try:
+        result = doc["tasks"][0]["result"][0] or {}
+    except (KeyError, IndexError, TypeError):
+        return []
+    items = result.get("items") or []
+    total = result.get("total_count") or len(items)
+    names = ", ".join(competitors)
+    rows = [{"code": "dfs.backlink_gap_summary",
+             "what": f"{total} domains link to {names} but not to you",
+             "why": "Sites already linking to a competitor are the likeliest to link to you.",
+             "fix": "work the list from the highest rank down", "severity": "info",
+             "detail": f"showing the top {min(len(items), top)}"}]
+    entries = []
+    for it in items:
+        hits = [v for v in (it.get("domain_intersection") or {}).values() if isinstance(v, dict)]
+        if not hits:
+            continue
+        dom = hits[0].get("target")
+        if not dom:
+            continue
+        rank = max(int(h.get("rank") or 0) for h in hits)
+        links = sum(int(h.get("backlinks") or 0) for h in hits)
+        spam = max(int(h.get("backlinks_spam_score") or 0) for h in hits)
+        count = (it.get("summary") or {}).get("intersections_count") or len(hits)
+        entries.append((rank, dom, links, spam, count, hits[0].get("first_seen") or ""))
+    entries.sort(key=lambda e: (-e[0], e[3]))
+    for rank, dom, links, spam, count, first in entries[:top]:
+        of = f"{count} of {len(competitors)} competitors" if len(competitors) > 1 else names
+        rows.append({
+            "code": "dfs.backlink_gap", "what": dom,
+            "why": f"Links to {of}, not to you.",
+            "fix": ("check this site before outreach: high spam score" if spam >= SPAM_WARN
+                    else "reach out with a page worth linking to"),
+            "severity": "warn" if spam >= SPAM_WARN else "info",
+            "detail": f"rank {rank} · {links} links · spam {spam}" + (f" · since {first[:10]}" if first else ""),
+        })
+    return rows
+
+
+def backlink_gap(domain: str, competitor_list=None, call=call, discover: bool = True, max_competitors: int = 3) -> tuple:
+    """(rows, status, cost) — referring domains your competitors have and you do
+    not. Competitors come from the project; with none, DataForSEO's own
+    competitor list for the domain is used (one extra Labs call)."""
+    you = bare_domain(domain)
+    rivals = [bare_domain(c) for c in (competitor_list or []) if bare_domain(c) and bare_domain(c) != you]
+    cost = 0.0
+    if not rivals and discover:
+        comp_rows, s, c = competitors(you, call=call)
+        cost += c
+        if not s.startswith("ok"):
+            from pipeline.scanner.rows import unavailable_row
+            return [unavailable_row("backlink_gap", f"could not find competitors: {s}", "Backlink Gap")], f"not run: {s}", round(cost, 4)
+        rivals = [bare_domain(r["what"]) for r in comp_rows if bare_domain(r["what"]) not in ("", you)]
+    rivals = list(dict.fromkeys(rivals))[:max_competitors]
+    if not rivals:
+        from pipeline.scanner.rows import unavailable_row
+        reason = "needs a competitor: add one to the project"
+        return [unavailable_row("backlink_gap", reason, "Backlink Gap")], f"not run: {reason}", round(cost, 4)
+    doc, err = call("/v3/backlinks/domain_intersection/live",
+                    [{"targets": {str(i + 1): r for i, r in enumerate(rivals)},
+                      "exclude_targets": [you], "limit": TOP_ROWS, "intersection_mode": "all"}])
+    if err:
+        from pipeline.scanner.rows import unavailable_row
+        return [unavailable_row("backlink_gap", err, "Backlink Gap")], err, round(cost, 4)
+    cost += cost_of(doc)
+    rows = parse_backlink_gap(doc, rivals)
+    total = rows[0]["what"].split(" ")[0] if rows else "0"
+    return rows, f"backlink gap vs {', '.join(rivals)}: {total} domains · ${cost:.4f}", round(cost, 4)
+
+
 def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -> tuple:
     """(rows, status, cost) — the Keywords card: competitors + keyword-gap vs the
     top competitor + search volume for the client's terms + fresh ideas. The
@@ -551,7 +641,7 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
     cost = 0.0
     problems: list[str] = []
     comp_rows, s, c = competitors(domain, call=call); rows += comp_rows; cost += c; problems += _problem(s)
-    competitor = (competitor_list or [None])[0]
+    competitor = bare_domain((competitor_list or [""])[0]) or None
     if not competitor and comp_rows:
         competitor = comp_rows[0]["what"]
     if competitor:

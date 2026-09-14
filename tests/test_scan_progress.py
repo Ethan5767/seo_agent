@@ -173,3 +173,16 @@ def test_the_scan_handler_only_cycles_a_local_checkout():
     src = inspect.getsource(server)
     assert "= run_cycle(Path(repo)" not in src
     assert "checkout = local_checkout(repo)" in src
+
+
+def test_a_refused_crux_request_is_not_blamed_on_traffic():
+    """The key's API restrictions blocked CrUX (HTTP 403); the page said the site
+    lacked Chrome traffic."""
+    from pipeline.scanner import audit
+    rows = audit.perf_rows(([], "error: HTTP 403 from https://chromeuxreport.googleapis.com/v1/records:queryRecord"))
+    assert [r["code"] for r in rows] == ["unavailable.perf"]
+    assert "403" in rows[0]["why"] and "Chrome UX Report API" in rows[0]["why"]
+    assert "traffic" not in rows[0]["why"]
+    # A genuine "no record" is still the no-data row.
+    nodata = audit.perf_rows(([], "no field data: CrUX has no record for x.com"))
+    assert nodata[0]["code"] == "crux.nodata"

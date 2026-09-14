@@ -175,6 +175,16 @@ export const REPORT_VIEWS: ReportView[] = [
     emptyHint: "Run a scan with the Backlinks tool enabled to populate this.",
   },
   {
+    id: "backlink-gap",
+    section: "SEO",
+    label: "Backlink Gap",
+    codes: ["dfs.backlink_gap_summary", "dfs.backlink_gap"],
+    blurb:
+      "Sites that link to your competitors but not to you, highest rank first. They already link in your space, so they are the likeliest to link to you.",
+    columns: FINDING_COLUMNS,
+    emptyHint: "Press Test. It uses the project's competitors, or finds them when the project has none.",
+  },
+  {
     id: "site-crawl",
     section: "SEO",
     label: "Crawl Issues",

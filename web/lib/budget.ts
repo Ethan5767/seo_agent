@@ -19,6 +19,7 @@ export const PAID_TOOL_COSTS: Record<string, number> = {
   site: 0.006,
   ai: 0.11,
   backlinks: 0.025,
+  backlink_gap: 0.025,
   keywords: 0.18,
   rankings: 0.045,
   rank_trend: 0.13,

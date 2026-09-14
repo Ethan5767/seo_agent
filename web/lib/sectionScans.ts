@@ -126,6 +126,7 @@ export const VIEW_TOOLS: Record<string, string[]> = {
   "serp-positions": ["rankings"],
   "backlinks": ["backlinks"],
   "backlink-audit": ["backlinks"],
+  "backlink-gap": ["backlink_gap"],
   // The view blurb promises all four Lighthouse categories; the button ran two (D14).
   "core-web-vitals": ["perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp"],
   "on-page": ["seo", "onpage"],

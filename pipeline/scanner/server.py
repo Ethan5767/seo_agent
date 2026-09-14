@@ -196,6 +196,11 @@ def phase_of(t: Tool) -> int:
 # Everything else (CrUX, Lighthouse, DataForSEO, source, validate) runs once.
 PER_PAGE = {"seo", "onpage", "schema", "content", "video", "eeat", "internal"}
 
+# Tools whose data never came from our fetch of the page: DataForSEO queries by
+# domain or brand, the source lane reads the repository. When the page cannot be
+# fetched their results still stand; they were bought, and they are true.
+PAGE_INDEPENDENT = {t.key for t in TOOLS if t.group in ("dataforseo", "source")}
+
 
 def handle_plan(req: dict) -> dict:
     """Plan-stage ratchet over two findings lists — pure, so it's unit-testable
@@ -584,6 +589,12 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                 rows, tool_status, tool_cost = [unavailable_row(t.key, blocker, t.label)], f"not run: {blocker}", 0.0
             else:
                 rows, tool_status, tool_cost = _run_tool(t)
+                # Ran, produced nothing, and its status is an error (HTTP 401,
+                # a timeout, a crawl that never finished): say so on the page.
+                # Only refusals checked before the run used to get a row, so a
+                # failed Backlinks call read as "Run a scan with Backlinks enabled".
+                if not rows and tool_status and not str(tool_status).startswith("ok"):
+                    rows = [unavailable_row(t.key, str(tool_status), t.label)]
             cost += tool_cost
             # Extend, never assign: the free crawl's site-wide rows are already
             # filed under "site", which is also the Site Health tool's key. An
@@ -597,7 +608,7 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     all_rows = [r for rows in groups.values() for r in rows]
     log.append(f"Checked {len(all_rows)} things — {_status_line(all_rows)}. "
                f"Cost this run: ${cost:.4f}.")
-    report = A.assemble(groups, reachable=reachable)
+    report = A.assemble(groups, reachable=reachable, page_independent=PAGE_INDEPENDENT)
     report["cost"] = round(cost, 4)
 
     # The page AS FETCHED. Every row builder has had the HTML all along and the

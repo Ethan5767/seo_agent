@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { AuthGate } from "./auth";
 import { ReaiDashboard } from "./ReaiDashboard";
 import { saveClient, updateClient, saveScan, lastTwoScansFindings,
@@ -11,6 +11,7 @@ import { listRepos } from "../lib/github";
 import { supabase } from "../lib/supabase";
 import { authedFetch } from "@/lib/authedFetch";
 import { readScanStream } from "@/lib/scanStream";
+import { mergeScanReport } from "@/lib/reportMerge";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string; pages?: string[] };
 type Audit = {
@@ -383,17 +384,23 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     authedFetch("/api/tools").then((r) => r.json()).then((d) => {
       const t: CatalogTool[] = d.tools || [];
       setCatalog(t);
-      // DataForSEO is the default source (operator decision, 2026-09-14), with
-      // our own tools kept alongside. Everything the scanner can run right now
-      // is ticked; a paid tool it cannot run (no credentials, paused) stays
-      // unticked and says why in the catalog. Spend is still capped per day by
-      // /api/scan.
-      setSelected(new Set(t.filter((x) => x.available !== false).map((x) => x.key)));
+      // The GENERIC scan triggers (top-bar Run Scan, quick search, sample chips,
+      // Refresh Local Signals, tool-directory cards) send this selection, and no
+      // screen renders a picker or a cost before they fire. So it stays free:
+      // ticking every available tool made each of those clicks spend ~$0.53 on
+      // eight paid tools with nothing shown first (review, 2026-09-14).
+      //
+      // DataForSEO is still the default where the operator chose it: on each
+      // tool page, whose Data source dropdown opens on DataForSEO and names the
+      // cost next to its Test button. That is an explicit, priced choice; this
+      // is not.
+      setSelected(new Set(t.filter((x) => x.group === "free").map((x) => x.key)));
     }).catch((e) => console.error("tool catalog fetch failed — is the backend running?", e));
   }, []);
   const [filter, setFilter] = useState<"all" | "error" | "warn" | "ok">("all");
   const [crawlPages, setCrawlPages] = useState(5);  // free multi-page crawl depth (default 5 pages, max 25)
   const [busy, setBusy] = useState(false);
+  const scanInFlight = useRef(false);
   const [live, setLive] = useState<string[]>([]);
   const [phaseLine, setPhaseLine] = useState("");
   const [tools, setTools] = useState<Tool[]>([]);
@@ -537,6 +544,12 @@ function Scanner({ initialTab }: { initialTab?: any }) {
   async function run(overrideUrl?: string, overrideTools?: string[]): Promise<void>;
   async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number): Promise<void>;
   async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number) {
+    // One scan at a time. Several triggers ignore `busy`, and a second press
+    // during a paid scan starts a second paid scan that /api/scan admits against
+    // the same not-yet-saved spend. A ref, not state: two clicks in one tick
+    // both read the old `busy`.
+    if (scanInFlight.current) return;
+    scanInFlight.current = true;
     const activeUrl = (overrideUrl || url || "").trim();
     setBusy(true); setData(null); setLive([]); setTools([]); setPhaseLine("");
     const toolMap = new Map<string, Tool>();
@@ -575,8 +588,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
             if (finalAudit && (overrideTools || openReport?.report)) {
               const baseReport = (openReport?.report || {}) as Record<string, unknown>;
               const merged: Record<string, unknown> = {
-                ...baseReport,
-                ...finalAudit,
+                ...mergeScanReport(baseReport, finalAudit as unknown as Record<string, unknown>, overrideTools ?? [...selected]),
                 page: (finalAudit as any).page || baseReport.page,
                 site_url: (finalAudit as any).site_url || baseReport.site_url || activeUrl,
               };
@@ -670,6 +682,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     } catch (e) {
       setData({ error: String(e) });
     } finally {
+      scanInFlight.current = false;
       setBusy(false); setPhaseLine("");
     }
   }

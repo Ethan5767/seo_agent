@@ -265,23 +265,48 @@ test("tallyRows skips malformed entries without throwing", () => {
  * its refusal is measured and shown nowhere.
  */
 test("every scanner tool's 'did not run' row reaches a screen", async () => {
-  const { VIEW_TOOLS } = await import("../lib/sectionScans.ts");
+  // The tool pages read TOOL_SOURCES, so that is the table to check.
+  const { TOOL_SOURCES, isEnabled } = await import("../lib/toolSources.ts");
   const server = readFileSync(path.join(REPO, "pipeline", "scanner", "server.py"), "utf8");
   const keys = [...server.matchAll(/Tool\("[^"]+", "([^"]+)"/g)].map((m) => m[1]);
   assert.ok(keys.length > 20, "could not parse the scanner tool list");
-  const backed = new Set(Object.values(VIEW_TOOLS).flat());
+  const backed = new Set(Object.values(TOOL_SOURCES).flatMap((s) =>
+    ["dataforseo", "ours"].flatMap((k) => (isEnabled(s[k]) ? s[k].tools : []))));
   // gbp renders in Local Presence's own panel; mentions has no screen yet (see UNSECTIONED).
   const exempt = new Set(["gbp", "mentions"]);
   const orphans = keys.filter((k) => !backed.has(k) && !exempt.has(k));
   assert.deepEqual(orphans, [], "tools whose refusal would show on no screen: " + orphans.join(", "));
 });
 
-test("a view shows the 'did not run' row of its own tool, and only its own", () => {
+test("a view shows the 'did not run' row of its own tool, and only its own", async () => {
   const backlinks = viewById("backlinks");
   const report = {
     backlinks: [{ code: "unavailable.backlinks", what: "Backlinks did not run", why: "paused by DATAFORSEO_PAUSE_SPEND=1", fix: "", severity: "info" }],
     keywords: [{ code: "unavailable.keywords", what: "Keywords did not run", why: "x", fix: "", severity: "info" }],
   };
-  const rows = rowsForView(report, backlinks);
+  const { TOOL_SOURCES } = await import("../lib/toolSources.ts");
+  const rows = rowsForView(report, backlinks, TOOL_SOURCES.backlinks.dataforseo);
   assert.deepEqual(rows.map((r) => r.code), ["unavailable.backlinks"]);
+  // No source = a caller that wants measurements (the Executive Report).
+  assert.deepEqual(rowsForView(report, backlinks), []);
+});
+
+test("every reason a card filed survives, not just the first", async () => {
+  const { TOOL_SOURCES } = await import("../lib/toolSources.ts");
+  const report = { keywords: [
+    { code: "unavailable.keywords", what: "Keywords did not run", why: "needs a competitor", severity: "info" },
+    { code: "unavailable.keywords", what: "Keywords did not run", why: "no target keywords", severity: "info" },
+  ] };
+  const rows = rowsForView(report, viewById("keyword-overview"), TOOL_SOURCES["keyword-overview"].dataforseo);
+  assert.deepEqual(rows.map((r) => r.why), ["needs a competitor", "no target keywords"]);
+});
+
+test("measured() drops every kind of 'did not run' row", async () => {
+  const { measured } = await import("../lib/reportViews.ts");
+  const rows = [
+    { code: "unavailable.rankings", what: "Rankings did not run" },
+    { code: "rankings.not_measured", what: "Not measured" },
+    { code: "dfs.ranked_keyword", what: '"roofing" — rank #4' },
+  ];
+  assert.deepEqual(measured(rows).map((r) => r.code), ["dfs.ranked_keyword"]);
 });

@@ -68,6 +68,14 @@ export function SectionScanButton({
   const sourceBlocked = source && sourceBlockers ? sourceBlockers[source] : "";
   const sectionKeys = toolsForSection(sectionId, tools);
   const sectionPrice = sectionCost(sectionId, tools);
+  // "Scan all <section>" from a tool page: the section's FREE tools plus what
+  // this page's chosen source runs. It sent every tool in the section, so on a
+  // page reading "Our tools (free) / all free" it billed Site Health and
+  // Backlinks without naming either (review, 2026-09-14).
+  const scanAllKeys = sectionKeys && sourced
+    ? sectionKeys.filter((k) => sourced.includes(k) || (tools ?? []).some((t) => t.key === k && t.group === "free"))
+    : sectionKeys;
+  const scanAllPaid = (tools ?? []).filter((t) => (scanAllKeys ?? []).includes(t.key) && t.group === "dataforseo");
 
   // If this specific view has dedicated tools, scope to them; otherwise use section tools.
   const isViewScoped = Boolean(viewKeys && viewKeys.length);
@@ -229,12 +237,12 @@ export function SectionScanButton({
         </div>
       )}
 
-      {isViewScoped && sectionKeys && sectionKeys.length > (keys?.length ?? 0) && (
+      {isViewScoped && scanAllKeys && scanAllKeys.length > (keys?.length ?? 0) && (
         <button
           type="button"
           disabled={busy}
-          onClick={() => onScan(domain, sectionKeys)}
-          title={`Scan all ${sectionKeys.length} tools in ${section.label}: ${sectionKeys.join(", ")}`}
+          onClick={() => onScan(domain, scanAllKeys)}
+          title={`Scan ${scanAllKeys.length} tools in ${section.label}: ${scanAllKeys.join(", ")}`}
           style={{
             ...secondary,
             background: !busy ? "#f8fafc" : "#e2e8f0",
@@ -242,7 +250,7 @@ export function SectionScanButton({
             cursor: !busy ? "pointer" : "not-allowed",
           }}
         >
-          Scan all {section.label}
+          Scan all {section.label}{scanAllPaid.length ? ` (${scanAllPaid.map((t) => `${t.label}${t.cost ? ` ${t.cost}` : ""}`).join(", ")})` : " (free)"}
         </button>
       )}
 

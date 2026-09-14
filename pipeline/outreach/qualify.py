@@ -11,7 +11,9 @@ The first two are derivable from DataForSEO's organic footprint; the last two ar
 page-level facts a domain endpoint cannot see, so they are marked `manual` — a
 human confirms them on the actual placement page.
 
-DataForSEO is pay-frozen in this engine (dataforseo.call refuses live spend), so
+DataForSEO spends live when credentials are in the process environment and
+DATAFORSEO_PAUSE_SPEND is off (one paid call per domain, no budget: B-124); without
+them, so
 with no live data every automatable check returns `unknown` and the domain's
 verdict is `unknown` — a NAMED SKIP carrying the provider's own status string,
 never a fabricated pass (CLAUDE.md sharp-edge #6). When live data does flow, the

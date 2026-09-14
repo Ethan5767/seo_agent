@@ -116,7 +116,8 @@ export const TOOL_SOURCES: Record<string, ToolSources> = {
   "aeo-answers": { dataforseo: { disabled: "DataForSEO does not check answer-engine structure." }, ours: ours("aeo-answers", ["aeo"]) },
   "aeo-crawlers": { dataforseo: { disabled: "DataForSEO does not read your robots.txt rules for AI crawlers." }, ours: ours("aeo-crawlers", ["aeo"]) },
   "aeo-citations": { dataforseo: { disabled: "Use AI Mentions for DataForSEO's LLM citation data." }, ours: ours("aeo-citations", ["aeo"]) },
-  "ai-mentions": { dataforseo: dfs("ai-mentions", ["ai", "mentions"]), ours: { disabled: "No free source records what AI engines say about a brand." } },
+  // `ai` only: `mentions` (~$0.03) emits mention.* rows this page never shows.
+  "ai-mentions": { dataforseo: dfs("ai-mentions", ["ai"]), ours: { disabled: "No free source records what AI engines say about a brand." } },
 };
 
 export function isEnabled(o: SourceOption | undefined): o is { tools: string[]; codes: string[] } {
@@ -136,6 +137,12 @@ export function sourceBlocker(
   const opt = TOOL_SOURCES[viewId]?.[source];
   if (!opt) return "Not configured for this page.";
   if (!isEnabled(opt)) return opt.disabled;
+  // No catalog means availability is unknown (scanner down, or /api/tools not
+  // answered yet). Assuming DataForSEO was up filtered saved reports down to
+  // dfs.op.* rows and hid every free row behind "No data here yet".
+  if (source === "dataforseo" && !(catalog && catalog.length)) {
+    return "Tool list not loaded, so DataForSEO availability is unknown. Is wf-scan-web running?";
+  }
   const down = (catalog ?? []).filter((t) => opt.tools.includes(t.key) && t.available === false);
   return down.length ? down[0].unavailable_reason || "Unavailable right now." : "";
 }

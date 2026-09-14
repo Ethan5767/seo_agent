@@ -13,7 +13,6 @@
  */
 
 import type { ReportRow, ScanReport } from "./priorities";
-import { VIEW_TOOLS } from "./sectionScans.ts";
 
 export interface ReportColumn {
   key: "what" | "detail" | "why" | "fix" | "severity";
@@ -454,6 +453,27 @@ const NON_GROUP_KEYS = new Set(["score", "counts", "cost", "log", "cycle", "url"
  * A code can appear in more than one group (the multipage merge re-emits rows),
  * so rows are de-duplicated on code plus `what`.
  */
+/**
+ * A row that says a check did not run (`unavailable.<tool>` from the scanner's
+ * run loop, `<group>.not_measured` when the page could not be fetched). It is a
+ * reason, not a measurement.
+ */
+export function isNotRun(row: { code?: unknown } | null | undefined): boolean {
+  const code = typeof row?.code === "string" ? row.code : "";
+  return code.startsWith("unavailable.") || code.endsWith(".not_measured");
+}
+
+/**
+ * The rows of a group that were actually measured. Every screen that reads a
+ * report group directly (the Overview's rankings table, competitors, backlink
+ * authority, Local, AI) must go through this: a "Rankings did not run" row read
+ * as a ranking became a keyword at #1 with 240 searches a month (review,
+ * 2026-09-14).
+ */
+export function measured<T extends { code?: unknown }>(rows: T[] | null | undefined): T[] {
+  return Array.isArray(rows) ? rows.filter((r) => r && !isNotRun(r)) : [];
+}
+
 export function rowsForView(
   report: ScanReport | null | undefined,
   view: ReportView,
@@ -470,10 +490,12 @@ export function rowsForView(
   const out: ReportRow[] = [];
   const codes = source?.codes ?? view.codes;
   // A tool that could not run files one `unavailable.<tool>` row naming why
-  // (no credentials, paused, no repo). It belongs on the screen of every view
-  // that tool backs, or the screen reads "nothing found" with the reason
-  // measured and hidden - the silence the row exists to end.
-  const unavailable = new Set((source?.tools ?? VIEW_TOOLS[view.id] ?? []).map((k) => `unavailable.${k}`));
+  // (no credentials, paused, no repo). The tool page shows it for the tools its
+  // chosen source runs, or the page reads "nothing found" with the reason
+  // hidden. Only with an explicit source: callers that pass none (the
+  // Executive Report's keyword list) want measurements, and listed "Rankings
+  // did not run" as a tracked keyword, twice.
+  const unavailable = new Set((source?.tools ?? []).map((k) => `unavailable.${k}`));
 
   for (const [key, value] of Object.entries(report)) {
     if (NON_GROUP_KEYS.has(key) || !Array.isArray(value)) continue;
@@ -481,7 +503,10 @@ export function rowsForView(
       if (!row || typeof row !== "object") continue;
       const code = typeof row.code === "string" ? row.code : "";
       if (!code || !(unavailable.has(code) || codes.some((p) => matchesCode(code, p)))) continue;
-      const dedupe = `${code}::${row.what ?? ""}`;
+      // A card can file several reasons under one code and label; key on the
+      // reason too, or only the first survives ("needs a competitor" hid "no
+      // target keywords" on every keyword page).
+      const dedupe = `${code}::${row.what ?? ""}${isNotRun(row) ? `::${row.why ?? ""}` : ""}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
       out.push(row);

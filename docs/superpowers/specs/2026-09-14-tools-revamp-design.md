@@ -8,7 +8,7 @@ The sidebar holds 22 tools ("Site Performance" is a group heading). Baseline bef
 
 | Defect | Evidence | Effect |
 |---|---|---|
-| D1. DataForSEO hard-disabled in the scanner | `pipeline/scanner/server.py:497-502` `_wanted` returns False for every `dataforseo` tool unless `PYTEST_CURRENT_TEST` is set | 13 tools can never run |
+| D1. DataForSEO hard-disabled in the scanner | `pipeline/scanner/server.py:497-502` `_wanted` returns False for every `dataforseo` tool unless `PYTEST_CURRENT_TEST` is set | 8 paid tools (13 screens) can never run |
 | D2. DataForSEO hard-disabled again at the call | `pipeline/scanner/dataforseo.py:61` refuses unless login/password are literally `x`/`y` | same, even if D1 is removed |
 | D3. Composite cards swallow sub-call status | `rankings()` / `keywords_card()` bind the status to `_s` and drop it | a skipped or failed provider call reads as "0 rows" |
 | D4. Scan refusals are invisible in the UI | `ScannerApp.tsx` `run()` never checks `res.ok`, never parses the trailing buffer; `/api/scan` answers plain JSON (no newline) for 400/401/429 and **200** for "backend unreachable / SCAN_TOKEN unset" | "nothing happens" (B-104 shape) |
@@ -21,13 +21,13 @@ The sidebar holds 22 tools ("Site Performance" is a group heading). Baseline bef
 | D11. Backlink Gap has no data source | `backlinkGapData = []` hardcoded, no scanner tool | permanently empty |
 | D12. Source Code silently dropped without a GitHub token | `server.py` `source_ok` filters the tool out with no row | looks like "nothing found" |
 | D13. Scan saved to `clients[0]` when no project is active | `ScannerApp.tsx` `histClient \|\| clients[0]` | findings land in the wrong project |
-| D14. Core Web Vitals button runs 3 of the 4 Lighthouse categories the blurb names | `VIEW_TOOLS["core-web-vitals"]` | blurb over-claims |
+| D14. Core Web Vitals button runs 2 of the 4 Lighthouse categories the blurb names | `VIEW_TOOLS["core-web-vitals"]` | blurb over-claims |
 | D15. `.env.example` lists 7 of ~40 variables; no `web/.env.example` | files | operators cannot tell what to provide |
 
 ## 2. Decisions
 
 1. **Spend policy: real calls, budget-capped (option A).** A paid tool runs only when all four hold: credentials set, `DATAFORSEO_PAUSE_SPEND` is not `1`, the tool was explicitly selected, and `applyBudget` admits it. `DATAFORSEO_PAUSE_SPEND=1` stays the operator kill switch and produces a *named* skip.
-2. **A skip is a row, never silence.** Any tool that cannot run emits one `info` row with code `<tool>.unavailable` whose `why` names the exact reason (`DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset`, `paused: DATAFORSEO_PAUSE_SPEND=1`, `no GitHub token`, `no target keywords on this project`, `budget`). Unavailable rows are ungraded (do not move the score).
+2. **A skip is a row, never silence.** Any tool that cannot run emits one `info` row with code `unavailable.<tool>` whose `why` names the exact reason (`DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset`, `paused: DATAFORSEO_PAUSE_SPEND=1`, `no GitHub token`, `no target keywords on this project`, `budget`). Unavailable rows are ungraded (do not move the score).
 3. **The tool catalog states availability.** `/tools` returns `available` and `unavailable_reason` per tool, computed from the environment without spending. The UI disables the checkbox and shows the reason.
 4. **One screen per name.** Legacy fabricated tabs are deleted; their URLs route to the report view of the same name. Every view is reachable at `/tools/<view-id>`.
 5. **No invented numbers survive.** A KPI that cannot be derived from the report is removed, not estimated.
@@ -37,7 +37,7 @@ The sidebar holds 22 tools ("Site Performance" is a group heading). Baseline bef
 ### 2a. Operator decisions added 2026-09-14 (supersede anything above that conflicts)
 
 8. **Every tool page carries a Data source dropdown**: "DataForSEO (paid)" or "Our tools (free)". "Our tools" = our scanner + free Google APIs (CrUX, PageSpeed, Search Console). The dropdown is always shown; a source that cannot serve the tool is disabled with its reason.
-9. **Default source is DataForSEO** wherever it can serve the tool; our tools stay selectable. Decision 6 above (paid unticked by default) is **superseded**.
+9. **Default source is DataForSEO on each tool page** wherever it can serve the tool; our tools stay selectable. **Generic scan buttons stay free** (decision 6 holds for them): the 2026-09-14 review showed they fired all 8 paid tools with no cost shown. A paid run is always a tool page's Test, with the cost named beside it.
 10. **Google vs DataForSEO is decided by measurement, not opinion.** Where both exist (Core Web Vitals, rankings/positions, keyword overview), `verify:tools --compare` runs both on the same domain and records coverage (rows, pages, keywords), freshness, and agreement. The better source becomes that tool's default; the table in `docs/TOOL-SOURCES.md` carries the evidence.
 11. **Two test modes.** "Scan this tool" on each tool page runs only that tool's keys for the chosen source. "Full audit" in the top bar runs every tool with its selected source, shows per-group cost and today's remaining budget before running, and streams per-tool progress; a tool that cannot run shows its reason in the panel.
 12. **`npm run verify:tools`** runs each tool once against a real domain and prints `tool | source | status | rows | cost | reason`, stopping when spend exceeds `--max-usd`. Its output is the proof pasted into the CHANGELOG.
@@ -76,14 +76,14 @@ The sidebar holds 22 tools ("Site Performance" is a group heading). Baseline bef
 - New `dataforseo.availability() -> (bool, reason)`: the same two checks, no network. Single source for both `call` and the catalog.
 - `server._wanted`: delete the `PYTEST_CURRENT_TEST` branch; a `dataforseo` tool is wanted when selected. A selected-but-unavailable tool does not call its `run`; it emits the `.unavailable` row (decision 2).
 - `source` tool: selected with no usable repo/token → `.unavailable` row instead of silent filter.
-- `rankings()` / `keywords_card()`: collect sub-call statuses; any `skipped:`/error status becomes an `.unavailable`/`info` row and is reflected in the card's status line. `keywords_card` with no project keywords emits `dfs.keywords.unavailable` "no target keywords on this project" for the keyword-dependent sub-tools.
+- `rankings()` / `keywords_card()`: collect sub-call statuses; any `skipped:`/error status becomes an `.unavailable`/`info` row and is reflected in the card's status line. `keywords_card` with no project keywords emits `unavailable.keywords` "no target keywords on this project" for the keyword-dependent sub-tools.
 - `/tools` response adds `available`, `unavailable_reason`.
 
 **Web**
 - `lib/scanStream.ts` (new, pure): `readScanStream(res, handlers)` — checks `res.ok` and content type; non-NDJSON body → parsed `{error}` handed to `onError`; parses the final buffer; malformed line → `onError`, not a thrown exception. `ScannerApp.run()` uses it; `apply` reader reuses it.
 - `/api/scan`: unreachable backend / unconfigured token → **503** (not 200). Refusals keep their JSON `{error}` shape.
 - `ScannerApp` reads `X-Scan-Blocked-Tools` and surfaces "Skipped by daily budget: …".
-- `run()` saves only to the active project; no active project → error "Pick or create a project before scanning" (matches 61af638's precondition), never `clients[0]`.
+- `run()` saves to the open project, else the domain's owner, else a new project. (Shipped this way; the "refuse with no project" plan was not implemented, and filing by the open project is still wrong for other domains: B-126.)
 - Tool checkboxes honour `available`; the comment "paid permanently unticked" is replaced with the real rule.
 
 ### Phase 2 — Honest screens (D6–D8, D14)
@@ -116,6 +116,6 @@ The sidebar holds 22 tools ("Site Performance" is a group heading). Baseline bef
 
 ## 5. Risks
 
-- Removing D1/D2 re-enables spend. Mitigation: `PAUSE_SPEND=1` is currently set in `.env`, budget cap is enforced server-side, paid tools stay unticked by default.
+- Removing D1/D2 re-enables spend. Mitigation as shipped: generic scan buttons are free-only; paid runs happen from a tool page's Test button with the cost named; `DATAFORSEO_PAUSE_SPEND` kill switch; daily budget in `/api/scan`, which undercounts abandoned or failed scans (B-120).
 - Another session commits to `main` concurrently; this work stays on `feat/tools-revamp` and merges by PR/fast-forward after review.
 - `ReaiDashboard.tsx` is 12k lines; edits there are surgical and covered by the source-level tests already in `web/tests/`.

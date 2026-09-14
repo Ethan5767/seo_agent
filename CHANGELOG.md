@@ -6,12 +6,80 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed (2026-09-14 code review of `feat/tools-revamp`)
+
+A multi-agent review of this branch confirmed each finding by a hermetic run (no
+network, no spend). Fixed here; the ones still open are in `docs/BUG-LEDGER.md`
+(B-120..B-126).
+
+- **Page Optimizer invented its KPIs (B-113).** Reported by the operator from the
+  live page. `{recs.length + 8} Ideas`, `+42% Lift`, `84 / 100` ("Derived from
+  this scan's on-page checks"), `1-Click Ready`, an unconditional "All 3 Core Web
+  Vitals Passed" above three "Not measured" tiles, a zero-filled content benchmark
+  ("-0 words (Deficit)"), invented `statusCodes 92/5/3`, and passing rows counted
+  as ideas. Now: idea count = actionable site findings; on-page tile = passing
+  share of the scan's graded on-page checks, or "Not measured"; vitals banner
+  derived from the three readings; the benchmark panel renders only once a target
+  exists. The four remaining ideas were checked against the live site: duplicate
+  meta descriptions on 5 pages and the shared title "Departments & Clinics |
+  Orienda Hospital" on department pages are real.
+- **Generic scan buttons spent on every paid tool (review V1).** The default
+  selection is free tools again; DataForSEO stays the default on each tool page,
+  where its cost is named beside Test. `run()` refuses a second scan while one is
+  in flight (a ref, so two clicks in one tick cannot both pass).
+- **"Did not run" rows leaked into measurements.** `resolveProjectData` read a
+  "Rankings did not run" row as a keyword at #1 with 240 searches (Overview
+  table, traffic model, content tools); the Executive Report listed it under
+  Tracked Keywords; FixWithClaude offered to fix it. New `measured()` /
+  `isNotRun()` in `web/lib/reportViews.ts`, used by every direct group reader;
+  `rowsForView` adds refusal rows only for an explicit source; `actionable()`
+  skips them; the reason is also written to `detail` so what/detail/fix tables
+  show it; dedupe keys on the reason so a card's second reason survives.
+- **DataForSEO refusals inside an HTTP 200 were read as data.** `call()` now
+  returns an error for a top-level or task `status_code` outside 20000-20199
+  (e.g. 40104), so no parser invents "not in top 20" or "not cited" from a
+  refusal. `IncompleteRead`, non-UTF-8 and other `HTTPException` bodies are
+  errors instead of aborting the scan.
+- **Runtime failures left pages silent.** A tool that returns no rows and an
+  error status (HTTP 401, timeout, crawl not finished) now files
+  `unavailable.<tool>` with that status.
+- **Kill switch failed open.** `DATAFORSEO_PAUSE_SPEND` pauses on `1`, `true`,
+  `yes`, `on`, and ignores an inline `# comment` the .env loader keeps.
+- **`DFS_LOCATION_CODE` / `DFS_LANGUAGE_CODE` in .env were ignored** (read at
+  import, before `wf-scan-web` loads .env). Payloads now read them per request.
+- **An unreachable homepage wiped paid results.** `assemble(reachable=False)`
+  keeps groups whose data never came from the page (DataForSEO, source).
+- **A later scan erased Site Health rows.** New `web/lib/reportMerge.ts`: a row is
+  replaced only by a run of the check that produces it.
+- **Unknown tool catalog defaulted pages to DataForSEO** and hid free rows; it now
+  opens on our tools with the reason named.
+- **"Scan all <section>" ignored the page's source** and billed unnamed paid
+  tools; it now runs the section's free tools plus the chosen source and names
+  any paid tool on the button. AI Mentions no longer runs `mentions`, whose rows
+  it never shows.
+
+Verification on the tip:
+
+```
+$ pytest -q
+1297 passed, 2 skipped in 13.32s
+$ npm test          (web/)
+ℹ tests 450
+ℹ pass 450
+ℹ fail 0
+$ npx tsc --noEmit  (web/)
+TypeScript: No errors found
+```
+
+The B-113 guard was shown failing against the previous `ReaiDashboard.tsx`
+(`✖ the Page Optimizer shows no invented KPI (B-113)`) and passing on the fix.
+
 ### Fixed
 
 - **DataForSEO tools run again, and a tool that cannot run says why (B-106, B-107)**
   (`pipeline/scanner/dataforseo.py`, `pipeline/scanner/server.py`, `pipeline/scanner/rows.py`).
 
-  Two latches from d64662d kept all 13 paid tools dark in every live scan: the
+  Two latches from d64662d kept all 8 paid tools (behind 13 screens) dark in every live scan: the
   scanner admitted a `dataforseo` tool only under pytest, and `call()` refused any
   credentials except the fixture pair `x`/`y`. Proved against the running scanner
   before the change: asking for `seo`, `backlinks`, `rankings` returned
@@ -96,8 +164,9 @@ see `CLAUDE.md` (the sync contract).
   `onpage_audit.py` and not placed. The Search Console free option for
   rankings and keyword pages is listed as not built yet rather than faked.
 
-  `web/tests/toolSources.test.mjs` (11 tests). `npm test` → 434 pass;
-  `npx tsc --noEmit` → clean.
+  `web/tests/toolSources.test.mjs`. Suite totals for the whole branch are in the
+  review entry below; the counts first written here (11 tests, 434 pass) were
+  superseded by later commits and were never re-run on the tip.
 
 ### Changed
 
@@ -107,8 +176,7 @@ see `CLAUDE.md` (the sync contract).
   `docs/superpowers/specs/2026-09-14-tools-revamp-design.md`.
   `docs/LIVE_TESTING_FREEZE.md` marked lifted.
 
-  Verification: `pytest -q` → **1278 passed, 2 skipped**; `npm test` →
-  **423 pass, 0 fail**; `npx tsc --noEmit` → **No errors found**.
+  (Counts at that commit: 1278 / 423. Current totals are in the review entry.)
 
 ### Fixed
 

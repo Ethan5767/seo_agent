@@ -231,3 +231,113 @@ def test_site_health_does_not_overwrite_the_free_crawl(real_creds, monkeypatch):
     codes = [r["code"] for r in rep["site"]]
     assert "dfs.op.is_orphan_page" in codes
     assert any(c.startswith("site.") for c in codes), codes
+
+
+# ── review findings, 2026-09-14 ──────────────────────────────────────────────
+
+class _Resp(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _urlopen_returning(body: dict):
+    def fake(req, timeout=60):
+        return _Resp(json.dumps(body).encode())
+    return fake
+
+
+def test_task_level_refusal_inside_http_200_is_an_error(real_creds, monkeypatch):
+    """DataForSEO answers HTTP 200 and puts the refusal in the body. It was read
+    as an empty result: rankings invented '"kw" — not in top 20' warns, AI
+    citations invented 'not cited'. The account hit exactly this (40104) in
+    August (docs/ADMIN-CHECKLIST.md)."""
+    monkeypatch.setattr(dataforseo.urllib.request, "urlopen", _urlopen_returning(
+        {"status_code": 20000, "cost": 0, "tasks": [
+            {"status_code": 40104, "status_message": "Please verify your account before using the API.", "result": None}]}))
+    doc, err = dataforseo.call("/v3/serp/google/organic/live/advanced", [{}])
+    assert doc is None
+    assert "40104" in err and "verify your account" in err
+
+
+def test_top_level_refusal_is_an_error(real_creds, monkeypatch):
+    monkeypatch.setattr(dataforseo.urllib.request, "urlopen", _urlopen_returning(
+        {"status_code": 40200, "status_message": "Payment Required.", "tasks": None}))
+    doc, err = dataforseo.call("/v3/backlinks/summary/live", [{}])
+    assert doc is None and "40200" in err
+
+
+def test_a_refused_card_invents_no_finding(real_creds, monkeypatch):
+    monkeypatch.setattr(dataforseo.urllib.request, "urlopen", _urlopen_returning(
+        {"status_code": 20000, "tasks": [{"status_code": 40501, "status_message": "Invalid Field", "result": None}]}))
+    rows, status, _ = dataforseo.rankings("x.com", ["roofing"])
+    assert [r["code"] for r in rows] == ["unavailable.rankings"]
+    assert "40501" in status
+
+
+def test_a_truncated_body_is_an_error_not_a_crash(real_creds, monkeypatch):
+    import http.client
+
+    def cut(req, timeout=60):
+        class R(_Resp):
+            def read(self, *a):
+                raise http.client.IncompleteRead(b"{\"sta", 900)
+        return R(b"")
+
+    monkeypatch.setattr(dataforseo.urllib.request, "urlopen", cut)
+    doc, err = dataforseo.call("/v3/x", [{}], sleep=lambda s: None)
+    assert doc is None and "IncompleteRead" in err
+
+
+def test_a_runtime_failure_names_itself_on_the_page(real_creds, monkeypatch):
+    """Credentials pass availability(), then DataForSEO answers 401. The group
+    came back [] and the page said 'Run a scan with the Backlinks tool enabled'."""
+    monkeypatch.setattr(dataforseo, "backlinks", lambda d, call=None: ([], "HTTP 401 from DataForSEO", 0.0))
+    rep, _ = _scan({"backlinks"}, monkeypatch)
+    assert [r["code"] for r in rep["backlinks"]] == ["unavailable.backlinks"]
+    assert "HTTP 401" in rep["backlinks"][0]["why"]
+
+
+@pytest.mark.parametrize("value", ["1", " 1 ", "1  # keep paused", "true", "TRUE", "yes", "on"])
+def test_the_kill_switch_does_not_fail_open(real_creds, monkeypatch, value):
+    monkeypatch.setenv("DATAFORSEO_PAUSE_SPEND", value)
+    assert dataforseo.availability()[0] is False
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", "off", ""])
+def test_the_kill_switch_off_values_are_live(real_creds, monkeypatch, value):
+    monkeypatch.setenv("DATAFORSEO_PAUSE_SPEND", value)
+    assert dataforseo.availability() == (True, "")
+
+
+def test_the_market_is_read_when_the_call_is_made(real_creds, monkeypatch):
+    """wf-scan-web imports this module before main() loads .env, so a market set
+    in .env was ignored and every lookup went out as 2840/en (B-076 again)."""
+    sent = {}
+
+    def spy(path, payload=None, **k):
+        sent.update(payload[0])
+        return {"cost": 0, "status_code": 20000, "tasks": [{"status_code": 20000, "result": [{"items": []}]}]}, None
+
+    monkeypatch.setenv("DFS_LOCATION_CODE", "2116")
+    monkeypatch.setenv("DFS_LANGUAGE_CODE", "km")
+    dataforseo.domain_overview("x.com", call=spy)
+    assert (sent["location_code"], sent["language_code"]) == (2116, "km")
+    from pipeline.scanner import business_data, mentions
+    business_data.gbp_local("Acme", call=spy)
+    assert (sent["location_code"], sent["language_code"]) == (2116, "km")
+    mentions.brand_mentions("Acme", call=spy)
+    assert (sent["location_code"], sent["language_code"]) == (2116, "km")
+
+
+def test_an_unreachable_page_keeps_paid_results_that_never_read_it(real_creds, monkeypatch):
+    """A WAF 403 on our fetch rewrote every group to '<group>.not_measured',
+    including backlinks already bought from DataForSEO, which never reads the
+    page. The cost stayed; the result went."""
+    monkeypatch.setattr(dataforseo, "backlinks", lambda d, call=None: (
+        [{"code": "dfs.backlinks", "what": "12 backlinks", "why": "", "fix": "", "severity": "info"}], "ok", 0.02))
+    rep, _ = _scan({"seo", "backlinks"}, monkeypatch, fetch=lambda u: ("", 403, "", None))
+    assert rep["backlinks"][0]["code"] == "dfs.backlinks"
+    assert rep["seo"][0]["code"].endswith(".not_measured")

@@ -164,3 +164,26 @@ test("the traffic chart draws no history that was never measured (B-105)", () =>
   assert.ok(!/totalVisits = "6\.2K"/.test(code) && !/totalKeywords = 128/.test(code),
     "fixture figures must not be prop defaults");
 });
+
+/* ── B-113: the Page Optimizer KPI strip ─────────────────────────────────── */
+
+test("the Page Optimizer shows no invented KPI (B-113)", () => {
+  // Reported by the operator on 2026-09-14 from the live page: "12 Ideas" was
+  // 4 real + 8 invented, "+42% Lift", "84 / 100 - Derived from this scan's
+  // on-page checks", "1-Click Ready", and "All 3 Core Web Vitals Passed" above
+  // three tiles reading "Not measured".
+  const dash = strip(read("app/ReaiDashboard.tsx"));
+  assert.doesNotMatch(dash, /\.length\s*\+\s*\d+\}\s*Ideas/, "an idea count padded by a constant");
+  assert.doesNotMatch(dash, /[+-]\d+%\s*Lift/, "a literal traffic lift");
+  assert.doesNotMatch(dash, />\s*\d{1,3}\s*\/\s*100\s*</, "a literal score out of 100");
+  assert.doesNotMatch(dash, /1-Click Ready/, "a fix status nobody checked");
+  assert.doesNotMatch(dash, /Core Web Vitals Passed/, "a vitals verdict not read from the vitals");
+  assert.doesNotMatch(dash, /ok200:\s*\d+/, "invented status-code counts");
+});
+
+test("the content benchmark panel is gated on a measured target (B-113)", () => {
+  const dash = read("app/ReaiDashboard.tsx");
+  const i = dash.indexOf("CONTENT & TF-IDF SEMANTIC ENTITY GAP");
+  assert.ok(i > 0, "panel moved; revisit this test");
+  assert.match(dash.slice(i, i + 800), /onPageSemanticData\.wordCount\.target > 0 && \(/);
+});

@@ -121,6 +121,7 @@ minutes/month are gone, so the repo costs nothing to expose.
 | `ANTHROPIC_API_KEY` in the environment | The only thing the container needs baked in from you. `wf-site-remediate` drives Claude Code with it |
 | `git` and `gh` config mounted into the container | The image bakes in no credentials at all (`Dockerfile`) |
 | `gh auth status` working against the client repo | Onboard clones and remediate pushes with it |
+| **DataForSEO for the web console: `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` in repo-root `.env`** | **Spends real money.** The API login and API password from app.dataforseo.com → API Access. With both set, each tool page's Data source dropdown defaults to DataForSEO and its Test button bills the named cost (a full paid run is about $0.53). Generic scan buttons stay free. **Kill switch:** `DATAFORSEO_PAUSE_SPEND=1` (also `true`/`yes`/`on`) refuses every paid call by name at $0; restart `wf-scan-web` after changing it. **Cap:** `SCAN_DAILY_BUDGET_USD` in `web/.env.local` (default 5, per user per UTC day); it undercounts abandoned or failed scans (B-120). Verify credentials for free: `curl -u "$L:$P" https://api.dataforseo.com/v3/appendix/user_data` returns `status_code 20000` and the balance. |
 | **`SCAN_TOKEN`, the SAME value in repo-root `.env` AND `web/.env.local`** | **Required for the web console to scan anything (B-104).** `wf-scan-web` refuses every POST without the matching `X-Scan-Token` — scan, plan and all three remediate endpoints — because each of them spends money, writes to a repository, or starts an AI agent inside one (B-079). With `SCAN_TOKEN` unset the scanner mints a random token per run, which the Next server cannot know, so **every audit is answered 403**. Generate once with `python3 -c "import secrets;print(secrets.token_urlsafe(24))"`, put the same line in both files, restart both servers. Both files are gitignored. The web server refuses loudly at the call site if it is missing, so the failure names itself instead of arriving as a bare 403. |
 
 ---
@@ -135,7 +136,7 @@ clean site. Read the status string on the first real run, not the finding count.
 |---|---|---|
 | `CRUX_API_KEY` | Field Core Web Vitals from CrUX | `--with-crux` |
 | `GSC_ACCESS_TOKEN` (+ optional `GSC_SITE_URL`) | Impressions, CTR, cannibalization | `--with-gsc` |
-| `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | Crawl-wide on-page: broken pages, click depth, duplicate meta | `--with-dataforseo` |
+| `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | Crawl-wide on-page: broken pages, click depth, duplicate meta. **Currently still refused on this CLI rail** by the `PAID_API_SPEND_FROZEN` latch in `providers.py` (B-123), even though the web console spends. | `--with-dataforseo` |
 | `BRIGHTDATA_API_KEY` / `BRIGHTDATA_SERP_ZONE` | Rank and absence over the config's `seed_queries` | `--with-serp` |
 
 **Filling `seed_queries`.** `--with-serp` measures exactly the queries in the

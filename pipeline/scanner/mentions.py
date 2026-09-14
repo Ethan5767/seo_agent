@@ -7,7 +7,7 @@ caller.
 """
 from __future__ import annotations
 
-from pipeline.scanner.dataforseo import _tool, LOCATION_CODE, LANGUAGE_CODE
+from pipeline.scanner.dataforseo import _tool, location_code, language_code
 from pipeline.scanner.rows import make_row
 
 _row = make_row("mention")
@@ -48,6 +48,6 @@ def brand_mentions(brand: str, call=None) -> tuple:
     if not brand:
         return [], "skipped: no brand name", 0.0
     return _tool("/v3/content_analysis/search/live",
-                 [{"keyword": brand, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": 100}],
+                 [{"keyword": brand, "location_code": location_code(),
+                   "language_code": language_code(), "limit": 100}],
                  lambda d: parse_mentions(d, brand), call=call, status="ok (verify live)")

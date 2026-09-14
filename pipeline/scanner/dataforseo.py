@@ -10,6 +10,7 @@ Everything degrades honestly: no creds -> a "skipped" status, never faked data.
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import time
@@ -38,8 +39,19 @@ def _location_default() -> int:
         raise SystemExit(f"DFS_LOCATION_CODE must be a DataForSEO location code, got {raw!r}") from None
 
 
+def _language_default() -> str:
+    return os.environ.get("DFS_LANGUAGE_CODE", "en").strip() or "en"
+
+
+# Read when each request is built, not once at import. `wf-scan-web` imports this
+# module before `main()` loads the repo-root .env, so constants captured at
+# import silently ignored a market set there and sent 2840/en (B-076's failure,
+# reached by a different road). The constants stay for callers that only want
+# the default; every payload calls the functions.
+location_code = _location_default
+language_code = _language_default
 LOCATION_CODE = _location_default()
-LANGUAGE_CODE = os.environ.get("DFS_LANGUAGE_CODE", "en").strip() or "en"
+LANGUAGE_CODE = _language_default()
 
 
 def _auth() -> str | None:
@@ -65,7 +77,11 @@ def availability() -> tuple[bool, str]:
     """
     if not (os.environ.get("DATAFORSEO_LOGIN") and os.environ.get("DATAFORSEO_PASSWORD")):
         return False, "DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset"
-    if os.environ.get("DATAFORSEO_PAUSE_SPEND", "").strip() == "1":
+    # Fail closed on anything that reads as "on". The shared .env loader keeps
+    # inline comments, so `DATAFORSEO_PAUSE_SPEND=1  # keep paused` arrives as
+    # "1  # keep paused", and an exact == "1" left paid calls live.
+    pause = os.environ.get("DATAFORSEO_PAUSE_SPEND", "").split("#", 1)[0].strip().lower()
+    if pause in {"1", "true", "yes", "on"}:
         return False, "paused by DATAFORSEO_PAUSE_SPEND=1"
     return True, ""
 
@@ -87,7 +103,9 @@ def call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=tim
     for attempt in range(retries):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                return json.loads(r.read().decode()), None
+                doc = json.loads(r.read().decode())
+            refusal = _body_refusal(doc)
+            return (None, refusal) if refusal else (doc, None)
         except urllib.error.HTTPError as exc:
             # 5xx is transient (DataForSEO hiccup) — retry; 4xx (auth/bad
             # request) won't fix itself, so return immediately.
@@ -96,13 +114,40 @@ def call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=tim
                 sleep(1.5 * (attempt + 1))
                 continue
             return None, last
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError, http.client.HTTPException) as exc:
+            # A body cut short in transfer (IncompleteRead), not UTF-8, or not
+            # JSON. None of these is an OSError, so they escaped the "never
+            # raises" promise and aborted the whole scan. Not retried: the POST
+            # was delivered, and a retry can buy the same task twice.
             return None, f"{type(exc).__name__}: {exc}"
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last = f"{type(exc).__name__}: {exc}"
             if attempt < retries - 1:
                 sleep(1.5 * (attempt + 1))
     return None, last
+
+
+def _body_refusal(doc) -> str | None:
+    """DataForSEO's in-body refusal, or None when the request succeeded.
+
+    It answers HTTP 200 and reports failure in `status_code` at the top level
+    or per task (20000-20199 is success: 20000 Ok, 20100 Task Created). Read as
+    success, a refusal became an empty result and the parsers made findings of
+    it: '"roofing" - not in top 20', 'not cited by AI engines'. This account hit
+    exactly that in August: 40104 on every billable endpoint.
+    """
+    if not isinstance(doc, dict):
+        return None
+
+    def bad(code) -> bool:
+        return isinstance(code, int) and not 20000 <= code < 20200
+
+    if bad(doc.get("status_code")):
+        return f"DataForSEO {doc['status_code']}: {doc.get('status_message') or 'refused'}"
+    for task in doc.get("tasks") or []:
+        if isinstance(task, dict) and bad(task.get("status_code")):
+            return f"DataForSEO {task['status_code']}: {task.get('status_message') or 'task refused'}"
+    return None
 
 
 def result_items(doc: dict) -> list:
@@ -248,8 +293,8 @@ def site_audit(domain: str, max_pages: int = 25, run=None) -> tuple:
 def ranked_keywords(domain: str, call=call, top: int = TOP_ROWS) -> tuple:
     """(rows, status, cost_usd) — keywords `domain` ranks for. Input = domain."""
     doc, err = call("/v3/dataforseo_labs/google/ranked_keywords/live",
-                    [{"target": domain, "location_code": LOCATION_CODE,
-                      "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}])
+                    [{"target": domain, "location_code": location_code(),
+                      "language_code": language_code(), "limit": TOP_ROWS}])
     if err:
         return [], err, 0.0
     rows = parse_ranked_keywords(doc, top=top)
@@ -280,7 +325,7 @@ def parse_domain_overview(doc: dict) -> list[dict]:
 def domain_overview(domain: str, call=call) -> tuple:
     """(rows, status, cost) — the domain's organic visibility overview."""
     return _tool("/v3/dataforseo_labs/google/domain_rank_overview/live",
-                 [{"target": domain, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 [{"target": domain, "location_code": location_code(), "language_code": language_code()}],
                  parse_domain_overview, call=call)
 
 
@@ -303,8 +348,8 @@ def parse_serp_rank(doc: dict, domain: str, keyword: str) -> list[dict]:
 def serp_rank(keyword: str, domain: str, call=call) -> tuple:
     """(rows, status, cost) — the client's Google position for one keyword."""
     return _tool("/v3/serp/google/organic/live/advanced",
-                 [{"keyword": keyword, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "depth": 20}],
+                 [{"keyword": keyword, "location_code": location_code(),
+                   "language_code": language_code(), "depth": 20}],
                  lambda d: parse_serp_rank(d, domain, keyword), call=call)
 
 
@@ -392,7 +437,7 @@ def search_volume(keywords: list, call=call) -> tuple:
     if not keywords:
         return [], "skipped: no keywords", 0.0
     return _tool("/v3/keywords_data/google_ads/search_volume/live",
-                 [{"keywords": keywords, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 [{"keywords": keywords, "location_code": location_code(), "language_code": language_code()}],
                  parse_search_volume, call=call)
 
 
@@ -400,8 +445,8 @@ def keyword_ideas(seeds: list, call=call) -> tuple:
     if not seeds:
         return [], "skipped: no seed keywords", 0.0
     return _tool("/v3/dataforseo_labs/google/keyword_ideas/live",
-                 [{"keywords": seeds, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}],
+                 [{"keywords": seeds, "location_code": location_code(),
+                   "language_code": language_code(), "limit": TOP_ROWS}],
                  parse_keyword_ideas, call=call)
 
 
@@ -420,8 +465,8 @@ def keyword_suggestions(seed: str, call=call) -> tuple:
     if not seed:
         return [], "skipped: no seed keyword", 0.0
     return _tool("/v3/dataforseo_labs/google/keyword_suggestions/live",
-                 [{"keyword": seed, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}],
+                 [{"keyword": seed, "location_code": location_code(),
+                   "language_code": language_code(), "limit": TOP_ROWS}],
                  parse_keyword_suggestions, call=call)
 
 
@@ -430,14 +475,14 @@ def keyword_gap(you: str, competitor: str, call=call) -> tuple:
         return [], "skipped: no competitor", 0.0
     return _tool("/v3/dataforseo_labs/google/domain_intersection/live",
                  [{"target1": competitor, "target2": you, "intersections": False,
-                   "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}],
+                   "location_code": location_code(), "language_code": language_code(), "limit": TOP_ROWS}],
                  lambda d: parse_keyword_gap(d, competitor), call=call)
 
 
 def competitors(domain: str, call=call) -> tuple:
     return _tool("/v3/dataforseo_labs/google/competitors_domain/live",
-                 [{"target": domain, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": TOP_COMPETITORS}],
+                 [{"target": domain, "location_code": location_code(),
+                   "language_code": language_code(), "limit": TOP_COMPETITORS}],
                  parse_competitors, call=call)
 
 
@@ -507,8 +552,8 @@ def llm_mentions(brand: str, domain: str, call=call) -> tuple:
         {"domain": domain, "search_filter": "include", "search_scope": ["sources"]},
     ]
     return _tool("/v3/ai_optimization/llm_mentions/search_mentions/live",
-                 [{"target": target, "location_code": LOCATION_CODE,
-                   "language_code": LANGUAGE_CODE, "limit": TOP_ROWS}],
+                 [{"target": target, "location_code": location_code(),
+                   "language_code": language_code(), "limit": TOP_ROWS}],
                  lambda d: parse_llm_mentions(d, brand), call=call)
 
 
@@ -572,7 +617,7 @@ def parse_historical_rank(doc: dict) -> list[dict]:
 def historical_rank(domain: str, call=call) -> tuple:
     """(rows, status, cost) — organic visibility trend. Input = domain only."""
     return _tool("/v3/dataforseo_labs/google/historical_rank_overview/live",
-                 [{"target": domain, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 [{"target": domain, "location_code": location_code(), "language_code": language_code()}],
                  parse_historical_rank, call=call)
 
 
@@ -598,7 +643,7 @@ def keyword_difficulty(keywords: list, call=call) -> tuple:
     if not keywords:
         return [], "skipped: no keywords", 0.0
     return _tool("/v3/dataforseo_labs/google/bulk_keyword_difficulty/live",
-                 [{"keywords": keywords, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 [{"keywords": keywords, "location_code": location_code(), "language_code": language_code()}],
                  parse_keyword_difficulty, call=call)
 
 
@@ -621,5 +666,5 @@ def search_intent(keywords: list, call=call) -> tuple:
     if not keywords:
         return [], "skipped: no keywords", 0.0
     return _tool("/v3/dataforseo_labs/google/search_intent/live",
-                 [{"keywords": keywords, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 [{"keywords": keywords, "location_code": location_code(), "language_code": language_code()}],
                  parse_search_intent, call=call)

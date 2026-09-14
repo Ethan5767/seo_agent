@@ -133,3 +133,36 @@ test("the scan bar never mixes the border shorthand with a borderStyle override"
   assert.ok(btn.includes("...shell, borderStyle"), "the dashed states moved; revisit this test");
   assert.doesNotMatch(shell, /\bborder:/);
 });
+
+
+test("a source only runs tools whose rows its page shows (no unseen spend)", () => {
+  // Domain Overview's button ran `keywords` ($0.18) for a row `rankings` emits
+  // (B-112); AI Mentions ran `mentions` ($0.03) for rows it never showed.
+  const emits = {
+    rankings: ["dfs.ranked_keyword", "dfs.domain_overview", "dfs.serp_rank"],
+    ai: ["dfs.llm_mentions"],
+    mentions: ["mention."],
+  };
+  for (const id of ["domain-overview", "ai-mentions"]) {
+    const opt = TOOL_SOURCES[id].dataforseo;
+    for (const tool of opt.tools) {
+      const shown = (emits[tool] || []).some((c) => opt.codes.some((p) => c.startsWith(p) || p.startsWith(c)));
+      assert.ok(shown, `${id} runs ${tool} but shows none of its rows`);
+    }
+  }
+  assert.deepEqual(TOOL_SOURCES["domain-overview"].dataforseo.tools, ["rankings"]);
+});
+
+
+test("an unknown catalog never hides free rows behind a DataForSEO default", () => {
+  assert.equal(effectiveSource("technical", null, []), "ours");
+  assert.equal(effectiveSource("technical", null, undefined), "ours");
+  assert.match(sourceBlocker("backlinks", "dataforseo", []), /not loaded/);
+});
+
+test("Scan all from a tool page runs free tools plus the chosen source, and names any paid one", () => {
+  const btn = read("web", "components", "dashboard", "SectionScanButton.tsx");
+  assert.match(btn, /onClick=\{\(\) => onScan\(domain, scanAllKeys\)\}/);
+  assert.doesNotMatch(btn, /onScan\(domain, sectionKeys\)/);
+  assert.match(btn, /scanAllPaid\.map/);
+});

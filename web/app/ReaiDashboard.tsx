@@ -23,7 +23,7 @@ import { deriveCoreWebVitals } from "../lib/webVitals";
 import { buildExecutiveReport } from "../lib/executiveReport";
 import { derivePillars, severityMark, severityTone } from "../lib/pillars";
 import { tone } from "../lib/ui";
-import { viewById, rowsForView, ALL_FINDINGS_VIEW, CHECKS_VIEW } from "../lib/reportViews";
+import { viewById, rowsForView, tallyRows, measured, ALL_FINDINGS_VIEW, CHECKS_VIEW } from "../lib/reportViews";
 import { TOOL_SOURCES, effectiveSource, isEnabled, sourceBlocker, type SourceId } from "../lib/toolSources";
 import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
@@ -1008,7 +1008,7 @@ function resolveProjectData(
   let backlinks = 0;
   let brokenBacklinks = 0;
 
-  const rawBl = (report?.backlinks || []) as Array<any>;
+  const rawBl = measured(report?.backlinks as any[]) as Array<any>;
   const mainBlRow = rawBl.find((r) => r.code === "dfs.backlinks" || (r.what && r.what.toLowerCase().includes("backlink")));
   const brokenBlRow = rawBl.find((r) => r.code === "dfs.broken_backlinks" || (r.what && r.what.toLowerCase().includes("broken")));
 
@@ -1061,7 +1061,7 @@ function resolveProjectData(
   let top1KeywordsCount = 0;
   let estimatedTrafficValue = "$0";
 
-  const rawRankings = (report?.rankings || []) as Array<any>;
+  const rawRankings = measured(report?.rankings as any[]) as Array<any>;
   const domainOverviewRow = rawRankings.find((r) => r.code === "dfs.domain_overview");
   if (domainOverviewRow) {
     const kwCountMatch = domainOverviewRow.what.match(/(\d+)\s+keywords/i) || (domainOverviewRow.detail || "").match(/(\d+)\s+keywords/i);
@@ -1120,7 +1120,7 @@ function resolveProjectData(
 
   // 3. Real Competitors Extraction from DataForSEO
   let competitors: string[] = [];
-  const rawCompetitors = (report?.keywords || []) as Array<any>;
+  const rawCompetitors = measured(report?.keywords as any[]) as Array<any>;
   const socialDomains = ["facebook.com", "instagram.com", "contact.page", "twitter.com", "x.com", "linkedin.com", "youtube.com", "t.me", "tiktok.com"];
   
   if (rawCompetitors.length > 0) {
@@ -1312,13 +1312,13 @@ function resolveProjectData(
   // em dash with "Not measured" when CrUX has no field data.
   const onPageSeoData = {
     coreWebVitals: deriveCoreWebVitals(report as any),
-    statusCodes: {
-      ok200: 92,
-      redir301: 5,
-      err404: 3,
-    },
-    recommendations: (report?.site && report.site.length > 0)
-      ? report.site.slice(0, 5).map((s: any) => ({
+    // `statusCodes: { ok200: 92, redir301: 5, err404: 3 }` removed: invented,
+    // and read by nothing (B-113).
+    // Only rows that need action are ideas. A passing row ("Pages crawled ...
+    // Fix: passing") listed as an optimization idea is a count inflated by
+    // things that are already fine.
+    recommendations: (report?.site && report.site.some((s: any) => s.severity === "error" || s.severity === "warn"))
+      ? report.site.filter((s: any) => s.severity === "error" || s.severity === "warn").slice(0, 5).map((s: any) => ({
           cat: s.what.toLowerCase().includes("title") ? "content" : s.what.toLowerCase().includes("h1") ? "semantic" : "tech",
           title: s.what,
           desc: `${s.why} Affected: ${s.detail}. Fix: ${s.fix}`,
@@ -2709,7 +2709,7 @@ export function ReaiDashboard({
   // Pages the crawl really walked. `crawl.site_rows` emits a "Pages crawled"
   // summary row on every multi-page run; the card printed a constant 609.
   const pagesChecked = useMemo(() => {
-    const rows = (report?.site || []) as Array<any>;
+    const rows = measured(report?.site as any[]) as Array<any>;
     const row = rows.find((r) => r?.code === "site.pages_crawled");
     const n = parseInt(String(row?.detail ?? "").match(/(\d+)/)?.[1] ?? "", 10);
     return Number.isFinite(n) ? n : 0;
@@ -4402,7 +4402,7 @@ export function ReaiDashboard({
                 {/* ── RIGHT COLUMN: AI SEARCH CITATIONS & EXTRACTION ── */}
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                   <div>
-                    <AeoAccessPanel aeoRows={(report?.aeo || []) as any[]} />
+                    <AeoAccessPanel aeoRows={measured(report?.aeo as any[])} />
                   </div>
 
                   <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12, marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -4410,7 +4410,7 @@ export function ReaiDashboard({
                       {/* The mentions tool is paid and off by default, so the
                           honest reading is usually "not measured", not a count. */}
                       {(() => {
-                        const rows = (report?.mentions || []) as Array<any>;
+                        const rows = measured(report?.mentions as any[]) as Array<any>;
                         const row = rows.find((r) => typeof r?.detail === "string" && /\d/.test(r.detail));
                         return row ? `${row.detail} brand mentions` : "Brand mentions not measured";
                       })()}
@@ -7260,9 +7260,9 @@ export function ReaiDashboard({
                       {(() => {
                         // Read "Live Signals" in green whether or not anything had
                         // been measured. The badge IS the claim.
-                        const live = ((report?.gbp || []) as any[]).length
-                          || ((report?.mentions || []) as any[]).length
-                          || ((report?.local || []) as any[]).length;
+                        const live = measured(report?.gbp as any[]).length
+                          || measured(report?.mentions as any[]).length
+                          || measured(report?.local as any[]).length;
                         return (
                           <span style={{
                             fontSize: 12, fontWeight: 700,
@@ -7299,11 +7299,11 @@ export function ReaiDashboard({
 
                 {/* 4 KPI summary cards with integrated charts */}
                 {(() => {
-                  const gbpRows = (report?.gbp || []) as Array<any>;
+                  const gbpRows = measured(report?.gbp as any[]) as Array<any>;
                   // B-096. What can actually be checked, and what nobody can.
-                  const localDirectories = deriveDirectories([...(report?.gbp || []), ...(report?.mentions || []), ...(report?.local || [])] as any[]);
-                  const mentionsRows = (report?.mentions || []) as Array<any>;
-                  const aeoRows = (report?.aeo || []) as Array<any>;
+                  const localDirectories = deriveDirectories([...measured(report?.gbp as any[]), ...measured(report?.mentions as any[]), ...measured(report?.local as any[])] as any[]);
+                  const mentionsRows = measured(report?.mentions as any[]) as Array<any>;
+                  const aeoRows = measured(report?.aeo as any[]) as Array<any>;
 
                   const reviewFinding = gbpRows.find((r) => r.what?.toLowerCase().includes("review"));
                   const catFinding = gbpRows.find((r) => r.what?.toLowerCase().includes("category"));
@@ -7406,7 +7406,7 @@ export function ReaiDashboard({
                           // with no source is the exact claim
                           // claim_provenance_check refuses on a CLIENT's site,
                           // printed by our own dashboard.
-                          const activeLocalRows = [...gbpRows, ...mentionsRows, ...((report?.local || []) as any[])];
+                          const activeLocalRows = [...gbpRows, ...mentionsRows, ...measured(report?.local as any[])];
                           if (activeLocalRows.length === 0) {
                             return (
                               <div style={{
@@ -7499,7 +7499,7 @@ export function ReaiDashboard({
                             it can never advise on something the reader cannot
                             see. */}
                         <FixWithClaude
-                          findings={[...gbpRows, ...mentionsRows, ...((report?.local || []) as any[])]}
+                          findings={[...gbpRows, ...mentionsRows, ...measured(report?.local as any[])]}
                           business={currentBusiness}
                           domain={currentDomain}
                           label="Fix these local issues with Claude"
@@ -7516,8 +7516,8 @@ export function ReaiDashboard({
           {activeTab === "AI & AEO Lab" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {(() => {
-                const aeoRows = (report?.aeo || []) as Array<any>;
-                const aiRows = (report?.ai || []) as Array<any>;
+                const aeoRows = measured(report?.aeo as any[]) as Array<any>;
+                const aiRows = measured(report?.ai as any[]) as Array<any>;
                 const realLlm = aiRows.find((r) => r.code === "dfs.llm_mentions" || r.what?.toLowerCase().includes("cited"));
                 const schemaBiz = aeoRows.find((r) => r.what?.toLowerCase().includes("localbusiness") || r.code?.includes("schema_business"));
                 // B-094. Each tile used to be a binary on a `.find()` result, and
@@ -8137,7 +8137,7 @@ export function ReaiDashboard({
                               which measurements do not. */}
                           <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                             {(() => {
-                              const rows = (report?.aeo || []) as Array<any>;
+                              const rows = measured(report?.aeo as any[]) as Array<any>;
                               const byCode = (code: string) => rows.find((r) => r?.code === code);
                               const verdict = (code: string): null | "ok" | "problem" => {
                                 const r = byCode(code);
@@ -8265,7 +8265,7 @@ export function ReaiDashboard({
                               them described training crawlers as required for
                               citations. Now derived, and grouped by what blocking
                               each one actually costs. */}
-                          <AeoCrawlerTable aeoRows={(report?.aeo || []) as any[]} />
+                          <AeoCrawlerTable aeoRows={measured(report?.aeo as any[])} />
                         </div>
 
                         {/* Recommended robots.txt Snippet */}
@@ -9023,11 +9023,29 @@ export function ReaiDashboard({
             // Categorized ideas breakdown
             const categories = [
               { id: "all", label: "All Ideas", count: recs.length },
-              { id: "strategy", label: "Strategy Ideas", count: 0 },
-              { id: "content", label: "Content & TF-IDF", count: 0 },
-              { id: "semantic", label: "Semantic & Schema", count: 0 },
-              { id: "tech", label: "Technical & Speed", count: 0 },
+              { id: "strategy", label: "Strategy Ideas", count: recs.filter((r: any) => r.cat === "strategy").length },
+              { id: "content", label: "Content & TF-IDF", count: recs.filter((r: any) => r.cat === "content").length },
+              { id: "semantic", label: "Semantic & Schema", count: recs.filter((r: any) => r.cat === "semantic").length },
+              { id: "tech", label: "Technical & Speed", count: recs.filter((r: any) => r.cat === "tech").length },
             ];
+            // B-113. The KPI strip showed `recs.length + 8` ideas, "+42% Lift",
+            // "84 / 100" captioned as derived from the scan, "1-Click Ready", and
+            // an unconditional "All 3 Core Web Vitals Passed" above three tiles
+            // reading "Not measured". Every number below is now read from the
+            // report, and a tile with nothing to read from is gone.
+            const onPageTally = tallyRows(rowsForView(report, viewById("on-page")!));
+            const onPageGraded = onPageTally.ok + onPageTally.warn + onPageTally.error;
+            const onPageScore = onPageGraded > 0 ? Math.round((100 * onPageTally.ok) / onPageGraded) : null;
+            const cwv = projectMetrics.onPageSeoData.coreWebVitals;
+            const cwvReadings = [cwv.lcp, cwv.inp, cwv.cls];
+            const cwvMeasured = cwvReadings.filter((v: any) => v.status !== "Not measured");
+            const cwvGood = cwvMeasured.filter((v: any) => v.status === "Good").length;
+            const cwvBanner =
+              cwvMeasured.length === 0
+                ? { text: "Not measured", fg: "var(--ink-muted)", bg: "#f8fafc", border: "#e2e8f0" }
+                : cwvGood === 3
+                  ? { text: "✓ All 3 Core Web Vitals Good", fg: "var(--ok)", bg: "#ecfdf5", border: "#a7f3d0" }
+                  : { text: `${cwvGood} of ${cwvMeasured.length} measured vitals Good`, fg: "var(--warn)", bg: "#fffbeb", border: "#fde68a" };
 
             const targetPages: any[] = [
               // Was a hardcoded fixture: pages with content-idea counts. Real values come from
@@ -9037,30 +9055,24 @@ export function ReaiDashboard({
 
             return (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {/* 4 Summary KPI Cards */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                {/* Summary KPI cards: each value read from the scan report (B-113). */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
                   <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Total Optimization Ideas</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: "#4f46e5", marginTop: 4 }}>{recs.length + 8} Ideas</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Across {targetPages.length} priority URLs</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Optimization Ideas</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "#4f46e5", marginTop: 4 }}>{recs.length}</div>
+                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Site-wide issues from this scan's crawl</div>
                   </div>
 
                   <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Est. Traffic Growth</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: "var(--ok)", marginTop: 4 }}>+42% Lift</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Predicted monthly organic visits</div>
-                  </div>
-
-                  <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>On-Page Quality Score</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>84 / 100</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Derived from this scan's on-page checks</div>
-                  </div>
-
-                  <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Autonomous Fix Status</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: "#0284c7", marginTop: 4 }}>1-Click Ready</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Claude Code AST auto-repair</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>On-Page Checks Passing</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
+                      {onPageScore === null ? "Not measured" : `${onPageScore}%`}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
+                      {onPageScore === null
+                        ? "No on-page checks in this scan"
+                        : `${onPageTally.ok} of ${onPageGraded} graded on-page checks passed`}
+                    </div>
                   </div>
                 </div>
 
@@ -9075,8 +9087,8 @@ export function ReaiDashboard({
                         Real-user CrUX measurement & Lighthouse lab simulation for <b>{currentDomain}</b>
                       </div>
                     </div>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "3px 10px", borderRadius: 4 }}>
-                      ✓ All 3 Core Web Vitals Passed
+                    <span style={{ fontSize: 12, fontWeight: 700, color: cwvBanner.fg, background: cwvBanner.bg, border: `1px solid ${cwvBanner.border}`, padding: "3px 10px", borderRadius: 4 }}>
+                      {cwvBanner.text}
                     </span>
                   </div>
 
@@ -9243,6 +9255,12 @@ export function ReaiDashboard({
                 </div>
 
                 {/* ── CONTENT & TF-IDF SEMANTIC ENTITY GAP (THE MEASURE TOOL) ── */}
+                {/* B-113. Every figure in this panel (word-count deficit, heading depth,
+                    entity density, rival usage) comes from `onPageSemanticData`, which
+                    is a zero-filled placeholder: nothing in the scanner measures a
+                    competitor content benchmark. It rendered "-0 words (Deficit)" and
+                    "Target: 0 words" as if measured. Shown only once a target exists. */}
+                {onPageSemanticData.wordCount.target > 0 && (
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
                     <div>
@@ -9385,6 +9403,7 @@ export function ReaiDashboard({
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* On-Page SEO Recommendations List with Category Filter Tabs */}
                 <div style={{ background: "#ffffff", borderRadius: 10, border: "1px solid #e2e8f0", padding: "18px 20px" }}>

@@ -17,9 +17,10 @@ This repository follows the sync and engineering contracts documented in [`CLAUD
      - Rule 6: Use canonical layers and helpers.
      - Rule 7: Parallelize independent work; ensure atomic state updates.
 
-2. **DataForSEO Live Testing Freeze**:
-   - **STRICT FREEZE**: NEVER make live API calls or run unmocked tests against DataForSEO.
-   - When running test suites, always exclude live DataForSEO tests (e.g. `pytest -m "not dataforseo"`).
+2. **DataForSEO Live Spend** (the 2026-09-09 freeze was lifted by the operator on 2026-09-14):
+   - The test suite is hermetic and never calls DataForSEO (`tests/conftest.py` blocks sockets). Keep it that way.
+   - A live call is spend. Make one only to prove a change, one tool at a time, and report the cost the scanner printed. The account balance is small.
+   - `DATAFORSEO_PAUSE_SPEND=1` in the repo-root `.env` refuses every paid call. Check it before any live run.
 
 3. **Privacy & Trust**:
    - Never commit or render real personal emails (use `you@example.com` or configured user email).

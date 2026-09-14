@@ -363,7 +363,7 @@ def not_measured_row(group: str) -> dict:
     }
 
 
-def assemble(groups: dict, reachable: bool = True) -> dict:
+def assemble(groups: dict, reachable: bool = True, page_independent=frozenset()) -> dict:
     """Combine result groups (a {key: rows} dict, in insertion/display order) into
     one report with a headline score. Passes every group through as-is, so adding
     a new tool/card needs no change here — the group just appears.
@@ -389,8 +389,14 @@ def assemble(groups: dict, reachable: bool = True) -> dict:
     # So the verdicts are dropped at the one place that knows: absence of
     # evidence is not evidence of compliance, which is the rule the gate suite
     # settled on as exit 4.
+    #
+    # Groups in `page_independent` are kept: their data never came from our fetch
+    # (DataForSEO queries by domain, the source lane reads the repo), so "the page
+    # could not be fetched" is not true of them, and rewriting them threw away
+    # paid results whose cost stayed on the scan.
     if not reachable:
-        groups = {name: [not_measured_row(name)] for name in groups}
+        groups = {name: (rows if name in page_independent else [not_measured_row(name)])
+                  for name, rows in groups.items()}
 
     counts = {"error": 0, "warn": 0, "info": 0, "ok": 0}
     for rows in groups.values():

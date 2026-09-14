@@ -64,7 +64,9 @@ export function actionable(findings: FixFinding[] | null | undefined): FixFindin
   const rows = Array.isArray(findings) ? findings.filter((f) => f && typeof f === "object") : [];
   const rank: Record<string, number> = { error: 0, warn: 1, info: 2 };
   return rows
-    .filter((f) => f.severity !== "ok")
+    // A "did not run" row is a reason, not a defect: sending it to Claude asked
+    // for a fix to "DataForSEO is paused".
+    .filter((f) => f.severity !== "ok" && !String(f.code ?? "").startsWith("unavailable.") && !String(f.code ?? "").endsWith(".not_measured"))
     .sort((a, b) => (rank[a.severity ?? ""] ?? 3) - (rank[b.severity ?? ""] ?? 3))
     .slice(0, 25);
 }

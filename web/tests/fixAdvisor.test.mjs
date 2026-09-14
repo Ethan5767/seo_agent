@@ -184,7 +184,7 @@ test("it is mounted, and fed the same rows the table shows", () => {
   // B-007: a component nobody renders is not shipped. And advising on rows the
   // reader cannot see is its own kind of lie.
   assert.match(DASH, /<FixWithClaude/);
-  assert.match(DASH, /findings=\{\[\.\.\.gbpRows, \.\.\.mentionsRows, \.\.\.\(\(report\?\.local \|\| \[\]\) as any\[\]\)\]\}/);
+  assert.match(DASH, /findings=\{\[\.\.\.gbpRows, \.\.\.mentionsRows, \.\.\.measured\(report\?\.local as any\[\]\)\]\}/);
 });
 
 
@@ -289,4 +289,16 @@ test("an empty or missing worklist briefs nothing", () => {
   for (const v of [null, undefined, [], [{ code: "ok", action: "fix" }]]) {
     assert.deepEqual(worklistFindings(v), []);
   }
+});
+
+
+test("a 'did not run' row is never sent to Claude as a finding", () => {
+  // Review, 2026-09-14: a Backlinks page whose only row was "Backlinks did not
+  // run: paused" enabled "Fix these backlinks issues with Claude (1)".
+  const rows = [
+    { code: "unavailable.backlinks", what: "Backlinks did not run", why: "paused", severity: "info" },
+    { code: "backlinks.not_measured", what: "Not measured", why: "page not fetched", severity: "info" },
+    { code: "dfs.broken_backlinks", what: "89 broken backlinks", why: "", severity: "warn" },
+  ];
+  assert.deepEqual(actionable(rows).map((r) => r.code), ["dfs.broken_backlinks"]);
 });

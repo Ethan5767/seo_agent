@@ -7,7 +7,7 @@ verify against a live response. Pure parser + injectable caller.
 """
 from __future__ import annotations
 
-from pipeline.scanner.dataforseo import _tool, LOCATION_CODE, LANGUAGE_CODE, result_items
+from pipeline.scanner.dataforseo import _tool, location_code, language_code, result_items
 from pipeline.scanner.rows import make_row
 
 _row = make_row("gbp")
@@ -55,5 +55,5 @@ def gbp_local(business: str, call=None) -> tuple:
     from pipeline.scanner.dataforseo import call as _call
     call = call or _call
     return _tool("/v3/business_data/google/my_business_info/live",
-                 [{"keyword": business, "location_code": LOCATION_CODE, "language_code": LANGUAGE_CODE}],
+                 [{"keyword": business, "location_code": location_code(), "language_code": language_code()}],
                  parse_gbp, call=call, status="ok (verify live)")

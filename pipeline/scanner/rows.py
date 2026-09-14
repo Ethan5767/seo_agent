@@ -13,7 +13,10 @@ def unavailable_row(tool_key: str, reason: str, label: str = "") -> dict:
     name = label or tool_key
     return {"code": f"unavailable.{tool_key}", "what": f"{name} did not run",
             "why": reason, "fix": "Resolve the reason above, then scan again.",
-            "detail": "", "severity": "info"}
+            # The reason again in `detail`: most report tables render
+            # what/detail/fix and never `why`, so a reason only in `why` showed
+            # as "Source code did not run | — | Resolve the reason above".
+            "detail": reason, "severity": "info"}
 
 
 def make_row(prefix: str):

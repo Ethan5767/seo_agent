@@ -27,8 +27,27 @@ see `CLAUDE.md` (the sync contract).
   scanner still runs no paid tool.
 
   Credentials verified live at no cost (`/v3/appendix/user_data`): `status_code
-  20000`, `cost 0`, balance $24.31. **A paid scan has NOT yet been run against
-  this code**: `DATAFORSEO_PAUSE_SPEND=1` is still set; the live proof follows.
+  20000`, `cost 0`, balance $24.31.
+
+  **Live proof, 2026-09-14**, branch scanner on :8766 with
+  `DATAFORSEO_PAUSE_SPEND=0` set for that process only, one scan of
+  `oriendainternationalhospital.com.kh` with `tools=["seo","backlinks"]`:
+
+  ```
+  balance before: 24.314308
+  TOOL On-page SEO | 5 issue(s), 5 passed | rows 10 | cost 0.0
+  TOOL Backlinks (DataForSEO) | ok | rows 2 | cost 0.024
+  RESULT groups: ['seo', 'backlinks'] | cost: 0.024
+      dfs.backlinks | 18338 backlinks from 48 referring domains | authority rank 268
+      dfs.broken_backlinks | 89 broken backlink(s) | 89 broken
+  balance after:  24.290272
+  ```
+
+  The reported cost matches the account debit. Only Backlinks was run live;
+  the other seven paid tools share the same gate and `call()` but are
+  **unverified live** until `verify:tools` (Phase 4). `.env` still carries
+  `DATAFORSEO_PAUSE_SPEND=1`, so the operator's running scanner stays paused
+  until it is set to `0`.
 
 - **Scan refusals reach the screen (B-108)** (`web/lib/scanStream.ts`, new;
   `web/app/ScannerApp.tsx`, `web/app/api/scan/route.ts`). The stream reader

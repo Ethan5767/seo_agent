@@ -300,7 +300,10 @@ export function SectionScanButton({
 const shell: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
   padding: "10px 14px", borderRadius: 8,
-  border: "1px solid #e2e8f0", background: "#f8fafc", marginBottom: 14,
+  // Longhands, not `border`: three states override borderStyle to "dashed", and
+  // React warns (and can mis-style) when a rerender drops a longhand that
+  // conflicts with a shorthand still set.
+  borderWidth: 1, borderStyle: "solid", borderColor: "#e2e8f0", background: "#f8fafc", marginBottom: 14,
 };
 
 const primary: React.CSSProperties = {

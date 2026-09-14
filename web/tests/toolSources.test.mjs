@@ -123,3 +123,13 @@ test("the tool page wires the dropdown to both the table and the Test button", (
   const btn = read("web", "components", "dashboard", "SectionScanButton.tsx");
   assert.match(btn, /<select[^>]*aria-label="Data source"/);
 });
+
+test("the scan bar never mixes the border shorthand with a borderStyle override", () => {
+  // React: "Removing a style property during rerender (borderStyle) when a
+  // conflicting property is set (border) can lead to styling bugs." Reported
+  // from the live page on 2026-09-14.
+  const btn = read("web", "components", "dashboard", "SectionScanButton.tsx");
+  const shell = btn.slice(btn.indexOf("const shell"), btn.indexOf("};", btn.indexOf("const shell")));
+  assert.ok(btn.includes("...shell, borderStyle"), "the dashed states moved; revisit this test");
+  assert.doesNotMatch(shell, /\bborder:/);
+});

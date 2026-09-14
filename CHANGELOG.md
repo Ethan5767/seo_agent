@@ -66,6 +66,12 @@ see `CLAUDE.md` (the sync contract).
 - **A scan with no open project was filed under the first project in the list
   (B-109)**; it now goes to the open project, else the project owning the domain.
 
+- **React warned on every tool page: "Removing a style property during rerender
+  (borderStyle) when a conflicting property is set (border)"**
+  (`web/components/dashboard/SectionScanButton.tsx`). The bar's base style used
+  the `border` shorthand and three states overrode `borderStyle`. Now longhands.
+  Reported from the live page; guarded in `toolSources.test.mjs`.
+
 - **Domain Overview's scan ran the wrong tool; Core Web Vitals ran 2 of 4
   Lighthouse categories (B-112)** (`web/lib/sectionScans.ts`). Every view now also
   shows the `unavailable.<tool>` rows of the tools behind it.

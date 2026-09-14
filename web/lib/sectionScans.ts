@@ -128,7 +128,6 @@ export const VIEW_TOOLS: Record<string, string[]> = {
   "backlink-audit": ["backlinks"],
   // The view blurb promises all four Lighthouse categories; the button ran two (D14).
   "core-web-vitals": ["perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp"],
-  "source-code": ["source"],
   "on-page": ["seo", "onpage"],
   "content-quality": ["content", "eeat"],
   "video": ["video"],

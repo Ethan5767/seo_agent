@@ -86,10 +86,6 @@ export const TOOL_SOURCES: Record<string, ToolSources> = {
     dataforseo: { disabled: "DataForSEO has no real-user field data. Google's CrUX and Lighthouse are the source, and free." },
     ours: ours("core-web-vitals", ["perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp"]),
   },
-  "source-code": {
-    dataforseo: { disabled: "DataForSEO cannot read your GitHub repository." },
-    ours: ours("source-code", ["source"]),
-  },
   // ── Competitive ──
   "domain-overview": { dataforseo: dfs("domain-overview", ["rankings"]), ours: { disabled: GSC_NOT_YET } },
   "organic-rankings": { dataforseo: dfs("organic-rankings", ["rankings"]), ours: { disabled: GSC_NOT_YET } },

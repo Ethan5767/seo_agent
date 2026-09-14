@@ -98,7 +98,6 @@ test("a page with no free source has no usable source while DataForSEO is paused
 
 test("pages only we can serve open on our tools", () => {
   assert.equal(effectiveSource("core-web-vitals", null, CATALOG_OK), "ours");
-  assert.equal(effectiveSource("source-code", null, CATALOG_OK), "ours");
 });
 
 test("the table shows only the chosen source's rows", () => {
@@ -185,4 +184,21 @@ test("a scan that ran and found nothing is not 'no data yet' (operator, Crawl Is
   assert.equal(sourceRan(null, crawl.dataforseo), false);
   const dash = read("web", "app", "ReaiDashboard.tsx");
   assert.match(dash, /checkedEmpty=\{checkedEmpty\}/);
+});
+
+
+test("every tool checks the live domain: no Source Code page, no repo sent to a scan", () => {
+  // Operator, 2026-09-14: "all tool must check DOMAIN"; source code is hidden.
+  const dash = read("web", "app", "ReaiDashboard.tsx");
+  const app = read("web", "app", "ScannerApp.tsx");
+  assert.doesNotMatch(dash, /label: "Source Code", view: "source-code"/);
+  assert.equal(REPORT_VIEWS.some((v) => v.id === "source-code"), false);
+  const at = app.indexOf('authedFetch("/api/scan", {');
+  assert.ok(at > 0, "scan request moved");
+  const body = app.slice(at, at + 500);
+  assert.doesNotMatch(body, /github_token/);
+  assert.doesNotMatch(body, /\brepo,/);
+  assert.match(body, /filter\(\(k\) => k !== "source"\)/);
+  const modal = read("web", "components", "dashboard", "ProjectModal.tsx");
+  assert.match(modal, /<details[\s\S]{0,300}Advanced: source code repository/);
 });

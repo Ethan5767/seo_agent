@@ -118,25 +118,6 @@ export function SectionScanButton({
     );
   }
 
-  if (viewId === "source-code" && !repo) {
-    return (
-      <div style={{ ...shell, borderStyle: "dashed", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>
-          Connect a GitHub repository to inspect source code
-        </div>
-        <div style={{ fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.5, maxWidth: "68ch" }}>
-          Source code checks inspect next.config, routes, redirects, headers, and rendering posture.
-          Attach this project&apos;s GitHub repository to enable source code analysis.
-        </div>
-        {onEditProject && (
-          <button type="button" onClick={onEditProject} style={primary}>
-            Edit Project &amp; Connect Repo
-          </button>
-        )}
-      </div>
-    );
-  }
-
   const ready = Boolean(keys && keys.length) && !sourceBlocked;
   const paid = cost?.paid ?? [];
 
@@ -189,27 +170,6 @@ export function SectionScanButton({
       >
         {busy ? "Scanning…" : isViewScoped ? `Test ${viewLabel || "Tool"}` : `Scan ${section.label} only`}
       </button>
-
-      {viewId === "source-code" && repo && (
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-          <span style={{ color: "var(--ink-muted)" }}>Repository:</span>
-          <span style={{ fontWeight: 600, color: "#1e293b", background: "#f1f5f9", padding: "3px 8px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
-            {repo}
-          </span>
-          {onEditProject && (
-            <button
-              type="button"
-              onClick={onEditProject}
-              style={{
-                background: "none", border: "none", color: "#4f46e5", fontSize: 11.5,
-                fontWeight: 600, cursor: "pointer", textDecoration: "underline", padding: "0 4px",
-              }}
-            >
-              Change
-            </button>
-          )}
-        </div>
-      )}
 
       {viewId === "site-crawl" && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>

@@ -280,17 +280,6 @@ export const REPORT_VIEWS: ReportView[] = [
       "Run a scan. CrUX and all four Lighthouse categories are free and run by default.",
   },
   {
-    id: "source-code",
-    section: "SEO",
-    label: "Source Code",
-    codes: ["src."],
-    blurb:
-      "What the repository says that the live page cannot: route existence, next.config redirects and headers, rendering posture, analytics wiring, llms.txt. No external SEO tool can see any of this.",
-    columns: FINDING_COLUMNS,
-    emptyHint:
-      "Add this project's repository at onboarding, then run a scan. The source lane is free but needs a checkout.",
-  },
-  {
     id: "on-page",
     section: "SEO",
     label: "On-Page Checks",

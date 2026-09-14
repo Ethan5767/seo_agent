@@ -69,6 +69,7 @@ const MUST_FIND = [
  * An entry here is a decision on the record, not an omission.
  */
 const UNSECTIONED = {
+  src: "Source code checks are hidden: every tool checks the live domain (operator, 2026-09-14).",
   gbp: "Local Presence renders GBP through its own panel and API, not the row tables.",
   mention:
     "Web brand mentions (the paid Reputation tool) have no sectioned screen yet; "
@@ -273,7 +274,7 @@ test("every scanner tool's 'did not run' row reaches a screen", async () => {
   const backed = new Set(Object.values(TOOL_SOURCES).flatMap((s) =>
     ["dataforseo", "ours"].flatMap((k) => (isEnabled(s[k]) ? s[k].tools : []))));
   // gbp renders in Local Presence's own panel; mentions has no screen yet (see UNSECTIONED).
-  const exempt = new Set(["gbp", "mentions"]);
+  const exempt = new Set(["gbp", "mentions", "source"]);
   const orphans = keys.filter((k) => !backed.has(k) && !exempt.has(k));
   assert.deepEqual(orphans, [], "tools whose refusal would show on no screen: " + orphans.join(", "));
 });

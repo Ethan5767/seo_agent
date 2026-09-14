@@ -556,12 +556,13 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     setBusy(true); setData(null); setLive([]); setTools([]); setPhaseLine("");
     const toolMap = new Map<string, Tool>();
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      const github_token = sess.session?.provider_token || "";  // read-only source lane
+      // Every tool checks the live DOMAIN (operator, 2026-09-14). The repository
+      // is not sent to a scan, so no tool reads source code; the repo stays on
+      // the project only for Fix.
       const res = await authedFetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: activeUrl, repo, model, tools: overrideTools ?? [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25, crawl_pages: overrideCrawlPages ?? crawlPages }),
+        body: JSON.stringify({ url: activeUrl, model, tools: (overrideTools ?? [...selected]).filter((k) => k !== "source"), business, keywords: kwList, competitors, goal, max_pages: 25, crawl_pages: overrideCrawlPages ?? crawlPages }),
       });
       const lines: string[] = [];
       let resultEv: any = null;

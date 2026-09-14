@@ -38,7 +38,7 @@ export function AuditHeroBar({
   // Aggregate findings from report
   const allRows: any[] = [];
   if (report) {
-    const categories = ["seo", "tech", "site", "perf", "aeo", "source", "keywords", "rankings", "gbp"];
+    const categories = ["seo", "tech", "site", "perf", "aeo", "keywords", "rankings", "gbp"];
     for (const cat of categories) {
       if (Array.isArray(report[cat])) {
         allRows.push(...report[cat]);

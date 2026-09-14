@@ -6,6 +6,17 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed
+
+- **Every tool checks the live domain; Source Code is hidden** (operator request).
+  The Source Code tool page is gone from the sidebar and the report views; scans
+  no longer send the project repository or a GitHub token, and never run the
+  `source` tool, so no tool reads a repository. The repository stays on the
+  project, tucked under "Advanced: source code repository (optional, used only by
+  Fix)" in the project form. The project-name-by-domain change (304e0f2) was
+  reverted (682ee9c): it was a misreading of this request. `npm test` → 480 pass;
+  `pytest -q` → 1323 passed, 2 skipped; `tsc` clean.
+
 ### Added
 
 - **Site Audit opens on a project list, Semrush-style** (`web/lib/auditThemes.ts`,

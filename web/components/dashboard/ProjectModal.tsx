@@ -106,13 +106,22 @@ export function ProjectModal({
               </select>
             </div>
 
+            {/* Tools check the live domain only. The repository is used by Fix
+                (Model B) and nothing else, so it is tucked away, not asked up front. */}
             {model === "B" && (
-              <RepoPicker
-                value={repo}
-                onChange={setRepo}
-                getToken={githubToken}
-                open={open}
-              />
+              <details style={{ marginBottom: 16 }} open={Boolean(repo)}>
+                <summary style={{ fontSize: 12.5, fontWeight: 600, color: "#334155", cursor: "pointer" }}>
+                  Advanced: source code repository (optional, used only by Fix)
+                </summary>
+                <div style={{ marginTop: 10 }}>
+                  <RepoPicker
+                    value={repo}
+                    onChange={setRepo}
+                    getToken={githubToken}
+                    open={open}
+                  />
+                </div>
+              </details>
             )}
 
             <div style={{ marginBottom: 16 }}>

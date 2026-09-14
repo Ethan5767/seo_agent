@@ -1597,7 +1597,6 @@ export const NAV_SECTIONS: NavSection[] = [
           { label: "Core Web Vitals", view: "core-web-vitals" },
           // The repository lane: route existence, next.config, SSR posture,
           // analytics wiring. No external SEO tool can see any of this.
-          { label: "Source Code", view: "source-code" },
         ],
       },
       {

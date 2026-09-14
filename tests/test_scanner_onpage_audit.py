@@ -49,3 +49,39 @@ def test_site_audit_full_error_degrades():
     fake = lambda d, mp: ([], 0.0, "skipped: creds unset")
     rows, status, cost = site_audit_full("x.com", crawl=fake)
     assert rows == [] and "skipped" in status
+
+
+# ── 2026-09-14: Crawl Issues on DataForSEO was blank after a clean crawl ──────
+
+def test_a_passed_problem_check_is_a_row_not_silence():
+    """25 pages, zero 4xx/broken/orphan: the parser emitted nothing for them, so
+    Crawl Issues (DataForSEO) was an empty table after a successful crawl."""
+    pages = [{"url": f"https://x.com/{i}", "checks": {"is_4xx_code": False, "is_broken": False, "no_title": True}}
+             for i in range(3)]
+    by = {r["code"]: r for r in parse_onpage_checks(pages)}
+    assert by["dfs.op.is_4xx_code"]["severity"] == "ok"
+    assert by["dfs.op.is_4xx_code"]["detail"] == "0 of 3 page(s)"
+    assert by["dfs.op.is_broken"]["severity"] == "ok"
+    assert by["dfs.op.no_title"]["severity"] == "error"
+
+
+def test_a_check_dataforseo_did_not_report_gets_no_row():
+    rows = parse_onpage_checks([{"checks": {"no_title": False}}])
+    assert [r["code"] for r in rows] == ["dfs.op.no_title"]
+
+
+def test_duplicate_labels_match_dataforseo_definitions():
+    """docs.dataforseo.com/v3/on_page-pages: duplicate_title_tag is "page with
+    more than one title tag", not pages sharing a title. The site-wide checks are
+    duplicate_title / duplicate_description."""
+    assert CHECKS["duplicate_title_tag"][0] == "Multiple title tags on a page"
+    assert CHECKS["duplicate_meta_tags"][0] == "Repeated meta tags on a page"
+    assert CHECKS["duplicate_title"][0] == "Duplicate page titles"
+    assert CHECKS["duplicate_description"][0] == "Duplicate meta descriptions"
+
+
+def test_status_counts_problems_not_passes():
+    fake = lambda d, mp: ([{"checks": {"no_h1_tag": True, "is_https": True, "is_4xx_code": False}}], 0.0, None)
+    rows, status, _ = site_audit_full("x.com", crawl=fake)
+    assert "1 check(s) flagged" in status
+    assert "passed" in status

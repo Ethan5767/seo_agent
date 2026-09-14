@@ -35,7 +35,7 @@ export const SOURCE_LABEL: Record<SourceId, string> = {
 export const DFS_FLAGS = {
   crawl: [
     "is_4xx_code", "is_5xx_code", "is_broken", "broken_links", "broken_resources",
-    "is_orphan_page", "duplicate_content", "duplicate_title_tag", "duplicate_meta_tags",
+    "is_orphan_page", "duplicate_content", "duplicate_title", "duplicate_description",
     "links_relation_conflict",
   ],
   technical: [
@@ -49,6 +49,7 @@ export const DFS_FLAGS = {
   ],
   onPage: [
     "no_title", "title_too_long", "title_too_short", "title_too_many_words", "irrelevant_title",
+    "duplicate_title_tag", "duplicate_meta_tags",
     "no_description", "irrelevant_description", "irrelevant_meta_keywords", "no_h1_tag", "no_h2",
     "no_image_alt", "no_image_title", "low_content_rate", "high_content_rate",
     "low_readability_rate", "lorem_ipsum", "small_page_size",

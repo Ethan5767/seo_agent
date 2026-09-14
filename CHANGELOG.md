@@ -8,6 +8,22 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **Crawl Issues on DataForSEO was blank after a clean crawl (B-131).** Passed
+  problem checks are now rows ("4xx pages: 0 of 10 page(s)"), two mislabelled
+  duplicate checks corrected against DataForSEO's docs, and the status reads
+  "N flagged, M passed". Live, 10 pages, $0.0015:
+
+  ```
+  ok    dfs.op.is_4xx_code     | 4xx pages      | 0 of 10 page(s)
+  ok    dfs.op.is_5xx_code     | 5xx pages      | 0 of 10 page(s)
+  ok    dfs.op.is_broken       | Broken pages   | 0 of 10 page(s)
+  ok    dfs.op.is_orphan_page  | Orphan page    | 0 of 10 page(s)
+  Site Health (DataForSEO) — crawled 10 page(s), 8 check(s) flagged, 35 passed · $0.0015
+  ```
+
+  The same run showed DataForSEO's per-page checks carry no site-wide duplicate
+  keys (B-132, open). `pytest -q` → 1314 passed, 2 skipped; `npm test` → 463 pass.
+
 - **A completed scan that found nothing of a page's kind said "No data here yet"
   (B-130).** Now "No crawl issues found by DataForSEO (paid). The last scan
   checked this. Our tools (free) found N issues." with a switch button.

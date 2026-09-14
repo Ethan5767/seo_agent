@@ -30,9 +30,14 @@ CHECKS = {
     "no_title":               ("Missing title", "Page has no <title>.", "add a unique title", "error", True),
     "title_too_long":         ("Title too long", "Title exceeds the recommended length.", "trim to ~60 chars", "warn", True),
     "title_too_short":        ("Title too short", "Title is very short.", "make it 30-60 chars", "warn", True),
-    "duplicate_title_tag":    ("Duplicate titles", "Pages share the same <title>.", "make each unique", "warn", True),
+    # Labels below follow docs.dataforseo.com/v3/on_page-pages. `duplicate_title_tag`
+    # is "page with more than one title tag" and was labelled "Duplicate titles"
+    # (pages sharing a title), so the site-wide check was never read at all.
+    "duplicate_title_tag":    ("Multiple title tags on a page", "The page has more than one <title> tag.", "keep a single <title>", "warn", True),
+    "duplicate_title":        ("Duplicate page titles", "Other pages on the site use the same <title>.", "give each page a unique title", "warn", True),
+    "duplicate_description":  ("Duplicate meta descriptions", "Other pages on the site use the same meta description.", "write a unique description per page", "warn", True),
     "no_description":         ("Missing meta description", "Page has no meta description.", "add one (120-160 chars)", "warn", True),
-    "duplicate_meta_tags":    ("Duplicate meta tags", "Duplicate meta descriptions across pages.", "make each unique", "warn", True),
+    "duplicate_meta_tags":    ("Repeated meta tags on a page", "The page has more than one meta tag of the same type.", "keep one of each", "warn", True),
     "irrelevant_description":  ("Irrelevant description", "Meta description doesn't match the page.", "rewrite to match content", "warn", True),
     "irrelevant_title":       ("Irrelevant title", "Title doesn't match the page content.", "align title with content", "warn", True),
     "no_h1_tag":              ("Missing H1", "Page has no <h1>.", "add one clear H1", "warn", True),
@@ -81,6 +86,7 @@ def parse_onpage_checks(pages: list) -> list[dict]:
     """Aggregate the per-page `checks` across the crawl → one row per check,
     with the count of pages affected."""
     counts: dict[str, int] = {}
+    seen: set[str] = set()           # flags DataForSEO actually reported
     ok_flags: dict[str, int] = {}
     affected: dict[str, list] = {}   # flag -> the actual URLs that failed it
     total = 0
@@ -93,6 +99,7 @@ def parse_onpage_checks(pages: list) -> list[dict]:
         for flag, val in checks.items():
             if flag not in CHECKS:
                 continue
+            seen.add(flag)
             _l, _w, _f, _sev, bad_when = CHECKS[flag]
             if bool(val) == bad_when and bad_when:
                 counts[flag] = counts.get(flag, 0) + 1
@@ -108,6 +115,13 @@ def parse_onpage_checks(pages: list) -> list[dict]:
                 rows.append({"code": f"dfs.op.{flag}", "what": label, "why": why,
                              "fix": fix, "severity": sev, "detail": f"{n} page(s)",
                              "pages": affected.get(flag, [])[:25]})
+            elif flag in seen and total:
+                # Checked and clean is a result. Emitting nothing left Crawl
+                # Issues blank after a 25-page crawl with 0 broken, 0 4xx, 0
+                # orphan pages. Only for flags DataForSEO reported: a check it
+                # never ran is not a pass.
+                rows.append({"code": f"dfs.op.{flag}", "what": label, "why": why,
+                             "fix": "passing", "severity": "ok", "detail": f"0 of {total} page(s)"})
         else:
             # good-signal flag: pass row when all crawled pages have it
             if total and ok_flags.get(flag, 0) == total:
@@ -186,4 +200,6 @@ def site_audit_full(domain: str, max_pages: int = 20, crawl=crawl_onpage) -> tup
         return [], err, cost
     rows = parse_onpage_checks(pages)
     ok = sum(1 for p in pages if (p or {}).get("checks"))
-    return rows, f"crawled {ok} page(s), {len(rows)} check(s) flagged · ${cost:.4f}", cost
+    flagged = sum(1 for r in rows if r["severity"] != "ok")
+    passed = len(rows) - flagged
+    return rows, f"crawled {ok} page(s), {flagged} check(s) flagged, {passed} passed · ${cost:.4f}", cost

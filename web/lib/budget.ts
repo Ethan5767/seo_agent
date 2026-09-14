@@ -30,7 +30,7 @@ export const PAID_TOOL_COSTS: Record<string, number> = {
 export const FULL_SCAN_COST = Object.values(PAID_TOOL_COSTS).reduce((a, b) => a + b, 0);
 
 /** Default ceiling per user per UTC day. Override with SCAN_DAILY_BUDGET_USD. */
-export const DEFAULT_DAILY_BUDGET_USD = 2;
+export const DEFAULT_DAILY_BUDGET_USD = 5;
 
 export function dailyBudgetUsd(env: Record<string, string | undefined> = process.env): number {
   const raw = env.SCAN_DAILY_BUDGET_USD;

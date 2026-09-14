@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
  * Every scan used to run all 25 tools, so pressing Scan on the Local page spent
  * money on backlinks and rank tracking and then showed five local rows.
  */
-const { SECTION_SCANS, sectionById, toolsForSection, sectionCost } =
+const { SECTION_SCANS, sectionById, toolsForSection, sectionCost, VIEW_TOOLS, toolsForView, viewCost } =
   await import("../lib/sectionScans.ts");
 
 /** The real tool list, read from the scanner rather than restated here. */
@@ -185,3 +185,25 @@ test("the paid tools are named before the click, not totalled", () => {
   assert.match(btn, /paid\.map\(/);
   assert.match(btn, /all free/);
 });
+
+test("every view in VIEW_TOOLS resolves to tools present in server.py", () => {
+  const toolKeys = new Set(TOOLS.map((t) => t.key));
+  for (const [viewId, keys] of Object.entries(VIEW_TOOLS)) {
+    assert.ok(keys.length > 0, `${viewId} has no tools declared`);
+    for (const k of keys) {
+      assert.ok(toolKeys.has(k), `${viewId} claims tool "${k}" which does not exist in server.py`);
+    }
+  }
+});
+
+test("toolsForView returns dedicated tools for specific screens like site-crawl and backlinks", () => {
+  const crawlTools = toolsForView("site-crawl", TOOLS);
+  assert.deepEqual(crawlTools, ["internal", "site"]);
+
+  const techTools = toolsForView("technical", TOOLS);
+  assert.deepEqual(techTools, ["tech", "schema", "validate"]);
+
+  const backlinksTools = toolsForView("backlinks", TOOLS);
+  assert.deepEqual(backlinksTools, ["backlinks"]);
+});
+

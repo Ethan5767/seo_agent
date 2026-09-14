@@ -48,6 +48,22 @@ async function spentTodayUsd(
   }
 }
 
+export async function GET(req: NextRequest) {
+  const auth = await authenticateRequest(req);
+  if (!auth.user) {
+    return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+  }
+  const budget = dailyBudgetUsd();
+  const db = getScopedDb(auth.user, auth.token);
+  const { spent, degraded } = await spentTodayUsd(db, budget);
+  return NextResponse.json({
+    budget,
+    spentToday: spent,
+    remaining: Math.max(0, budget - spent),
+    degraded,
+  });
+}
+
 export async function POST(req: NextRequest) {
   // 1. Authenticate user
   const auth = await authenticateRequest(req);

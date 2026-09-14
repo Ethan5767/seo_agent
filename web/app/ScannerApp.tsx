@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { AuthGate } from "./auth";
 import { ReaiDashboard } from "./ReaiDashboard";
 import { saveClient, updateClient, saveScan, lastTwoScansFindings,
@@ -242,6 +242,19 @@ function Scanner({ initialTab }: { initialTab?: any }) {
   const [openReport, setOpenReport] = useState<{ report: Audit; scan: ScanRow } | null>(null);
   const [histBusy, setHistBusy] = useState(false);
   const [showTechnicalReport, setShowTechnicalReport] = useState(false);
+  const [scanBudget, setScanBudget] = useState<{ dailyBudget: number; spentToday: number } | null>(null);
+
+  const refreshBudget = useCallback(async () => {
+    try {
+      const res = await authedFetch("/api/scan");
+      if (res.ok) {
+        const json = await res.json();
+        if (typeof json.budget === "number" && typeof json.spentToday === "number") {
+          setScanBudget({ dailyBudget: json.budget, spentToday: json.spentToday });
+        }
+      }
+    } catch {}
+  }, []);
 
   async function openHistory() {
     setShowTechnicalReport(false);
@@ -249,27 +262,38 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     setHistBusy(true);
     try { setClients(await listClients()); } finally { setHistBusy(false); }
   }
-  async function openClient(c: ClientWithStats) {
-    setHistClient(c); setOpenReport(null); setRemedHist([]); setHistBusy(true);
+  async function openClient(c: ClientWithStats, preserveReport = false) {
+    setHistClient(c); setClientId(c.id);
+    setUrl(c.website || c.domain || "");
+    setRepo(c.repo || "");
+    setModel(c.model || "B");
+    setBusiness(c.business || "");
+    setKwList(c.keywords || []);
+    setCompetitors((c.competitors || []).join(", "));
+    setGoal(c.goal || "");
+    if (!preserveReport) setOpenReport(null);
+    setRemedHist([]); setHistBusy(true);
     try {
       const [scans, remeds] = await Promise.all([scanHistory(c.id), remediationHistory(c.id)]);
       setHist(scans); setRemedHist(remeds);
       // Land straight on the project's SEO Dashboard (its latest scan), like REAI.
-      if (scans.length) {
-        const report = await getScanReport(scans[0].id);
-        if (report) setOpenReport({ report: report as unknown as Audit, scan: scans[0] });
-      } else if (c.lastScanId) {
-        const report = await getScanReport(c.lastScanId);
-        if (report) {
-          const pseudoScan: ScanRow = {
-            id: c.lastScanId,
-            created_at: c.lastScannedAt || new Date().toISOString(),
-            url: c.website || c.domain,
-            score: c.lastScore,
-            counts: c.lastCounts,
-            cost: 0,
-          };
-          setOpenReport({ report: report as unknown as Audit, scan: pseudoScan });
+      if (!preserveReport || !openReport) {
+        if (scans.length) {
+          const report = await getScanReport(scans[0].id);
+          if (report) setOpenReport({ report: report as unknown as Audit, scan: scans[0] });
+        } else if (c.lastScanId) {
+          const report = await getScanReport(c.lastScanId);
+          if (report) {
+            const pseudoScan: ScanRow = {
+              id: c.lastScanId,
+              created_at: c.lastScannedAt || new Date().toISOString(),
+              url: c.website || c.domain,
+              score: c.lastScore,
+              counts: c.lastCounts,
+              cost: 0,
+            };
+            setOpenReport({ report: report as unknown as Audit, scan: pseudoScan });
+          }
         }
       }
     } finally { setHistBusy(false); }
@@ -326,6 +350,9 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       active = false;
     };
   }, []);
+  useEffect(() => {
+    refreshBudget();
+  }, [refreshBudget]);
   // Onboard profile
   const [business, setBusiness] = useState("");
   const [url, setUrl] = useState("");
@@ -354,7 +381,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     }).catch((e) => console.error("tool catalog fetch failed — is the backend running?", e));
   }, []);
   const [filter, setFilter] = useState<"all" | "error" | "warn" | "ok">("all");
-  const [crawlPages, setCrawlPages] = useState(1);  // free multi-page crawl depth (1 = homepage only)
+  const [crawlPages, setCrawlPages] = useState(5);  // free multi-page crawl depth (default 5 pages, max 25)
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<string[]>([]);
   const [phaseLine, setPhaseLine] = useState("");
@@ -371,10 +398,11 @@ function Scanner({ initialTab }: { initialTab?: any }) {
   const [applyBusy, setApplyBusy] = useState(false);
 
   async function runPlan() {
-    if (!clientId) return;
+    const activeId = clientId || histClient?.id;
+    if (!activeId) return;
     setPlanBusy(true); setPlan(null); setRemed(null); setDry(null); setApply(null); setConfirmApply(false);
     try {
-      const { current, previous } = await lastTwoScansFindings(clientId);
+      const { current, previous } = await lastTwoScansFindings(activeId);
       const res = await authedFetch("/api/plan", {
         method: "POST",
         body: JSON.stringify({ current, previous }),
@@ -460,9 +488,9 @@ function Scanner({ initialTab }: { initialTab?: any }) {
         }
       }
       setApply(r);
-      // Record the run so the client's History timeline shows fixes, not just scans.
-      if (r.ok && !r.error && clientId) {
-        await saveRemediation(clientId, {
+      const activeId = clientId || histClient?.id;
+      if (r.ok && !r.error && activeId) {
+        await saveRemediation(activeId, {
           url, cycle: r.cycle || "", applied: r.applied || 0,
           cost_usd: r.summary?.cost_usd || 0, diffstat: r.diffstat || "",
           items: (r.summary?.items || []).map((it) => ({
@@ -495,7 +523,9 @@ function Scanner({ initialTab }: { initialTab?: any }) {
    * existed before. One optional argument rather than a second scan path -
    * everything downstream already took a tool list.
    */
-  async function run(overrideUrl?: string, overrideTools?: string[]) {
+  async function run(overrideUrl?: string, overrideTools?: string[]): Promise<void>;
+  async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number): Promise<void>;
+  async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number) {
     const activeUrl = (overrideUrl || url || "").trim();
     setBusy(true); setData(null); setLive([]); setTools([]); setPhaseLine("");
     const toolMap = new Map<string, Tool>();
@@ -505,7 +535,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       const res = await authedFetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: activeUrl, repo, model, tools: overrideTools ?? [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25, crawl_pages: crawlPages }),
+        body: JSON.stringify({ url: activeUrl, repo, model, tools: overrideTools ?? [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25, crawl_pages: overrideCrawlPages ?? crawlPages }),
       });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();
@@ -526,23 +556,92 @@ function Scanner({ initialTab }: { initialTab?: any }) {
           } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
           else if (ev.result) {
             setData(ev.result);
-            if (ev.result.audit) {
+            let finalAudit = ev.result.audit;
+            if (finalAudit && (overrideTools || openReport?.report)) {
+              const baseReport = (openReport?.report || {}) as Record<string, unknown>;
+              const merged: Record<string, unknown> = {
+                ...baseReport,
+                ...finalAudit,
+                page: (finalAudit as any).page || baseReport.page,
+                site_url: (finalAudit as any).site_url || baseReport.site_url || activeUrl,
+              };
+              const NON_GROUP = new Set(["score", "counts", "cost", "log", "cycle", "url", "site_url", "page", "graded", "score_version"]);
+              const counts: Record<string, number> = { error: 0, warn: 0, info: 0, ok: 0 };
+              for (const [k, v] of Object.entries(merged)) {
+                if (NON_GROUP.has(k) || !Array.isArray(v)) continue;
+                for (const r of v as any[]) {
+                  if (r?.severity && counts[r.severity] !== undefined) {
+                    counts[r.severity]++;
+                  }
+                }
+              }
+              const graded = counts.ok + counts.warn + counts.error;
+              const score = graded > 0 ? Math.round((100 * counts.ok) / graded) : (finalAudit.score ?? (baseReport.score as number | undefined) ?? 0);
+              merged.counts = counts;
+              merged.score = score;
+              merged.graded = graded;
+              finalAudit = merged as unknown as Audit;
+            }
+
+            if (finalAudit) {
               setOpenReport({
-                report: ev.result.audit,
+                report: finalAudit,
                 scan: {
                   id: "latest",
                   created_at: new Date().toISOString(),
                   url: activeUrl,
-                  score: ev.result.audit.score || 0,
-                  counts: ev.result.audit.counts || {},
-                  cost: ev.result.audit.cost || 0,
+                  score: finalAudit.score || 0,
+                  counts: (finalAudit.counts as Record<string, number>) || {},
+                  cost: finalAudit.cost || 0,
                 },
               });
             }
-            await saveScan(clientId || "", { url: activeUrl, model, tools: [...selected] }, ev.result.audit || {}, ev.result.log || [], [...toolMap.values()]);
+            let targetClient = histClient || (clients.length > 0 ? clients[0] : null);
+            let targetClientId = targetClient?.id || clientId;
+            if (!targetClientId && activeUrl) {
+              try {
+                const domain = activeUrl.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "");
+                targetClientId = await saveClient({
+                  business: domain,
+                  website: activeUrl,
+                  domain,
+                  model: model || "B",
+                  repo: repo || "",
+                  tier: 1,
+                  keywords: kwList || [],
+                  competitors: competitors ? competitors.split(",").map((c) => c.trim()).filter(Boolean) : [],
+                  goal: goal || "",
+                });
+              } catch (err) {
+                console.warn("Failed to auto-create client for scan", err);
+              }
+            }
+            if (targetClientId) {
+              setClientId(targetClientId);
+              await saveScan(targetClientId, { url: activeUrl, model, tools: overrideTools ?? [...selected] }, finalAudit || {}, ev.result.log || [], [...toolMap.values()]);
+            }
             try {
               const refreshed = await listClients();
               setClients(refreshed);
+              const fresh = refreshed.find((c) => c.id === targetClientId);
+              if (fresh) {
+                setHistClient(fresh);
+                setClientId(fresh.id);
+              }
+              if (targetClientId) {
+                const [scans, remeds] = await Promise.all([
+                  scanHistory(targetClientId),
+                  remediationHistory(targetClientId),
+                ]);
+                setHist(scans);
+                setRemedHist(remeds);
+                if (scans.length > 0 && finalAudit) {
+                  setOpenReport({
+                    report: finalAudit,
+                    scan: scans[0],
+                  });
+                }
+              }
             } catch (refErr) {
               console.warn("Failed to refresh clients after scan", refErr);
             }
@@ -574,8 +673,13 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     const fresh = refreshed.find((c) => c.id === id);
     if (fresh) {
       setHistClient(fresh);
+      setClientId(fresh.id);
       // The domain may have moved, and `url` drives the next scan.
       if (fresh.website) setUrl(fresh.website);
+      setRepo(fresh.repo || "");
+      if (fresh.model) setModel(fresh.model);
+      if (fresh.business) setBusiness(fresh.business);
+      if (fresh.keywords) setKwList(fresh.keywords);
     }
     return res;
   }
@@ -585,18 +689,22 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     const refreshed = await listClients();
     setClients(refreshed);
     if (id) {
+      setClientId(id);
       const created = refreshed.find((x) => x.id === id);
       if (created) openClient(created);
     }
   }
 
-  async function handleTriggerScan(targetUrl: string, toolKeys?: string[]) {
+  async function handleTriggerScan(targetUrl: string, toolKeys?: string[]): Promise<void>;
+  async function handleTriggerScan(targetUrl: string, toolKeys?: string[], customCrawlPages?: number): Promise<void>;
+  async function handleTriggerScan(targetUrl: string, toolKeys?: string[], customCrawlPages?: number) {
     const cleanUrl = targetUrl.trim();
     setUrl(cleanUrl);
-    await run(cleanUrl, toolKeys);
-    if (histClient) {
-      await openClient(histClient);
+    if (typeof customCrawlPages === "number") {
+      setCrawlPages(customCrawlPages);
     }
+    await run(cleanUrl, toolKeys, customCrawlPages);
+    await refreshBudget();
   }
 
   return (
@@ -605,12 +713,15 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       selectedClient={histClient || (clients.length > 0 ? clients[0] : null)}
       onSelectClient={(c) => {
         setHistClient(c);
+        setClientId(c.id);
         openClient(c);
       }}
       openReport={openReport}
       onSaveNewClient={handleSaveNewClient}
       onUpdateClient={handleUpdateClient}
       onTriggerScan={handleTriggerScan}
+      crawlPages={crawlPages}
+      onCrawlPagesChange={(p) => setCrawlPages(p)}
       /*
        * B-104. `error` was missing here, and that is why a broken scan looked
        * like nothing at all: `run()` writes the failure into `data`, `data` is
@@ -635,6 +746,12 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       remedHist={remedHist}
       initialTab={initialTab}
       isLoading={initialLoading || histBusy}
+      budget={scanBudget ?? {
+        dailyBudget: 5,
+        spentToday: hist
+          .filter((s) => (s.created_at || "").slice(0, 10) === new Date().toISOString().slice(0, 10))
+          .reduce((sum, s) => sum + (Number(s.cost) || 0), 0),
+      }}
     />
   );
 }

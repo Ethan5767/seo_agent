@@ -6,8 +6,58 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The traffic chart drew six months of history that was never measured (B-105)**
+  (`web/app/ReaiDashboard.tsx`). *"Mar '26: 0K visits — why it show like this?"*
+
+  `trafficAnalytics.monthlyTrend` was Oct, Nov, Dec, Jan, Feb, Mar, built by
+  multiplying ONE modelled visit estimate by 0.65, 0.72, 0.81, 0.88, 0.94 and
+  1.0. No month was measured. The chart then appended a hardcoded `'26`. With no
+  measured keywords every point is 0, so the header read **"Mar '26: 0K visits"**
+  in September: a month never scanned, a year hardcoded, and a unit that turned
+  "nothing measured" into a number. A single snapshot estimate is not a trend.
+
+  Removed: the fabricated series (now `[]`, so the chart shows its existing "Not
+  measured" state), the hardcoded year, `devices: { desktop: 36, mobile: 64 }`
+  and `uniqueVisitors = visits * 0.72` (both invented and read by nothing), and
+  the fixture prop defaults `totalVisits = "6.2K"` and `totalKeywords = 128` on
+  two chart components. The regression test found the second `128` copy.
+
+  Guarded by `web/tests/fabricationSweep.test.mjs`: no hardcoded month labels,
+  no estimate scaled by constants, no `'26`, no fixture defaults.
+
+  `npm test` → 408 pass, 0 fail; `npx tsc --noEmit` → clean.
+
+### Changed
+
+- **Daily scan spend limit increased to $5.00/day** (`web/lib/budget.ts`, `.env`, `web/.env.local`).
+  Increased `DEFAULT_DAILY_BUDGET_USD` to `5` and configured `SCAN_DAILY_BUDGET_USD=5` in root and web `.env` configurations. The backend API `/api/scan` enforces this ceiling per user per UTC day, allowing up to ~9-10 full paid scans per day while safely blocking requests if the budget cap is exceeded.
+
+### Fixed
+
+- **Top navigation spend badge and modals dynamically reflect daily budget and spend**
+  (`web/app/api/scan/route.ts`, `web/app/ReaiDashboard.tsx`, `web/app/ScannerApp.tsx`).
+  Added `GET /api/scan` to query the user's live UTC-day ledger spend from the database and compare it to `dailyBudgetUsd()`. Replaced static `SPEND FROZEN ($0.00)`, `Hard Spend Freeze Active`, and `LOCKED $0.00` with live reactive budget trackers (`DAILY BUDGET: $X.XX / $5.00`) across the header navigation bar, the integrations modal, and the scan runner drawer.
+- **Audit results no longer flash for 1 second and disappear upon scan completion**
+  (`web/app/ScannerApp.tsx`).
+  Fixes the issue where completed audits briefly rendered results and immediately vanished:
+  1. `handleTriggerScan` was invoking `openClient(histClient)` immediately after `run()` finished, which executed `setOpenReport(null)` and cleared the displayed report.
+  2. `clientId` state was never synchronized when selecting or loading `histClient`, causing `saveScan` to call `/api/clients//scans` (empty clientId) and fail silently. Because the scan was never persisted to the client, subsequent history reads returned no scan, leaving `openReport` as `null` permanently.
+  3. `ScannerApp.tsx` now resolves `targetClientId` properly, saves the scan, refreshes history without resetting `openReport`, keeps `clientId` in sync across client switching, and accepts a `preserveReport` option in `openClient`.
+- **Source code audit checks enforce repo connection and prevent cross-project repo leaks**
+  (`web/components/dashboard/SectionScanButton.tsx`, `web/app/ReaiDashboard.tsx`, `web/app/ScannerApp.tsx`).
+  Previously, the "Test Source Code" button allowed clicking on projects with no repository attached (running a scan that skipped the tool with no explanation). Furthermore, switching projects in the dashboard did not synchronize the `repo` state variable, causing a repository from a previously viewed project to leak into scans of projects that had no repo attached.
+  1. `SectionScanButton` now requires a connected GitHub repository on `/source-code`. If no repo is attached, it displays a clear message with a direct "Edit Project & Connect Repo" button. When connected, it displays the exact active repository and a "Change" shortcut.
+  2. `openClient` and `handleUpdateClient` in `ScannerApp` now synchronize `repo` with the selected project, ensuring projects without repositories do not inherit stale repos from other projects.
 ### Added
 
+- **User-configurable crawl page depth selector for Crawl Issues & Audits**
+  (`web/components/dashboard/SectionScanButton.tsx`, `web/app/ReaiDashboard.tsx`, `web/app/ScannerApp.tsx`).
+  Users can now choose their desired crawl depth (2, 5, 10, 15, 20, or 25 pages) directly from the Crawl Issues view before triggering a test, as well as in the scan drawer. The selection passes `crawl_pages` downstream to `/api/scan` and the scanner pipeline, giving operators control over how deep the multi-page link walk navigates.
+- **Direct, view-specific tool testing from individual report screens**
+  (`web/lib/sectionScans.ts`, `web/components/dashboard/SectionScanButton.tsx`, `web/app/ReaiDashboard.tsx`).
+  Users can now test individual tools directly on their dedicated screens (e.g. "Test Crawl Issues" on `/site-crawl`, "Test Backlinks" on `/backlinks`, "Test Technical Checks" on `/technical`). Scopes the scan request strictly to the relevant tool keys (e.g. `["internal", "site"]` for Crawl Issues), while preserving a secondary option to scan the full section if desired.
 - **A project's details can be corrected after it is created**
   (`web/app/api/clients/[id]/route.ts`, `web/lib/db.ts` `updateClient`,
   `web/components/dashboard/ProjectModal.tsx`).

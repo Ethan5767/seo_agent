@@ -149,10 +149,24 @@ export async function POST(
       }
     }
 
-    // 4. Insert Scan Metrics & Derived Stats
+    // 4. Insert Scan Metrics & Derived Stats (DataForSEO + Core metrics)
     const cn = audit?.counts || {};
     const aeoRows = (audit?.aeo || []) as Array<any>;
     const aeoOk = aeoRows.filter((r) => r.severity === "ok").length;
+
+    let backlinks: number | null = null;
+    let refDomains: number | null = null;
+    const blRows = (audit?.backlinks || []) as Array<any>;
+    for (const r of blRows) {
+      const b = (r.what || r.detail || "").match(/([\d,]+)\s*backlink/i);
+      if (b) backlinks = parseInt(b[1].replace(/,/g, ""), 10);
+      const d = (r.what || r.detail || "").match(/([\d,]+)\s*(?:referring|ref)\s*domain/i);
+      if (d) refDomains = parseInt(d[1].replace(/,/g, ""), 10);
+    }
+
+    const rankingRows = (audit?.rankings || []) as Array<any>;
+    const organicKw = rankingRows.length ? rankingRows.length : ((audit?.keywords || []).length || null);
+
     await db.from("scan_metrics").insert({
       scan_id: scanId,
       client_id: clientId,
@@ -165,10 +179,51 @@ export async function POST(
       checks_total: Object.keys(audit || {}).length,
       cost: audit?.cost || 0,
       ai_visibility: aeoRows.length ? Math.round((100 * aeoOk) / aeoRows.length) : null,
-      organic_keywords: (audit?.keywords || []).length || null,
-      backlinks: null,
-      ref_domains: null,
+      organic_keywords: organicKw,
+      backlinks,
+      ref_domains: refDomains,
     });
+
+    if (rankingRows.length > 0) {
+      const kws = rankingRows.map((r: any) => {
+        const q = r.what?.match(/"([^"]+)"/);
+        const keyword = q ? q[1] : (r.what || "").replace(/—.*$/, "").trim();
+        const pos = r.what?.match(/rank #?(\d+)/i) || (r.detail || "").match(/position (\d+)/i);
+        const vol = (r.detail || "").match(/~?([\d,]+)\s*\/\s*mo/i);
+        return {
+          scan_id: scanId,
+          client_id: clientId,
+          user_id,
+          keyword,
+          position: pos ? parseInt(pos[1], 10) : null,
+          volume: vol ? parseInt(vol[1].replace(/,/g, ""), 10) : null,
+          intent: "",
+          url: (r.pages && r.pages[0]) || "",
+        };
+      }).filter((k: any) => k.keyword);
+      if (kws.length > 0) {
+        try {
+          await db.from("keywords").insert(kws);
+        } catch (kwErr) {
+          console.warn("Failed to insert keywords table rows", kwErr);
+        }
+      }
+    }
+
+    if (backlinks !== null || refDomains !== null) {
+      try {
+        await db.from("backlink_snapshots").insert({
+          scan_id: scanId,
+          client_id: clientId,
+          user_id,
+          backlinks,
+          ref_domains: refDomains,
+          toxic: null,
+        });
+      } catch (blErr) {
+        console.warn("Failed to insert backlink_snapshots row", blErr);
+      }
+    }
 
     return NextResponse.json({ ok: true, scanId });
   } catch (err: any) {

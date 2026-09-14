@@ -5,3 +5,4 @@ export * from "./ProjectJourney";
 export * from "./GoogleServicesHub";
 export * from "./LocalBusinessManager";
 export * from "./AuditHeroBar";
+export * from "./DashboardSkeletons";

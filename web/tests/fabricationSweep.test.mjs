@@ -148,3 +148,19 @@ test("no chart is drawn from a hardcoded series", () => {
   }
   assert.deepEqual(offenders, [], "a chart is drawn from invented data");
 });
+
+test("the traffic chart draws no history that was never measured (B-105)", () => {
+  // "Mar '26: 0K visits" - in September. The six-month trend was one modelled
+  // number multiplied by 0.65 .. 1.0 under hardcoded month labels, and the chart
+  // appended a hardcoded year.
+  const dash = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
+  const code = dash.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+  assert.ok(!/\{\s*m:\s*"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"/.test(code),
+    "a hardcoded month label is a history nobody measured");
+  assert.ok(!/monthlyCalculatedVisits \* 0\.\d+/.test(code),
+    "scaling one estimate by constants does not produce past months");
+  assert.ok(!/'26/.test(code), "the chart must not stamp a year it does not know");
+  assert.match(code, /monthlyTrend: \[\] as Array/);
+  assert.ok(!/totalVisits = "6\.2K"/.test(code) && !/totalKeywords = 128/.test(code),
+    "fixture figures must not be prop defaults");
+});

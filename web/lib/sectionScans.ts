@@ -107,3 +107,55 @@ export function sectionCost(
     paid: chosen.filter((t) => t.group && t.group !== "free"),
   };
 }
+
+/** Tool keys that back a specific report view, so an operator can test THAT SPECIFIC TOOL directly. */
+export const VIEW_TOOLS: Record<string, string[]> = {
+  "site-crawl": ["internal", "site"],
+  "technical": ["tech", "schema", "validate"],
+  "position-tracking": ["rank_trend"],
+  "domain-overview": ["keywords"],
+  "organic-rankings": ["rankings"],
+  "compare-domains": ["keywords"],
+  "keyword-gap": ["keywords"],
+  "keyword-overview": ["keywords"],
+  "keyword-clusters": ["keywords"],
+  "keyword-ideas": ["keywords"],
+  "search-intent": ["keywords"],
+  "serp-positions": ["rankings"],
+  "backlinks": ["backlinks"],
+  "backlink-audit": ["backlinks"],
+  "core-web-vitals": ["perf", "lh_perf", "lh_seo"],
+  "source-code": ["source"],
+  "on-page": ["seo", "onpage"],
+  "content-quality": ["content", "eeat"],
+  "video": ["video"],
+  "local": ["local"],
+  "aeo-answers": ["aeo"],
+  "aeo-crawlers": ["aeo"],
+  "aeo-citations": ["aeo"],
+  "ai-mentions": ["ai", "mentions"],
+};
+
+export function toolsForView(
+  viewId: string, tools: ToolLike[] | null | undefined,
+): string[] | null {
+  if (!Array.isArray(tools) || tools.length === 0) return null;
+  const wanted = VIEW_TOOLS[viewId];
+  if (!wanted) return null;
+  const available = new Set(tools.map((t) => t.key));
+  const keys = wanted.filter((k) => available.has(k));
+  return keys.length ? keys : null;
+}
+
+export function viewCost(
+  viewId: string, tools: ToolLike[] | null | undefined,
+): { free: number; paid: ToolLike[] } | null {
+  const keys = toolsForView(viewId, tools);
+  if (!keys) return null;
+  const chosen = (tools ?? []).filter((t) => keys.includes(t.key));
+  return {
+    free: chosen.filter((t) => t.group === "free").length,
+    paid: chosen.filter((t) => t.group && t.group !== "free"),
+  };
+}
+

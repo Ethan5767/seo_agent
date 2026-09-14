@@ -1,31 +1,29 @@
 "use client";
 
 import React from "react";
-import { sectionById, toolsForSection, sectionCost, type ToolLike } from "@/lib/sectionScans";
+import { sectionById, toolsForSection, sectionCost, toolsForView, viewCost, type ToolLike } from "@/lib/sectionScans";
 
 /**
- * "Scan this section" - and only this section.
+ * "Scan this section" or "Test this tool" specifically.
  *
- * Every scan used to run all 25 tools, so pressing Scan on the Local page spent
- * money on backlinks and rank tracking before showing five local rows. A section
- * now scans its own concern.
- *
- * It states the cost BEFORE the click, naming each paid tool. A scoped scan is
- * mostly an argument about money, and an operator should be able to see what
- * this one spends rather than discover it on the invoice.
- *
- * Disabled without a tool list rather than falling back to everything: the whole
- * point is not running the other twenty tools, and a "safe" fallback here would
- * quietly reinstate the behaviour this replaces.
+ * Scopes scan execution to either a specific tool view (e.g. Crawl Issues,
+ * Position Tracking, Backlinks) or the entire section.
  */
 export function SectionScanButton({
-  sectionId, domain, tools, busy, onScan, hasProjects, onCreateProject, error,
+  sectionId, viewId, viewLabel, domain, repo, onEditProject, tools, busy, onScan, onCrawlScan, crawlPages = 5, onCrawlPagesChange, hasProjects, onCreateProject, error,
 }: {
   sectionId: string;
+  viewId?: string;
+  viewLabel?: string;
   domain: string | null | undefined;
+  repo?: string | null;
+  onEditProject?: () => void;
   tools: ToolLike[] | null | undefined;
   busy?: boolean;
   onScan: (url: string, toolKeys: string[]) => void;
+  onCrawlScan?: (url: string, toolKeys: string[], pages: number) => void;
+  crawlPages?: number;
+  onCrawlPagesChange?: (pages: number) => void;
   /** Does this account have ANY project? Distinct from "none selected". */
   hasProjects?: boolean;
   onCreateProject?: () => void;
@@ -37,9 +35,25 @@ export function SectionScanButton({
    */
   error?: string | null;
 }) {
+  const [selectedPages, setSelectedPages] = React.useState<number>(crawlPages || 5);
+  React.useEffect(() => {
+    if (crawlPages && crawlPages !== selectedPages) setSelectedPages(crawlPages);
+  }, [crawlPages]);
+
+  const handlePagesChange = (n: number) => {
+    setSelectedPages(n);
+    onCrawlPagesChange?.(n);
+  };
   const section = sectionById(sectionId);
-  const keys = toolsForSection(sectionId, tools);
-  const cost = sectionCost(sectionId, tools);
+  const viewKeys = viewId ? toolsForView(viewId, tools) : null;
+  const viewPrice = viewId ? viewCost(viewId, tools) : null;
+  const sectionKeys = toolsForSection(sectionId, tools);
+  const sectionPrice = sectionCost(sectionId, tools);
+
+  // If this specific view has dedicated tools, scope to them; otherwise use section tools.
+  const isViewScoped = Boolean(viewKeys && viewKeys.length);
+  const keys = isViewScoped ? viewKeys : sectionKeys;
+  const cost = isViewScoped ? viewPrice : sectionPrice;
   if (!section) return null;
 
   // A project is the precondition for auditing anything: a scan needs a domain,
@@ -77,6 +91,25 @@ export function SectionScanButton({
     );
   }
 
+  if (viewId === "source-code" && !repo) {
+    return (
+      <div style={{ ...shell, borderStyle: "dashed", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>
+          Connect a GitHub repository to inspect source code
+        </div>
+        <div style={{ fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.5, maxWidth: "68ch" }}>
+          Source code checks inspect next.config, routes, redirects, headers, and rendering posture.
+          Attach this project&apos;s GitHub repository to enable source code analysis.
+        </div>
+        {onEditProject && (
+          <button type="button" onClick={onEditProject} style={primary}>
+            Edit Project &amp; Connect Repo
+          </button>
+        )}
+      </div>
+    );
+  }
+
   const ready = Boolean(keys && keys.length);
   const paid = cost?.paid ?? [];
 
@@ -85,7 +118,15 @@ export function SectionScanButton({
       <button
         type="button"
         disabled={!ready || busy}
-        onClick={() => { if (ready && keys) onScan(domain, keys); }}
+        onClick={() => {
+          if (ready && keys) {
+            if (viewId === "site-crawl" && onCrawlScan) {
+              onCrawlScan(domain, keys, selectedPages);
+            } else {
+              onScan(domain, keys);
+            }
+          }
+        }}
         title={ready ? `Runs ${keys!.length} tool(s): ${keys!.join(", ")}` : "Tool list not loaded"}
         style={{
           ...primary,
@@ -94,11 +135,79 @@ export function SectionScanButton({
           cursor: ready && !busy ? "pointer" : "not-allowed",
         }}
       >
-        {busy ? "Scanning…" : `Scan ${section.label} only`}
+        {busy ? "Scanning…" : isViewScoped ? `Test ${viewLabel || "Tool"}` : `Scan ${section.label} only`}
       </button>
 
+      {viewId === "source-code" && repo && (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+          <span style={{ color: "var(--ink-muted)" }}>Repository:</span>
+          <span style={{ fontWeight: 600, color: "#1e293b", background: "#f1f5f9", padding: "3px 8px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+            {repo}
+          </span>
+          {onEditProject && (
+            <button
+              type="button"
+              onClick={onEditProject}
+              style={{
+                background: "none", border: "none", color: "#4f46e5", fontSize: 11.5,
+                fontWeight: 600, cursor: "pointer", textDecoration: "underline", padding: "0 4px",
+              }}
+            >
+              Change
+            </button>
+          )}
+        </div>
+      )}
+
+      {viewId === "site-crawl" && (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <label htmlFor="crawl-depth-select" style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>
+            Pages:
+          </label>
+          <select
+            id="crawl-depth-select"
+            value={selectedPages}
+            disabled={busy}
+            onChange={(e) => handlePagesChange(Number(e.target.value))}
+            style={{
+              fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
+              border: "1px solid #cbd5e1", background: "#ffffff", color: "#1e293b",
+              cursor: busy ? "not-allowed" : "pointer",
+            }}
+          >
+            <option value={2}>2 pages (fast link check)</option>
+            <option value={5}>5 pages (standard)</option>
+            <option value={10}>10 pages (deep crawl)</option>
+            <option value={15}>15 pages (comprehensive)</option>
+            <option value={20}>20 pages (thorough)</option>
+            <option value={25}>25 pages (maximum)</option>
+          </select>
+        </div>
+      )}
+
+      {isViewScoped && sectionKeys && sectionKeys.length > (keys?.length ?? 0) && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onScan(domain, sectionKeys)}
+          title={`Scan all ${sectionKeys.length} tools in ${section.label}: ${sectionKeys.join(", ")}`}
+          style={{
+            ...secondary,
+            background: !busy ? "#f8fafc" : "#e2e8f0",
+            color: !busy ? "#334155" : "var(--ink-muted)",
+            cursor: !busy ? "pointer" : "not-allowed",
+          }}
+        >
+          Scan all {section.label}
+        </button>
+      )}
+
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 12, color: "var(--ink-body)", lineHeight: 1.45 }}>{section.scope}</div>
+        <div style={{ fontSize: 12, color: "var(--ink-body)", lineHeight: 1.45 }}>
+          {viewId === "site-crawl"
+            ? `Audits Crawl Issues across ${selectedPages} pages: internal links, duplicate titles & descriptions, orphan pages.`
+            : isViewScoped ? `Audits ${viewLabel || "this tool"}: ${keys?.join(", ")}.` : section.scope}
+        </div>
         <div style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 2 }}>
           {!keys
             ? "Tool list not loaded, so this cannot be scoped yet."
@@ -135,5 +244,11 @@ const shell: React.CSSProperties = {
 const primary: React.CSSProperties = {
   background: "#1e293b", color: "#fff", border: 0, borderRadius: 6,
   padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const secondary: React.CSSProperties = {
+  background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: 6,
+  padding: "8px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
   whiteSpace: "nowrap",
 };

@@ -10,6 +10,7 @@ import { scoreTrend, sparklinePath } from "../lib/trend";
 import { listRepos } from "../lib/github";
 import { supabase } from "../lib/supabase";
 import { authedFetch } from "@/lib/authedFetch";
+import { readScanStream } from "@/lib/scanStream";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string; pages?: string[] };
 type Audit = {
@@ -21,7 +22,7 @@ type Cycle =
   | { model: "B"; diff: string; decision: { action: string; reason: string } };
 type ScanResult = { audit?: Audit; cycle?: Cycle; error?: string; log?: string[] };
 type Tool = { name: string; state: string; rows: Row[]; status: string; cost: number };
-type CatalogTool = { key: string; label: string; category: string; group: string; cost: string; cost_num: number; checks?: string[] };
+type CatalogTool = { key: string; label: string; category: string; group: string; cost: string; cost_num: number; checks?: string[]; available?: boolean; unavailable_reason?: string };
 type PlanItem = Row & { status: string; priority: number };
 type PlanResult = { worklist: PlanItem[]; resolved: Row[]; counts: Record<string, number> };
 type RemedItem = PlanItem & { lane: string; lane_label: string; auto: boolean; effort: string };
@@ -70,7 +71,12 @@ function sevCounts(rows: Row[]) {
 // so a result is never a black box (proof it was measured, not invented).
 function sourceOf(code: string): string {
   const c = code || "";
-  if (c.startsWith("dfs.") || c.startsWith("health.")) return "DataForSEO — live data";
+  // `health.*` is OUR free On-page SEO tool (pipeline/scanner/audit.py), not
+  // DataForSEO. It was labelled "DataForSEO — live data" while DataForSEO was
+  // switched off, which made our own results look like paid ones.
+  if (c.startsWith("unavailable.")) return "Not run — see the reason";
+  if (c.startsWith("dfs.")) return "DataForSEO — live data";
+  if (c.startsWith("health.")) return "Our on-page checks (free)";
   if (c.startsWith("lh.")) return "Google Lighthouse";
   if (c.startsWith("src.")) return "Your source code (repo)";
   if (c.startsWith("crux") || c.includes("perf")) return "Google CrUX — real users";
@@ -377,7 +383,12 @@ function Scanner({ initialTab }: { initialTab?: any }) {
     authedFetch("/api/tools").then((r) => r.json()).then((d) => {
       const t: CatalogTool[] = d.tools || [];
       setCatalog(t);
-      setSelected(new Set(t.filter((x) => x.group === "free").map((x) => x.key)));  // ONLY free tools ticked; paid permanently unticked
+      // DataForSEO is the default source (operator decision, 2026-09-14), with
+      // our own tools kept alongside. Everything the scanner can run right now
+      // is ticked; a paid tool it cannot run (no credentials, paused) stays
+      // unticked and says why in the catalog. Spend is still capped per day by
+      // /api/scan.
+      setSelected(new Set(t.filter((x) => x.available !== false).map((x) => x.key)));
     }).catch((e) => console.error("tool catalog fetch failed — is the backend running?", e));
   }, []);
   const [filter, setFilter] = useState<"all" | "error" | "warn" | "ok">("all");
@@ -537,24 +548,28 @@ function Scanner({ initialTab }: { initialTab?: any }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: activeUrl, repo, model, tools: overrideTools ?? [...selected], business, keywords: kwList, competitors, goal, github_token, max_pages: 25, crawl_pages: overrideCrawlPages ?? crawlPages }),
       });
-      const reader = res.body!.getReader();
-      const dec = new TextDecoder();
-      let buf = ""; const lines: string[] = [];
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const parts = buf.split("\n"); buf = parts.pop() || "";
-        for (const part of parts) {
-          if (!part.trim()) continue;
-          const ev = JSON.parse(part);
-          if (ev.state === "phase") {
-            setPhaseLine(ev.tool);  // a phase marker, not a tool card
-          } else if (ev.tool) {
-            toolMap.set(ev.tool, { name: ev.tool, state: ev.state, rows: ev.rows || [], status: ev.status || "", cost: ev.cost || 0 });
-            setTools([...toolMap.values()]);
-          } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
-          else if (ev.result) {
+      const lines: string[] = [];
+      let resultEv: any = null;
+      const outcome = await readScanStream(res, (ev) => {
+        if (ev.state === "phase") {
+          setPhaseLine(ev.tool);  // a phase marker, not a tool card
+        } else if (ev.tool) {
+          toolMap.set(ev.tool, { name: ev.tool, state: ev.state, rows: ev.rows || [], status: ev.status || "", cost: ev.cost || 0 });
+          setTools([...toolMap.values()]);
+        } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
+        else if (ev.result) resultEv = ev;
+      });
+      if (outcome.blockedTools.length) {
+        lines.push(`Skipped to stay inside today's scan budget: ${outcome.blockedTools.join(", ")}.`);
+        setLive([...lines]);
+      }
+      if (outcome.error || !resultEv) {
+        setData({ error: outcome.error || "The scan ended without a result.", log: lines });
+        return;
+      }
+      {
+        const ev = resultEv;
+        {
             setData(ev.result);
             let finalAudit = ev.result.audit;
             if (finalAudit && (overrideTools || openReport?.report)) {
@@ -596,8 +611,13 @@ function Scanner({ initialTab }: { initialTab?: any }) {
                 },
               });
             }
-            let targetClient = histClient || (clients.length > 0 ? clients[0] : null);
-            let targetClientId = targetClient?.id || clientId;
+            // The scan belongs to the project that is open, or to the project
+            // that owns this domain. It used to fall back to `clients[0]`, which
+            // filed a scan of one site under whichever project listed first.
+            const scannedDomain = activeUrl.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "").toLowerCase();
+            const owner = clients.find((c: any) =>
+              String(c.domain || c.website || "").replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "").toLowerCase() === scannedDomain);
+            let targetClientId: string | null | undefined = histClient?.id || clientId || owner?.id;
             if (!targetClientId && activeUrl) {
               try {
                 const domain = activeUrl.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "");
@@ -646,8 +666,6 @@ function Scanner({ initialTab }: { initialTab?: any }) {
               console.warn("Failed to refresh clients after scan", refErr);
             }
           }
-          else if (ev.error) setData({ error: ev.error, log: ev.log });
-        }
       }
     } catch (e) {
       setData({ error: String(e) });

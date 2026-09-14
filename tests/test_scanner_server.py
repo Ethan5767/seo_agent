@@ -59,7 +59,11 @@ def test_bare_domain_is_normalized_to_https():
 
 def test_build_report_site_audit_uses_dataforseo_not_free_crawler(monkeypatch):
     # Site-wide comes from DataForSEO's on-page audit. Tests inject by
-    # monkeypatching the module seam (onpage_audit.site_audit_full).
+    # monkeypatching the module seam (onpage_audit.site_audit_full). Credentials
+    # are set explicitly: a paid tool no longer runs merely because pytest is.
+    monkeypatch.setenv("DATAFORSEO_LOGIN", "ops@example.com")
+    monkeypatch.setenv("DATAFORSEO_PASSWORD", "0123456789abcdef")
+    monkeypatch.delenv("DATAFORSEO_PAUSE_SPEND", raising=False)
     from pipeline.scanner import onpage_audit
     monkeypatch.setattr(onpage_audit, "site_audit_full", lambda domain, mp: (
         [{"code": "dfs.op.is_orphan_page", "what": "Orphan page", "why": "w", "fix": "f",

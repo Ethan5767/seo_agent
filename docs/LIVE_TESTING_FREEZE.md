@@ -1,5 +1,14 @@
 # Live API Testing Freeze & Integration Directive
 
+> **LIFTED 2026-09-14 by the operator** ("switch to use dataforseo as default"), who
+> re-supplied the credentials the same day. This page is kept as the dated record of
+> the 2026-09-09 freeze, not current policy. It was also inaccurate while active: the
+> code latch it describes (`DATAFORSEO_PAUSE_SPEND` with a "paused by user" message,
+> plus a guard in `providers.py`) is not what shipped; d64662d shipped an `x`/`y`
+> credential latch and a pytest-only gate instead (B-106). Current rule: see the
+> DataForSEO block in `.env.example`.
+
+
 **Directive Effective Date:** September 9, 2026  
 **Status:** ACTIVE / MANDATORY
 

@@ -34,6 +34,39 @@ The sidebar holds 22 tools ("Site Performance" is a group heading). Baseline bef
 6. **Paid tools stay unticked by default in the full-scan picker**; a view's own Scan button may include its paid tool, with the cost named before pressing.
 7. **Out of scope:** splitting `ReaiDashboard.tsx` wholesale (only code a fix touches is extracted), new providers beyond DataForSEO, GSC/GBP panels, the CLI audit rail.
 
+### 2a. Operator decisions added 2026-09-14 (supersede anything above that conflicts)
+
+8. **Every tool page carries a Data source dropdown**: "DataForSEO (paid)" or "Our tools (free)". "Our tools" = our scanner + free Google APIs (CrUX, PageSpeed, Search Console). The dropdown is always shown; a source that cannot serve the tool is disabled with its reason.
+9. **Default source is DataForSEO** wherever it can serve the tool; our tools stay selectable. Decision 6 above (paid unticked by default) is **superseded**.
+10. **Google vs DataForSEO is decided by measurement, not opinion.** Where both exist (Core Web Vitals, rankings/positions, keyword overview), `verify:tools --compare` runs both on the same domain and records coverage (rows, pages, keywords), freshness, and agreement. The better source becomes that tool's default; the table in `docs/TOOL-SOURCES.md` carries the evidence.
+11. **Two test modes.** "Scan this tool" on each tool page runs only that tool's keys for the chosen source. "Full audit" in the top bar runs every tool with its selected source, shows per-group cost and today's remaining budget before running, and streams per-tool progress; a tool that cannot run shows its reason in the panel.
+12. **`npm run verify:tools`** runs each tool once against a real domain and prints `tool | source | status | rows | cost | reason`, stopping when spend exceeds `--max-usd`. Its output is the proof pasted into the CHANGELOG.
+13. **Whole dashboard revamp, built side by side (approach A):** new shell + one `ToolPage` template driven by `web/lib/toolSources.ts`; `ReaiDashboard.tsx` is deleted once every tool is migrated.
+
+#### Source map (initial; decision 10 may flip a default)
+
+| Tool | Our tools (free) | DataForSEO (paid) | Default |
+|---|---|---|---|
+| Site Audit | seo, onpage, tech, schema, validate, internal, crawl | `site` | DFS |
+| Crawl Issues | crawl + internal | `site` crawl flags | DFS |
+| Technical Checks | tech, schema, validate | `site` technical flags | DFS |
+| On-Page Checks | seo, onpage | `site` on-page flags | DFS |
+| Page Optimizer | derived from active On-Page source | same | DFS |
+| Position Tracking | Search Console position history | `rank_trend` | DFS |
+| Organic Rankings | Search Console queries | `rankings` | DFS |
+| SERP Positions | Search Console avg position | `rankings` live SERP | DFS |
+| Domain Overview | Search Console totals | `rankings` domain overview | DFS |
+| Keyword Overview | Search Console impressions | `keywords` volume + difficulty | DFS |
+| Keyword Clusters | clusters of Search Console queries | `keywords` clusters | DFS |
+| Compare Domains, Keyword Gap, Keyword Ideas, Search Intent | disabled: no free data about other sites | `keywords` | DFS |
+| Backlinks, Backlink Audit | disabled: no free backlink index | `backlinks` | DFS |
+| Backlink Gap | disabled | `backlink_gap` (new) | DFS |
+| Core Web Vitals | CrUX + 4 Lighthouse categories | disabled pending compare | Ours |
+| Source Code, SERP Preview | yes | disabled | Ours |
+| AI Search | aeo | `ai` | DFS |
+| Local | local | `gbp` | DFS |
+| Content / E-E-A-T / Video | yes | disabled | Ours |
+
 ## 3. Design by phase
 
 ### Phase 1 — Foundation (D1–D5, D12, D13)

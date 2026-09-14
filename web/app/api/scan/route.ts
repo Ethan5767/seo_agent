@@ -162,7 +162,9 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof ScannerUnconfigured ? e.message : `backend unreachable at ${PYTHON_API} — is wf-scan-web running? (${e})` },
-      { status: 200 },
+      // 503, not 200: a success status on a failed scan is what let the browser
+      // read this refusal as an empty stream and show nothing at all.
+      { status: 503 },
     );
   }
 }

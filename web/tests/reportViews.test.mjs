@@ -119,6 +119,9 @@ test("every code the scanner emits reaches a screen", () => {
     claimed.some((c) => (c.endsWith(".") ? code.startsWith(c) : c === code));
 
   const orphans = [...emittedCodes(scannerSources())]
+    // `unavailable.<tool>` reaches screens through VIEW_TOOLS, not a view's
+    // code list; the test below proves every tool has such a screen.
+    .filter((code) => code !== "unavailable.")
     .filter((code) => !UNSECTIONED[code.split(".")[0]] && !isClaimed(code))
     .sort();
 
@@ -253,4 +256,32 @@ test("tallyRows skips malformed entries without throwing", () => {
   const t = tallyRows([null, 42, "x", { severity: "warn" }]);
   assert.equal(t.total, 1);
   assert.equal(t.warn, 1);
+});
+
+
+/**
+ * A tool that cannot run files `unavailable.<tool>`. That row is only visible on
+ * a view the tool backs, so every scanner tool must back at least one view, or
+ * its refusal is measured and shown nowhere.
+ */
+test("every scanner tool's 'did not run' row reaches a screen", async () => {
+  const { VIEW_TOOLS } = await import("../lib/sectionScans.ts");
+  const server = readFileSync(path.join(REPO, "pipeline", "scanner", "server.py"), "utf8");
+  const keys = [...server.matchAll(/Tool\("[^"]+", "([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(keys.length > 20, "could not parse the scanner tool list");
+  const backed = new Set(Object.values(VIEW_TOOLS).flat());
+  // gbp renders in Local Presence's own panel; mentions has no screen yet (see UNSECTIONED).
+  const exempt = new Set(["gbp", "mentions"]);
+  const orphans = keys.filter((k) => !backed.has(k) && !exempt.has(k));
+  assert.deepEqual(orphans, [], "tools whose refusal would show on no screen: " + orphans.join(", "));
+});
+
+test("a view shows the 'did not run' row of its own tool, and only its own", () => {
+  const backlinks = viewById("backlinks");
+  const report = {
+    backlinks: [{ code: "unavailable.backlinks", what: "Backlinks did not run", why: "paused by DATAFORSEO_PAUSE_SPEND=1", fix: "", severity: "info" }],
+    keywords: [{ code: "unavailable.keywords", what: "Keywords did not run", why: "x", fix: "", severity: "info" }],
+  };
+  const rows = rowsForView(report, backlinks);
+  assert.deepEqual(rows.map((r) => r.code), ["unavailable.backlinks"]);
 });

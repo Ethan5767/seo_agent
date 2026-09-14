@@ -113,7 +113,9 @@ export const VIEW_TOOLS: Record<string, string[]> = {
   "site-crawl": ["internal", "site"],
   "technical": ["tech", "schema", "validate"],
   "position-tracking": ["rank_trend"],
-  "domain-overview": ["keywords"],
+  // `dfs.domain_overview` is emitted by rankings() (dataforseo.py), not by the
+  // keywords card; this button used to spend $0.18 on the wrong tool (D9).
+  "domain-overview": ["rankings"],
   "organic-rankings": ["rankings"],
   "compare-domains": ["keywords"],
   "keyword-gap": ["keywords"],
@@ -124,7 +126,8 @@ export const VIEW_TOOLS: Record<string, string[]> = {
   "serp-positions": ["rankings"],
   "backlinks": ["backlinks"],
   "backlink-audit": ["backlinks"],
-  "core-web-vitals": ["perf", "lh_perf", "lh_seo"],
+  // The view blurb promises all four Lighthouse categories; the button ran two (D14).
+  "core-web-vitals": ["perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp"],
   "source-code": ["source"],
   "on-page": ["seo", "onpage"],
   "content-quality": ["content", "eeat"],

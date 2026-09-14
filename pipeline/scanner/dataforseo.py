@@ -50,16 +50,34 @@ def _auth() -> str | None:
     return "Basic " + base64.b64encode(f"{login}:{pw}".encode()).decode()
 
 
+def availability() -> tuple[bool, str]:
+    """(can a paid call be made right now, why not). No network, no spend.
+
+    The one gate both `call` and the tool catalog read, so the checkbox the UI
+    greys out and the refusal a scan reports can never disagree.
+
+    It replaces two latches (d64662d) that kept every paid tool dark in a live
+    scan: `call` refused any login except the test fixture's literal `x`, and
+    `server._wanted` admitted a paid tool only under pytest. Both were silent,
+    so 13 screens read as "nothing found" for a week. Spend is now governed by
+    the operator's own switch and the web tier's daily budget, and every refusal
+    says which one.
+    """
+    if not (os.environ.get("DATAFORSEO_LOGIN") and os.environ.get("DATAFORSEO_PASSWORD")):
+        return False, "DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset"
+    if os.environ.get("DATAFORSEO_PAUSE_SPEND", "").strip() == "1":
+        return False, "paused by DATAFORSEO_PAUSE_SPEND=1"
+    return True, ""
+
+
 def call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=time.sleep) -> tuple:
     """(json, error). POST to DataForSEO with Basic auth (GET when payload is
     None — e.g. the on-page summary poll). Never raises — a provider that is down
     or unauthorized is a skip, not a crash."""
+    ok, reason = availability()
+    if not ok:
+        return None, f"skipped: {reason}"
     auth = _auth()
-    if not auth:
-        return None, "skipped: DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD unset"
-    # Zero-spend guarantee: prevent live spend unless running test fixture (where creds are dummy "x"/"y" with mocked urlopen)
-    if os.environ.get("DATAFORSEO_PAUSE_SPEND") == "1" or not (os.environ.get("DATAFORSEO_LOGIN") == "x" and os.environ.get("DATAFORSEO_PASSWORD") == "y"):
-        return None, "skipped: live DataForSEO API spend permanently disabled to prevent spend"
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
         BASE + path, data=data,
@@ -113,6 +131,29 @@ def _tool(path: str, payload: list, parse, call=call, status: str = "ok") -> tup
     if err:
         return [], err, 0.0
     return parse(doc), status, cost_of(doc)
+
+
+def _problem(status: str) -> list[str]:
+    """A sub-call's status as a list of problems: empty when it ran.
+
+    Success statuses all start with "ok" (`_tool`'s default, or a caller's
+    "ok (verify live)"); anything else is a refusal or an error string. The
+    composite cards used to bind this to `_s` and drop it, so a card whose every
+    call was refused reported "0 row(s)", indistinguishable from a clean site.
+    """
+    return [] if (status or "").startswith("ok") else [status.removeprefix("skipped: ")]
+
+
+def _unavailable_rows(tool_key: str, label: str, problems: list[str]) -> list[dict]:
+    """One named, ungraded row per distinct reason a card's sub-calls did not run."""
+    from pipeline.scanner.rows import unavailable_row
+    return [unavailable_row(tool_key, p, label) for p in dict.fromkeys(problems)]
+
+
+def _card_status(tool_key: str, rows: list, cost: float, problems: list[str]) -> str:
+    real = sum(1 for r in rows if not r.get("code", "").startswith("unavailable."))
+    line = f"{tool_key}: {real} row(s) · ${cost:.4f}"
+    return line + (" · not run: " + "; ".join(dict.fromkeys(problems)) if problems else "")
 
 
 def _row(what: str, severity: str, why: str, fix: str, detail: str = "") -> dict:
@@ -274,12 +315,14 @@ def rankings(domain: str, keywords=None, call=call, max_serp: int = 5) -> tuple:
     keywords = keywords or []
     rows: list[dict] = []
     cost = 0.0
-    r, _s, c = ranked_keywords(domain, call=call); rows += r; cost += c
-    r, _s, c = domain_overview(domain, call=call); rows += r; cost += c
+    problems: list[str] = []
+    r, s, c = ranked_keywords(domain, call=call); rows += r; cost += c; problems += _problem(s)
+    r, s, c = domain_overview(domain, call=call); rows += r; cost += c; problems += _problem(s)
     for kw in keywords[:max_serp]:
-        r, _s, c = serp_rank(kw, domain, call=call); rows += r; cost += c
+        r, s, c = serp_rank(kw, domain, call=call); rows += r; cost += c; problems += _problem(s)
     cost = round(cost, 4)
-    return rows, f"rankings: {len(rows)} row(s) · ${cost:.4f}", cost
+    rows += _unavailable_rows("rankings", "Rankings", problems)
+    return rows, _card_status("rankings", rows, cost, problems), cost
 
 
 # ── Keywords (tools 12-16): volume, ideas, gap, competitors ──────────────────
@@ -405,18 +448,24 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
     keywords = keywords or []
     rows: list[dict] = []
     cost = 0.0
-    comp_rows, _s, c = competitors(domain, call=call); rows += comp_rows; cost += c
+    problems: list[str] = []
+    comp_rows, s, c = competitors(domain, call=call); rows += comp_rows; cost += c; problems += _problem(s)
     competitor = (competitor_list or [None])[0]
     if not competitor and comp_rows:
         competitor = comp_rows[0]["what"]
     if competitor:
-        r, _s, c = keyword_gap(domain, competitor, call=call); rows += r; cost += c
+        r, s, c = keyword_gap(domain, competitor, call=call); rows += r; cost += c; problems += _problem(s)
+    elif not problems:
+        problems.append("keyword gap needs a competitor: add one to the project, "
+                        "or DataForSEO found none for this domain")
     if keywords:
-        r, _s, c = search_volume(keywords, call=call); rows += r; cost += c
-        r, _s, c = keyword_ideas(keywords, call=call); rows += r; cost += c
-        r, _s, c = keyword_difficulty(keywords, call=call); rows += r; cost += c
-        r, _s, c = search_intent(keywords, call=call); rows += r; cost += c
-        r, _s, c = keyword_suggestions(keywords[0], call=call); rows += r; cost += c
+        for fn, arg in ((search_volume, keywords), (keyword_ideas, keywords),
+                        (keyword_difficulty, keywords), (search_intent, keywords),
+                        (keyword_suggestions, keywords[0])):
+            r, s, c = fn(arg, call=call); rows += r; cost += c; problems += _problem(s)
+    else:
+        problems.append("no target keywords on this project: volume, ideas, difficulty, "
+                        "intent and suggestions need at least one")
 
     # Clustering is derived, not fetched: it groups the keyword rows above into
     # candidate pages, so the plan costs nothing beyond the calls already made.
@@ -428,7 +477,8 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
     rows += cluster_rows([r for r in rows if r.get("code") in keyword_codes])
 
     cost = round(cost, 4)
-    return rows, f"keywords: {len(rows)} row(s) · ${cost:.4f}", cost
+    rows += _unavailable_rows("keywords", "Keywords", problems)
+    return rows, _card_status("keywords", rows, cost, problems), cost
 
 
 # ── AI visibility (tool 17): LLM mentions ────────────────────────────────────

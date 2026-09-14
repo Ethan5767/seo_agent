@@ -27,9 +27,11 @@ def test_selection_multiple_free_tools():
     assert set(ran) == {"On-page SEO", "AI visibility (AEO)", "Technical"}
 
 
-def test_source_tool_skipped_without_repo():
-    # 'source' selected but no repo/token → precondition skips it
-    assert _ran({"source"}) == []
+def test_source_tool_without_repo_reports_instead_of_running():
+    # 'source' selected but no repo/token: the card still appears (it used to
+    # vanish, D12), and the source fetch is never attempted. The named row is
+    # asserted in test_spend_gate.py::test_source_without_token_says_so.
+    assert _ran({"source"}) == ["Source code"]
 
 
 def test_empty_selection_runs_nothing():

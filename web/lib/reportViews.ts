@@ -13,6 +13,7 @@
  */
 
 import type { ReportRow, ScanReport } from "./priorities";
+import { VIEW_TOOLS } from "./sectionScans.ts";
 
 export interface ReportColumn {
   key: "what" | "detail" | "why" | "fix" | "severity";
@@ -461,13 +462,18 @@ export function rowsForView(
 
   const seen = new Set<string>();
   const out: ReportRow[] = [];
+  // A tool that could not run files one `unavailable.<tool>` row naming why
+  // (no credentials, paused, no repo). It belongs on the screen of every view
+  // that tool backs, or the screen reads "nothing found" with the reason
+  // measured and hidden - the silence the row exists to end.
+  const unavailable = new Set((VIEW_TOOLS[view.id] || []).map((k) => `unavailable.${k}`));
 
   for (const [key, value] of Object.entries(report)) {
     if (NON_GROUP_KEYS.has(key) || !Array.isArray(value)) continue;
     for (const row of value as ReportRow[]) {
       if (!row || typeof row !== "object") continue;
       const code = typeof row.code === "string" ? row.code : "";
-      if (!code || !view.codes.some((p) => matchesCode(code, p))) continue;
+      if (!code || !(unavailable.has(code) || view.codes.some((p) => matchesCode(code, p)))) continue;
       const dedupe = `${code}::${row.what ?? ""}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);

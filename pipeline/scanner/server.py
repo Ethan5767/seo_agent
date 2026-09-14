@@ -38,6 +38,7 @@ from pipeline.scanner.remediate import build_remediation
 from pipeline.scanner.remediate_bridge import bridge_worklist
 from pipeline.scanner.checks import checks_for
 from pipeline.scanner.crawl import crawl_site, site_rows
+from pipeline.scanner.rows import unavailable_row
 from pipeline.scanner.multipage import merge_by_code
 from pipeline.scanner import lighthouse
 from pipeline.scanner.eeat import eeat_rows
@@ -446,10 +447,18 @@ def tool_catalog() -> list[dict]:
     """The tool list the frontend renders — single source of truth for the UI.
     `checks` is the tool's named checks (from checks.checks_for) so the UI can show
     every individual check as its own row, pending → checking → result."""
+    paid_ok, paid_reason = dataforseo.availability()
+
+    def _avail(t):
+        # Environment-level only: a repo/token is per request, so the source lane
+        # is reported available here and refuses by name inside the scan.
+        return (paid_ok, paid_reason) if t.group == "dataforseo" else (True, "")
+
     return [{"key": t.key, "label": t.label, "category": t.category,
              "group": t.group, "cost": t.cost, "cost_num": t.cost_num,
              "phase": phase_of(t), "phase_label": _PHASE_LABEL[phase_of(t)],
-             "checks": checks_for(t.key)} for t in TOOLS]
+             "checks": checks_for(t.key),
+             "available": _avail(t)[0], "unavailable_reason": _avail(t)[1]} for t in TOOLS]
 
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
@@ -495,12 +504,23 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     source_ok = bool(repo and github_token and "/" in repo and not repo.startswith((".", "/", "~")))
 
     def _wanted(t):
-        # HARD ZERO-SPEND SAFETY: Never trigger any DataForSEO tool in live scans
+        # An explicit selection is honoured as asked, paid tools included; a tool
+        # that then cannot run says why (`_blocker`) rather than vanishing. With
+        # no selection the scanner runs what costs nothing and needs nothing: a
+        # paid call is only ever made because someone picked it.
+        if selected is not None:
+            return t.key in selected
+        return t.group != "dataforseo" and not (t.needs == "repo" and not source_ok)
+
+    def _blocker(t) -> str:
+        """Why a wanted tool cannot run right now, or "" when it can."""
         if t.group == "dataforseo":
-            if selected is not None and t.key in selected and os.environ.get("PYTEST_CURRENT_TEST"):
-                return True
-            return False
-        return (selected is None or t.key in selected) and not (t.needs == "repo" and not source_ok)
+            ok, reason = dataforseo.availability()
+            return "" if ok else reason
+        if t.needs == "repo" and not source_ok:
+            return ("needs a GitHub repo (owner/name) on the project and a GitHub "
+                    "token: sign in with GitHub, then scan again")
+        return ""
 
     # Free multi-page crawl: homepage + same-origin sitemap/nav URLs. Per-page
     # tools run on each; everything else runs once on the homepage.
@@ -559,9 +579,16 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         for t in phase_tools:
             if on_tool:
                 on_tool(t.label, "running", [], "", 0.0)
-            rows, tool_status, tool_cost = _run_tool(t)
+            blocker = _blocker(t)
+            if blocker:
+                rows, tool_status, tool_cost = [unavailable_row(t.key, blocker, t.label)], f"not run: {blocker}", 0.0
+            else:
+                rows, tool_status, tool_cost = _run_tool(t)
             cost += tool_cost
-            groups[t.key] = rows
+            # Extend, never assign: the free crawl's site-wide rows are already
+            # filed under "site", which is also the Site Health tool's key. An
+            # assignment here threw the crawl's findings away whenever both ran.
+            groups.setdefault(t.key, []).extend(rows)
             line = tool_status or _status_line(rows)
             log.append(f"{t.label} — {line}")
             if on_tool:

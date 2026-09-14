@@ -8,6 +8,62 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **DataForSEO tools run again, and a tool that cannot run says why (B-106, B-107)**
+  (`pipeline/scanner/dataforseo.py`, `pipeline/scanner/server.py`, `pipeline/scanner/rows.py`).
+
+  Two latches from d64662d kept all 13 paid tools dark in every live scan: the
+  scanner admitted a `dataforseo` tool only under pytest, and `call()` refused any
+  credentials except the fixture pair `x`/`y`. Proved against the running scanner
+  before the change: asking for `seo`, `backlinks`, `rankings` returned
+  `RESULT groups: ['seo']`, with no message for the other two.
+
+  One gate now, `dataforseo.availability()`: credentials set and
+  `DATAFORSEO_PAUSE_SPEND` not `1`. A selected tool that cannot run emits one
+  ungraded `unavailable.<tool>` row naming the reason, and `/tools` returns
+  `available` + `unavailable_reason` per tool. The Rankings and Keywords cards
+  surface their sub-calls' refusals instead of reporting "0 row(s)"; missing
+  target keywords and missing competitor are named. The source lane without a
+  GitHub token reports instead of vanishing. With no explicit selection the
+  scanner still runs no paid tool.
+
+  Credentials verified live at no cost (`/v3/appendix/user_data`): `status_code
+  20000`, `cost 0`, balance $24.31. **A paid scan has NOT yet been run against
+  this code**: `DATAFORSEO_PAUSE_SPEND=1` is still set; the live proof follows.
+
+- **Scan refusals reach the screen (B-108)** (`web/lib/scanStream.ts`, new;
+  `web/app/ScannerApp.tsx`, `web/app/api/scan/route.ts`). The stream reader
+  ignored `res.ok` and never parsed a final line without a newline, so 401, 400,
+  429 (budget and rate limit) and "backend unreachable" all ended the run with no
+  error. That last one was also sent as HTTP 200; it is now 503. Budget-skipped
+  tools (`X-Scan-Blocked-Tools`) are written to the live log.
+
+- **Site Health no longer overwrites the free crawl's findings (B-110)**
+  (`server.py`). Both file under `report["site"]`; the run loop assigned rather
+  than extended.
+
+- **Our free on-page rows were labelled "DataForSEO — live data" (B-111)**
+  (`ScannerApp.tsx` `sourceOf`). `health.*` is the free On-page SEO tool.
+
+- **A scan with no open project was filed under the first project in the list
+  (B-109)**; it now goes to the open project, else the project owning the domain.
+
+- **Domain Overview's scan ran the wrong tool; Core Web Vitals ran 2 of 4
+  Lighthouse categories (B-112)** (`web/lib/sectionScans.ts`). Every view now also
+  shows the `unavailable.<tool>` rows of the tools behind it.
+
+### Changed
+
+- **DataForSEO is the default source** (operator decision, 2026-09-14). The
+  tool picker ticks every tool the scanner can run, paid included; the daily
+  budget cap in `/api/scan` still applies. Design and remaining phases:
+  `docs/superpowers/specs/2026-09-14-tools-revamp-design.md`.
+  `docs/LIVE_TESTING_FREEZE.md` marked lifted.
+
+  Verification: `pytest -q` → **1278 passed, 2 skipped**; `npm test` →
+  **423 pass, 0 fail**; `npx tsc --noEmit` → **No errors found**.
+
+### Fixed
+
 - **The traffic chart drew six months of history that was never measured (B-105)**
   (`web/app/ReaiDashboard.tsx`). *"Mar '26: 0K visits — why it show like this?"*
 

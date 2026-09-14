@@ -29,6 +29,12 @@ see `CLAUDE.md` (the sync contract).
   per-tool steps, a progress bar driven only by DataForSEO's counts, elapsed time,
   running cost, and the checks each tool runs; no invented percentages.
 
+  **Simplified the same day at the operator's request ("I just want a loading"):**
+  the page now shows an animated loading bar with one line (the running tool, or
+  DataForSEO's page count while Site Health crawls) and elapsed time, only while
+  the scan runs. The scanner's progress events and `lib/scanActivity.ts` stay;
+  they feed that one line. `npm test` → 460 pass; `tsc` clean.
+
   Live proof, one scan of `oriendainternationalhospital.com.kh` (`seo` + `site`,
   3 free pages, 5-page Site Health), raw stream timestamps:
 

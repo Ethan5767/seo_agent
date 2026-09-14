@@ -88,3 +88,9 @@ test("the free crawl finishes when the scanner says it has", () => {
   assert.equal(c.state, "done");
   assert.ok(c.finishedAt);
 });
+
+test("the loading indicator shows only while scanning", () => {
+  const src = readFileSync(new URL("../components/dashboard/LiveScanActivity.tsx", import.meta.url), "utf8");
+  assert.match(src, /if \(!busy\) return null;/);
+  assert.match(src, /role="status"/);
+});

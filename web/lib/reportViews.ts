@@ -457,23 +457,30 @@ const NON_GROUP_KEYS = new Set(["score", "counts", "cost", "log", "cycle", "url"
 export function rowsForView(
   report: ScanReport | null | undefined,
   view: ReportView,
+  /**
+   * The page's chosen data source (`lib/toolSources.ts`): which codes to show
+   * and which tools back it. Absent, the view shows everything it lists, which
+   * is what the combined audit screens want.
+   */
+  source?: { codes: string[]; tools: string[] },
 ): ReportRow[] {
   if (!report || typeof report !== "object") return [];
 
   const seen = new Set<string>();
   const out: ReportRow[] = [];
+  const codes = source?.codes ?? view.codes;
   // A tool that could not run files one `unavailable.<tool>` row naming why
   // (no credentials, paused, no repo). It belongs on the screen of every view
   // that tool backs, or the screen reads "nothing found" with the reason
   // measured and hidden - the silence the row exists to end.
-  const unavailable = new Set((VIEW_TOOLS[view.id] || []).map((k) => `unavailable.${k}`));
+  const unavailable = new Set((source?.tools ?? VIEW_TOOLS[view.id] ?? []).map((k) => `unavailable.${k}`));
 
   for (const [key, value] of Object.entries(report)) {
     if (NON_GROUP_KEYS.has(key) || !Array.isArray(value)) continue;
     for (const row of value as ReportRow[]) {
       if (!row || typeof row !== "object") continue;
       const code = typeof row.code === "string" ? row.code : "";
-      if (!code || !(unavailable.has(code) || view.codes.some((p) => matchesCode(code, p)))) continue;
+      if (!code || !(unavailable.has(code) || codes.some((p) => matchesCode(code, p)))) continue;
       const dedupe = `${code}::${row.what ?? ""}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);

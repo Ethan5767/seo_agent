@@ -70,6 +70,29 @@ see `CLAUDE.md` (the sync contract).
   Lighthouse categories (B-112)** (`web/lib/sectionScans.ts`). Every view now also
   shows the `unavailable.<tool>` rows of the tools behind it.
 
+### Added
+
+- **Data source dropdown on every tool page: DataForSEO (paid) or Our tools (free)**
+  (`web/lib/toolSources.ts`, new; `web/components/dashboard/SectionScanButton.tsx`,
+  `web/app/ReaiDashboard.tsx`, `web/lib/reportViews.ts`).
+
+  One table says, per page, which scanner tools each source runs and which rows
+  it shows, so the Test button and the table always agree. DataForSEO is the
+  default wherever it can serve the page; a source that cannot is listed
+  disabled with its reason (e.g. Backlinks: "No free backlink index exists";
+  Core Web Vitals: DataForSEO has no real-user field data). A live refusal from
+  the scanner catalog (no credentials, `DATAFORSEO_PAUSE_SPEND=1`) disables the
+  option by name and falls back to our tools. The choice is remembered per page
+  in this browser.
+
+  DataForSEO's 54 on-page crawl flags are split across Crawl Issues, Technical
+  Checks and On-Page Checks; a test fails if a flag is added in
+  `onpage_audit.py` and not placed. The Search Console free option for
+  rankings and keyword pages is listed as not built yet rather than faked.
+
+  `web/tests/toolSources.test.mjs` (11 tests). `npm test` → 434 pass;
+  `npx tsc --noEmit` → clean.
+
 ### Changed
 
 - **DataForSEO is the default source** (operator decision, 2026-09-14). The

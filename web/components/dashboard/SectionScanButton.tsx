@@ -2,6 +2,7 @@
 
 import React from "react";
 import { sectionById, toolsForSection, sectionCost, toolsForView, viewCost, type ToolLike } from "@/lib/sectionScans";
+import { SOURCE_LABEL, type SourceId } from "@/lib/toolSources";
 
 /**
  * "Scan this section" or "Test this tool" specifically.
@@ -11,6 +12,7 @@ import { sectionById, toolsForSection, sectionCost, toolsForView, viewCost, type
  */
 export function SectionScanButton({
   sectionId, viewId, viewLabel, domain, repo, onEditProject, tools, busy, onScan, onCrawlScan, crawlPages = 5, onCrawlPagesChange, hasProjects, onCreateProject, error,
+  source, sourceTools, sourceBlockers, onSourceChange,
 }: {
   sectionId: string;
   viewId?: string;
@@ -34,6 +36,15 @@ export function SectionScanButton({
    * has to be visible where the button is.
    */
   error?: string | null;
+  /**
+   * The page's Data source dropdown (`lib/toolSources.ts`). When set, the Test
+   * button runs exactly `sourceTools`, and `sourceBlockers[s]` is why source `s`
+   * cannot be picked ("" when it can).
+   */
+  source?: SourceId;
+  sourceTools?: string[];
+  sourceBlockers?: Record<SourceId, string>;
+  onSourceChange?: (s: SourceId) => void;
 }) {
   const [selectedPages, setSelectedPages] = React.useState<number>(crawlPages || 5);
   React.useEffect(() => {
@@ -45,8 +56,16 @@ export function SectionScanButton({
     onCrawlPagesChange?.(n);
   };
   const section = sectionById(sectionId);
-  const viewKeys = viewId ? toolsForView(viewId, tools) : null;
-  const viewPrice = viewId ? viewCost(viewId, tools) : null;
+  const catalogKeys = new Set((tools ?? []).map((t) => t.key));
+  const sourced = sourceTools ? sourceTools.filter((k) => catalogKeys.has(k)) : null;
+  const viewKeys = sourced ? (sourced.length ? sourced : null) : viewId ? toolsForView(viewId, tools) : null;
+  const viewPrice = sourced
+    ? {
+        free: (tools ?? []).filter((t) => sourced.includes(t.key) && t.group === "free").length,
+        paid: (tools ?? []).filter((t) => sourced.includes(t.key) && t.group && t.group !== "free"),
+      }
+    : viewId ? viewCost(viewId, tools) : null;
+  const sourceBlocked = source && sourceBlockers ? sourceBlockers[source] : "";
   const sectionKeys = toolsForSection(sectionId, tools);
   const sectionPrice = sectionCost(sectionId, tools);
 
@@ -110,11 +129,36 @@ export function SectionScanButton({
     );
   }
 
-  const ready = Boolean(keys && keys.length);
+  const ready = Boolean(keys && keys.length) && !sourceBlocked;
   const paid = cost?.paid ?? [];
 
   return (
     <div style={shell}>
+      {source && onSourceChange && sourceBlockers && (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <label htmlFor={`source-${viewId}`} style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>
+            Data source
+          </label>
+          <select
+            id={`source-${viewId}`}
+            aria-label="Data source"
+            value={source}
+            disabled={busy}
+            onChange={(e) => onSourceChange(e.target.value as SourceId)}
+            style={{
+              fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
+              border: "1px solid #cbd5e1", background: "#ffffff", color: "#1e293b",
+              cursor: busy ? "not-allowed" : "pointer",
+            }}
+          >
+            {(["dataforseo", "ours"] as SourceId[]).map((s) => (
+              <option key={s} value={s} disabled={Boolean(sourceBlockers[s]) && s !== source} title={sourceBlockers[s] || undefined}>
+                {SOURCE_LABEL[s]}{sourceBlockers[s] ? " — unavailable" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <button
         type="button"
         disabled={!ready || busy}
@@ -218,6 +262,24 @@ export function SectionScanButton({
               : `${cost?.free ?? 0} free · ${paid.length} paid: ${paid.map((t) => `${t.label}${t.cost ? ` ${t.cost}` : ""}`).join(", ")}`}
         </div>
       </div>
+
+      {sourceBlocked && (
+        <div
+          role="note"
+          style={{
+            flexBasis: "100%", fontSize: 12, lineHeight: 1.5,
+            color: "#92400e", background: "#fffbeb",
+            border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px",
+          }}
+        >
+          <b>{SOURCE_LABEL[source!]} cannot run this page:</b> {sourceBlocked}
+        </div>
+      )}
+      {source && sourceBlockers && !sourceBlocked && (["dataforseo", "ours"] as SourceId[]).filter((s) => s !== source && sourceBlockers[s]).map((s) => (
+        <div key={s} style={{ flexBasis: "100%", fontSize: 11.5, color: "var(--ink-muted)" }}>
+          {SOURCE_LABEL[s]} unavailable here: {sourceBlockers[s]}
+        </div>
+      ))}
 
       {error && !busy && (
         <div

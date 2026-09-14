@@ -24,6 +24,7 @@ import { buildExecutiveReport } from "../lib/executiveReport";
 import { derivePillars, severityMark, severityTone } from "../lib/pillars";
 import { tone } from "../lib/ui";
 import { viewById, rowsForView, ALL_FINDINGS_VIEW, CHECKS_VIEW } from "../lib/reportViews";
+import { TOOL_SOURCES, effectiveSource, isEnabled, sourceBlocker, type SourceId } from "../lib/toolSources";
 import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
@@ -2070,6 +2071,23 @@ export function ReaiDashboard({
   // A report view is a named slice of the scan report (lib/reportViews.ts).
   // When one is open it replaces the tab content; picking any tab clears it.
   const [activeView, setActiveView] = useState<string | null>(null);
+  // The Data source chosen on each tool page (lib/toolSources.ts). Kept in this
+  // browser only: a per-viewer preference, not project state, and absent it
+  // every page opens on DataForSEO where DataForSEO can serve it.
+  const [viewSources, setViewSources] = useState<Record<string, SourceId>>({});
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("reai.viewSources");
+      if (raw) setViewSources(JSON.parse(raw));
+    } catch { /* storage blocked: defaults apply */ }
+  }, []);
+  const chooseViewSource = (viewId: string, source: SourceId) => {
+    setViewSources((prev) => {
+      const next = { ...prev, [viewId]: source };
+      try { localStorage.setItem("reai.viewSources", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
   const [activeGscView, setActiveGscView] = useState<string | null>(null);
   const [activeContentTool, setActiveContentTool] = useState<string | null>(null);
   // Which engine stage screen is open (plan / gate / merge), or null for none.
@@ -3836,7 +3854,18 @@ export function ReaiDashboard({
             (() => {
               const view = viewById(activeView);
               if (!view) return null;
-              const rows = rowsForView(report, view);
+              const sources = TOOL_SOURCES[view.id];
+              const catalog = toolPicker?.catalog;
+              // The saved choice if usable, else DataForSEO, else ours. When
+              // neither can run (e.g. Backlinks while spend is paused) the page
+              // stays on its paid source so the reason is shown, not hidden.
+              const source: SourceId | undefined = sources
+                ? effectiveSource(view.id, viewSources[view.id], catalog)
+                  ?? (isEnabled(sources.dataforseo) ? "dataforseo" : "ours")
+                : undefined;
+              const sourceOpt = sources && source ? sources[source] : undefined;
+              const sourceSel = isEnabled(sourceOpt) ? sourceOpt : undefined;
+              const rows = rowsForView(report, view, sourceSel);
               return (
                 <div style={{ maxWidth: 1200 }}>
                   <div style={{ marginBottom: "var(--space-5)" }}>
@@ -3863,6 +3892,13 @@ export function ReaiDashboard({
                       sectionId={view.section}
                       viewId={view.id}
                       viewLabel={view.label}
+                      source={source}
+                      sourceTools={sourceSel?.tools}
+                      sourceBlockers={sources ? {
+                        dataforseo: sourceBlocker(view.id, "dataforseo", catalog),
+                        ours: sourceBlocker(view.id, "ours", catalog),
+                      } : undefined}
+                      onSourceChange={(s) => chooseViewSource(view.id, s)}
                       domain={currentDomain}
                       repo={selectedClient?.repo}
                       onEditProject={() => selectedClient && openEditProject(selectedClient)}

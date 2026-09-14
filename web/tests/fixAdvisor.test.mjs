@@ -213,7 +213,7 @@ test("the fixer is mounted on every stage of the pipeline", () => {
 test("the report-view mount is on the shared renderer, not per screen", () => {
   // One mount covers every view in reportViews.ts. Bolting one onto each screen
   // is how copies drift apart.
-  const block = DASH.slice(DASH.indexOf("const rows = rowsForView(report, view)"));
+  const block = DASH.slice(DASH.indexOf("const rows = rowsForView(report, view"));
   assert.ok(block.indexOf("<FixWithClaude") < block.indexOf("})()"),
     "the fixer must sit inside the shared view renderer");
 });

@@ -8,6 +8,12 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **Budget badge rounded real spend to "$0.00" (B-128).** `toFixed(2)` on
+  sub-cent DataForSEO costs; now `formatUsd` shows e.g. "$0.0037 / $5.00".
+- **"Try quick sample" buttons started a scan of example.com / wikipedia.org /
+  github.com on one click (B-129).** Removed, along with the `"example.com"`
+  default domain. `npm test` → 462 pass; `tsc` clean.
+
 - **A GitHub `owner/name` repo was treated as a local folder on every scan (B-127)**
   (`pipeline/scanner/server.py`). The post-scan plan cycle created
   `owner/name/` in the scanner's working directory, `git init`ed it and wrote a

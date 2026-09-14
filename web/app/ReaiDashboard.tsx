@@ -40,6 +40,7 @@ import { GateActivity } from "@/components/dashboard/GateActivity";
 import { FixWithClaude } from "@/components/dashboard/FixWithClaude";
 import { GbpMatrix } from "@/components/dashboard/GbpMatrix";
 import { SectionScanButton } from "@/components/dashboard/SectionScanButton";
+import { formatUsd } from "@/lib/budget";
 import { LiveScanActivity } from "@/components/dashboard/LiveScanActivity";
 import { ProjectModal } from "@/components/dashboard/ProjectModal";
 import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
@@ -3014,7 +3015,7 @@ export function ReaiDashboard({
                 padding: "5px 12px", borderRadius: 20, color: "#34d399", letterSpacing: "0.02em",
               }}>
                 <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#34d399", boxShadow: "0 0 6px #34d399" }} />
-                <span>DAILY BUDGET: ${spentToday.toFixed(2)} / ${dailyBudget.toFixed(2)}</span>
+                <span>DAILY BUDGET: {formatUsd(spentToday)} / {formatUsd(dailyBudget)}</span>
               </div>
             );
           })()}
@@ -10525,15 +10526,15 @@ export function ReaiDashboard({
                         <span style={{ fontSize: 18 }}>🛡️</span>
                         <div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: "#065f46" }}>
-                            Daily Spend Budget (${dailyCap.toFixed(2)}/day Cap)
+                            Daily Spend Budget ({formatUsd(dailyCap)}/day Cap)
                           </div>
                           <div style={{ fontSize: 12, color: "#047857", marginTop: 2 }}>
-                            Daily spend limit of ${dailyCap.toFixed(2)} active (${spent.toFixed(2)} spent today). Enforced automatically at the scan gateway.
+                            Daily spend limit of {formatUsd(dailyCap)} active ({formatUsd(spent)} spent today). Enforced automatically at the scan gateway.
                           </div>
                         </div>
                       </div>
                       <span style={{ fontSize: 12, fontWeight: 800, color: "#047857", background: "#ffffff", border: "1px solid #a7f3d0", padding: "4px 10px", borderRadius: 20 }}>
-                        ${spent.toFixed(2)} / ${dailyCap.toFixed(2)}
+                        {formatUsd(spent)} / {formatUsd(dailyCap)}
                       </span>
                     </div>
                   </div>
@@ -10688,7 +10689,7 @@ export function ReaiDashboard({
               fontSize: 12, color: "#065f46", fontWeight: 600,
             }}>
               <span style={{ fontSize: 14 }}>🛡️</span>
-              <span><b>Daily Spend Limit Active:</b> Max ${(budget?.dailyBudget ?? 5).toFixed(2)}/day (${(budget?.spentToday ?? 0).toFixed(2)} spent today). Free on-page & tech checks cost $0.00.</span>
+              <span><b>Daily Spend Limit Active:</b> Max {formatUsd(budget?.dailyBudget ?? 5)}/day ({formatUsd(budget?.spentToday ?? 0)} spent today). Free on-page & tech checks cost $0.00.</span>
             </div>
 
             {scanState?.tools && scanState.tools.length > 0 && (

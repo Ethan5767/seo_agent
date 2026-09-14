@@ -14,7 +14,7 @@ interface AuditHeroBarProps {
 }
 
 export function AuditHeroBar({
-  currentDomain = "example.com",
+  currentDomain = "",
   onRunAudit,
   isScanning = false,
   phaseLine,
@@ -155,36 +155,6 @@ export function AuditHeroBar({
           </div>
         </form>
 
-        {/* Quick Test Presets */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontSize: 12, color: "var(--ink-muted)", flexWrap: "wrap" }}>
-          <span>Try quick sample:</span>
-          {[
-            { label: "example.com", url: "https://example.com" },
-            { label: "wikipedia.org", url: "https://en.wikipedia.org" },
-            { label: "github.com", url: "https://github.com" },
-          ].map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              onClick={() => {
-                setInputUrl(preset.url);
-                if (!isScanning) onRunAudit(preset.url);
-              }}
-              style={{
-                background: "#f1f5f9",
-                border: "1px solid #e2e8f0",
-                borderRadius: 4,
-                padding: "2px 8px",
-                fontSize: 12,
-                color: "#334155",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* ── 2. HUMAN-FRIENDLY PROGRESS STATE (WHILE SCANNING) ── */}

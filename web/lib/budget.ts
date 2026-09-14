@@ -134,3 +134,16 @@ export function applyBudget(
       : undefined,
   };
 }
+
+/**
+ * Dollars for the budget badge. DataForSEO calls cost fractions of a cent
+ * ($0.0008 for a 5-page crawl), so `toFixed(2)` showed "$0.00" after real
+ * spend: the operator ran a paid scan and saw "DAILY BUDGET: $0.00 / $5.00".
+ */
+export function formatUsd(n: number): string {
+  const v = Number.isFinite(n) && n > 0 ? n : 0;
+  if (v === 0) return "$0.00";
+  if (v < 0.01) return `$${v.toFixed(4)}`;
+  if (v < 1) return `$${v.toFixed(3)}`;
+  return `$${v.toFixed(2)}`;
+}

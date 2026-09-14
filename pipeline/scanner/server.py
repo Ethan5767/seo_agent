@@ -129,7 +129,7 @@ TOOLS = [
     Tool("Video", "video", "Content", "free", "free", 0.0, None,
          lambda c: youtube.video_rows_full(c.html, key=os.environ.get("YOUTUBE_API_KEY", ""))),
     Tool("Trust (E-E-A-T)", "eeat", "Trust & E-E-A-T", "free", "free", 0.0, None,
-         lambda c: (eeat_rows(c.html), None, 0.0)),
+         lambda c: (eeat_rows(c.html, c.url), None, 0.0)),
     # Free local signals, read from the page we already fetched. Added when
     # B-096 removed four directory tiles that claimed "Synced" for Apple Maps,
     # Bing Places, Waze and YellowPages - none of which publishes a read API.

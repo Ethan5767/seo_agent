@@ -6,6 +6,22 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **E-E-A-T checker** (`pipeline/scanner/eeat.py`, rewritten; B-133). Google has no
+  E-E-A-T score, so this checks the signals its rater guidelines describe, from
+  JSON-LD and visible text, with evidence in every row:
+  Experience (first-hand stories, last updated), Expertise (byline, Person
+  schema, credentials, author `sameAs`, medically reviewed), Authoritativeness
+  (Organization schema and `sameAs`, named accreditations, authoritative
+  citations, About page), Trust (HTTPS, contact + PostalAddress, privacy/terms,
+  medical disclaimer, valid rating markup). Health pages get the stricter bar.
+  Live on 5 hospital pages, $0: 4 passed (stories, About, HTTPS, contact with
+  `tel 011911220, email info@oriendahospital.com`), 8 warnings including no
+  schema at all, no author, no medical reviewer, no disclaimer, terms not linked.
+  `pytest -q` → 1323 passed, 2 skipped; `npm test` → 468 pass.
+
+
 ### Removed
 
 - **The `/integrations/google` page** (operator request). Google is connected from

@@ -39,9 +39,17 @@ STATIC_CHECKS: dict[str, list[str]] = {
     "content": [
         "Content depth", "Original data", "Comprehensiveness", "Freshness", "Scannable structure",
     ],
+    # The E-E-A-T checker (pipeline/scanner/eeat.py). "Medically reviewed" and
+    # "Medical disclaimer" apply only to health pages; "HTTPS" needs the URL.
     "eeat": [
-        "Author / expertise", "Contact / trust", "Policy links", "Social proof",
-        "Authoritativeness", "Citation-ready formatting",
+        "Experience · First-hand stories", "Experience · Last updated date",
+        "Expertise · Author byline", "Expertise · Author in schema", "Expertise · Credentials",
+        "Expertise · Author profiles linked", "Expertise · Medically reviewed",
+        "Authoritativeness · Organization in schema", "Authoritativeness · Organization profiles linked",
+        "Authoritativeness · Accreditations named", "Authoritativeness · Authoritative sources cited",
+        "Authoritativeness · About page linked",
+        "Trust · HTTPS", "Trust · Contact details", "Trust · Policy pages linked",
+        "Trust · Medical disclaimer", "Trust · Reviews",
     ],
     # Free local signals, read from the page itself. Added when B-096 removed
     # four directory tiles that claimed "Synced" for Apple Maps, Bing Places,

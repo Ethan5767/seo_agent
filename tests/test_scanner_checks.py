@@ -23,7 +23,8 @@ def _emitted(tool_key: str) -> set:
     if tool_key == "content":
         return _labels(content.content_rows(_HTML))
     if tool_key == "eeat":
-        return _labels(eeat.eeat_rows(_HTML))
+        # A health page with a URL, so the YMYL-only and HTTPS checks are emitted too.
+        return _labels(eeat.eeat_rows(_HTML.replace("hello world text here", "hospital patients"), "https://e.com/"))
     if tool_key == "tech":
         return _labels(extra_checks.tech_rows("https://e.com/", _HTML, 200, "<urlset></urlset>"))
     if tool_key == "perf":

@@ -6,6 +6,14 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A GitHub `owner/name` repo was treated as a local folder on every scan (B-127)**
+  (`pipeline/scanner/server.py`). The post-scan plan cycle created
+  `owner/name/` in the scanner's working directory, `git init`ed it and wrote a
+  client config there. It now runs only for a real local checkout and logs why
+  it skipped otherwise. `pytest -q` → 1310 passed, 2 skipped.
+
 ### Added
 
 - **Live scan activity on every tool page** (`pipeline/scanner/progress.py`, new;

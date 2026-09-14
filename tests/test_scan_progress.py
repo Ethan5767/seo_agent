@@ -153,3 +153,23 @@ def test_request_labels_are_plain_words():
     assert dataforseo._label("/v3/on_page/task_post") == "start the site crawl"
     assert dataforseo._label("/v3/dataforseo_labs/google/ranked_keywords/live") == "the keywords this site ranks for"
     assert "/" not in dataforseo._label("/v3/some/unknown_endpoint/live")
+
+
+def test_a_github_slug_is_never_treated_as_a_local_folder(tmp_path, monkeypatch):
+    """Every scan of a project whose repo is `owner/name` created that folder in
+    the scanner's working directory and ran `git init` in it."""
+    monkeypatch.chdir(tmp_path)
+    assert server.local_checkout("DonghuaOnly/student-attention-tracking") is None
+    assert not (tmp_path / "DonghuaOnly").exists()
+    assert server.local_checkout("") is None
+    assert server.local_checkout(str(tmp_path / "missing")) is None
+    real = tmp_path / "client"
+    real.mkdir()
+    assert server.local_checkout(str(real)) == real
+
+
+def test_the_scan_handler_only_cycles_a_local_checkout():
+    import inspect
+    src = inspect.getsource(server)
+    assert "= run_cycle(Path(repo)" not in src
+    assert "checkout = local_checkout(repo)" in src

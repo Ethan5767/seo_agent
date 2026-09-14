@@ -638,6 +638,23 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
 
 
 
+def local_checkout(repo: str) -> Path | None:
+    """The repo as an existing local directory, or None.
+
+    The scan used to call `run_cycle(Path(repo))` for any non-empty repo. A
+    project's repo is usually a GitHub `owner/name`, which Path() reads as a
+    relative folder: every scan created `owner/name/` in the scanner's working
+    directory, ran `git init`, committed a baseline and wrote a client config
+    into it (found 2026-09-14 when one was nearly committed into this repo).
+    """
+    if not repo or not isinstance(repo, str):
+        return None
+    p = Path(repo).expanduser()
+    if not p.is_absolute() and not repo.startswith((".", "~")):
+        return None
+    return p if p.is_dir() else None
+
+
 def page_facts(url: str, html: str, status: int) -> dict:
     """What the page actually says, for features that need the text and not a
     verdict about it. Read-only over HTML already in hand; costs nothing."""
@@ -844,8 +861,12 @@ class Handler(BaseHTTPRequestHandler):
                                          competitors=profile["competitors"], business=profile["business"],
                                          repo=repo, github_token=(req.get("github_token") or ""),
                                          crawl_pages=crawl_pages)}
-            if repo:
-                out["cycle"] = run_cycle(Path(repo), url, model, log=log, profile=profile)
+            checkout = local_checkout(repo)
+            if checkout:
+                out["cycle"] = run_cycle(checkout, url, model, log=log, profile=profile)
+            elif repo:
+                log.append(f"Plan cycle skipped: '{repo}' is not a local checkout on this machine "
+                           "(a GitHub owner/name is read by the Source code tool, not cloned here).")
             out["log"] = list(log)
             emit({"result": out})
             print(f"[scan] done — score {out['audit']['score']}/100", flush=True)

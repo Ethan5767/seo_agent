@@ -12,6 +12,7 @@ import { supabase } from "../lib/supabase";
 import { authedFetch } from "@/lib/authedFetch";
 import { readScanStream } from "@/lib/scanStream";
 import { mergeScanReport } from "@/lib/reportMerge";
+import { ownerOf, sameSite } from "@/lib/scanTarget";
 import { applyScanEvent, type ToolActivity } from "@/lib/scanActivity";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string; pages?: string[] };
@@ -592,12 +593,16 @@ function Scanner({ initialTab }: { initialTab?: any }) {
         {
             setData(ev.result);
             let finalAudit = ev.result.audit;
-            if (finalAudit && (overrideTools || openReport?.report)) {
+            // Merge only into a report of the SAME site (B-126): a github.com scan
+            // merged into the hospital's report put github.com findings on six
+            // hospital pages.
+            const openReportUrl = ((openReport?.report as any)?.site_url || (openReport?.scan as any)?.url || "") as string;
+            if (finalAudit && (overrideTools || openReport?.report) && sameSite(openReportUrl, activeUrl)) {
               const baseReport = (openReport?.report || {}) as Record<string, unknown>;
               const merged: Record<string, unknown> = {
                 ...mergeScanReport(baseReport, finalAudit as unknown as Record<string, unknown>, overrideTools ?? [...selected]),
                 page: (finalAudit as any).page || baseReport.page,
-                site_url: (finalAudit as any).site_url || baseReport.site_url || activeUrl,
+                site_url: activeUrl,
               };
               const NON_GROUP = new Set(["score", "counts", "cost", "log", "cycle", "url", "site_url", "page", "graded", "score_version"]);
               const counts: Record<string, number> = { error: 0, warn: 0, info: 0, ok: 0 };
@@ -633,10 +638,12 @@ function Scanner({ initialTab }: { initialTab?: any }) {
             // The scan belongs to the project that is open, or to the project
             // that owns this domain. It used to fall back to `clients[0]`, which
             // filed a scan of one site under whichever project listed first.
-            const scannedDomain = activeUrl.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "").toLowerCase();
-            const owner = clients.find((c: any) =>
-              String(c.domain || c.website || "").replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "").toLowerCase() === scannedDomain);
-            let targetClientId: string | null | undefined = histClient?.id || clientId || owner?.id;
+            // The scanned domain decides the project (B-126), never whichever
+            // project is open: the owner of this domain, else the open project
+            // only if it IS this domain, else a new project below.
+            let targetClientId: string | null | undefined =
+              ownerOf(clients as any, activeUrl)
+              ?? (histClient && sameSite((histClient as any).domain || (histClient as any).website, activeUrl) ? histClient.id : undefined);
             if (!targetClientId && activeUrl) {
               try {
                 const domain = activeUrl.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "");

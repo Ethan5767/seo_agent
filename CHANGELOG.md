@@ -8,6 +8,12 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **Another site's findings showed on the hospital's pages (B-126).** A github.com
+  scan was filed under the open hospital project and later tests merged into it;
+  11 of 25 tool pages then showed github.com data under the hospital's name.
+  Scans are now filed by the scanned domain's owner and merged only into a
+  same-site report. `npm test` → 468 pass; `tsc` clean.
+
 - **Crawl Issues on DataForSEO was blank after a clean crawl (B-131).** Passed
   problem checks are now rows ("4xx pages: 0 of 10 page(s)"), two mislabelled
   duplicate checks corrected against DataForSEO's docs, and the status reads

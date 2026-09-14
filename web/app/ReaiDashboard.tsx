@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useCallback, type ReactNode } from "react";
 import Link from "next/link";
 import type { ClientWithStats, ScanRow, RemediationRow } from "../lib/db";
+import { latestTwoReports } from "../lib/db";
 import {
   fetchTools,
   summarize,
@@ -42,6 +43,7 @@ import { GbpMatrix } from "@/components/dashboard/GbpMatrix";
 import { SectionScanButton } from "@/components/dashboard/SectionScanButton";
 import { formatUsd } from "@/lib/budget";
 import { LiveScanActivity } from "@/components/dashboard/LiveScanActivity";
+import { SiteAuditProjects } from "@/components/dashboard/SiteAuditProjects";
 import { ProjectModal } from "@/components/dashboard/ProjectModal";
 import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
@@ -1944,6 +1946,10 @@ export function ReaiDashboard({
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
   const [auditSubTab, setAuditSubTab] = useState<"summary" | "all_checks" | "progress" | "remediation">("summary");
+  // Site Audit opens on the project list (Semrush-style) when reached from the
+  // sidebar; every other path to the audit (Run an audit, a view's empty state)
+  // goes straight to the open project's audit.
+  const [auditProjectList, setAuditProjectList] = useState(initialTab === "Site Health & Audit");
   const [auditCategoryFilter, setAuditCategoryFilter] = useState<string>("all");
   const [auditSeverityFilter, setAuditSeverityFilter] = useState<"all" | "error" | "warn" | "ok">("all");
   const [dryRunActive, setDryRunActive] = useState<boolean>(false);
@@ -2211,6 +2217,7 @@ export function ReaiDashboard({
     else if (item.focus) { selectAeoFocus(item.focus); return; }
     else if (item.tab) {
       setActiveTab(item.tab);
+      setAuditProjectList(item.tab === "Site Health & Audit" && !item.sub);
       if (item.sub) setAuditSubTab(item.sub);
       if (item.local) setLocalSubTab(item.local);
     }
@@ -6781,7 +6788,28 @@ export function ReaiDashboard({
           )}
 
           {/* ── SUB-VIEW 3: SITE HEALTH & AUDIT LAB (DYNAMIC BY PROJECT) ── */}
-          {activeTab === "Site Health & Audit" && (
+          {activeTab === "Site Health & Audit" && auditProjectList && (
+            <SiteAuditProjects
+              projects={clients}
+              loadTwo={latestTwoReports}
+              onOpen={(p) => {
+                const c = clients.find((x) => x.id === p.id);
+                if (c) onSelectClient(c);
+                setAuditProjectList(false);
+              }}
+              onCreate={() => openCreateProject()}
+            />
+          )}
+          {activeTab === "Site Health & Audit" && auditProjectList === false && (
+            <button
+              type="button"
+              onClick={() => setAuditProjectList(true)}
+              style={{ background: "none", border: 0, padding: 0, marginBottom: 10, color: "#2563eb", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            >
+              ← All projects
+            </button>
+          )}
+          {activeTab === "Site Health & Audit" && auditProjectList === false && (
             <MeasureScreen
               report={report}
               allIssues={allIssues}

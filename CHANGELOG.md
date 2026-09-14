@@ -8,6 +8,17 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Site Audit opens on a project list, Semrush-style** (`web/lib/auditThemes.ts`,
+  `web/components/dashboard/SiteAuditProjects.tsx`, new; `latestTwoReports` in
+  `web/lib/db.ts`). One row per project: last update, pages crawled, Site Health,
+  errors, warnings, and a score per theme (Crawlability, HTTPS, Int. SEO, Site
+  Performance, Internal Linking, AI Search Health, E-E-A-T), each with the change
+  since the previous scan. A theme score is the passed share of that theme's
+  graded checks, from explicit lists of emitted codes; a theme with none reads
+  "Not measured". Click a project to open its audit; "← All projects" returns.
+  Reached from the sidebar and `/site-audit`; other paths still open the audit.
+  `npm test` → 475 pass; `tsc` clean.
+
 - **E-E-A-T checker** (`pipeline/scanner/eeat.py`, rewritten; B-133). Google has no
   E-E-A-T score, so this checks the signals its rater guidelines describe, from
   JSON-LD and visible text, with evidence in every row:

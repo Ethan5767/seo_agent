@@ -406,3 +406,22 @@ export async function lastTwoScansFindings(
   const previous = scans[1] ? await findingsFor(scans[1].id) : [];
   return { current, previous, currentScanId: scans[0].id };
 }
+
+/**
+ * A project's two most recent saved reports, for the Site Audit project list
+ * (current scores and the change since the scan before). Reads only the two
+ * newest scans' reports.
+ */
+export async function latestTwoReports(clientId: string): Promise<{
+  current: Record<string, unknown> | null;
+  previous: Record<string, unknown> | null;
+  at: string | null;
+}> {
+  const scans = await scanHistory(clientId);
+  const [a, b] = scans;
+  const [current, previous] = await Promise.all([
+    a ? getScanReport(a.id) : Promise.resolve(null),
+    b ? getScanReport(b.id) : Promise.resolve(null),
+  ]);
+  return { current, previous, at: a?.created_at ?? null };
+}

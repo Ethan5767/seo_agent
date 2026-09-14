@@ -167,7 +167,9 @@ test("Navigation & UX: account links live on the rail, not in a drawer group", (
   assert.notEqual(railStart, -1, "the rail footer block is missing");
   const railBlock = content.slice(railStart, railStart + 1400);
 
-  assert.ok(railBlock.includes('href: "/integrations/google"'), "Integrations must be on the rail");
+  // The Google integration page was removed at the operator's request
+  // (2026-09-14); Google is connected from the top-bar button instead.
+  assert.ok(!content.includes("/integrations/google"), "the removed integrations page must not be linked");
   assert.ok(railBlock.includes('href: "/profile"'), "Profile & Account must be on the rail");
 
   // Both must go to the real pages, not a tab.

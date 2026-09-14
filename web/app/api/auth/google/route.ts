@@ -29,8 +29,11 @@ export async function GET(request: NextRequest) {
     storedClientId;
 
   if (!clientId) {
-    // If no client_id is set in env or cookies, navigate to the dedicated Google Integration setup page
-    return NextResponse.redirect(`${origin}/integrations/google?prompt=setup_required`);
+    // No client id anywhere: say so on the Account page (the separate Google
+    // integration page was removed on 2026-09-14 at the operator's request).
+    return NextResponse.redirect(
+      `${origin}/profile?error=${encodeURIComponent("Google sign-in is not configured: set GOOGLE_CLIENT_ID in web/.env.local")}`,
+    );
   }
 
   const redirectUri = `${origin}/api/auth/google/callback`;

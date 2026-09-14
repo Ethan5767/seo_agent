@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
   const fail = (reason: string) => {
     for (const c of FLOW_COOKIES) cookieStore.delete(c);
-    return NextResponse.redirect(`${origin}/integrations/google?error=${encodeURIComponent(reason)}`);
+    return NextResponse.redirect(`${origin}/profile?error=${encodeURIComponent(`Google connection failed: ${reason}`)}`);
   };
 
   if (error) return fail(error);

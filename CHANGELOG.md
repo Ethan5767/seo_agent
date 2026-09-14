@@ -6,6 +6,15 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Removed
+
+- **The `/integrations/google` page** (operator request). Google is connected from
+  the top-bar "Connect Google" button; Search Console panels' connect button now
+  starts the same sign-in; OAuth setup and callback errors redirect to `/profile`,
+  which already shows `?error=`. The rail's "Connect" item and its unused icon are
+  gone. Verified: `/integrations/google` → 404, `/profile` → 200; `npm test` → 468
+  pass; `tsc` clean.
+
 ### Fixed
 
 - **Another site's findings showed on the hospital's pages (B-126).** A github.com

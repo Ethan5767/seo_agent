@@ -144,7 +144,6 @@ test("a failed disconnect still clears the local half", () => {
 
 const CALLERS = [
   "app/ReaiDashboard.tsx",
-  "app/integrations/google/page.tsx",
   "components/dashboard/GoogleServicesHub.tsx",
   "components/dashboard/LocalBusinessManager.tsx",
   "components/dashboard/GscPanel.tsx",

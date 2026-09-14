@@ -40,6 +40,7 @@ import { GateActivity } from "@/components/dashboard/GateActivity";
 import { FixWithClaude } from "@/components/dashboard/FixWithClaude";
 import { GbpMatrix } from "@/components/dashboard/GbpMatrix";
 import { SectionScanButton } from "@/components/dashboard/SectionScanButton";
+import { LiveScanActivity } from "@/components/dashboard/LiveScanActivity";
 import { ProjectModal } from "@/components/dashboard/ProjectModal";
 import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
@@ -3911,6 +3912,16 @@ export function ReaiDashboard({
                       onCrawlPagesChange={onCrawlPagesChange}
                       hasProjects={clients.length > 0}
                       onCreateProject={() => openCreateProject()}
+                    />
+                  )}
+                  {/* What the scan is doing while it does it: real scanner events,
+                      not a spinner on a button (lib/scanActivity.ts). */}
+                  {view.section && (
+                    <LiveScanActivity
+                      tools={scanState?.tools as any}
+                      busy={scanState?.busy}
+                      phaseLine={scanState?.phaseLine}
+                      catalog={toolPicker?.catalog}
                     />
                   )}
                   {/* Counts render whether or not there are rows: zero is a

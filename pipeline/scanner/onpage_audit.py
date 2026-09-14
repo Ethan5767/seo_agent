@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 
+from pipeline.scanner import progress
 from pipeline.scanner.dataforseo import call as _call, cost_of
 
 # DataForSEO on-page `checks` flag -> (label, why, fix, severity, bad_when).
@@ -115,8 +116,20 @@ def parse_onpage_checks(pages: list) -> list[dict]:
     return rows
 
 
+def _poll(call, path):
+    """A summary poll: quiet when `call` is the real client (the crawl reports
+    page counts instead of a request line every 5 s); test doubles take no
+    `quiet` keyword."""
+    import inspect
+    try:
+        takes_quiet = "quiet" in inspect.signature(call).parameters
+    except (TypeError, ValueError):
+        takes_quiet = False
+    return call(path, quiet=True) if takes_quiet else call(path)
+
+
 def crawl_onpage(domain: str, max_pages: int = 20, call=_call,
-                 sleep=time.sleep, poll_seconds: int = 12, max_polls: int = 20) -> tuple:
+                 sleep=time.sleep, poll_seconds: int = 5, max_polls: int = 48) -> tuple:
     """(pages, cost, err). task_post -> poll summary until finished -> /pages."""
     posted, err = call("/v3/on_page/task_post",
                        [{"target": domain, "max_crawl_pages": max_pages,
@@ -128,19 +141,33 @@ def crawl_onpage(domain: str, max_pages: int = 20, call=_call,
         task_id = posted["tasks"][0]["id"]
     except (KeyError, IndexError, TypeError):
         return [], cost, "no task id from task_post"
+    progress.emit(f"Crawl task posted to DataForSEO ({max_pages} pages max)", step="crawl",
+                  phase="posted", cost=cost, max_crawl_pages=max_pages)
+    # Summary polls are free ("charged only for posting a task", on_page/summary
+    # docs), so poll every 5 s rather than 12: same 240 s ceiling, and the panel
+    # moves instead of looking frozen.
     for _ in range(max_polls):
         sleep(poll_seconds)
-        summary, err = call(f"/v3/on_page/summary/{task_id}")
+        summary, err = _poll(call, f"/v3/on_page/summary/{task_id}")
         if err:
             return [], cost, err
         try:
             result = summary["tasks"][0]["result"][0]
         except (KeyError, IndexError, TypeError):
             continue
+        status = result.get("crawl_status") or {}
+        if isinstance(status.get("pages_crawled"), int):
+            progress.emit(
+                f"Crawling: {status['pages_crawled']} of {status.get('max_crawl_pages', max_pages)} pages",
+                step="crawl", phase="progress",
+                pages_crawled=status["pages_crawled"],
+                pages_in_queue=status.get("pages_in_queue", 0),
+                max_crawl_pages=status.get("max_crawl_pages", max_pages))
         if result.get("crawl_progress") == "finished":
             break
     else:
         return [], cost, f"crawl of {domain} did not finish in time"
+    progress.emit("Crawl finished; fetching page results", step="crawl", phase="fetching")
     pages_doc, err = call("/v3/on_page/pages", [{"id": task_id, "limit": max_pages}])
     if err:
         return [], cost, err

@@ -12,6 +12,7 @@ import { supabase } from "../lib/supabase";
 import { authedFetch } from "@/lib/authedFetch";
 import { readScanStream } from "@/lib/scanStream";
 import { mergeScanReport } from "@/lib/reportMerge";
+import { applyScanEvent, type ToolActivity } from "@/lib/scanActivity";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string; pages?: string[] };
 type Audit = {
@@ -563,12 +564,18 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       });
       const lines: string[] = [];
       let resultEv: any = null;
+      let activity: ToolActivity[] = [];
       const outcome = await readScanStream(res, (ev) => {
         if (ev.state === "phase") {
           setPhaseLine(ev.tool);  // a phase marker, not a tool card
         } else if (ev.tool) {
-          toolMap.set(ev.tool, { name: ev.tool, state: ev.state, rows: ev.rows || [], status: ev.status || "", cost: ev.cost || 0 });
-          setTools([...toolMap.values()]);
+          // Running / progress / done, folded into per-tool activity for the
+          // live panel. Progress never overwrites a tool's rows or state.
+          activity = applyScanEvent(activity, ev, Date.now());
+          setTools(activity as unknown as Tool[]);
+          if (ev.state === "done") {
+            toolMap.set(ev.tool, { name: ev.tool, state: ev.state, rows: ev.rows || [], status: ev.status || "", cost: ev.cost || 0 });
+          }
         } else if (ev.log !== undefined) { lines.push(ev.log); setLive([...lines]); }
         else if (ev.result) resultEv = ev;
       });

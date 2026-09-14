@@ -39,6 +39,7 @@ from pipeline.scanner.remediate_bridge import bridge_worklist
 from pipeline.scanner.checks import checks_for
 from pipeline.scanner.crawl import crawl_site, site_rows
 from pipeline.scanner.rows import unavailable_row
+from pipeline.scanner import progress
 from pipeline.scanner.multipage import merge_by_code
 from pipeline.scanner import lighthouse
 from pipeline.scanner.eeat import eeat_rows
@@ -468,7 +469,7 @@ def tool_catalog() -> list[dict]:
 
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                  max_pages=25, keywords=None, selected=None,
-                 competitors=None, business="", on_tool=None,
+                 competitors=None, business="", on_tool=None, on_progress=None,
                  repo="", github_token="", crawl_pages=1) -> dict:
     """Compose the audit by running each selected tool in TOOLS.
     `selected`: a set of tool keys to run, or None = run all. A tool with
@@ -542,7 +543,11 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         # wants the (html, status) contract its own tests use. Adapt here rather
         # than widening the crawler, which is also used standalone.
         walk = crawl_site(url, lambda u: fetch(u)[:2], ctx.sitemap,
-                          max_pages=crawl_pages)
+                          max_pages=crawl_pages,
+                          on_page=(lambda n, total, u: on_progress(
+                              "Multi-page crawl", f"Fetching page {n} of up to {total}: {u}",
+                              {"step": "page", "phase": "progress", "n": n, "total": total, "url": u}))
+                          if on_progress else None)
         for page in walk["pages"]:
             if page["url"] == url:
                 continue
@@ -551,6 +556,9 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
             pf = fetch(page["url"])
             extra_pages.append((page["url"], pf[0], pf[1]))
         site_findings = site_rows(walk)
+        if on_progress:
+            on_progress("Multi-page crawl", f"Crawled {len(walk['pages'])} page(s)",
+                        {"step": "page", "phase": "finished", "n": len(walk["pages"]), "total": crawl_pages})
         if extra_pages:
             log.append(f"Crawled {len(extra_pages) + 1} pages for the free checks.")
 
@@ -588,7 +596,9 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
             if blocker:
                 rows, tool_status, tool_cost = [unavailable_row(t.key, blocker, t.label)], f"not run: {blocker}", 0.0
             else:
-                rows, tool_status, tool_cost = _run_tool(t)
+                sink = (lambda text, detail, _label=t.label: on_progress(_label, text, detail)) if on_progress else None
+                with progress.reporting(sink):
+                    rows, tool_status, tool_cost = _run_tool(t)
                 # Ran, produced nothing, and its status is an error (HTTP 401,
                 # a timeout, a crawl that never finished): say so on the page.
                 # Only refusals checked before the run used to get a row, so a
@@ -824,10 +834,13 @@ class Handler(BaseHTTPRequestHandler):
         def on_tool(name, state, rows, status, cost):
             emit({"tool": name, "state": state, "rows": rows, "status": status, "cost": cost})
 
+        def on_progress(name, text, detail):
+            emit({"tool": name, "state": "progress", "status": text, "detail": detail, "rows": [], "cost": 0})
+
         try:
             out = {"audit": build_report(url, log=log, selected=selected,
                                          max_pages=max_pages,
-                                         on_tool=on_tool, keywords=profile["keywords"],
+                                         on_tool=on_tool, on_progress=on_progress, keywords=profile["keywords"],
                                          competitors=profile["competitors"], business=profile["business"],
                                          repo=repo, github_token=(req.get("github_token") or ""),
                                          crawl_pages=crawl_pages)}

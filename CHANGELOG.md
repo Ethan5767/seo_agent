@@ -6,6 +6,40 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **Live scan activity on every tool page** (`pipeline/scanner/progress.py`, new;
+  `web/lib/scanActivity.ts`, `web/components/dashboard/LiveScanActivity.tsx`, new).
+  Pressing Test showed "Scanning..." for up to four minutes while Site Health
+  polled DataForSEO silently (the scanner log stopped at "Opened the page").
+  DataForSEO has no SSE or WebSocket (REST only; `pingback_url`/`postback_url`
+  fire on completion and need a public server), but its `on_page/summary` poll
+  is free and reports `crawl_progress`, `pages_crawled` and `pages_in_queue`.
+  The scanner now streams what it actually knows: each page the free crawl
+  fetches, each DataForSEO request's start and answer (ms, cost), and the crawl's
+  page counts on every poll (now every 5 s, same 240 s ceiling). The panel shows
+  per-tool steps, a progress bar driven only by DataForSEO's counts, elapsed time,
+  running cost, and the checks each tool runs; no invented percentages.
+
+  Live proof, one scan of `oriendainternationalhospital.com.kh` (`seo` + `site`,
+  3 free pages, 5-page Site Health), raw stream timestamps:
+
+  ```
+  +  2s PROGRESS Multi-page crawl | Fetching page 1 of up to 3: …/en
+  + 15s RUNNING Site Health (DataForSEO)
+  + 16s PROGRESS Site Health (DataForSEO) | … answered | {'phase': 'done', 'ms': 935, 'cost': 0.0008}
+  + 23s PROGRESS Site Health (DataForSEO) | Crawling: 0 of 5 pages
+  + 29s PROGRESS Site Health (DataForSEO) | Crawling: 3 of 5 pages
+  + 35s PROGRESS Site Health (DataForSEO) | Crawling: 5 of 5 pages
+  + 42s PROGRESS Site Health (DataForSEO) | Crawl finished; fetching page results
+  + 43s DONE Site Health (DataForSEO) | crawled 5 page(s), 9 check(s) flagged · $0.0008
+  + 43s RESULT cost 0.0008 | site rows 12 | dfs.op rows 9
+  ```
+
+  (Request labels were made plain-English after this run.) `pytest -q` → 1308
+  passed, 2 skipped; `npm test` → 459 pass; `tsc` clean.
+
+
 ### Fixed (2026-09-14 code review of `feat/tools-revamp`)
 
 A multi-agent review of this branch confirmed each finding by a hermetic run (no

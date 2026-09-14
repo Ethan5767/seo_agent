@@ -17,6 +17,8 @@ import time
 import urllib.error
 import urllib.request
 
+from pipeline.scanner import progress
+
 BASE = "https://api.dataforseo.com"
 # The market every paid lookup is measured against: keyword volume, SERP
 # position, GBP lookup, mention search.
@@ -86,7 +88,61 @@ def availability() -> tuple[bool, str]:
     return True, ""
 
 
-def call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=time.sleep) -> tuple:
+#: Plain names for the requests an operator watches in the live panel.
+_LABELS = {
+    "on_page/task_post": "start the site crawl",
+    "on_page/pages": "the crawled page results",
+    "backlinks/summary": "the backlink summary",
+    "dataforseo_labs/google/ranked_keywords": "the keywords this site ranks for",
+    "dataforseo_labs/google/domain_rank_overview": "the domain overview",
+    "dataforseo_labs/google/competitors_domain": "competing domains",
+    "dataforseo_labs/google/domain_intersection": "the keyword gap",
+    "dataforseo_labs/google/historical_rank_overview": "the ranking history",
+    "dataforseo_labs/google/bulk_keyword_difficulty": "keyword difficulty",
+    "dataforseo_labs/google/search_intent": "search intent",
+    "dataforseo_labs/google/keyword_suggestions": "keyword suggestions",
+    "dataforseo_labs/google/keyword_ideas": "keyword ideas",
+    "serp/google/organic/live/advanced": "a live Google results page",
+    "ai_optimization/llm_mentions/search_mentions": "AI engine mentions",
+    "business_data/google/my_business_info": "the Google Business Profile",
+    "content_analysis/search": "web mentions",
+}
+
+
+def _label(path: str) -> str:
+    """'/v3/dataforseo_labs/google/ranked_keywords/live' -> 'the keywords this site ranks for'."""
+    key = path.split("?")[0].removeprefix("/v3/").removesuffix("/live")
+    for known, name in _LABELS.items():
+        if key == known or key.startswith(known):
+            return name
+    p = key
+    for noise in ("dataforseo_labs/google/", "google/", "/advanced", "/regular"):
+        p = p.replace(noise, "")
+    parts = [seg for seg in p.split("/") if seg and not any(ch.isdigit() for ch in seg[-6:])]
+    return " ".join(parts).replace("_", " ").strip() or path
+
+
+def call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=time.sleep,
+         quiet: bool = False) -> tuple:
+    """(json, error), reporting start and finish to the live activity panel
+    (`progress`) unless `quiet` (the crawl's own summary polls report pages
+    crawled instead)."""
+    if quiet:
+        return _call(path, payload, timeout, retries, sleep)
+    label = _label(path)
+    progress.emit(f"Requesting {label} from DataForSEO", step="request", phase="start", path=path)
+    started = time.monotonic()
+    doc, err = _call(path, payload, timeout, retries, sleep)
+    ms = int((time.monotonic() - started) * 1000)
+    if err:
+        if not err.startswith("skipped:"):
+            progress.emit(f"{label}: {err}", step="request", phase="error", path=path, ms=ms)
+    else:
+        progress.emit(f"{label} answered", step="request", phase="done", path=path, ms=ms, cost=cost_of(doc))
+    return doc, err
+
+
+def _call(path: str, payload=None, timeout: int = 60, retries: int = 3, sleep=time.sleep) -> tuple:
     """(json, error). POST to DataForSEO with Basic auth (GET when payload is
     None — e.g. the on-page summary poll). Never raises — a provider that is down
     or unauthorized is a skip, not a crash."""

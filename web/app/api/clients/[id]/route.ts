@@ -9,6 +9,7 @@
  * history. PATCH exists so the record can be corrected in place.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { duplicateDomain, normDomain } from "@/lib/scanTarget";
 import {
   authenticateRequest,
   getScopedDb,
@@ -82,6 +83,14 @@ export async function PATCH(
       // `domain` is derived, never taken from the caller: two fields that can
       // disagree is how a project ends up scanning one site and reporting another.
       patch.domain = new URL(check.normalizedUrl).hostname;
+      const { data: mine } = await db.from("clients").select("id, business, domain, website").eq("user_id", auth.user.id);
+      const dup = duplicateDomain((mine as any[]) || [], String(patch.domain), id);
+      if (dup) {
+        return NextResponse.json(
+          { error: `Another project already uses ${normDomain(String(patch.domain))}: "${dup.business || dup.domain}".`, existingId: dup.id },
+          { status: 409 },
+        );
+      }
     }
 
     for (const key of EDITABLE) {

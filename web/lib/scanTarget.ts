@@ -43,3 +43,29 @@ export function sameSite(reportUrl: string | null | undefined, scannedUrl: strin
   const a = normDomain(reportUrl);
   return Boolean(a) && a === normDomain(scannedUrl);
 }
+
+/**
+ * The project a scan is saved to. The project you have OPEN wins when the
+ * scanned site is its site; otherwise the project that owns the domain;
+ * otherwise none (the caller creates one). With two projects on one domain,
+ * "first in the list" used to win and the open project never got its scan.
+ */
+export function pickScanProject(
+  projects: ProjectLike[] | null | undefined,
+  open: ProjectLike | null | undefined,
+  scannedUrl: string,
+): string | null {
+  if (open && sameSite(open.domain || open.website, scannedUrl)) return open.id;
+  return ownerOf(projects, scannedUrl);
+}
+
+/** Another project in the account already using this domain, or null. */
+export function duplicateDomain<T extends ProjectLike>(
+  projects: T[] | null | undefined,
+  domainOrUrl: string,
+  exceptId?: string,
+): T | null {
+  const d = normDomain(domainOrUrl);
+  if (!d) return null;
+  return (projects ?? []).find((p) => p.id !== exceptId && projectDomain(p) === d) ?? null;
+}

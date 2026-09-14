@@ -12,7 +12,7 @@ import { supabase } from "../lib/supabase";
 import { authedFetch } from "@/lib/authedFetch";
 import { readScanStream } from "@/lib/scanStream";
 import { mergeScanReport } from "@/lib/reportMerge";
-import { ownerOf, sameSite } from "@/lib/scanTarget";
+import { pickScanProject, sameSite } from "@/lib/scanTarget";
 import { applyScanEvent, type ToolActivity } from "@/lib/scanActivity";
 
 type Row = { code: string; what: string; why: string; fix: string; detail: string; severity: string; tool?: string; pages?: string[] };
@@ -641,9 +641,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
             // The scanned domain decides the project (B-126), never whichever
             // project is open: the owner of this domain, else the open project
             // only if it IS this domain, else a new project below.
-            let targetClientId: string | null | undefined =
-              ownerOf(clients as any, activeUrl)
-              ?? (histClient && sameSite((histClient as any).domain || (histClient as any).website, activeUrl) ? histClient.id : undefined);
+            let targetClientId: string | null | undefined = pickScanProject(clients as any, histClient as any, activeUrl);
             if (!targetClientId && activeUrl) {
               try {
                 const domain = activeUrl.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "");

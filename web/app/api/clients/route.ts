@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { duplicateDomain, normDomain } from "@/lib/scanTarget";
 import { authenticateRequest, getScopedDb, checkRateLimit, readJsonBodyWithLimit } from "@/lib/server-security";
 
 export async function GET(req: NextRequest) {
@@ -82,6 +83,17 @@ export async function POST(req: NextRequest) {
     const db = getScopedDb(auth.user, auth.token);
     const { business, domain, website, model, repo, tier, keywords, competitors, goal } = body || {};
     const cleanDomain = (domain || website || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
+
+    // One domain, one project per account. Two projects on one site split its
+    // scans between them and made "which project" a coin toss (2026-09-14).
+    const { data: mine } = await db.from("clients").select("id, business, domain, website").eq("user_id", auth.user.id);
+    const dup = duplicateDomain((mine as any[]) || [], cleanDomain);
+    if (dup) {
+      return NextResponse.json(
+        { error: `A project for ${normDomain(cleanDomain)} already exists: "${dup.business || dup.domain}". Open that project instead.`, existingId: dup.id },
+        { status: 409 },
+      );
+    }
 
     const { data, error } = await db
       .from("clients")

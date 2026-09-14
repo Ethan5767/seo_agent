@@ -38,6 +38,12 @@ export async function saveClient(p: ClientProfile): Promise<string | null> {
       const json = await res.json();
       return json.client?.id || null;
     }
+    // A project for this domain already exists: open it. Never fall through to
+    // the direct insert below, which would create the duplicate the route refused.
+    if (res.status === 409) {
+      const json = await res.json().catch(() => ({}));
+      return json.existingId || null;
+    }
   } catch (e) {
     console.error("saveClient API error", e);
   }

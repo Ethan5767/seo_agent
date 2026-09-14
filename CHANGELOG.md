@@ -44,6 +44,11 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **One domain, one project; the open project gets its scans (B-134).** Creating
+  or editing a project to a domain another project uses is refused (409, names
+  the existing project; the client opens it). A scan goes to the open project when
+  it is that site. `npm test` → 479 pass; `tsc` clean.
+
 - **Another site's findings showed on the hospital's pages (B-126).** A github.com
   scan was filed under the open hospital project and later tests merged into it;
   11 of 25 tool pages then showed github.com data under the hospital's name.

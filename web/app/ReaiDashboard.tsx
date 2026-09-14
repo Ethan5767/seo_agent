@@ -24,7 +24,7 @@ import { buildExecutiveReport } from "../lib/executiveReport";
 import { derivePillars, severityMark, severityTone } from "../lib/pillars";
 import { tone } from "../lib/ui";
 import { viewById, rowsForView, tallyRows, measured, ALL_FINDINGS_VIEW, CHECKS_VIEW } from "../lib/reportViews";
-import { TOOL_SOURCES, effectiveSource, isEnabled, sourceBlocker, type SourceId } from "../lib/toolSources";
+import { TOOL_SOURCES, SOURCE_LABEL, effectiveSource, isEnabled, sourceBlocker, sourceRan, type SourceId } from "../lib/toolSources";
 import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
@@ -3868,6 +3868,22 @@ export function ReaiDashboard({
               const sourceOpt = sources && source ? sources[source] : undefined;
               const sourceSel = isEnabled(sourceOpt) ? sourceOpt : undefined;
               const rows = rowsForView(report, view, sourceSel);
+              // Ran and found nothing of this kind, versus never scanned.
+              const otherSource: SourceId | undefined = source ? (source === "dataforseo" ? "ours" : "dataforseo") : undefined;
+              const otherOpt = sources && otherSource ? sources[otherSource] : undefined;
+              // Issues only: the free crawl's "Pages crawled" info row is not a finding.
+              const otherRows = isEnabled(otherOpt)
+                ? rowsForView(report, view, otherOpt).filter((r) => r.severity === "error" || r.severity === "warn").length
+                : 0;
+              const checkedEmpty = rows.length === 0 && source && sourceSel && sourceRan(report as any, sourceSel)
+                ? {
+                    title: `No ${view.label.toLowerCase()} found by ${SOURCE_LABEL[source]}`,
+                    hint: `The last scan checked this.${otherRows > 0 && otherSource ? ` ${SOURCE_LABEL[otherSource]} found ${otherRows} issue${otherRows === 1 ? "" : "s"}.` : ""}`,
+                    action: otherRows > 0 && otherSource
+                      ? { label: `Show ${SOURCE_LABEL[otherSource]}`, onClick: () => chooseViewSource(view.id, otherSource) }
+                      : undefined,
+                  }
+                : undefined;
               return (
                 <div style={{ maxWidth: 1200 }}>
                   <div style={{ marginBottom: "var(--space-5)" }}>
@@ -3931,6 +3947,7 @@ export function ReaiDashboard({
                   <ReportTable
                     view={view}
                     rows={rows}
+                    checkedEmpty={checkedEmpty}
                     onRunAudit={() => {
                       setActiveView(null);
                       setActiveTab("Site Health & Audit");

@@ -166,3 +166,23 @@ test("Scan all from a tool page runs free tools plus the chosen source, and name
   assert.doesNotMatch(btn, /onScan\(domain, sectionKeys\)/);
   assert.match(btn, /scanAllPaid\.map/);
 });
+
+
+test("a scan that ran and found nothing is not 'no data yet' (operator, Crawl Issues)", async () => {
+  const { sourceRan, TOOL_SOURCES } = await import("../lib/toolSources.ts");
+  // The operator's saved 10:05 scan: Site Health ran, 12 flags, none crawl-type.
+  const report = {
+    site: [{ code: "site.pages_crawled" }, { code: "site.duplicate_page_titles", severity: "warn" },
+           { code: "dfs.op.title_too_long", severity: "warn" }, { code: "dfs.op.frame", severity: "warn" }],
+  };
+  const crawl = TOOL_SOURCES["site-crawl"];
+  assert.equal(sourceRan(report, crawl.dataforseo), true);
+  assert.equal(rowsForView(report, viewById("site-crawl"), crawl.dataforseo).length, 0);
+  const ours = rowsForView(report, viewById("site-crawl"), crawl.ours);
+  assert.equal(ours.filter((r) => r.severity === "warn" || r.severity === "error").length, 1);
+  // Only the free crawl ran: Site Health did not.
+  assert.equal(sourceRan({ site: [{ code: "site.pages_crawled" }] }, crawl.dataforseo), false);
+  assert.equal(sourceRan(null, crawl.dataforseo), false);
+  const dash = read("web", "app", "ReaiDashboard.tsx");
+  assert.match(dash, /checkedEmpty=\{checkedEmpty\}/);
+});

@@ -8,6 +8,10 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **A completed scan that found nothing of a page's kind said "No data here yet"
+  (B-130).** Now "No crawl issues found by DataForSEO (paid). The last scan
+  checked this. Our tools (free) found N issues." with a switch button.
+  `npm test` → 463 pass; `tsc` clean.
 - **Budget badge rounded real spend to "$0.00" (B-128).** `toFixed(2)` on
   sub-cent DataForSEO costs; now `formatUsd` shows e.g. "$0.0037 / $5.00".
 - **"Try quick sample" buttons started a scan of example.com / wikipedia.org /

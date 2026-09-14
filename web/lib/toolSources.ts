@@ -158,3 +158,25 @@ export function effectiveSource(
   for (const s of order) if (!sourceBlocker(viewId, s, catalog)) return s;
   return null;
 }
+
+/**
+ * Did the last scan run this source's tools? Distinguishes "never scanned"
+ * from "scanned and found nothing of this kind". Crawl Issues on DataForSEO read
+ * "No data here yet / Run a scan" right after a 25-page Site Health run whose 12
+ * flags were all on-page and technical (operator, 2026-09-14).
+ *
+ * `site` is shared with the free crawl, so it counts as run only when a Site
+ * Health row (or its refusal) is present.
+ */
+export function sourceRan(
+  report: Record<string, unknown> | null | undefined,
+  opt: { tools: string[] } | undefined,
+): boolean {
+  if (!report || !opt) return false;
+  return opt.tools.some((tool) => {
+    const rows = report[tool];
+    if (!Array.isArray(rows) || rows.length === 0) return false;
+    if (tool !== "site") return true;
+    return rows.some((r: any) => typeof r?.code === "string" && (r.code.startsWith("dfs.op.") || r.code === "unavailable.site"));
+  });
+}

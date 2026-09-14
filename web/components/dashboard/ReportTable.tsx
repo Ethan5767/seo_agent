@@ -108,9 +108,14 @@ export interface ReportTableProps {
   rows: ReportRow[];
   /** Shown on the empty state so a blank screen has a way out. */
   onRunAudit?: () => void;
+  /**
+   * When the scan DID run and found nothing of this kind. Replaces "No data
+   * here yet / Run a scan", which was false after a completed scan.
+   */
+  checkedEmpty?: { title: string; hint: string; action?: { label: string; onClick: () => void } };
 }
 
-export function ReportTable({ view, rows, onRunAudit }: ReportTableProps) {
+export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTableProps) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string>("severity");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -190,7 +195,7 @@ export function ReportTable({ view, rows, onRunAudit }: ReportTableProps) {
           }}
         >
           <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>
-            No data here yet
+            {checkedEmpty ? checkedEmpty.title : "No data here yet"}
           </div>
           <p
             style={{
@@ -211,9 +216,21 @@ export function ReportTable({ view, rows, onRunAudit }: ReportTableProps) {
               maxWidth: "54ch",
             }}
           >
-            {view.emptyHint}
+            {checkedEmpty ? checkedEmpty.hint : view.emptyHint}
           </p>
-          {onRunAudit && (
+          {checkedEmpty?.action && (
+            <button
+              type="button"
+              onClick={checkedEmpty.action.onClick}
+              style={{
+                marginTop: "var(--space-3)", background: "#4f46e5", color: "#fff", border: 0,
+                borderRadius: 6, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              {checkedEmpty.action.label}
+            </button>
+          )}
+          {onRunAudit && !checkedEmpty && (
             <button
               type="button"
               onClick={onRunAudit}

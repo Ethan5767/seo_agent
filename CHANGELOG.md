@@ -23,7 +23,12 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
-- **Core Web Vitals blamed a blocked Google key on low traffic (B-135).**
+- **Core Web Vitals blamed a blocked Google key on low traffic (B-135).** And it
+  now works without that key: when the CrUX API is refused or unset, the real
+  Chrome field data comes from the PageSpeed Insights response Lighthouse already
+  fetches. Live on the hospital with the blocked key:
+  `Core Web Vitals — real Google speed data found` → `LCP 2594 (p75) needs-improvement`,
+  `CLS 0.0 (p75) good` (INP: Chrome has too little data, so no row). `pytest -q` → 1334 passed.
 
 
 ### Changed

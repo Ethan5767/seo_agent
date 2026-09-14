@@ -82,6 +82,40 @@ def parse_lighthouse(doc: dict) -> list[dict]:
     return rows
 
 
+# PSI field-data metric -> (CrUX metric key, divisor to CrUX units). PSI reports
+# CLS as the score x 100 (e.g. 5 = 0.05); the others are milliseconds.
+_PSI_FIELD = {
+    "LARGEST_CONTENTFUL_PAINT_MS": ("largest_contentful_paint", 1),
+    "INTERACTION_TO_NEXT_PAINT": ("interaction_to_next_paint", 1),
+    "CUMULATIVE_LAYOUT_SHIFT_SCORE": ("cumulative_layout_shift", 100),
+}
+
+
+def psi_field_metrics(doc: dict) -> tuple:
+    """(metrics, status) in `providers.crux_metrics` shape, from the real-user
+    Chrome (CrUX) data PageSpeed Insights returns alongside Lighthouse.
+
+    The CrUX API itself can be refused by a key's API restrictions (the
+    operator's key: 403 API_KEY_SERVICE_BLOCKED) while the PageSpeed key works,
+    and PSI carries the same field data. Origin-level first, then the page. A
+    metric Chrome has too little data for is left out, never estimated."""
+    from pipeline.audit.providers import CWV_LABELS, CWV_GOOD, _crux_verdict
+    for key, scope in (("originLoadingExperience", "origin"), ("loadingExperience", "page")):
+        exp = (doc or {}).get(key) or {}
+        raw = exp.get("metrics") or {}
+        metrics = []
+        for psi_name, (metric, div) in _PSI_FIELD.items():
+            p = (raw.get(psi_name) or {}).get("percentile")
+            if not isinstance(p, (int, float)):
+                continue
+            value = p / div
+            metrics.append({"metric": CWV_LABELS[metric], "p75": value if div != 1 else int(p),
+                            "good": CWV_GOOD[metric], "verdict": _crux_verdict(metric, value)})
+        if metrics:
+            return metrics, f"ok (Chrome field data via PageSpeed Insights, {scope} {exp.get('id', '')})"
+    return [], "no field data: PageSpeed Insights returned no Chrome field data for this site"
+
+
 def _key() -> str:
     return os.environ.get("PAGESPEED_API_KEY") or os.environ.get("CRUX_API_KEY") or ""
 

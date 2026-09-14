@@ -89,6 +89,14 @@ def _perf_tool(c) -> tuple:
     crux = c.crux
     if crux == "auto":
         crux = crux_metrics(c.domain) if os.environ.get("CRUX_API_KEY") else None
+        # CrUX key missing or refused: PageSpeed Insights carries the same Chrome
+        # field data, from the call Lighthouse makes anyway (cached on ctx).
+        if crux is None or (not crux[0] and str(crux[1]).startswith(("error:", "skipped:"))):
+            doc, err = lighthouse.get_psi(c)
+            if not err:
+                field = lighthouse.psi_field_metrics(doc)
+                if field[0] or crux is None:
+                    crux = field
     status = ("Core Web Vitals — " + _human_crux(crux[1])) if isinstance(crux, tuple) \
         else "Core Web Vitals — skipped: no Google speed key set up yet."
     return A.perf_rows(crux), status, 0.0

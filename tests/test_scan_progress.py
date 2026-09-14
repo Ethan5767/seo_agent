@@ -186,3 +186,39 @@ def test_a_refused_crux_request_is_not_blamed_on_traffic():
     # A genuine "no record" is still the no-data row.
     nodata = audit.perf_rows(([], "no field data: CrUX has no record for x.com"))
     assert nodata[0]["code"] == "crux.nodata"
+
+
+PSI_FIELD_DOC = {  # the hospital's real PSI field data, 2026-09-14
+    "loadingExperience": {"id": "https://www.oriendainternationalhospital.com.kh/en",
+                          "metrics": {"FIRST_CONTENTFUL_PAINT_MS": {"percentile": 1937}}},
+    "originLoadingExperience": {"id": "https://www.oriendainternationalhospital.com.kh", "metrics": {
+        "CUMULATIVE_LAYOUT_SHIFT_SCORE": {"percentile": 0}, "LARGEST_CONTENTFUL_PAINT_MS": {"percentile": 2594},
+        "EXPERIMENTAL_TIME_TO_FIRST_BYTE": {"percentile": 837}}},
+}
+
+
+def test_psi_field_data_becomes_core_web_vitals():
+    from pipeline.scanner import lighthouse
+    metrics, status = lighthouse.psi_field_metrics(PSI_FIELD_DOC)
+    by = {m["metric"]: m for m in metrics}
+    assert by["LCP"]["p75"] == 2594 and by["LCP"]["verdict"] == "needs-improvement"
+    assert by["CLS"]["p75"] == 0 and by["CLS"]["verdict"] == "good"
+    assert "INP" not in by                       # not reported, so not estimated
+    assert "PageSpeed" in status
+
+
+def test_cls_percentile_is_scaled_from_psi_units():
+    from pipeline.scanner import lighthouse
+    doc = {"originLoadingExperience": {"metrics": {"CUMULATIVE_LAYOUT_SHIFT_SCORE": {"percentile": 15}}}}
+    (m,), _ = lighthouse.psi_field_metrics(doc)
+    assert m["p75"] == 0.15 and m["verdict"] == "needs-improvement"
+
+
+def test_refused_crux_falls_back_to_pagespeed_field_data(monkeypatch):
+    monkeypatch.setenv("CRUX_API_KEY", "k")
+    monkeypatch.setattr(server, "crux_metrics", lambda d: ([], "error: HTTP 403 from chromeuxreport"))
+    monkeypatch.setattr(server.lighthouse, "_psi_call", lambda url, key: (PSI_FIELD_DOC, None))
+    rep = server.build_report("https://x.com/", fetch=lambda u: ("<html><title>t</title></html>", 200, "", None),
+                              crux="auto", selected={"perf"})
+    codes = [r["code"] for r in rep["perf"]]
+    assert "crux.lcp" in codes and "crux.cls" in codes

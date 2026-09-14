@@ -2,6 +2,7 @@
 
 import React from "react";
 import { AUDIT_THEMES, delta, summarizeAudit, type AuditSummary, type Share } from "@/lib/auditThemes";
+import { projectLabel, projectSubLabel } from "@/lib/scanTarget";
 
 type Project = { id: string; business?: string | null; domain?: string | null; website?: string | null };
 type Loaded = { summary: AuditSummary; previous: AuditSummary | null; at: string | null };
@@ -91,9 +92,9 @@ export function SiteAuditProjects({
                   <tr key={p.id}>
                     <td className="sap-sticky">
                       <button type="button" className="sap-link" onClick={() => onOpen(p)}>
-                        {p.domain || hostOf(p.website) || p.business || "Untitled project"}
+                        {projectLabel(p)}
                       </button>
-                      <div className="sap-sub">{p.business || ""}</div>
+                      <div className="sap-sub">{projectSubLabel(p)}</div>
                     </td>
                     {d === "loading" || !d ? (
                       <td colSpan={5 + AUDIT_THEMES.length} className="sap-muted">Loading…</td>
@@ -149,10 +150,6 @@ function Num({ v, prev, bad }: { v: number; prev?: number; bad?: boolean }) {
       <div className="sap-sub">{delta(v, prev ?? null)}</div>
     </td>
   );
-}
-
-function hostOf(url?: string | null): string {
-  return String(url || "").replace(/^https?:\/\//i, "").replace(/[/?#].*$/, "").replace(/^www\./i, "");
 }
 
 function timeAgo(iso: string | null): string {

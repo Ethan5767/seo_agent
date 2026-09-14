@@ -42,6 +42,14 @@ see `CLAUDE.md` (the sync contract).
   gone. Verified: `/integrations/google` → 404, `/profile` → 200; `npm test` → 468
   pass; `tsc` clean.
 
+### Changed
+
+- **Projects are named by their domain.** The sidebar project button, the
+  switch-project list, the project dropdown and the Site Audit list show the
+  domain; a business name shows underneath only when it differs. The create form
+  asks for the website URL first; the business name is optional and defaults to
+  the domain. `npm test` → 480 pass; `tsc` clean.
+
 ### Fixed
 
 - **One domain, one project; the open project gets its scans (B-134).** Creating

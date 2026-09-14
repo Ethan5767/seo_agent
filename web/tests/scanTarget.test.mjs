@@ -79,3 +79,17 @@ test("create and edit refuse a duplicate domain, and the client never bypasses i
   assert.match(db, /res\.status === 409[\s\S]{0,200}existingId/);
   assert.match(app, /pickScanProject\(clients as any, histClient as any, activeUrl\)/);
 });
+
+test("a project is shown by its domain, with the business name only when it adds something", async () => {
+  const { projectLabel, projectSubLabel } = await import("../lib/scanTarget.ts");
+  const p = { id: "1", business: "Test Test", domain: "www.oriendainternationalhospital.com.kh" };
+  assert.equal(projectLabel(p), "oriendainternationalhospital.com.kh");
+  assert.equal(projectSubLabel(p), "Test Test");
+  assert.equal(projectSubLabel({ id: "2", business: "vertly.ink", domain: "www.vertly.ink" }), "");
+  assert.equal(projectLabel({ id: "3", business: "No site yet", domain: "" }), "No site yet");
+  const dash = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(dash, /\{c\.business \|\| c\.domain\}/, "project lists must label by domain");
+  const modal = readFileSync(new URL("../components/dashboard/ProjectModal.tsx", import.meta.url), "utf8");
+  assert.ok(modal.indexOf("Website URL *") < modal.indexOf("Business Name"), "URL comes first");
+  assert.match(modal, /optional, defaults to the domain/);
+});

@@ -839,6 +839,16 @@ class Handler(BaseHTTPRequestHandler):
             crawl_pages = max(1, min(int(req.get("crawl_pages") or 1), 25))
         except (TypeError, ValueError):
             crawl_pages = 1
+        # The project's market (web/lib/market.ts derives it from the domain).
+        # Validated here: a location code is a positive integer, a language a
+        # short code. Anything else falls back to the env default.
+        try:
+            location = int(req.get("location_code") or 0)
+            location = location if 1000 <= location <= 99_999_999 else None
+        except (TypeError, ValueError):
+            location = None
+        language = str(req.get("language_code") or "").strip().lower()
+        language = language if re.fullmatch(r"[a-z]{2}(-[a-z]{2})?", language) else None
 
         # Stream newline-delimited JSON: {"log": "..."} events live, then one
         # {"result": {...}} (or {"error": "..."}). The browser renders each event
@@ -865,12 +875,15 @@ class Handler(BaseHTTPRequestHandler):
             emit({"tool": name, "state": "progress", "status": text, "detail": detail, "rows": [], "cost": 0})
 
         try:
-            out = {"audit": build_report(url, log=log, selected=selected,
-                                         max_pages=max_pages,
-                                         on_tool=on_tool, on_progress=on_progress, keywords=profile["keywords"],
-                                         competitors=profile["competitors"], business=profile["business"],
-                                         repo=repo, github_token=(req.get("github_token") or ""),
-                                         crawl_pages=crawl_pages)}
+            with dataforseo.market(location, language):
+                log.append(f"Search data market: location {dataforseo.location_code()}, "
+                           f"language {dataforseo.language_code()}.")
+                out = {"audit": build_report(url, log=log, selected=selected,
+                                             max_pages=max_pages,
+                                             on_tool=on_tool, on_progress=on_progress, keywords=profile["keywords"],
+                                             competitors=profile["competitors"], business=profile["business"],
+                                             repo=repo, github_token=(req.get("github_token") or ""),
+                                             crawl_pages=crawl_pages)}
             checkout = local_checkout(repo)
             if checkout:
                 out["cycle"] = run_cycle(checkout, url, model, log=log, profile=profile)

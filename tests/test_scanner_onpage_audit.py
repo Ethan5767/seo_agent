@@ -85,3 +85,36 @@ def test_status_counts_problems_not_passes():
     rows, status, _ = site_audit_full("x.com", crawl=fake)
     assert "1 check(s) flagged" in status
     assert "passed" in status
+
+
+def test_site_health_reports_site_wide_duplicates_from_duplicate_tags():
+    """B-132: DataForSEO's per-page checks carry no duplicate keys; the free
+    on_page/duplicate_tags endpoint does."""
+    def crawl(domain, mp):
+        return ([{"url": "https://x.com/a", "checks": {"no_title": False}},
+                 {"url": "https://x.com/b", "checks": {"no_title": False}}], 0.0008, None, "TASK1")
+
+    calls = []
+
+    def call(path, payload=None, **k):
+        calls.append((path, payload[0]))
+        if payload[0]["type"] == "duplicate_title":
+            return {"tasks": [{"result": [{"items": [
+                {"accumulator": "Departments & Clinics | Orienda Hospital", "total_count": 2,
+                 "pages": [{"url": "https://x.com/a"}, {"url": "https://x.com/b"}]}]}]}]}, None
+        return {"tasks": [{"result": [{"items": []}]}]}, None
+
+    rows, status, cost = site_audit_full("x.com", crawl=crawl, call=call)
+    by = {r["code"]: r for r in rows}
+    assert [c for c, _ in [(p, b["type"]) for p, b in calls]] == ["/v3/on_page/duplicate_tags"] * 2
+    assert all(b["id"] == "TASK1" for _, b in calls)
+    title = by["dfs.op.duplicate_title"]
+    assert title["severity"] == "warn" and "Departments & Clinics" in title["why"]
+    assert title["pages"] == ["https://x.com/a", "https://x.com/b"]
+    assert by["dfs.op.duplicate_description"]["severity"] == "ok"
+
+
+def test_crawl_injected_without_task_id_skips_duplicates():
+    rows, _, _ = site_audit_full("x.com", crawl=lambda d, mp: ([{"checks": {"no_h1_tag": True}}], 0.0, None),
+                                 call=lambda *a, **k: (_ for _ in ()).throw(AssertionError("no task, no call")))
+    assert not any("duplicate" in r["code"] for r in rows)

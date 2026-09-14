@@ -169,8 +169,11 @@ export const REPORT_VIEWS: ReportView[] = [
     id: "backlink-audit",
     section: "SEO",
     label: "Backlink Audit",
-    codes: ["dfs.broken_backlinks", "dfs.broken_links", "dfs.broken_page"],
-    blurb: "Links pointing at pages that no longer resolve, inbound and internal.",
+    // `dfs.broken_links` / `dfs.broken_page` were listed too; only the CLI rail's
+    // frozen providers and an uncalled scanner function produce them, so the page
+    // waited for rows no scan emits (B-115). Broken internal links are Crawl Issues.
+    codes: ["dfs.broken_backlinks"],
+    blurb: "Backlinks from other sites that point at pages of yours that no longer resolve.",
     columns: FINDING_COLUMNS,
     emptyHint: "Run a scan with the Backlinks tool enabled to populate this.",
   },
@@ -189,15 +192,9 @@ export const REPORT_VIEWS: ReportView[] = [
     section: "SEO",
     label: "Crawl Issues",
     codes: [
-      "dfs.duplicate_content",
-      "dfs.duplicate_title",
-      "dfs.duplicate_description",
-      "dfs.click_depth",
-      "dfs.orphan_page",
-      "dfs.large_page_size",
-      "dfs.redirect",
-      "dfs.canonical_chain",
-      "dfs.image_alt_missing",
+      // The bare `dfs.*` codes once listed here (duplicate_*, click_depth,
+      // orphan_page, redirect, ...) came only from a removed, never-called
+      // function (B-115). Site Health reports as `dfs.op.*`.
       // The DataForSEO per-page flags, one row per check with a page count
       // (onpage_audit.aggregate_checks). Emitted on every Site Health run and
       // reachable from no screen until now.

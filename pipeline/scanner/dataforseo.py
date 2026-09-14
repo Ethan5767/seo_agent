@@ -51,8 +51,34 @@ def _language_default() -> str:
 # import silently ignored a market set there and sent 2840/en (B-076's failure,
 # reached by a different road). The constants stay for callers that only want
 # the default; every payload calls the functions.
-location_code = _location_default
-language_code = _language_default
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+#: The market for the scan in progress: (location_code, language_code), set per
+#: request from the project's domain (a .kh site is measured on Google Cambodia).
+#: Falls back to DFS_LOCATION_CODE / DFS_LANGUAGE_CODE, then 2840/en.
+_MARKET: ContextVar[tuple | None] = ContextVar("dfs_market", default=None)
+
+
+def location_code() -> int:
+    m = _MARKET.get()
+    return m[0] if m else _location_default()
+
+
+def language_code() -> str:
+    m = _MARKET.get()
+    return m[1] if m else _language_default()
+
+
+@contextmanager
+def market(location: int | None, language: str | None):
+    """Measure every DataForSEO call inside this block against one market."""
+    token = _MARKET.set((int(location), (language or "en").strip() or "en")) if location else None
+    try:
+        yield
+    finally:
+        if token is not None:
+            _MARKET.reset(token)
 LOCATION_CODE = _location_default()
 LANGUAGE_CODE = _language_default()
 
@@ -309,43 +335,10 @@ def parse_ranked_keywords(doc: dict, top: int = TOP_ROWS) -> list[dict]:
     return rows
 
 
-# DataForSEO on-page site-audit finding codes -> (why, fix, severity). This is
-# DataForSEO's OWN crawler (it renders the site), so unlike our free crawler it
-# sees JS-rendered menus — the fix for the false-orphan problem.
-DFS_RECS = {
-    "dfs.broken_page":       ("A crawled page returns an error status, not 200.", "Fix or redirect the broken URL.", "error"),
-    "dfs.broken_links":      ("The page links to a URL that is broken.", "Fix or remove the broken link.", "error"),
-    "dfs.click_depth":       ("The page is too many clicks from the homepage, so it gets little authority.", "Link it closer to the homepage.", "warn"),
-    "dfs.duplicate_title":   ("Another page shares this exact <title>.", "Make each title unique.", "warn"),
-    "dfs.duplicate_description": ("Another page shares this meta description.", "Make each description unique.", "warn"),
-    "dfs.duplicate_content": ("This page's body largely duplicates another page.", "Consolidate or differentiate the pages.", "warn"),
-    "dfs.redirect":          ("This URL redirects — a chain wastes crawl budget and link equity.", "Point links straight at the final URL.", "warn"),
-    "dfs.canonical_chain":   ("The canonical tag points through a chain rather than at the final URL.", "Canonicalize directly to the final URL.", "warn"),
-    "dfs.orphan_page":       ("DataForSEO's crawler found no internal link to this page (it renders JS, so this is reliable).", "Add an internal link from a relevant page.", "warn"),
-    "dfs.large_page_size":   ("The page's HTML payload is large, slowing load.", "Trim the markup / inline bloat.", "warn"),
-    "dfs.image_alt_missing": ("An image on this page has no alt text.", "Add descriptive alt text.", "warn"),
-}
-
-
-def site_audit(domain: str, max_pages: int = 25, run=None) -> tuple:
-    """(rows, status, cost) — DataForSEO's on-page site audit mapped to report
-    rows. Uses the proven providers.dataforseo_findings crawl (task_post -> poll
-    -> pages). `run` is injectable for tests. Cost is a per-page estimate — the
-    on-page crawl bills ~$0.0003/page (exact figure isn't surfaced by the crawl
-    summary; ranked_keywords reports its exact cost)."""
-    if run is None:
-        from pipeline.audit.providers import dataforseo_findings as run
-    findings, status = run(domain, max_pages)
-    rows = []
-    for f in findings:
-        j = f.to_json() if hasattr(f, "to_json") else f
-        code = j.get("code")
-        why, fix, sev = DFS_RECS.get(code, ("A site-audit issue.", "Review and fix.", "warn"))
-        rows.append({"code": code, "what": code.replace("dfs.", "").replace("_", " "),
-                     "why": why, "fix": fix, "severity": sev,
-                     "detail": (j.get("location") or "") + (f" — {j.get('detail')}" if j.get("detail") else "")})
-    cost = round(0.0003 * max_pages, 4)
-    return rows, f"{status} · ~${cost:.4f} est ({max_pages}pg crawl)", cost
+# `site_audit` / `DFS_RECS` (the providers.dataforseo_findings mapping) were
+# removed 2026-09-14: nothing called them outside their own tests, the live Site
+# Health tool is `onpage_audit.site_audit_full`, and their codes made Backlink
+# Audit and Crawl Issues wait for rows no scan emits (B-115).
 
 
 def ranked_keywords(domain: str, call=call, top: int = TOP_ROWS) -> tuple:
@@ -447,8 +440,16 @@ def _kw_row(code: str, kw: str, vol, sev: str, why: str, fix: str) -> dict:
 
 
 def parse_search_volume(doc: dict, top: int = TOP_ROWS) -> list[dict]:
+    """keywords_data/google_ads/search_volume returns one object PER KEYWORD
+    directly in `tasks[0].result` (no `items`). Reading `result[0].items` only
+    returned nothing while each call was billed (~$0.09); verified live
+    2026-09-14: "hospital phnom penh" 720/mo, location 2116."""
+    try:
+        direct = [r for r in (doc["tasks"][0]["result"] or []) if isinstance(r, dict) and "keyword" in r]
+    except (KeyError, IndexError, TypeError):
+        direct = []
     rows = []
-    for it in result_items(doc)[:top]:
+    for it in (direct or result_items(doc))[:top]:
         kw, vol = _kw_vol(it)
         if kw:
             rows.append(_kw_row("dfs.keyword_volume", kw, vol, "info",
@@ -649,6 +650,18 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
     elif not problems:
         problems.append("keyword gap needs a competitor: add one to the project, "
                         "or DataForSEO found none for this domain")
+    seeded = ""
+    if not keywords:
+        # No target keywords on the project: seed from what the site already
+        # ranks for, a real DataForSEO answer, rather than refusing five tools.
+        ranked, s, c = ranked_keywords(domain, call=call); cost += c
+        if s.startswith("ok"):
+            keywords = [m.group(1) for r in ranked
+                        if (m := re.match(r'^"(.+)" — rank #\d+', r.get("what", "")))][:5]
+            if keywords:
+                seeded = f" · seeds: {len(keywords)} keywords the site ranks for (project has none)"
+        else:
+            problems += _problem(s)
     if keywords:
         for fn, arg in ((search_volume, keywords), (keyword_ideas, keywords),
                         (keyword_difficulty, keywords), (search_intent, keywords),
@@ -669,7 +682,7 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
 
     cost = round(cost, 4)
     rows += _unavailable_rows("keywords", "Keywords", problems)
-    return rows, _card_status("keywords", rows, cost, problems), cost
+    return rows, _card_status("keywords", rows, cost, problems) + seeded, cost
 
 
 # ── AI visibility (tool 17): LLM mentions ────────────────────────────────────

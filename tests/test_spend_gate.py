@@ -341,3 +341,23 @@ def test_an_unreachable_page_keeps_paid_results_that_never_read_it(real_creds, m
     rep, _ = _scan({"seo", "backlinks"}, monkeypatch, fetch=lambda u: ("", 403, "", None))
     assert rep["backlinks"][0]["code"] == "dfs.backlinks"
     assert rep["seo"][0]["code"].endswith(".not_measured")
+
+
+def test_keywords_card_seeds_from_ranked_keywords_when_the_project_has_none():
+    """The Sep 8 hospital project has 0 target keywords, so five keyword tools
+    said 'did not run'. The site's own ranked keywords are real seeds."""
+    seen = []
+
+    def fake(path, payload=None, **k):
+        seen.append((path, payload))
+        if "ranked_keywords" in path:
+            return {"cost": 0.01, "status_code": 20000, "tasks": [{"status_code": 20000, "result": [{"items": [
+                {"keyword_data": {"keyword": "hospital phnom penh", "keyword_info": {"search_volume": 900}},
+                 "ranked_serp_element": {"serp_item": {"rank_absolute": 4}}}]}]}]}, None
+        return {"cost": 0, "status_code": 20000, "tasks": [{"status_code": 20000, "result": [{"items": []}]}]}, None
+
+    rows, status, cost = dataforseo.keywords_card("x.com.kh", [], ["rival.com"], call=fake)
+    volume_calls = [p for path, p in seen if "search_volume" in path]
+    assert volume_calls and volume_calls[0][0]["keywords"] == ["hospital phnom penh"]
+    assert "seeds: 1 keywords the site ranks for" in status
+    assert not any("no target keywords" in r.get("why", "") for r in rows)

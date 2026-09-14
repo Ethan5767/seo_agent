@@ -190,15 +190,64 @@ def crawl_onpage(domain: str, max_pages: int = 20, call=_call,
         items = pages_doc["tasks"][0]["result"][0].get("items") or []
     except (KeyError, IndexError, TypeError):
         items = []
-    return items, round(cost, 4), None
+    return items, round(cost, 4), None, task_id
 
 
-def site_audit_full(domain: str, max_pages: int = 20, crawl=crawl_onpage) -> tuple:
+_DUPLICATE_TYPES = {
+    "duplicate_title": ("Duplicate page titles", "Several pages share the same <title>, so they compete with each other.",
+                        "give each page a unique title"),
+    "duplicate_description": ("Duplicate meta descriptions", "Several pages share the same meta description.",
+                              "write a unique description per page"),
+}
+
+
+def duplicate_rows(task_id: str, total_pages: int, call=_call) -> list[dict]:
+    """Site-wide duplicate titles and descriptions from `on_page/duplicate_tags`.
+
+    The per-page `checks` object carries no site-wide duplicate keys (verified
+    live 2026-09-14, B-132), so Site Health could not report the hospital's
+    "Departments & Clinics | Orienda Hospital" on six pages. This endpoint is
+    free ("Your account will not be charged for using this function")."""
+    rows: list[dict] = []
+    for kind, (label, why, fix) in _DUPLICATE_TYPES.items():
+        doc, err = call("/v3/on_page/duplicate_tags", [{"id": task_id, "type": kind, "limit": 100}])
+        if err:
+            continue
+        try:
+            items = doc["tasks"][0]["result"][0].get("items") or []
+        except (KeyError, IndexError, TypeError):
+            items = []
+        groups = [(it.get("accumulator") or "", [p.get("url") for p in (it.get("pages") or []) if p.get("url")],
+                   int(it.get("total_count") or 0)) for it in items]
+        groups = [g for g in groups if g[2] > 1 or len(g[1]) > 1]
+        if not groups:
+            rows.append({"code": f"dfs.op.{kind}", "what": label, "why": why, "fix": "passing",
+                         "severity": "ok", "detail": f"0 of {total_pages} page(s)"})
+            continue
+        groups.sort(key=lambda g: -max(g[2], len(g[1])))
+        affected = [u for _, urls, _ in groups for u in urls]
+        top = groups[0]
+        rows.append({"code": f"dfs.op.{kind}", "what": label,
+                     "why": f"{why} Most shared: \"{top[0][:60]}\" on {max(top[2], len(top[1]))} pages.",
+                     "fix": fix, "severity": "warn",
+                     "detail": f"{len(groups)} group(s), {len(set(affected))} page(s)",
+                     "pages": list(dict.fromkeys(affected))[:25]})
+    return rows
+
+
+def site_audit_full(domain: str, max_pages: int = 20, crawl=crawl_onpage, call=_call) -> tuple:
     """(rows, status, cost) — the full on-page audit as a Site Health card."""
-    pages, cost, err = crawl(domain, max_pages)
+    result = crawl(domain, max_pages)
+    pages, cost, err = result[:3]
+    task_id = result[3] if len(result) > 3 else None
     if err:
         return [], err, cost
     rows = parse_onpage_checks(pages)
+    if task_id:
+        checked = sum(1 for p in pages if (p or {}).get("checks"))
+        dups = duplicate_rows(task_id, checked, call=call)
+        dup_codes = {r["code"] for r in dups}
+        rows = [r for r in rows if r["code"] not in dup_codes] + dups
     ok = sum(1 for p in pages if (p or {}).get("checks"))
     flagged = sum(1 for r in rows if r["severity"] != "ok")
     passed = len(rows) - flagged

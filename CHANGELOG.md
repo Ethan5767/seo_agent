@@ -6,6 +6,26 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Search data now uses the project's own market (B-137).** `.kh` projects are
+  measured on Google Cambodia (2116); generic domains stay United States. Live:
+  `Search data market: location 2116, language en.`
+- **Keyword volume was billed and discarded on every scan (B-136).** Live after the
+  fix: `"hospital phnom penh" — 720/mo searches`.
+- **Keyword tools run on a project with no target keywords**, seeded from the
+  keywords the site already ranks for (named in the status). Live: `keywords: 259
+  row(s) · $0.2041 · seeds: 5 keywords the site ranks for (project has none)`.
+- **DataForSEO Site Health reports site-wide duplicate titles/descriptions (B-132)**
+  via the free `on_page/duplicate_tags`.
+- **Crawl Issues / Backlink Audit no longer wait for rows no scan produces (B-115).**
+
+`pytest -q` → 1337 passed, 2 skipped. `npm test` → 485 tests, 484 pass; the one
+failure (`the budget badge shows sub-cent spend`) is caused by another session's
+uncommitted top-bar redesign in `web/app/ReaiDashboard.tsx`, which removes the
+badge and is not part of this commit.
+
+
 ### Added
 
 - **Backlink Gap works (B-116).** New `backlink_gap` scanner tool on DataForSEO

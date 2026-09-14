@@ -12,6 +12,7 @@ import { supabase } from "../lib/supabase";
 import { authedFetch } from "@/lib/authedFetch";
 import { readScanStream } from "@/lib/scanStream";
 import { mergeScanReport } from "@/lib/reportMerge";
+import { marketFor } from "@/lib/market";
 import { pickScanProject, sameSite } from "@/lib/scanTarget";
 import { applyScanEvent, type ToolActivity } from "@/lib/scanActivity";
 
@@ -562,7 +563,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       const res = await authedFetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: activeUrl, model, tools: (overrideTools ?? [...selected]).filter((k) => k !== "source"), business, keywords: kwList, competitors, goal, max_pages: 25, crawl_pages: overrideCrawlPages ?? crawlPages }),
+        body: JSON.stringify({ url: activeUrl, model, tools: (overrideTools ?? [...selected]).filter((k) => k !== "source"), business, keywords: kwList, competitors, goal, max_pages: 25, crawl_pages: overrideCrawlPages ?? crawlPages, location_code: marketFor(activeUrl).location_code, language_code: marketFor(activeUrl).language_code }),
       });
       const lines: string[] = [];
       let resultEv: any = null;

@@ -51,33 +51,6 @@ def test_call_error_degrades_to_status_not_crash():
     assert rows == [] and "skipped" in status and cost == 0.0
 
 
-# ── Task 2: Site Health card (DataForSEO on-page audit) ──────────────────────
-from pipeline.scanner.dataforseo import site_audit
-from pipeline.lib.baseline import Finding
-
-
-def test_site_audit_maps_findings_to_rows_offline():
-    fake_run = lambda d, n: (
-        [Finding("dataforseo", "dfs.broken_links", "/a/", detail="404"),
-         Finding("dataforseo", "dfs.orphan_page", "/b/"),
-         Finding("dataforseo", "dfs.duplicate_title", "/c/")],
-        "ok: crawled 20 pages")
-    rows, status, cost = site_audit("x.com", max_pages=20, run=fake_run)
-    by = {r["code"]: r for r in rows}
-    assert by["dfs.broken_links"]["severity"] == "error"
-    assert by["dfs.orphan_page"]["severity"] == "warn"
-    assert by["dfs.duplicate_title"]["severity"] == "warn"
-    # every row carries why + fix
-    assert all(r["why"] and r["fix"] for r in rows)
-    # cost is a labelled per-page estimate for the crawl
-    assert "est" in status and cost > 0
-
-
-def test_site_audit_empty_crawl_is_clean_not_crash():
-    rows, status, cost = site_audit("x.com", run=lambda d, n: ([], "ok: 0 issues"))
-    assert rows == []
-
-
 # ── Task 4: Rankings (domain overview + SERP position + aggregator) ──────────
 from pipeline.scanner.dataforseo import (
     parse_domain_overview, parse_serp_rank, rankings,
@@ -299,3 +272,16 @@ def test_the_default_market_is_not_one_clients_test_value():
     assert d.LOCATION_CODE != 2116, (
         "2116 is Cambodia, carried over from one client's test run. A default "
         "must be a deliberate choice, not the last value someone debugged with.")
+
+
+def test_search_volume_parses_the_real_google_ads_shape():
+    """Real response, 2026-09-14 (location 2116): keywords sit directly in
+    tasks[0].result with no `items`. The old parser returned [] for it."""
+    doc = {"status_code": 20000, "cost": 0.09, "tasks": [{"status_code": 20000, "result": [
+        {"keyword": "hospital phnom penh", "spell": None, "location_code": 2116, "language_code": "en",
+         "search_partners": False, "competition": "LOW", "competition_index": 12, "search_volume": 720},
+        {"keyword": "international hospital cambodia", "location_code": 2116, "search_volume": 90},
+    ]}]}
+    rows = parse_search_volume(doc)
+    assert [r["what"] for r in rows] == ['"hospital phnom penh" — 720/mo searches',
+                                         '"international hospital cambodia" — 90/mo searches']

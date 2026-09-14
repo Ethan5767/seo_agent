@@ -222,3 +222,21 @@ def test_refused_crux_falls_back_to_pagespeed_field_data(monkeypatch):
                               crux="auto", selected={"perf"})
     codes = [r["code"] for r in rep["perf"]]
     assert "crux.lcp" in codes and "crux.cls" in codes
+
+
+def test_the_market_can_be_set_per_scan_and_is_restored():
+    import os
+    os.environ.pop("DFS_LOCATION_CODE", None)
+    assert dataforseo.location_code() == 2840
+    with dataforseo.market(2116, "en"):
+        sent = {}
+
+        def spy(path, payload=None, **k):
+            sent.update(payload[0])
+            return {"cost": 0, "status_code": 20000, "tasks": [{"status_code": 20000, "result": [{"items": []}]}]}, None
+
+        dataforseo.domain_overview("x.com.kh", call=spy)
+        assert (sent["location_code"], sent["language_code"]) == (2116, "en")
+    assert dataforseo.location_code() == 2840
+    with dataforseo.market(None, None):
+        assert dataforseo.location_code() == 2840

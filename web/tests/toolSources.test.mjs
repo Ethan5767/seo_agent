@@ -210,3 +210,8 @@ test("Backlink Gap is a real tool page on DataForSEO, not the old empty tab (B-1
   assert.deepEqual(TOOL_SOURCES["backlink-gap"].dataforseo.tools, ["backlink_gap"]);
   assert.ok(viewById("backlink-gap"));
 });
+
+
+test("Backlink Audit only waits for rows a scan can produce (B-115)", () => {
+  assert.deepEqual(viewById("backlink-audit").codes, ["dfs.broken_backlinks"]);
+});

@@ -108,13 +108,16 @@ export function positionDistribution(keywords: RankedKeyword[]) {
 export function organic(report: Report) {
   const ov = rowsOf(report).find((r) => r.code === "dfs.domain_overview" && !(r as any).competitor);
   const metrics = (ov?.metrics ?? null) as any;
-  const keywordsTotal = metrics?.organic?.count ?? metrics?.count ?? (ov ? firstInt(ov.detail ?? ov.what) : null);
+  // The scanner's shape (dataforseo.parse_domain_overview): metrics.keywords,
+  // metrics.etv, and metrics.trend = [{month, keywords, etv}] from
+  // parse_historical_overview.
+  const keywordsTotal = metrics?.keywords ?? (ov ? firstInt(ov.detail ?? ov.what) : null);
   const trend: Point[] = Array.isArray(metrics?.trend)
     ? metrics.trend
-        .map((t: any) => ({ label: String(t.label ?? t.date ?? t.month ?? ""), value: Number(t.value ?? t.count ?? t.keywords ?? 0) }))
+        .map((t: any) => ({ label: String(t.month ?? ""), value: Number(t.keywords) }))
         .filter((p: Point) => p.label && Number.isFinite(p.value))
     : [];
-  const etv = metrics?.organic?.etv ?? metrics?.etv ?? null;
+  const etv = metrics?.etv ?? null;
   return ov ? { keywordsTotal: typeof keywordsTotal === "number" ? keywordsTotal : null, traffic: typeof etv === "number" ? etv : null, trend } : null;
 }
 

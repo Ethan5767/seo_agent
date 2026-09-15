@@ -91,3 +91,11 @@ test("Site Audit shows the same health charts above its report", () => {
   const panel = readFileSync(new URL("../components/dashboard/CompareInputPanel.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(panel, /\.\.\.sub, marginTop/, "React warns when margin and marginTop are mixed");
 });
+
+test("the overview metrics are read under the scanner's own keys", () => {
+  // parse_domain_overview writes metrics.keywords / metrics.etv, and the trend as
+  // [{month, keywords, etv}]. Reading organic.count showed "—" on real data.
+  const o = M.organic({ rankings: [{ code: "dfs.domain_overview", what: "Ranks for 128 keywords on Google", detail: "128 keywords",
+    metrics: { keywords: 128, etv: 2439, trend: [{ month: "2026-07", keywords: 110, etv: 2000 }, { month: "2026-08", keywords: 128, etv: 2439 }] } }] });
+  assert.deepEqual(o, { keywordsTotal: 128, traffic: 2439, trend: [{ label: "2026-07", value: 110 }, { label: "2026-08", value: 128 }] });
+});

@@ -6,6 +6,11 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed (charts)
+
+- **Organic and Compare Domains charts read the overview under the scanner's keys
+  (B-146)**, so real Domain Overview data shows its traffic and trend instead of "—".
+
 ### Added (Backlink Overview)
 
 - **Backlink Overview page** (`/view/backlink-overview`, SEO → Link Building). New

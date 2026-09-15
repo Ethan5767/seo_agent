@@ -45,7 +45,7 @@ test("findings pages chart the severity mix and the checks hitting most pages", 
 
 test("compare and backlink gap read their own rows", () => {
   const c = V.compareCharts([
-    { code: "dfs.compare_domain", domain: "you.com", what: "you.com (you): Ranks for 128 keywords on Google", metrics: { organic: { count: 128, etv: 900.4 } } },
+    { code: "dfs.compare_domain", domain: "you.com", what: "you.com (you): Ranks for 128 keywords on Google", metrics: { keywords: 128, etv: 900.4 } },
     { code: "dfs.compare_domain", domain: "rival.com", what: "rival.com: Ranks for 300 keywords on Google" },
   ]);
   assert.deepEqual(c.keywords, [{ label: "you.com", value: 128 }, { label: "rival.com", value: 300 }]);

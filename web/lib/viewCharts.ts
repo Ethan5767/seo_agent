@@ -53,8 +53,9 @@ export function compareCharts(rows: ChartRow[]) {
   const traffic: Bar[] = [];
   for (const r of domains) {
     const label = r.domain ?? String(r.what ?? "").split(":")[0];
-    const count = r.metrics?.organic?.count ?? num(String(r.what ?? "").match(/(\d[\d,]*) keywords/)?.[1]);
-    const etv = r.metrics?.organic?.etv;
+    // compare_domains copies parse_domain_overview's row: metrics.keywords / .etv.
+    const count = r.metrics?.keywords ?? num(String(r.what ?? "").match(/(\d[\d,]*) keywords/)?.[1]);
+    const etv = r.metrics?.etv;
     if (typeof count === "number") keywords.push({ label, value: count });
     if (typeof etv === "number") traffic.push({ label, value: Math.round(etv) });
   }

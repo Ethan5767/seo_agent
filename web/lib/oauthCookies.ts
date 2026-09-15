@@ -123,6 +123,7 @@ export const FLOW_COOKIES = [
 export const PRIMARY_COOKIES = [
   "gsc_access_token",
   "gsc_refresh_token",
+  "gsc_token_expires_at",
   "gsc_user_email",
   "gsc_connected",
   "gbp_connected",
@@ -131,6 +132,7 @@ export const PRIMARY_COOKIES = [
 export const SECONDARY_COOKIES = [
   "gbp_secondary_access_token",
   "gbp_secondary_refresh_token",
+  "gbp_secondary_token_expires_at",
   "gbp_secondary_user_email",
   "gbp_secondary_connected",
 ] as const;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { markClaimPending } from "@/lib/googleSession";
+import { expiryFrom } from "@/lib/googleToken";
 import {
   FLOW_COOKIES,
   ONE_YEAR,
@@ -81,6 +82,8 @@ export async function GET(request: NextRequest) {
 
     const accessToken = tokenData.access_token;
     const refreshToken = tokenData.refresh_token || "";
+    // When the access token stops working, so googleSession refreshes it in time.
+    const expiresAt = String(expiryFrom(tokenData.expires_in));
 
     // Fetch user info for display
     let userEmail = "";
@@ -109,6 +112,7 @@ export async function GET(request: NextRequest) {
 
     if (stateService === "gbp_secondary") {
       cookieStore.set("gbp_secondary_access_token", accessToken, oauthCookie(THIRTY_DAYS));
+      cookieStore.set("gbp_secondary_token_expires_at", expiresAt, oauthCookie(THIRTY_DAYS));
       if (refreshToken) {
         cookieStore.set("gbp_secondary_refresh_token", refreshToken, oauthCookie(ONE_YEAR));
       }
@@ -122,6 +126,7 @@ export async function GET(request: NextRequest) {
     }
 
     cookieStore.set("gsc_access_token", accessToken, oauthCookie(THIRTY_DAYS));
+    cookieStore.set("gsc_token_expires_at", expiresAt, oauthCookie(THIRTY_DAYS));
     if (refreshToken) {
       cookieStore.set("gsc_refresh_token", refreshToken, oauthCookie(ONE_YEAR));
     }

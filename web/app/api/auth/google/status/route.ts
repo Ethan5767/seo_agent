@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clearGoogleCookies, googleSession, reasonFor } from "@/lib/googleSession";
+import { ga4ErrorMessage } from "@/lib/ga4";
 
 /**
  * Which Google account is connected, for the signed-in caller.
@@ -63,6 +64,23 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Analytics is probed, not assumed. This said `connected: Boolean(token)`, so
+  // any Google connection read as GA4-connected while nothing could read GA4.
+  let analyticsConnected = false;
+  let analyticsError = "";
+  if (token) {
+    try {
+      const gaRes = await fetch("https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=1", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (gaRes.ok) analyticsConnected = true;
+      else analyticsError = ga4ErrorMessage(gaRes.status, await gaRes.json().catch(() => null), "Google Analytics Admin API");
+    } catch (e: any) {
+      analyticsError = e?.message || "Google Analytics lookup failed";
+    }
+  }
+
   const activeGbpToken = gbpSecondaryToken || token;
   const activeGbpEmail = gbpSecondaryEmail || userEmail;
   const isGbpSecondary = Boolean(gbpSecondaryToken);
@@ -91,7 +109,8 @@ export async function GET(request: NextRequest) {
         hasLocations: null,
       },
       analytics: {
-        connected: Boolean(token),
+        connected: analyticsConnected,
+        error: analyticsError || undefined,
       },
     },
     secondaryGbp: {

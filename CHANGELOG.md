@@ -6,7 +6,30 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **GA4 Overview (Traffic → Google Analytics).** Reads the project's own GA4
+  property through the existing Connect Google: new `web/lib/ga4.ts`,
+  `GET /api/ga4/properties` (properties the account can see; the one whose web
+  stream is the project's domain is chosen, never guessed from a display name),
+  `POST /api/ga4/report` (one `batchRunReports`: 28-day totals, sessions per day,
+  channels, landing pages, organic-search landing pages), and
+  `web/components/dashboard/Ga4Panel.tsx`. Google's refusals become one sentence
+  naming what to do (API not enabled, no Analytics permission, no access).
+  `/api/auth/google/status` now probes Analytics instead of reporting
+  `analytics.connected` for any connection (B-139). `web/tests/ga4.test.mjs` (10).
+  Not yet verified live: waiting for the operator to connect Google on the new
+  OAuth client.
+
 ### Fixed
+
+- **A Google connection no longer dies after an hour (B-138).** The refresh token
+  was stored and never used. The callback now records the access token's expiry
+  and `googleSession` refreshes an expired token for an owned connection before
+  any route uses it (backing off 5 minutes after a failed refresh); a pasted token
+  clears any older refresh token. `npm test` → 506 tests, 505 pass (the failing
+  one is the budget badge test, broken by the other session's uncommitted top-bar
+  change, not by this).
 
 - **`wf-outreach --qualify` is capped (B-124):** `--max-domains` (20) and
   `--max-usd` (1.00), with cost printed per domain and in total. `pytest -q` →

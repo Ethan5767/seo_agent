@@ -120,6 +120,10 @@ export async function POST(request: NextRequest) {
     }
 
     cookieStore.set("gsc_access_token", accessToken, oauthCookie(THIRTY_DAYS));
+    // A pasted token has no refresh token. One left from an earlier connection
+    // would otherwise "refresh" this token back into that other account's.
+    cookieStore.delete("gsc_refresh_token");
+    cookieStore.delete("gsc_token_expires_at");
     cookieStore.set("gsc_connected", "true", oauthCookie(THIRTY_DAYS));
     if (email) cookieStore.set("gsc_user_email", email, oauthCookie(THIRTY_DAYS));
 

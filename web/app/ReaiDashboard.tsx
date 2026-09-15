@@ -30,6 +30,7 @@ import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
 import { GscPanel } from "@/components/dashboard/GscPanel";
+import { Ga4Panel } from "@/components/dashboard/Ga4Panel";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
 import { RepoPicker } from "@/components/dashboard/RepoPicker";
@@ -74,6 +75,9 @@ import {
   BacklinkAuditSkeleton,
   PageSkeletonLayout,
 } from "@/components/dashboard/DashboardSkeletons";
+
+/** The GA4 screen rides the Search Console view slot; it is not a GSC dimension. */
+const GA4_VIEW_ID = "ga4-overview";
 
 // ── Icons ──
 function IconHome({ size = 18 }: { size?: number }) {
@@ -1661,6 +1665,12 @@ export const NAV_SECTIONS: NavSection[] = [
           { label: "Devices", gsc: "gsc-devices" },
           { label: "Traffic Trend", gsc: "gsc-trend" },
         ],
+      },
+      {
+        // Read from the project's own GA4 property through the same Google
+        // connection; see lib/ga4.ts.
+        heading: "Google Analytics",
+        items: [{ label: "GA4 Overview", gsc: "ga4-overview" }],
       },
       {
         heading: "Overview",
@@ -3811,6 +3821,16 @@ export function ReaiDashboard({
                 </div>
               );
             })()
+          ) : activeGscView === GA4_VIEW_ID ? (
+            <div style={{ maxWidth: "100%" }}>
+              <div style={{ marginBottom: "var(--space-5)" }}>
+                <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)", margin: 0 }}>GA4 Overview</h1>
+                <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: "var(--space-1) 0 0", maxWidth: "70ch" }}>
+                  Users, sessions, channels and landing pages from this project&apos;s Google Analytics 4 property, last 28 days.
+                </p>
+              </div>
+              <Ga4Panel domain={currentDomain} onConnect={handleConnectGoogle} />
+            </div>
           ) : activeGscView ? (
             (() => {
               const gv = gscViewById(activeGscView);

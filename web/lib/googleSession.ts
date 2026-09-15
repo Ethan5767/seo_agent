@@ -43,7 +43,8 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { authenticateRequest } from "@/lib/server-security";
-import { FLOW_COOKIES, PRIMARY_COOKIES, SECONDARY_COOKIES, ONE_YEAR, oauthCookie } from "@/lib/oauthCookies";
+import { FLOW_COOKIES, PRIMARY_COOKIES, SECONDARY_COOKIES, ONE_YEAR, THIRTY_DAYS, oauthCookie } from "@/lib/oauthCookies";
+import { REFRESH_BACKOFF_MS, needsRefresh, refreshAccessToken } from "@/lib/googleToken";
 
 export const OWNER_COOKIE = "google_owner";
 
@@ -110,8 +111,8 @@ export async function googleSession(req: NextRequest): Promise<GoogleSession> {
   const auth = await authenticateRequest(req);
   const jar = await cookies();
 
-  const gscToken = jar.get("gsc_access_token")?.value || null;
-  const gbpSecondaryToken = jar.get("gbp_secondary_access_token")?.value || null;
+  let gscToken = jar.get("gsc_access_token")?.value || null;
+  let gbpSecondaryToken = jar.get("gbp_secondary_access_token")?.value || null;
   const connected = Boolean(gscToken || gbpSecondaryToken);
 
   if (!auth.user) {
@@ -151,6 +152,13 @@ export async function googleSession(req: NextRequest): Promise<GoogleSession> {
     return { state: "foreign", userId: auth.user.id, ...EMPTY };
   }
 
+  // Only an owned connection is refreshed: refreshing a foreign one would mint a
+  // fresh credential for somebody else's account.
+  [gscToken, gbpSecondaryToken] = await Promise.all([
+    liveToken(jar, PRIMARY_TOKEN, gscToken),
+    liveToken(jar, SECONDARY_TOKEN, gbpSecondaryToken),
+  ]);
+
   return {
     state: "owned",
     userId: auth.user.id,
@@ -159,6 +167,39 @@ export async function googleSession(req: NextRequest): Promise<GoogleSession> {
     gscEmail: jar.get("gsc_user_email")?.value || null,
     gbpSecondaryEmail: jar.get("gbp_secondary_user_email")?.value || null,
   };
+}
+
+type Jar = Awaited<ReturnType<typeof cookies>>;
+type TokenCookies = { access: string; refresh: string; expires: string };
+
+const PRIMARY_TOKEN: TokenCookies = {
+  access: "gsc_access_token", refresh: "gsc_refresh_token", expires: "gsc_token_expires_at",
+};
+const SECONDARY_TOKEN: TokenCookies = {
+  access: "gbp_secondary_access_token", refresh: "gbp_secondary_refresh_token", expires: "gbp_secondary_token_expires_at",
+};
+
+/**
+ * The access token to use now: the stored one while it is still valid, else a
+ * refreshed one (see `lib/googleToken.ts`). A failed refresh keeps the stored
+ * token, so Google's own 401 tells the operator to reconnect, and backs off so
+ * a dead refresh token does not cost a Google round trip on every request.
+ */
+async function liveToken(jar: Jar, names: TokenCookies, current: string | null): Promise<string | null> {
+  if (!current) return null;
+  if (!needsRefresh(Number(jar.get(names.expires)?.value || 0))) return current;
+  const refresh = jar.get(names.refresh)?.value;
+  if (!refresh) return current;
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || jar.get("google_client_id")?.value || "";
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || jar.get("google_client_secret")?.value || "";
+  const r = await refreshAccessToken(refresh, clientId, clientSecret);
+  if (!r.ok) {
+    jar.set(names.expires, String(Date.now() + REFRESH_BACKOFF_MS), oauthCookie(THIRTY_DAYS));
+    return current;
+  }
+  jar.set(names.access, r.accessToken, oauthCookie(THIRTY_DAYS));
+  jar.set(names.expires, String(r.expiresAt), oauthCookie(THIRTY_DAYS));
+  return r.accessToken;
 }
 
 /** The one sentence a screen shows for each non-owned state. */

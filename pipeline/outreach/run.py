@@ -36,6 +36,10 @@ def main() -> int:
     ap.add_argument("--project", required=True, help="client repo root")
     ap.add_argument("--qualify", metavar="FILE",
                     help="newline-delimited candidate domains to qualify and bank")
+    ap.add_argument("--max-domains", type=int, default=20,
+                    help="stop after this many candidates (each is a paid DataForSEO call; default 20)")
+    ap.add_argument("--max-usd", type=float, default=1.00,
+                    help="stop before total DataForSEO spend would pass this (default 1.00)")
     ap.add_argument("--draft", metavar="DOMAIN",
                     help="draft outreach content for one banked domain")
     args = ap.parse_args()
@@ -51,15 +55,31 @@ def main() -> int:
 
     if args.qualify:
         domains = _read_domains(args.qualify)
+        # B-124: each candidate is a paid DataForSEO call. Cap the count and the
+        # spend, and print what each one cost. The spend cap stops BEFORE a call
+        # whose typical cost (the largest seen so far) would pass it.
+        spent, done, largest = 0.0, 0, 0.0
         for dom in domains:
+            if done >= args.max_domains:
+                print(f"[STOP] stopped at --max-domains {args.max_domains} "
+                      f"({len(domains) - done} candidate(s) not checked)")
+                break
+            if done and spent + largest > args.max_usd:
+                print(f"[STOP] stopped at --max-usd ${args.max_usd:.2f} "
+                      f"(spent ${spent:.4f}; {len(domains) - done} candidate(s) not checked)")
+                break
             v = qualify.qualify_domain(dom)
+            cost = float(v.get("cost") or 0.0)
+            spent += cost
+            largest = max(largest, cost)
+            done += 1
             linkbank.upsert(args.project, {
                 "domain": dom, "verdict": v["verdict"], "tier": tier,
                 "checks": v["checks"], "reasons": v["reasons"], "status": "qualified",
             })
             summary = "; ".join(v["reasons"]) or v.get("status", "")
-            print(f"[qualify] {dom}: {v['verdict']} — {summary}")
-        print(f"[OK] qualified {len(domains)} domain(s) -> {linkbank.bank_path(args.project)}")
+            print(f"[qualify] {dom}: {v['verdict']} — {summary} · ${cost:.4f}")
+        print(f"[OK] qualified {done} domain(s), DataForSEO spend ${spent:.4f} -> {linkbank.bank_path(args.project)}")
 
     if args.draft:
         bank = linkbank.load(args.project)

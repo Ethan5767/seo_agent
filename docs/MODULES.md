@@ -142,7 +142,7 @@ The SOP §12 add-on, built up to (not including) the send — the outreach email
 
 | Module | What it does |
 |---|---|
-| `qualify.py` | The 4-point safety check (not-penalized · real-traffic · outbound-links · in-content). The first two derive from DataForSEO's organic footprint; the last two are page-level and marked `manual`. With DataForSEO credentials exported and the kill switch off it makes one paid call per domain (no budget yet, B-124); without them every check is `unknown` and the verdict is a named skip carrying the provider's own status — never a fabricated pass. `qualify_domain(domain, call=)`. |
+| `qualify.py` | The 4-point safety check (not-penalized · real-traffic · outbound-links · in-content). The first two derive from DataForSEO's organic footprint; the last two are page-level and marked `manual`. With DataForSEO credentials exported and the kill switch off it makes one paid call per domain, capped by `--max-domains` / `--max-usd` and printed per domain (B-124); without them every check is `unknown` and the verdict is a named skip carrying the provider's own status — never a fabricated pass. `qualify_domain(domain, call=)`. |
 | `linkbank.py` | The candidate store in the CLIENT repo, `docs/outreach/linkbank.json`. Idempotent `upsert` keyed by domain; `load`/`save`/`bank_path`. |
 | `content.py` | Tier-1 (basic LSI) / tier-2 (localized) outreach drafts via the `claude` CLI. `build_prompt` pure, subprocess injected as `run`. Held to the house copy rules (derive-never-invent, Title Case, no em dashes). |
 | `run.py` | `wf-outreach --project <repo> [--qualify FILE] [--draft DOMAIN]`. Orchestrates qualify → bank → draft; prints a summary; never sends. |

@@ -8,6 +8,10 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **`wf-outreach --qualify` is capped (B-124):** `--max-domains` (20) and
+  `--max-usd` (1.00), with cost printed per domain and in total. `pytest -q` →
+  1346 passed, 2 skipped.
+
 - **Auto-Fix Apply keeps its refusal reasons (B-122, partly).** The reader is the
   scan reader (401, 429, scanner 403, unreachable backend now arrive as the error)
   and the route answers 503 instead of 200. The Auto-Fix screen still needs to

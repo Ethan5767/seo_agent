@@ -12,8 +12,8 @@ page-level facts a domain endpoint cannot see, so they are marked `manual` — a
 human confirms them on the actual placement page.
 
 DataForSEO spends live when credentials are in the process environment and
-DATAFORSEO_PAUSE_SPEND is off (one paid call per domain, no budget: B-124); without
-them, so
+DATAFORSEO_PAUSE_SPEND is off: one paid call per domain, capped by wf-outreach's
+--max-domains / --max-usd and printed per domain (B-124). Without them, so
 with no live data every automatable check returns `unknown` and the domain's
 verdict is `unknown` — a NAMED SKIP carrying the provider's own status string,
 never a fabricated pass (CLAUDE.md sharp-edge #6). When live data does flow, the
@@ -30,12 +30,12 @@ _MANUAL = ("outbound_links", "in_content")
 def qualify_domain(domain: str, call=None) -> dict:
     """{domain, verdict, checks, reasons, status}. verdict in pass|fail|unknown."""
     call = call or dfs.call
-    rows, status, _cost = dfs.domain_overview(domain, call=call)
+    rows, status, cost = dfs.domain_overview(domain, call=call)
 
     if not rows:
         checks = {k: "unknown" for k in (_AUTOMATABLE + _MANUAL)}
         return {"domain": domain, "verdict": "unknown", "checks": checks,
-                "reasons": [f"organic data unavailable: {status}"], "status": status}
+                "reasons": [f"organic data unavailable: {status}"], "status": status, "cost": cost}
 
     # A live overview row is severity "ok" only when the domain ranks for >0
     # keywords — a penalized or dead domain collapses to zero footprint, which is
@@ -59,4 +59,4 @@ def qualify_domain(domain: str, call=None) -> dict:
         verdict = "fail"
 
     return {"domain": domain, "verdict": verdict, "checks": checks,
-            "reasons": reasons, "status": status}
+            "reasons": reasons, "status": status, "cost": cost}

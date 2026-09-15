@@ -24,7 +24,7 @@ export function PriorityActions({
     <section aria-labelledby="priority-actions-heading" style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
         <div>
-          <h2 id="priority-actions-heading" style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+          <h2 id="priority-actions-heading" style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", margin: 0 }}>
             Top Priorities
           </h2>
           <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: "3px 0 0" }}>
@@ -81,24 +81,24 @@ export function PriorityActions({
           const isExpanded = !!expandedDetails[item.id];
           const severityBadge =
             item.severity === "critical"
-              ? { text: "[Critical]", bg: "#fee2e2", color: "#991b1b", border: "#fecaca" }
+              ? { text: "[Critical]", bg: "var(--bad-tint)", color: "var(--bad)", border: "var(--bad-border)" }
               : item.severity === "warning"
-              ? { text: "[Warning]", bg: "#fef3c7", color: "#92400e", border: "#fde68a" }
-              : { text: "[Improvement]", bg: "#e0f2fe", color: "#075985", border: "#bae6fd" };
+              ? { text: "[Warning]", bg: "var(--warn-tint)", color: "var(--warn)", border: "var(--warn-border)" }
+              : { text: "[Improvement]", bg: "var(--info-tint)", color: "var(--info)", border: "var(--info-border)" };
 
           const categoryBadge =
             item.category === "SEO"
-              ? { bg: "#f1f5f9", color: "#334155" }
+              ? { bg: "var(--surface-3)", color: "var(--ink-body)" }
               : item.category === "AI Search"
-              ? { bg: "#f5f3ff", color: "#5b21b6" }
-              : { bg: "#ecfdf5", color: "#065f46" };
+              ? { bg: "var(--accent-tint)", color: "var(--accent-ink)" }
+              : { bg: "var(--ok-tint)", color: "var(--ok)" };
 
           return (
             <div
               key={item.id}
               style={{
-                background: "#ffffff",
-                border: "1px solid #e2e8f0",
+                background: "var(--color-white)",
+                border: "1px solid var(--border)",
                 borderRadius: 8,
                 padding: "16px 18px",
                 transition: "border-color 0.15s ease",
@@ -112,8 +112,8 @@ export function PriorityActions({
                       width: 22,
                       height: 22,
                       borderRadius: "50%",
-                      background: "#0f172a",
-                      color: "#ffffff",
+                      background: "var(--ink)",
+                      color: "var(--color-white)",
                       fontSize: 12,
                       fontWeight: 700,
                       display: "inline-flex",
@@ -123,7 +123,7 @@ export function PriorityActions({
                   >
                     {index + 1}
                   </span>
-                  <h3 style={{ fontSize: 14.5, fontWeight: 700, color: "#1e293b", margin: 0 }}>
+                  <h3 style={{ fontSize: 14.5, fontWeight: 700, color: "var(--ink-body)", margin: 0 }}>
                     {item.title}
                   </h3>
                   <span
@@ -158,9 +158,9 @@ export function PriorityActions({
                         fontWeight: 600,
                         padding: "2px 6px",
                         borderRadius: 4,
-                        background: "#ecfdf5",
-                        color: "#047857",
-                        border: "1px solid #a7f3d0",
+                        background: "var(--ok-tint)",
+                        color: "var(--ok)",
+                        border: "1px solid var(--ok-border)",
                       }}
                     >
                       Auto-Fix Available
@@ -174,8 +174,8 @@ export function PriorityActions({
                     type="button"
                     onClick={() => onSelectAction?.(item)}
                     style={{
-                      background: "#2563eb",
-                      color: "#ffffff",
+                      background: "var(--accent)",
+                      color: "var(--color-white)",
                       border: "none",
                       borderRadius: 6,
                       padding: "7px 14px",
@@ -194,16 +194,16 @@ export function PriorityActions({
 
               {/* Problem & Why it matters */}
               <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
-                <div style={{ fontSize: 13, color: "#334155" }}>
-                  <strong style={{ color: "#0f172a" }}>Problem: </strong>
+                <div style={{ fontSize: 13, color: "var(--ink-body)" }}>
+                  <strong style={{ color: "var(--ink)" }}>Problem: </strong>
                   {item.problem}
                 </div>
-                <div style={{ fontSize: 12.5, color: "#475569" }}>
-                  <strong style={{ color: "#0f172a" }}>Why it matters: </strong>
+                <div style={{ fontSize: 12.5, color: "var(--ink-muted)" }}>
+                  <strong style={{ color: "var(--ink)" }}>Why it matters: </strong>
                   {item.whyItMatters}
                 </div>
-                <div style={{ fontSize: 12.5, color: "#166534", background: "#f0fdf4", padding: "6px 10px", borderRadius: 4, marginTop: 2 }}>
-                  <strong style={{ color: "#14532d" }}>Expected outcome: </strong>
+                <div style={{ fontSize: 12.5, color: "var(--ok)", background: "var(--ok-tint)", padding: "6px 10px", borderRadius: 4, marginTop: 2 }}>
+                  <strong style={{ color: "var(--ok)" }}>Expected outcome: </strong>
                   {item.expectedOutcome}
                 </div>
               </div>
@@ -213,7 +213,7 @@ export function PriorityActions({
                 style={{
                   marginTop: 12,
                   paddingTop: 10,
-                  borderTop: "1px solid #f1f5f9",
+                  borderTop: "1px solid var(--surface-3)",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
@@ -238,7 +238,7 @@ export function PriorityActions({
                   style={{
                     background: "none",
                     border: "none",
-                    color: "#475569",
+                    color: "var(--ink-muted)",
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: "pointer",
@@ -256,28 +256,28 @@ export function PriorityActions({
                   style={{
                     marginTop: 12,
                     padding: 12,
-                    background: "#f8fafc",
-                    border: "1px solid #e2e8f0",
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
                     borderRadius: 6,
                     fontSize: 12,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontWeight: 700, color: "#1e293b" }}>
+                    <span style={{ fontWeight: 700, color: "var(--ink-body)" }}>
                       Technical Details ({item.technicalDetails.category})
                     </span>
                     <span style={{ color: "var(--ink-muted)", fontSize: 12 }}>For developers and technical audits</span>
                   </div>
-                  <p style={{ margin: "0 0 8px", color: "#475569" }}>
+                  <p style={{ margin: "0 0 8px", color: "var(--ink-muted)" }}>
                     {item.technicalDetails.summary}
                   </p>
 
                   {item.technicalDetails.metrics && (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 6, marginBottom: 8 }}>
                       {Object.entries(item.technicalDetails.metrics).map(([key, val]) => (
-                        <div key={key} style={{ background: "#ffffff", padding: "4px 8px", borderRadius: 4, border: "1px solid #e2e8f0" }}>
+                        <div key={key} style={{ background: "var(--color-white)", padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border)" }}>
                           <span style={{ color: "var(--ink-muted)", fontSize: 12 }}>{key}: </span>
-                          <strong style={{ color: "#0f172a" }}>{val}</strong>
+                          <strong style={{ color: "var(--ink)" }}>{val}</strong>
                         </div>
                       ))}
                     </div>
@@ -288,8 +288,8 @@ export function PriorityActions({
                       style={{
                         margin: 0,
                         padding: 10,
-                        background: "#0f172a",
-                        color: "#f8fafc",
+                        background: "var(--ink)",
+                        color: "var(--surface-2)",
                         borderRadius: 4,
                         fontSize: 12,
                         overflowX: "auto",

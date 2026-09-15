@@ -10,21 +10,22 @@
  */
 
 import React from "react";
+import { Icon } from "@/components/dashboard/Icon";
 
 import type { ReaiTab } from "@/components/dashboard/types";
-import { ALL_FINDINGS_VIEW, CHECKS_VIEW } from "@/lib/reportViews";
-import { derivePillars, severityMark, severityTone } from "@/lib/pillars";
-import { tone } from "@/lib/ui";
+import { CHECKS_VIEW } from "@/lib/reportViews";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
+import { ScoreWhy, IssuesTable, PagesTable } from "@/components/dashboard/AuditResults";
+import { HealthTrendPanel } from "@/components/dashboard/SeoDashboard";
+import { ONPAGE_AUDIT_TOOLS, rankedIssues, crawledPages } from "@/lib/auditBreakdown";
+import type { ScanLike } from "@/lib/dashboardMetrics";
 import {
   IconTerminal,
   MiniRadialGauge,
-  SiteHealthDonut,
-  CrawledPagesBar,
 } from "@/components/dashboard/primitives";
 
-type AuditSubTab = "summary" | "all_checks" | "crawl" | "progress" | "remediation";
+type AuditSubTab = "summary" | "issues" | "pages" | "all_checks" | "progress" | "remediation";
 
 export interface MeasureScreenProps {
   report: any;
@@ -35,7 +36,15 @@ export interface MeasureScreenProps {
   auditSubTab: AuditSubTab;
   onSubTabChange: (t: AuditSubTab) => void;
   currentDomain?: string;
-  onRunAudit?: (url: string) => void;
+  /** The project's saved scans, for the health trend. */
+  scans?: ScanLike[] | null;
+  /** Runs the on-page audit (`ONPAGE_AUDIT_TOOLS`, `pages` deep). */
+  onRunAudit?: (url: string, tools: string[], pages: number) => void;
+  crawlPages: number;
+  onCrawlPagesChange: (n: number) => void;
+  lastScanAt?: string | null;
+  onEditProject?: () => void;
+  onCreateProject?: () => void;
   scanState?: { busy: boolean; phaseLine: string; live: string[]; tools: any[] };
 
   /*
@@ -61,11 +70,6 @@ export interface MeasureScreenProps {
    * it measures and displays, and the caller decides what to offer next.
    */
   footer?: React.ReactNode;
-  /** Crawl controls (Data source, pages, price) for the audit bar. Site Audit
-   *  and Crawl Issues were two pages crawling the same site; they are one now. */
-  crawlControls?: React.ReactNode;
-  /** The crawl issues table, shown under the "Crawl Issues" tab. */
-  crawlIssues?: React.ReactNode;
   setAuditSeverityFilter: (sev: CheckSeverityFilter) => void;
   setActiveTab: (tab: ReaiTab) => void;
   planState?: {
@@ -170,7 +174,13 @@ export function MeasureScreen({
   auditSubTab,
   onSubTabChange,
   currentDomain,
+  scans,
   onRunAudit,
+  crawlPages,
+  onCrawlPagesChange,
+  lastScanAt,
+  onEditProject,
+  onCreateProject,
   scanState,
   currentBusiness,
   okChecks,
@@ -182,8 +192,6 @@ export function MeasureScreen({
   setAuditCategoryFilter,
   auditSeverityFilter,
   footer,
-  crawlControls,
-  crawlIssues,
   setAuditSeverityFilter,
   setActiveTab,
   planState,
@@ -191,278 +199,115 @@ export function MeasureScreen({
 }: MeasureScreenProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* ── UNIFIED WEBSITE AUDIT INPUT BAR & PROGRESS ── */}
+      {/* ── ONE RUN BAR ── The on-page audit, and nothing else runs from here.
+          It replaced an audit bar that drew its own score and check list, a
+          Data source dropdown with a price, and a second set of charts above
+          the page: three health summaries on one screen. ── */}
       <AuditHeroBar
         currentDomain={currentDomain}
-        controls={crawlControls}
-        onRunAudit={(url) => {
-          if (onRunAudit) onRunAudit(url);
-        }}
+        onRunAudit={(url, tools, pages) => onRunAudit?.(url, tools, pages)}
         isScanning={scanState?.busy}
         phaseLine={scanState?.phaseLine}
         scanTools={scanState?.tools}
         liveLogs={scanState?.live}
-        report={report}
-        onSelectFix={(code) => {
-          setActiveTab("Auto-Fix Engine");
-          if (planState && !planState.plan?.worklist) planState.runPlan();
-        }}
+        pages={crawlPages}
+        onPagesChange={onCrawlPagesChange}
+        lastScanAt={lastScanAt}
+        onEditProject={onEditProject}
+        onCreateProject={onCreateProject}
       />
 
-      {/* Header Navigation & CTA Bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #edf0f4", paddingBottom: 12, flexWrap: "wrap", gap: 10 }}>
-        <div style={{ display: "flex", gap: 8 }}>
-          {[
-            { id: "summary", label: "Executive Summary & Issues" },
-            { id: "all_checks", label: "All Technical Checks (Full Report)" },
-            ...(crawlIssues ? [{ id: "crawl", label: "Crawl Issues" }] : []),
-            { id: "progress", label: "Crawl History & Timeline" },
-          ].map((st) => (
-            <button
-              key={st.id}
-              type="button"
-              onClick={() => onSubTabChange(st.id as any)}
-              style={{
-                background: auditSubTab === st.id ? "var(--ink-body)" : "var(--surface)",
-                color: auditSubTab === st.id ? "var(--surface)" : "var(--ink-muted)",
-                border: "1px solid",
-                borderColor: auditSubTab === st.id ? "var(--ink-body)" : "var(--border)",
-                borderRadius: 6, padding: "7px 16px",
-                fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-                boxShadow: auditSubTab === st.id ? "0 1px 2px rgba(30, 41, 59, 0.2)" : "0 1px 2px rgba(0,0,0,0.03)",
-              }}
-            >
-              {st.label}
-            </button>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab("Auto-Fix Engine");
-            if (planState && !planState.plan?.worklist) planState.runPlan();
-          }}
-          style={{
-            background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-            color: "var(--surface)", border: 0, borderRadius: 6,
-            padding: "7px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 6,
-            boxShadow: "0 2px 4px rgba(16, 185, 129, 0.3)",
-          }}
-        >
-          <IconTerminal size={15} /> Launch Auto-Fix Engine →
-        </button>
-      </div>
+      {/* ── TABS ── One view of the results at a time. */}
+      {(() => {
+        const issueCount = rankedIssues(report).length;
+        const pageCount = crawledPages(report)?.length;
+        const tabs: Array<{ id: AuditSubTab; label: string; count?: number }> = [
+          { id: "summary", label: "Overview" },
+          { id: "issues", label: "Issues", count: issueCount },
+          { id: "pages", label: "Pages", count: pageCount },
+          { id: "all_checks", label: "All checks" },
+          { id: "progress", label: "History" },
+        ];
+        return (
+          <div className="audit-tabs" role="tablist" aria-label="Site Audit views">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={auditSubTab === t.id}
+                className="audit-tabs__tab"
+                onClick={() => onSubTabChange(t.id)}
+              >
+                {t.label}
+                {typeof t.count === "number" && <span className="audit-tabs__count">{t.count}</span>}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
 
       {auditSubTab === "summary" && (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 12 }}>
-            <div style={{ background: "var(--surface)", padding: "18px 20px", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-              {dynamicHealth === null ? (
-                <div style={{ width: 92, height: 92, borderRadius: "50%", border: "2px dashed #cbd5e1",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              fontSize: 12, color: "var(--ink-muted)", textAlign: "center", padding: 8 }}>
-                  Not measured
+        <div className="seo-dash-wrap">
+          <div className="audit-overview">
+            <section className="seo-panel" style={{ gridArea: "score" }} aria-labelledby="sa-score">
+              <header className="seo-panel__head">
+                <div>
+                  <h3 id="sa-score" className="seo-panel__title">Site Health</h3>
+                  <div className="seo-panel__sub">Scored on the on-page audit only</div>
                 </div>
-              ) : (
-                <SiteHealthDonut score={dynamicHealth} size={92} />
-              )}
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-body)", marginTop: 10 }}>Site Health Score</div>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)", textAlign: "center", marginTop: 3 }}>
-                {okChecks + warnChecks + errChecks} technical checks
+              </header>
+              <div className="seo-panel__body">
+                <ScoreWhy report={report} onRun={currentDomain ? () => onRunAudit?.(currentDomain, [...ONPAGE_AUDIT_TOOLS], crawlPages) : undefined} />
               </div>
-            </div>
-
-            <div style={{ background: "var(--surface)", padding: "18px 20px", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 12 }}>
-                <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--bad-tint)", border: "1px solid var(--bad-border)" }}>
-                  <div style={{ fontSize: 12, color: "#991b1b", fontWeight: 600 }}>Errors (Critical)</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: "var(--bad)", marginTop: 2 }}>{errChecks}</div>
+            </section>
+            <HealthTrendPanel scans={scans} domain={currentDomain ?? ""} />
+            <section className="seo-panel" style={{ gridArea: "issues" }} aria-labelledby="sa-top">
+              <header className="seo-panel__head">
+                <div>
+                  <h3 id="sa-top" className="seo-panel__title">Fix These First</h3>
+                  <div className="seo-panel__sub">Errors first, then the checks failing on the most pages</div>
                 </div>
-                <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--warn-tint)", border: "1px solid var(--warn-border)" }}>
-                  <div style={{ fontSize: 12, color: "#92400e", fontWeight: 600 }}>Warnings</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: "var(--warn)", marginTop: 2 }}>{warnChecks}</div>
-                </div>
-                <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--ok-tint)", border: "1px solid var(--ok-border)" }}>
-                  <div style={{ fontSize: 12, color: "#065f46", fontWeight: 600 }}>Passing Checks</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ok)", marginTop: 2 }}>{okChecks}</div>
-                </div>
-                <div style={{ padding: "10px 12px", borderRadius: 6, background: "#f0f9ff", border: "1px solid #bae6fd" }}>
-                  <div style={{ fontSize: 12, color: "#0369a1", fontWeight: 600 }}>Notices</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: "var(--info)", marginTop: 2 }}>{infoChecks}</div>
-                </div>
+                <button type="button" className="seo-panel__link" onClick={() => onSubTabChange("issues")}>All issues <span aria-hidden="true">→</span></button>
+              </header>
+              <div className="seo-panel__body">
+                <IssuesTable report={report} limit={5} onSeeAll={() => onSubTabChange("issues")} />
               </div>
-              <CrawledPagesBar ok={okChecks} warn={warnChecks} error={errChecks} info={infoChecks} />
-            </div>
+            </section>
           </div>
+        </div>
+      )}
 
-          {/* ── THEMATIC MEASURE CHECKING TOOL ── */}
-          <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+      {auditSubTab === "issues" && (
+        <div className="seo-dash-wrap">
+          <section className="seo-panel" aria-labelledby="sa-issues">
+            <header className="seo-panel__head">
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
-                    Thematic Measure Checking Tool
-                  </h4>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
-                    Technical SEO + AEO
-                  </span>
-                </div>
-                <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>
-                  Comprehensive category diagnostic health scores across 6 core technical pillars
-                </div>
+                <h3 id="sa-issues" className="seo-panel__title">Issues</h3>
+                <div className="seo-panel__sub">Every failing check from the on-page audit. Open a row for why it matters, how to fix it and the pages.</div>
               </div>
-              <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                {okChecks + warnChecks + errChecks} total evaluated checks
-              </span>
+            </header>
+            <div className="seo-panel__body">
+              <IssuesTable report={report} />
             </div>
+          </section>
+        </div>
+      )}
 
-            {/*
-              Pillar cards.
-
-              Every bullet, score, badge and colour below is read from
-              derivePillars(report), which slices the report's own tool groups.
-              What was here before was six literals: green-ticked claims like
-              "SSL/TLS 256-bit active", "HSTS header enabled", "0 orphan URLs
-              detected" and "MedicalBusiness JSON-LD" (a healthcare schema
-              asserted for every client, whatever the industry), each card
-              scoring 0 while painted with the pass colour, and one badge
-              reading "AI Ready" over a pillar nothing had measured.
-            */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-3)" }}>
-              {derivePillars(report).map((m) => {
-                const t = tone(m.tone);
-                return (
-                <div key={m.catKey} style={{
-                  border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "var(--space-4)",
-                  background: "var(--surface)", display: "flex", flexDirection: "column", justifyContent: "space-between",
-                }}>
-                  <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-3)", gap: "var(--space-2)" }}>
-                      <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--ink-body)" }}>{m.title}</span>
-                      <span style={{
-                        fontSize: "var(--text-xs)", fontWeight: 700, color: t.fg,
-                        background: t.bg, border: `1px solid ${t.border}`,
-                        padding: "2px var(--space-2)", borderRadius: "var(--radius-xs)", whiteSpace: "nowrap",
-                      }}>
-                        {m.status}
-                      </span>
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "baseline", gap: "var(--space-2)", marginBottom: "var(--space-2)" }}>
-                      {/* A pillar with no graded rows shows an em dash, never a 0% dressed as a pass. */}
-                      <span style={{ fontSize: "var(--text-2xl)", fontWeight: 800, color: m.score === null ? "var(--ink-muted)" : "var(--ink)" }}>
-                        {m.score === null ? "—" : `${m.score}%`}
-                      </span>
-                      <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                        {m.score === null ? "no graded checks" : `${m.ok} of ${m.ok + m.warn + m.error} checks passing`}
-                      </span>
-                    </div>
-
-                    {/*
-                      The distribution, not the average again.
-                      This was a single bar filled to the score, which restates
-                      the number above it and hides the shape: 60% passing looks
-                      identical whether the other 40% is all notices or all
-                      server errors. Sitebulb never shows an average without its
-                      spread, and that is the right rule - the average is what
-                      you report, the spread is what you act on.
-                      Segments are labelled in the title text as well as
-                      coloured, so the information survives greyscale and
-                      colour-vision deficiency (WCAG 1.4.1).
-                    */}
-                    <div
-                      title={m.measured
-                        ? `${m.error} error, ${m.warn} warning, ${m.info} notice, ${m.ok} passing`
-                        : "nothing gradeable ran"}
-                      style={{ display: "flex", height: "var(--space-1)", background: "var(--surface-3)",
-                               borderRadius: "var(--radius-full)", overflow: "hidden",
-                               marginBottom: "var(--space-3)" }}
-                    >
-                      {m.measured && [
-                        { n: m.error, c: "var(--bad)" },
-                        { n: m.warn, c: "var(--warn)" },
-                        { n: m.info, c: "var(--info)" },
-                        { n: m.ok, c: "var(--ok)" },
-                      ].map(({ n, c }, si) => n > 0 && (
-                        <div key={si} style={{ flexGrow: n, background: c }} />
-                      ))}
-                    </div>
-
-                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-                      {m.items.length === 0 ? (
-                        <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                          No check in this area has run on {currentDomain || "this site"} yet.
-                        </div>
-                      ) : m.items.map((it, idx) => (
-                        <div key={idx} style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", display: "flex", alignItems: "baseline", gap: "var(--space-2)" }}>
-                          <span style={{ color: tone(severityTone(it.severity)).fg, fontWeight: 700 }}>
-                            {severityMark(it.severity)}
-                          </span>
-                          <span>
-                            {it.label}
-                            {it.detail ? <span style={{ color: "var(--ink-faint)" }}> · {it.detail}</span> : null}
-                          </span>
-                        </div>
-                      ))}
-                      {m.total > m.items.length ? (
-                        <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-faint)" }}>
-                          + {m.total - m.items.length} more check{m.total - m.items.length === 1 ? "" : "s"}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSubTabChange("all_checks");
-                      setAuditCategoryFilter(m.catKey);
-                    }}
-                    style={{
-                      marginTop: "var(--space-3)", borderTop: "1px solid var(--surface-3)", paddingTop: "var(--space-2)",
-                      background: "none", border: 0, color: "var(--accent)",
-                      fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
-                      textAlign: "left", padding: "var(--space-2) 0 0", display: "flex", justifyContent: "space-between", alignItems: "center",
-                    }}
-                  >
-                    <span>Inspect {m.title.split(" ")[0]} Checks</span>
-                    <span>→</span>
-                  </button>
-                </div>
-                );
-              })}
+      {auditSubTab === "pages" && (
+        <div className="seo-dash-wrap">
+          <section className="seo-panel" aria-labelledby="sa-pages">
+            <header className="seo-panel__head">
+              <div>
+                <h3 id="sa-pages" className="seo-panel__title">Crawled Pages</h3>
+                <div className="seo-panel__sub">Every page the audit read, worst first. Open a row for its failing checks.</div>
+              </div>
+            </header>
+            <div className="seo-panel__body">
+              <PagesTable report={report} />
             </div>
-          </div>
-
-          {/*
-            Audited Findings.
-
-            This was a bespoke list with four severity buttons and no
-            search, sort or pagination, rendering its own row markup.
-            It now goes through the same table every report view uses,
-            so the audit screen gains filtering and sorting, the row
-            treatment matches the rest of the product, and there is one
-            findings table to maintain instead of two.
-          */}
-          <div style={{ marginBottom: "var(--space-5)" }}>
-            <h4 style={{ margin: "0 0 var(--space-1)", fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>
-              Audited Findings
-            </h4>
-            <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: "0 0 var(--space-4)" }}>
-              Every finding from every tool that ran on this scan.
-            </p>
-            <ReportStats rows={allIssues as any} />
-            <ReportTable
-              view={ALL_FINDINGS_VIEW}
-              rows={allIssues as any}
-              onRunAudit={() => {
-                if (onRunAudit && currentDomain) onRunAudit(currentDomain);
-              }}
-            />
-          </div>
-        </>
+          </section>
+        </div>
       )}
 
       {/* Sub-tab: All Checks Full Report */}
@@ -513,7 +358,7 @@ export function MeasureScreen({
                     if (planState && !planState.plan?.worklist) planState.runPlan();
                   }}
                   style={{
-                    background: "var(--accent)", color: "#fff", border: 0, borderRadius: 6,
+                    background: "var(--accent)", color: "var(--color-white)", border: 0, borderRadius: 6,
                     padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                     display: "flex", alignItems: "center", gap: 6,
                   }}
@@ -579,7 +424,7 @@ export function MeasureScreen({
                 view={CHECKS_VIEW}
                 rows={filteredChecks as any}
                 onRunAudit={() => {
-                  if (onRunAudit && currentDomain) onRunAudit(currentDomain);
+                  if (onRunAudit && currentDomain) onRunAudit(currentDomain, [...ONPAGE_AUDIT_TOOLS], crawlPages);
                 }}
               />
             )}
@@ -588,7 +433,6 @@ export function MeasureScreen({
       })()}
 
       {/* Sub-tab: Crawl History & Progress Timeline */}
-      {auditSubTab === "crawl" && crawlIssues}
 
       {auditSubTab === "progress" && (() => {
         const historicalSnapshots: any[] = [
@@ -638,7 +482,7 @@ export function MeasureScreen({
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
                   }}
                 >
-                  <span>📄</span> Export to Client Report
+                  <Icon name="file" /> Export to Client Report
                 </button>
               </div>
             </div>
@@ -646,9 +490,9 @@ export function MeasureScreen({
             {/* Spend Safety Latch Banner */}
             <div style={{
               background: "var(--ok-tint)", border: "1px solid var(--ok-border)", borderRadius: 8, padding: "10px 14px",
-              display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#065f46", fontWeight: 600,
+              display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--ok)", fontWeight: 600,
             }}>
-              <span style={{ fontSize: 14 }}>🛡️</span>
+              <Icon name="shield" size={14} />
               <span><b>Zero-Spend Guarantee Active:</b> Historical crawl comparisons and AST remediation audits are processed locally with <b>$0.00 external API spend</b>.</span>
             </div>
 
@@ -659,16 +503,16 @@ export function MeasureScreen({
                   key={snap.id}
                   style={{
                     background: "var(--surface)", borderRadius: 8, border: "1px solid",
-                    borderColor: i === 2 ? "#86efac" : "var(--border)",
+                    borderColor: i === 2 ? "var(--ok-border)" : "var(--border)",
                     padding: "16px 18px", display: "flex", flexDirection: "column",
-                    boxShadow: i === 2 ? "0 4px 12px rgba(16, 185, 129, 0.08)" : "none",
+                    boxShadow: i === 2 ? "0 4px 12px rgba(29, 185, 84, 0.08)" : "none",
                     position: "relative",
                   }}
                 >
                   {i === 2 && (
                     <span style={{
                       position: "absolute", top: 12, right: 14, fontSize: 12, fontWeight: 800,
-                      color: "var(--ok)", background: "#d1fae5", padding: "2px 7px", borderRadius: 4,
+                      color: "var(--ok)", background: "var(--ok-tint)", padding: "2px 7px", borderRadius: 4,
                     }}>
                       ACTIVE TODAY
                     </span>
@@ -694,14 +538,14 @@ export function MeasureScreen({
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, textAlign: "center", marginBottom: 10 }}>
                     <div style={{ background: "var(--bad-tint)", borderRadius: 6, padding: "6px 4px" }}>
                       <div style={{ fontSize: 14, fontWeight: 800, color: snap.errors > 0 ? "var(--bad)" : "var(--ok)" }}>{snap.errors}</div>
-                      <div style={{ fontSize: 12, color: "#991b1b", fontWeight: 600 }}>Errors</div>
+                      <div style={{ fontSize: 12, color: "var(--bad)", fontWeight: 600 }}>Errors</div>
                     </div>
                     <div style={{ background: "var(--warn-tint)", borderRadius: 6, padding: "6px 4px" }}>
                       <div style={{ fontSize: 14, fontWeight: 800, color: "var(--warn)" }}>{snap.warns}</div>
-                      <div style={{ fontSize: 12, color: "#92400e", fontWeight: 600 }}>Warnings</div>
+                      <div style={{ fontSize: 12, color: "var(--warn)", fontWeight: 600 }}>Warnings</div>
                     </div>
                     <div style={{ background: "var(--surface-3)", borderRadius: 6, padding: "6px 4px" }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: "#334155" }}>{snap.pages}</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "var(--ink-body)" }}>{snap.pages}</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Pages</div>
                     </div>
                   </div>
@@ -804,7 +648,7 @@ export function MeasureScreen({
                                 {diff.current}
                               </span>
                             </td>
-                            <td style={{ padding: "11px 14px", color: "#334155", maxWidth: 320 }}>
+                            <td style={{ padding: "11px 14px", color: "var(--ink-body)", maxWidth: 320 }}>
                               {diff.fixAction}
                             </td>
                             <td style={{ padding: "11px 14px", textAlign: "right" }}>

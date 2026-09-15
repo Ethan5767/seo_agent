@@ -181,10 +181,14 @@ def site_rows(crawl: dict) -> list[dict]:
             if tgt and tgt["status"] not in (200, 0):
                 broken.setdefault(l, []).append(p["url"])
     for target, sources in sorted(broken.items()):
-        rows.append(_row("Broken internal link", "error",
-                         f"A link points to {target}, which returns {by_url[target]['status']}.",
-                         f"Fix or remove the link (found on {len(sources)} page(s)).",
-                         detail=f"{by_url[target]['status']} — from {sources[0]}"))
+        row = _row("Broken internal link", "error",
+                   f"A link points to {target}, which returns {by_url[target]['status']}.",
+                   f"Fix or remove the link (found on {len(sources)} page(s)).",
+                   detail=f"{by_url[target]['status']} — from {sources[0]}")
+        # The pages that carry the link, the same field merge_by_code sets, so
+        # the per-page summary can attribute a site-wide finding to a page.
+        row["pages"] = sources[:25]
+        rows.append(row)
 
     # Orphan pages: in the sitemap but never reached by following links.
     # ONLY trustworthy on a COMPLETE crawl. If the crawl was capped, "unreached"
@@ -233,6 +237,7 @@ def _dup_rows(pages: list[dict], field: str, what: str, why: str, fix: str) -> l
     out = []
     for val, urls in sorted(groups.items()):
         if len(urls) > 1:
-            out.append(_row(what, "warn", why, fix,
-                            detail=f'"{val[:50]}" on {len(urls)} pages'))
+            row = _row(what, "warn", why, fix, detail=f'"{val[:50]}" on {len(urls)} pages')
+            row["pages"] = urls[:25]
+            out.append(row)
     return out

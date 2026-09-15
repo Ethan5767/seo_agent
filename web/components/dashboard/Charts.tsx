@@ -12,9 +12,15 @@ import React from "react";
 
 export type Point = { label: string; value: number };
 
-const INK_FAINT = "var(--ink-faint)";
-const GRID = "var(--border)";
+const GRID = "var(--chart-grid)";
 
+/** The mark colour for a 0-100 score: the status fills (DESIGN.md §2.4). */
+export function fillFor(score: number | null | undefined): string {
+  if (typeof score !== "number") return "var(--ink-faint)";
+  return score >= 90 ? "var(--ok-fill)" : score >= 50 ? "var(--warn-fill)" : "var(--bad-fill)";
+}
+
+/** The text colour for a 0-100 score: the AA status shades. */
 export function toneFor(score: number | null | undefined): string {
   if (typeof score !== "number") return "var(--ink-faint)";
   return score >= 90 ? "var(--ok)" : score >= 50 ? "var(--warn)" : "var(--bad)";
@@ -31,31 +37,23 @@ export function ChartCard({
   children: React.ReactNode;
   span?: 1 | 2 | 3;
 }) {
+  // Flex, not a spanning grid cell: cards in a `.chart-flow` row grow to fill it,
+  // so a row never ends in a dead column (see app/tokens.css).
   return (
-    <section
-      style={{
-        gridColumn: `span ${span}`, minWidth: 0, display: "flex", flexDirection: "column",
-        background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--shadow-sm)", padding: "var(--space-4) var(--space-5)",
-      }}
-    >
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--space-3)", marginBottom: "var(--space-3)" }}>
+    <section className={`seo-panel chart-card chart-card--${span}`}>
+      <header className="seo-panel__head">
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--ink)" }}>{title}</h3>
-          {subtitle && <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>{subtitle}</div>}
+          <h3 className="seo-panel__title">{title}</h3>
+          {subtitle && <div className="seo-panel__sub">{subtitle}</div>}
         </div>
-      </header>
-      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
-      {action && (
-        <div style={{ marginTop: "var(--space-4)" }}>
-          <button
-            type="button" onClick={action.onClick}
-            style={{ border: "1px solid var(--border-strong)", background: "var(--surface)", color: "var(--ink-body)", borderRadius: "var(--radius-sm)", padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-          >
+        {action && (
+          <button type="button" className="seo-panel__link" onClick={action.onClick}>
             {action.label}
+            <span aria-hidden="true">→</span>
           </button>
-        </div>
-      )}
+        )}
+      </header>
+      <div className="seo-panel__body">{children}</div>
     </section>
   );
 }
@@ -64,7 +62,7 @@ export function Metric({ label, value, sub, tone }: { label: string; value: Reac
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: tone ?? "var(--accent)", lineHeight: 1.15, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: "var(--text-h3)", fontWeight: 700, letterSpacing: "var(--tracking-heading)", color: tone ?? "var(--ink)", lineHeight: 1.15, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>{sub}</div>}
     </div>
   );
@@ -87,7 +85,7 @@ export function Empty({ children, height = 120 }: { children: React.ReactNode; h
 /* ── Trend: area + line, gridlines, axis labels, hover readout ─────────── */
 
 export function TrendChart({
-  points, height = 180, color = "var(--accent)", unit = "", yMax, empty,
+  points, height = 180, color = "var(--chart-1)", unit = "", yMax, empty,
 }: {
   points: Point[];
   height?: number;
@@ -134,7 +132,7 @@ export function TrendChart({
         {ticks.map((t, i) => (
           <g key={i}>
             <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke={GRID} strokeDasharray={i ? "3 4" : undefined} />
-            <text x={padL - 6} y={y(t) + 4} textAnchor="end" fontSize="10" fill={INK_FAINT}>{Math.round(t)}</text>
+            <text x={padL - 6} y={y(t) + 4} textAnchor="end" fontSize="12" fill="var(--ink-muted)">{Math.round(t)}</text>
           </g>
         ))}
         <path d={area} fill={`url(#g${id})`} />
@@ -144,7 +142,7 @@ export function TrendChart({
         ))}
         {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={padT} y2={H - padB} stroke={color} strokeOpacity="0.35" />}
         {labelIdx.map((i) => (
-          <text key={i} x={x(i)} y={H - 6} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fontSize="10" fill={INK_FAINT}>{points[i].label}</text>
+          <text key={i} x={x(i)} y={H - 6} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fontSize="12" fill="var(--ink-muted)">{points[i].label}</text>
         ))}
       </svg>
       {h && (
@@ -174,22 +172,43 @@ export function StackedBars({
   if (bars.length === 0) return <Empty height={height}>{empty}</Empty>;
   const totals = bars.map((b) => keys.reduce((s, k) => s + (Number(b[k.key]) || 0), 0));
   const max = Math.max(1, ...totals);
+  // Few scans stretched a bar to full width, reading as a crude slab. Cap the
+  // width and centre them, print each bar's total above it, and label every bar
+  // below rather than only the ends. A dense history (>8) keeps the thin bars.
+  const few = bars.length <= 8;
+  const colStyle: React.CSSProperties = few
+    ? { flex: "0 1 48px", maxWidth: 48, minWidth: 20 }
+    : { flex: "1 1 0", minWidth: 4 };
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height }}>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: few ? "space-around" : "space-between", gap: few ? 14 : 5, height }}>
         {bars.map((b, i) => (
-          <div key={i} title={`${b.label}: ${keys.map((k) => `${k.label} ${b[k.key]}`).join(", ")}`} style={{ flex: 1, minWidth: 6, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-            {keys.slice().reverse().map((k) => {
-              const v = Number(b[k.key]) || 0;
-              return v ? <div key={k.key} style={{ height: `${(v / max) * 100}%`, background: k.color, borderRadius: 2, marginTop: 1 }} /> : null;
-            })}
+          <div key={i} title={`${b.label}: ${keys.map((k) => `${k.label} ${b[k.key]}`).join(", ")}`}
+            style={{ ...colStyle, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center" }}>
+            {few && totals[i] > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-body)", marginBottom: 4, fontVariantNumeric: "tabular-nums" }}>{totals[i]}</span>
+            )}
+            <div style={{ width: "100%", flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+              {keys.slice().reverse().map((k) => {
+                const v = Number(b[k.key]) || 0;
+                return v ? <div key={k.key} style={{ height: `${(v / max) * 100}%`, background: k.color, borderRadius: 2, marginTop: 1 }} /> : null;
+              })}
+            </div>
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--ink-faint)", marginTop: 4 }}>
-        <span>{bars[0].label}</span>
-        {bars.length > 1 && <span>{bars[bars.length - 1].label}</span>}
-      </div>
+      {few ? (
+        <div style={{ display: "flex", justifyContent: "space-around", gap: 14, fontSize: 12, color: "var(--ink-muted)", marginTop: 6 }}>
+          {bars.map((b, i) => (
+            <span key={i} style={{ flex: "0 1 48px", maxWidth: 48, minWidth: 20, textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+          ))}
+        </div>
+      ) : (
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+          <span>{bars[0].label}</span>
+          {bars.length > 1 && <span>{bars[bars.length - 1].label}</span>}
+        </div>
+      )}
       <Legend items={keys} />
     </div>
   );
@@ -212,7 +231,7 @@ export function Legend({ items }: { items: Array<{ label: string; color: string 
 export function Gauge({ value, label, size = 150, caption }: { value: number | null; label?: string; size?: number; caption?: string }) {
   const r = 52, cx = 60, cy = 60, len = Math.PI * r;
   const v = typeof value === "number" ? Math.max(0, Math.min(100, value)) : null;
-  const color = toneFor(v);
+  const color = fillFor(v);
   return (
     <div style={{ width: size, textAlign: "center" }}>
       <svg viewBox="0 0 120 70" width={size} height={size * (70 / 120)} role="img" aria-label={`${label ?? "Score"}: ${v === null ? "not measured" : `${v} of 100`}`}>
@@ -220,8 +239,8 @@ export function Gauge({ value, label, size = 150, caption }: { value: number | n
         {v !== null && (
           <path d={`M8,60 A52,52 0 0 1 112,60`} fill="none" stroke={color} strokeWidth="11" strokeLinecap="round" strokeDasharray={`${(v / 100) * len} ${len}`} />
         )}
-        <text x={cx} y={cy - 6} textAnchor="middle" fontSize="22" fontWeight="800" fill={v === null ? INK_FAINT : "var(--ink)"}>{v === null ? "—" : `${v}`}</text>
-        {v !== null && <text x={cx} y={cy + 8} textAnchor="middle" fontSize="9" fill={INK_FAINT}>of 100</text>}
+        <text x={cx} y={cy - 6} textAnchor="middle" fontSize="22" fontWeight="800" fill={v === null ? "var(--ink-muted)" : "var(--ink)"}>{v === null ? "—" : `${v}`}</text>
+        {v !== null && <text x={cx} y={cy + 8} textAnchor="middle" fontSize="12" fill="var(--ink-muted)">of 100</text>}
       </svg>
       {label && <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-body)", marginTop: -2 }}>{label}</div>}
       {caption && <div style={{ fontSize: 11, color: "var(--ink-muted)" }}>{caption}</div>}
@@ -263,7 +282,7 @@ export function Donut({ segments, size = 120, center }: { segments: Array<{ labe
 
 /* ── Horizontal distribution bars ──────────────────────────────────────── */
 
-export function DistributionBars({ items, color = "var(--accent)", empty }: { items: Point[]; color?: string; empty: React.ReactNode }) {
+export function DistributionBars({ items, color = "var(--chart-1)", empty }: { items: Point[]; color?: string; empty: React.ReactNode }) {
   const max = Math.max(0, ...items.map((i) => i.value));
   if (max === 0) return <Empty height={130}>{empty}</Empty>;
   return (

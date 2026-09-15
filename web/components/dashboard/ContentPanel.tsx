@@ -190,8 +190,8 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
                   title={derived[field.name].because}
                   style={{
                     fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
-                    padding: "2px 6px", borderRadius: 3, background: "#e4efe9", color: "#2c6b4f",
-                    border: "1px solid #c7e0d3",
+                    padding: "2px 6px", borderRadius: 3, background: "var(--ok-tint)", color: "var(--ok)",
+                    border: "1px solid var(--ok-border)",
                   }}
                 >
                   measured
@@ -241,7 +241,7 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
         */}
         <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
           <div style={{
-            padding: "8px 12px", background: "var(--surface-sunk, #f1f5f9)",
+            padding: "8px 12px", background: "var(--surface-sunk, var(--surface-3))",
             borderBottom: "1px solid var(--border)", fontSize: 11, fontWeight: 700,
             letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink-muted)",
           }}>
@@ -259,7 +259,7 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
                     <li key={`${r.code}-${i}`}>
                       <span style={{
                         fontWeight: 700,
-                        color: r.severity === "error" ? "#a33a22" : r.severity === "warn" ? "#8a6a14" : "var(--ink-muted)",
+                        color: r.severity === "error" ? "var(--bad)" : r.severity === "warn" ? "var(--warn)" : "var(--ink-muted)",
                       }}>{r.severity ?? "info"}</span>
                       {" · "}
                       <span style={{ color: "var(--ink-body)" }}>{r.what || r.code}</span>
@@ -290,7 +290,7 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
                   {queries.slice(0, 8).map((q) => (
                     <span key={q.query} style={{
                       fontSize: 11.5, padding: "2px 7px", borderRadius: 3,
-                      background: "var(--surface-sunk, #f1f5f9)", border: "1px solid var(--border)",
+                      background: "var(--surface-sunk, var(--surface-3))", border: "1px solid var(--border)",
                       color: "var(--ink-body)",
                     }}>
                       {q.query}
@@ -326,7 +326,7 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
             borderRadius: "var(--radius-sm)",
             border: 0,
             background: busy || missing.length > 0 ? "var(--border-strong)" : "var(--accent)",
-            color: busy || missing.length > 0 ? "var(--ink-muted)" : "#ffffff",
+            color: busy || missing.length > 0 ? "var(--ink-muted)" : "var(--color-white)",
             fontSize: 13,
             fontWeight: 600,
             cursor: busy || missing.length > 0 ? "not-allowed" : "pointer",
@@ -374,8 +374,8 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
             <span
               title={`${issues.length} thing${issues.length === 1 ? "" : "s"} to resolve before this ships`}
               style={{
-                fontSize: 11, fontWeight: 700, color: "#a33a22", background: "#f8e8e3",
-                border: "1px solid #eccfc5", borderRadius: "var(--radius-xs)", padding: "2px 8px",
+                fontSize: 11, fontWeight: 700, color: "var(--bad)", background: "var(--bad-tint)",
+                border: "1px solid var(--bad-border)", borderRadius: "var(--radius-xs)", padding: "2px 8px",
               }}
             >
               {issues.length} to check
@@ -384,8 +384,8 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
             <span
               title="Every figure in this draft appears in the page or the measured evidence"
               style={{
-                fontSize: 11, fontWeight: 700, color: "#2c6b4f", background: "#e4efe9",
-                border: "1px solid #c7e0d3", borderRadius: "var(--radius-xs)", padding: "2px 8px",
+                fontSize: 11, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)",
+                border: "1px solid var(--ok-border)", borderRadius: "var(--radius-xs)", padding: "2px 8px",
               }}
             >
               Figures traced
@@ -413,14 +413,14 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
         </div>
 
         {issues.length > 0 && !busy ? (
-          <div style={{ borderBottom: "1px solid var(--border)", background: "#fdf7f5", padding: "10px 14px" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#a33a22", marginBottom: 6 }}>
+          <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bad-tint)", padding: "10px 14px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--bad)", marginBottom: 6 }}>
               Check before publishing
             </div>
             <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12.5, lineHeight: 1.6, color: "var(--ink-body)" }}>
               {issues.slice(0, 8).map((iss, i) => (
                 <li key={`${iss.kind}-${i}`}>
-                  <code style={{ background: "#fff", border: "1px solid #eccfc5", borderRadius: 3, padding: "0 4px" }}>{iss.text}</code>
+                  <code style={{ background: "var(--color-white)", border: "1px solid var(--bad-border)", borderRadius: 3, padding: "0 4px" }}>{iss.text}</code>
                   {" — "}
                   <span style={{ color: "var(--ink-muted)" }}>{iss.note}</span>
                 </li>

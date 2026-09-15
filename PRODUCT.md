@@ -47,10 +47,11 @@ equivalent and define it once.
 
 ## Anti-references
 
-- **Semrush / Ahrefs density wall.** Semrush is the direct competitor. Its
-  structure is worth learning from; its execution is the thing to beat. Do not
-  clone its look, its vocabulary, or its everything-at-once screens. Where Semrush
-  shows forty widgets, REAI shows the ranked few and keeps the rest one click away.
+- **Semrush / Ahrefs density wall.** Semrush is the direct competitor. Since
+  2026-09-15 its visual language is REAI's style reference (DESIGN.md v2: dark
+  navigation, orange accent, data-forward panels). What stays off-limits is its
+  vocabulary and its everything-at-once screens. Where Semrush shows forty
+  widgets, REAI shows the ranked few and keeps the rest one click away.
 - **Cutesy marketing dashboard.** Big gradient hero numbers, illustrations, toy
   energy. This is an instrument.
 - **Dark hacker terminal.** Neon on black, monospace everywhere. Looks sharp in a

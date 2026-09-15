@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback, type ReactNode } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { Icon } from "@/components/dashboard/Icon";
 import Link from "next/link";
 import type { ClientWithStats, ScanRow, RemediationRow } from "../lib/db";
 import { latestTwoReports, scanHistory } from "../lib/db";
@@ -13,8 +14,6 @@ import {
   costLabel,
   type ScannerTool,
 } from "../lib/toolCatalog";
-import { ProjectJourney } from "@/components/dashboard/ProjectJourney";
-import { PriorityActions } from "@/components/dashboard/PriorityActions";
 import type { PriorityItem } from "@/components/dashboard/types";
 import { derivePriorities } from "../lib/priorities";
 import { supabase } from "../lib/supabase";
@@ -31,9 +30,14 @@ import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
 import { GscPanel } from "@/components/dashboard/GscPanel";
-import { SeoDashboard, SiteAuditCharts } from "@/components/dashboard/SeoDashboard";
+import { SeoDashboard } from "@/components/dashboard/SeoDashboard";
+import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
+import { Modal } from "@/components/dashboard/Modal";
+import { Onboarding, OnboardingSteps } from "@/components/dashboard/Onboarding";
+import { ONPAGE_AUDIT_TOOLS } from "@/lib/auditBreakdown";
 import { ViewCharts } from "@/components/dashboard/ViewCharts";
 import { BacklinkOverviewDashboard } from "@/components/dashboard/BacklinkOverviewDashboard";
+import { AeoOverviewDashboard } from "@/components/dashboard/AeoOverviewDashboard";
 import { Ga4Panel } from "@/components/dashboard/Ga4Panel";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
@@ -73,13 +77,10 @@ import { LiveScanActivity } from "@/components/dashboard/LiveScanActivity";
 import { SiteAuditProjects } from "@/components/dashboard/SiteAuditProjects";
 import { ProjectModal } from "@/components/dashboard/ProjectModal";
 import { buildRobotsSnippet } from "@/lib/aeoCrawlers";
-import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
 import { MeasureScreen } from "@/components/dashboard/MeasureScreen";
 import {
   IconTerminal,
   MiniRadialGauge,
-  SiteHealthDonut,
-  CrawledPagesBar,
 } from "@/components/dashboard/primitives";
 import { authedFetch } from "../lib/authedFetch";
 import {
@@ -396,7 +397,7 @@ export function getSmoothCurvePath(pts: Array<{ x: number; y: number }>): string
 
 export function MiniSparkline({
   data = [2.8, 3.2, 3.7, 4.1, 5.2, 6.2],
-  color = "#10b981",
+  color = "var(--ok)",
   width = 72,
   height = 28,
 }: {
@@ -506,16 +507,16 @@ export function LighthouseGaugeBar({
     return <div style={{ marginTop: 5, width: "100%", height: 5, borderRadius: 3, background: "var(--surface-3)" }} />;
   }
   let markerPos = 55;
-  if (lower.includes("good") || color === "#10b981") markerPos = 20;
-  else if (lower.includes("needs") || color === "#f59e0b") markerPos = 55;
+  if (lower.includes("good") || color === "var(--ok)") markerPos = 20;
+  else if (lower.includes("needs") || color === "var(--warn)") markerPos = 55;
   else markerPos = 85;
 
   return (
     <div style={{ marginTop: 5, width: "100%" }}>
       <div style={{ position: "relative", height: 5, borderRadius: 3, background: "var(--surface-3)", overflow: "hidden", display: "flex" }}>
-        <div style={{ flex: 1, background: "#10b981", opacity: 0.85 }} />
-        <div style={{ flex: 1, background: "#f59e0b", opacity: 0.85, margin: "0 1px" }} />
-        <div style={{ flex: 1, background: "#ef4444", opacity: 0.85 }} />
+        <div style={{ flex: 1, background: "var(--ok)", opacity: 0.85 }} />
+        <div style={{ flex: 1, background: "var(--warn)", opacity: 0.85, margin: "0 1px" }} />
+        <div style={{ flex: 1, background: "var(--bad)", opacity: 0.85 }} />
       </div>
       <div style={{ position: "relative", height: 4, marginTop: -4 }}>
         <div
@@ -527,7 +528,7 @@ export function LighthouseGaugeBar({
             height: 8,
             borderRadius: "50%",
             background: color,
-            border: "1.5px solid #ffffff",
+            border: "1.5px solid var(--color-white)",
             boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
             transform: "translateX(-50%)",
           }}
@@ -539,14 +540,14 @@ export function LighthouseGaugeBar({
 
 export function AiExtractionBar({
   pct = 95,
-  color = "#10b981",
+  color = "var(--ok)",
 }: {
   pct?: number;
   color?: string;
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <div style={{ width: 64, height: 5, borderRadius: 3, background: "#edf2f7", overflow: "hidden" }}>
+      <div style={{ width: 64, height: 5, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", borderRadius: 3, background: color }} />
       </div>
       <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)" }}>{pct}%</span>
@@ -568,7 +569,7 @@ export function MiniDonut({
   let accPct = 0;
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
-      <circle cx={size / 2} cy={size / 2} r={r} stroke="#f1f5f9" strokeWidth={strokeWidth} fill="none" />
+      <circle cx={size / 2} cy={size / 2} r={r} stroke="var(--surface-3)" strokeWidth={strokeWidth} fill="none" />
       {slices.map((s, idx) => {
         const strokeDash = (s.pct / 100) * circ;
         const strokeOffset = circ - (accPct / 100) * circ;
@@ -612,7 +613,7 @@ export function MiniSegmentBar({
 }
 
 export function MiniKdMeter({ kd }: { kd: number }) {
-  const color = kd < 30 ? "#10b981" : kd < 60 ? "#f59e0b" : "#ef4444";
+  const color = kd < 30 ? "var(--ok)" : kd < 60 ? "var(--warn)" : "var(--bad)";
   const bg = kd < 30 ? "var(--ok-tint)" : kd < 60 ? "var(--warn-tint)" : "var(--bad-tint)";
   const label = kd < 30 ? "Easy" : kd < 60 ? "Med" : "Hard";
   return (
@@ -679,20 +680,20 @@ export function ExecutiveTrafficChart({
     return (
       <div style={{ width: "100%" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Search Traffic &amp; Keyword Trajectory</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", background: "var(--surface-3)", border: "1px solid #e2e8f0", padding: "2px 8px", borderRadius: 12 }}>
+          <span style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--ink-body)" }}>Search Traffic &amp; Keyword Trajectory</span>
+          <span style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-muted)", background: "var(--surface-3)", border: "1px solid var(--border)", padding: "2px 8px", borderRadius: "var(--radius-full)" }}>
             Not measured
           </span>
         </div>
         <div style={{
           height: 150, display: "flex", flexDirection: "column", alignItems: "center",
-          justifyContent: "center", gap: 6, border: "1px dashed #e2e8f0",
-          borderRadius: 8, background: "#fafbfc",
+          justifyContent: "center", gap: 6, border: "1px dashed var(--border-strong)",
+          borderRadius: "var(--radius-md)", background: "var(--surface-2)",
         }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-muted)" }}>
+          <div style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--ink-muted)" }}>
             No {label} history for {domain || "this site"} yet
           </div>
-          <div style={{ fontSize: 12, color: "var(--ink-muted)", textAlign: "center", maxWidth: 380 }}>
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", textAlign: "center", maxWidth: 380 }}>
             Connect Google Search Console to chart this over time. A trend needs at
             least two measured cycles.
           </div>
@@ -730,51 +731,22 @@ export function ExecutiveTrafficChart({
       {/* Top Chart Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Search Traffic & Keyword Trajectory</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 8px", borderRadius: 12 }}>
+          <span style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--ink-body)" }}>Search Traffic & Keyword Trajectory</span>
+          <span style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 8px", borderRadius: "var(--radius-full)" }}>
             {activePoint.m}: {activePoint.v}{unit}
           </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <div style={{ display: "flex", background: "var(--surface-3)", borderRadius: 6, padding: 2 }}>
-            <button
-              type="button"
-              onClick={() => setMetric("traffic")}
-              style={{
-                background: metric === "traffic" ? "var(--surface)" : "transparent",
-                color: metric === "traffic" ? "var(--ink-body)" : "var(--ink-muted)",
-                border: 0, borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                boxShadow: metric === "traffic" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
-              }}
-            >
-              Visits ({totalVisits})
-            </button>
-            <button
-              type="button"
-              onClick={() => setMetric("keywords")}
-              style={{
-                background: metric === "keywords" ? "var(--surface)" : "transparent",
-                color: metric === "keywords" ? "var(--ink-body)" : "var(--ink-muted)",
-                border: 0, borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                boxShadow: metric === "keywords" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
-              }}
-            >
-              Keywords ({totalKeywords ?? "—"})
-            </button>
-            <button
-              type="button"
-              onClick={() => setMetric("visibility")}
-              style={{
-                background: metric === "visibility" ? "var(--surface)" : "transparent",
-                color: metric === "visibility" ? "var(--ink-body)" : "var(--ink-muted)",
-                border: 0, borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                boxShadow: metric === "visibility" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
-              }}
-            >
-              Visibility
-            </button>
-          </div>
+        <div className="segmented">
+          <button type="button" aria-pressed={metric === "traffic"} onClick={() => setMetric("traffic")}>
+            Visits ({totalVisits})
+          </button>
+          <button type="button" aria-pressed={metric === "keywords"} onClick={() => setMetric("keywords")}>
+            Keywords ({totalKeywords ?? "—"})
+          </button>
+          <button type="button" aria-pressed={metric === "visibility"} onClick={() => setMetric("visibility")}>
+            Visibility
+          </button>
         </div>
       </div>
 
@@ -783,8 +755,8 @@ export function ExecutiveTrafficChart({
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: 150, display: "block" }}>
           <defs>
             <linearGradient id="execTrafficGradNew" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.25" />
-              <stop offset="100%" stopColor="#4f46e5" stopOpacity="0.0" />
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.0" />
             </linearGradient>
           </defs>
 
@@ -794,9 +766,9 @@ export function ExecutiveTrafficChart({
             const valLabel = (minVal + range * ratio).toFixed(metric === "traffic" ? 1 : 0);
             return (
               <g key={ratio}>
-                <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#f1f5f9" strokeWidth="1" strokeDasharray={ratio === 0 ? "0" : "3 3"} />
+                <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="var(--border)" strokeWidth="1" strokeDasharray={ratio === 0 ? "0" : "3 3"} />
                 <text x={padL - 8} y={y + 3.5} fontSize="10" fill="var(--ink-muted)" textAnchor="end" fontFamily="inherit">
-                  {valLabel}{metric === "traffic" ? "K" : metric === "visibility" ? "%" : ""}
+                  {valLabel}{metric === "visibility" ? "%" : ""}
                 </text>
               </g>
             );
@@ -815,7 +787,7 @@ export function ExecutiveTrafficChart({
                 width={barW}
                 height={Math.max(4, barH)}
                 rx="4"
-                fill={isHovered ? "#6366f1" : "#e0e7ff"}
+                fill={isHovered ? "var(--accent)" : "var(--accent-border)"}
                 fillOpacity={isHovered ? (chartType === "bars" ? "0.9" : "0.5") : (chartType === "bars" ? "0.6" : "0.25")}
                 style={{ transition: "fill-opacity 0.2s ease" }}
               />
@@ -826,7 +798,7 @@ export function ExecutiveTrafficChart({
           {(chartType === "combo" || chartType === "area") && (
             <>
               <path d={areaD} fill="url(#execTrafficGradNew)" />
-              <path d={pathD} fill="none" stroke="#4f46e5" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d={pathD} fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
             </>
           )}
 
@@ -844,21 +816,21 @@ export function ExecutiveTrafficChart({
                 style={{ cursor: "pointer" }}
               >
                 {isHovered && (
-                  <line x1={p.x} y1={padT} x2={p.x} y2={H - padB} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="2 2" />
+                  <line x1={p.x} y1={padT} x2={p.x} y2={H - padB} stroke="var(--border-strong)" strokeWidth="1" strokeDasharray="2 2" />
                 )}
 
                 {/* Point circle */}
                 {(chartType === "combo" || chartType === "area") && (
                   <>
                     {isHovered && (
-                      <circle cx={p.x} cy={p.y} r={6} fill="#4f46e5" fillOpacity="0.2" />
+                      <circle cx={p.x} cy={p.y} r={6} fill="var(--accent)" fillOpacity="0.2" />
                     )}
                     <circle
                       cx={p.x}
                       cy={p.y}
                       r={isHovered ? 4.5 : 3}
-                      fill="#ffffff"
-                      stroke="#4f46e5"
+                      fill="var(--surface)"
+                      stroke="var(--accent)"
                       strokeWidth={isHovered ? 2.5 : 1.8}
                     />
                   </>
@@ -873,14 +845,14 @@ export function ExecutiveTrafficChart({
                       width={tooltipBoxW}
                       height={20}
                       rx={4}
-                      fill="#0f172a"
+                      fill="var(--ink)"
                     />
                     <text
                       x={tooltipX}
                       y={Math.max(4, p.y - 28) + 13}
                       fontSize="9.5"
                       fontWeight="700"
-                      fill="#ffffff"
+                      fill="var(--color-white)"
                       textAnchor="middle"
                     >
                       {p.v}{unit}
@@ -894,7 +866,7 @@ export function ExecutiveTrafficChart({
                   y={H - 8}
                   fontSize="10.5"
                   fontWeight={isHovered ? "700" : "500"}
-                  fill={isHovered ? "var(--ink-body)" : "var(--ink-faint)"}
+                  fill={isHovered ? "var(--ink-body)" : "var(--ink-muted)"}
                   textAnchor="middle"
                 >
                   {p.m}
@@ -937,7 +909,7 @@ export function ExecutivePositionSpreadChart({
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
         {items.map((it, idx) => (
-          <div key={idx} style={{ padding: "12px 14px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid #e2e8f0" }}>
+          <div key={idx} style={{ padding: "12px 14px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: it.color }} />
               <span style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, whiteSpace: "nowrap" }}>{it.range}</span>
@@ -981,19 +953,19 @@ export function VisibilityAreaChart({ points = [] }: { points?: Array<{ d: strin
       <svg viewBox={`0 0 ${W} ${H + 20}`} style={{ width: "100%", height: "auto", display: "block" }}>
         <defs>
           <linearGradient id="reaiGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#4f46e5" stopOpacity="0.0" />
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.0" />
           </linearGradient>
         </defs>
-        <line x1={padX} y1={padY + 15} x2={W - padX} y2={padY + 15} stroke="#e5e7eb" strokeDasharray="3 3" />
-        <line x1={padX} y1={H - padY - 15} x2={W - padX} y2={H - padY - 15} stroke="#e5e7eb" strokeDasharray="3 3" />
+        <line x1={padX} y1={padY + 15} x2={W - padX} y2={padY + 15} stroke="var(--border)" strokeDasharray="3 3" />
+        <line x1={padX} y1={H - padY - 15} x2={W - padX} y2={H - padY - 15} stroke="var(--border)" strokeDasharray="3 3" />
         <path d={areaD} fill="url(#reaiGrad)" />
-        <path d={lineD} fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={lineD} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         {pts.map((p, i) => (
           <g key={i}>
-            <circle cx={p.x} cy={p.y} r={i === pts.length - 1 ? 4.5 : 2.5} fill="#6366f1" stroke="#ffffff" strokeWidth="1.5" />
+            <circle cx={p.x} cy={p.y} r={i === pts.length - 1 ? 4.5 : 2.5} fill="var(--accent)" stroke="var(--color-white)" strokeWidth="1.5" />
             {(i === 0 || i === Math.floor(pts.length / 2) || i === pts.length - 1) && (
-              <text x={p.x} y={H + 14} fontSize="10" fill="#858d99" textAnchor="middle" fontFamily="inherit">
+              <text x={p.x} y={H + 14} fontSize="10" fill="var(--ink-muted)" textAnchor="middle" fontFamily="inherit">
                 {p.d}
               </text>
             )}
@@ -1008,12 +980,12 @@ export function AIVisibilityRing({ size = 52 }: { size?: number }) {
   return (
     <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} viewBox="0 0 36 36">
-        <circle cx="18" cy="18" r="14" fill="none" stroke="#f1f3f7" strokeWidth="4" />
-        <circle cx="18" cy="18" r="14" fill="none" stroke="#6366f1" strokeWidth="4" strokeDasharray="30 70" strokeDashoffset="25" />
-        <circle cx="18" cy="18" r="14" fill="none" stroke="#10b981" strokeWidth="4" strokeDasharray="20 80" strokeDashoffset="70" />
-        <circle cx="18" cy="18" r="14" fill="none" stroke="#06b6d4" strokeWidth="4" strokeDasharray="15 85" strokeDashoffset="0" />
+        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--surface-3)" strokeWidth="4" />
+        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" strokeWidth="4" strokeDasharray="30 70" strokeDashoffset="25" />
+        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--ok)" strokeWidth="4" strokeDasharray="20 80" strokeDashoffset="70" />
+        <circle cx="18" cy="18" r="14" fill="none" stroke="var(--info)" strokeWidth="4" strokeDasharray="15 85" strokeDashoffset="0" />
       </svg>
-      <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "#6366f1" }}>
+      <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "var(--accent)" }}>
         <IconCpu size={14} />
       </div>
     </div>
@@ -1023,7 +995,7 @@ export function AIVisibilityRing({ size = 52 }: { size?: number }) {
 export function AuthoritySpeedometer({ score = 11 }: { score?: number }) {
   return (
     <div style={{ position: "relative", width: 34, height: 20, overflow: "hidden", display: "inline-block", verticalAlign: "middle" }}>
-      <div style={{ width: 34, height: 34, borderRadius: "50%", border: "4px solid #e2e8f0", borderTopColor: "#10b981", borderLeftColor: "#6366f1", boxSizing: "border-box" }} />
+      <div style={{ width: 34, height: 34, borderRadius: "50%", border: "4px solid var(--border)", borderTopColor: "var(--ok)", borderLeftColor: "var(--accent)", boxSizing: "border-box" }} />
       <div style={{
         position: "absolute", bottom: 0, left: "50%", width: 2, height: 14, background: "var(--ink)",
         transformOrigin: "bottom center",
@@ -1270,10 +1242,10 @@ function resolveProjectData(
     // Empty array, not a row of zeroes: "we measured nothing" and "you rank for
     // nothing" are different facts and must not render identically.
     posDistribution: hasRankings ? [
-      { range: "Top 3 (1-3)", count: posTop3, pct: pctOf(posTop3), color: "#10b981" },
-      { range: "Top 10 (4-10)", count: posTop10, pct: pctOf(posTop10), color: "#3b82f6" },
-      { range: "Top 20 (11-20)", count: posTop20, pct: pctOf(posTop20), color: "#8b5cf6" },
-      { range: "Top 50 (21-50)", count: posTop50, pct: pctOf(posTop50), color: "#f59e0b" },
+      { range: "Top 3 (1-3)", count: posTop3, pct: pctOf(posTop3), color: "var(--ok)" },
+      { range: "Top 10 (4-10)", count: posTop10, pct: pctOf(posTop10), color: "var(--info)" },
+      { range: "Top 20 (11-20)", count: posTop20, pct: pctOf(posTop20), color: "var(--accent)" },
+      { range: "Top 50 (21-50)", count: posTop50, pct: pctOf(posTop50), color: "var(--warn)" },
       { range: "Top 100 (51-100)", count: posTop100, pct: pctOf(posTop100), color: "var(--ink-muted)" },
     ] : [],
     serpFeatures: [
@@ -1424,7 +1396,7 @@ function resolveProjectData(
     visibilityPct: null as number | null,
     visibilityDelta: "",
     visibilityPoints: [] as Array<{ d: string; v: number }>,
-    market: isKh ? "🇰🇭 Cambodia" : "🌐 Global / US",
+    market: isKh ? "🇰🇭 Cambodia" : "Global / US",
     keywords,
     competitors,
     totalVolume: totalVolume > 0 ? totalVolume.toLocaleString() : "—",
@@ -1547,7 +1519,7 @@ export const TAB_ROUTES: Record<ReaiTab, string> = {
 export type NavItem = {
   label: string;
   tab?: ReaiTab;
-  sub?: "summary" | "all_checks" | "crawl" | "progress" | "remediation";
+  sub?: "summary" | "issues" | "pages" | "all_checks" | "progress" | "remediation";
   focus?: "matrix" | "citations" | "crawlers" | "schema" | "answers";
   drawer?: boolean;
   href?: string;
@@ -1857,6 +1829,17 @@ export function sectionItems(section: NavSection): NavItem[] {
   return section.groups.flatMap((g) => g.items);
 }
 
+/** The rail section holding a view, Search Console view, content tool or stage; null when none is open. */
+export function sectionForNav(nav: { view?: string | null; gsc?: string | null; content?: string | null; stage?: string | null }): string | null {
+  for (const section of NAV_SECTIONS) {
+    const hit = sectionItems(section).some((item) =>
+      (nav.view && item.view === nav.view) || (nav.gsc && item.gsc === nav.gsc)
+      || (nav.content && item.content === nav.content) || (nav.stage && item.stage === nav.stage));
+    if (hit) return section.id;
+  }
+  return null;
+}
+
 export function sectionForTab(tab: ReaiTab): string {
   for (const section of NAV_SECTIONS) {
     if (sectionItems(section).some((item) => item.tab === tab)) return section.id;
@@ -2032,7 +2015,7 @@ export function ReaiDashboard({
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
-  const [auditSubTab, setAuditSubTab] = useState<"summary" | "all_checks" | "crawl" | "progress" | "remediation">("summary");
+  const [auditSubTab, setAuditSubTab] = useState<"summary" | "issues" | "pages" | "all_checks" | "progress" | "remediation">("summary");
   // Site Audit opens on the project list (Semrush-style) when reached from the
   // sidebar; every other path to the audit (Run an audit, a view's empty state)
   // goes straight to the open project's audit.
@@ -2144,6 +2127,13 @@ export function ReaiDashboard({
   const currentBusiness = selectedClient?.business || "";
   const [showAdvancedOverview, setShowAdvancedOverview] = useState<boolean>(true);
   const [isSmallSidebarCollapsed, setIsSmallSidebarCollapsed] = useState<boolean>(false);
+  // Phones and small tablets: the rail and drawer become one slide-over sheet
+  // opened from the top bar (UX audit P0, 2026-09-15). Below 860px the drawer
+  // used to be display:none, which left every page but a section's first, and
+  // the project switcher, with no way in.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const mobileSheetRef = useRef<HTMLElement | null>(null);
 
   // A report view is a named slice of the scan report (lib/reportViews.ts).
   // When one is open it replaces the tab content; picking any tab clears it.
@@ -2285,6 +2275,7 @@ export function ReaiDashboard({
    * in one function is what stops the next item kind repeating this.
    */
   const openNavItem = useCallback((item: NavItem) => {
+    setMobileNavOpen(false);
     // Clear every mode first, so an item kind can never inherit the last one.
     setActiveStage(null);
     setActiveContentTool(null);
@@ -2315,10 +2306,37 @@ export function ReaiDashboard({
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }, [selectAeoFocus]);
 
-  const [activeBigNav, setActiveBigNav] = useState<string>(() => sectionForTab("Overview"));
+  // The rail follows the page on screen. It followed the tab only, so a tool page
+  // opened by address (/view/domain-overview) lit Home and showed Home's drawer.
+  const railSection = () =>
+    sectionForNav({ view: activeView, gsc: activeGscView, content: activeContentTool, stage: activeStage }) ?? sectionForTab(activeTab);
+  const [activeBigNav, setActiveBigNav] = useState<string>(railSection);
   useEffect(() => {
-    setActiveBigNav(sectionForTab(activeTab));
-  }, [activeTab]);
+    setActiveBigNav(railSection());
+    // Choosing a page closes the phone menu.
+    setMobileNavOpen(false);
+  }, [activeTab, activeView, activeGscView, activeContentTool, activeStage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The phone menu is a modal sheet: focus moves in on open, Tab stays inside,
+  // Escape closes, and focus returns to the menu button on close.
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const sheet = mobileSheetRef.current;
+    const focusables = () => Array.from(sheet?.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input,select,textarea,[tabindex]:not([tabindex="-1"])') ?? [])
+      .filter((el) => el.offsetParent !== null);
+    focusables()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); setMobileNavOpen(false); return; }
+      if (e.key !== "Tab") return;
+      const els = focusables(); if (!els.length) return;
+      const first = els[0], last = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    const button = mobileMenuButtonRef.current;
+    return () => { document.removeEventListener("keydown", onKey); button?.focus(); };
+  }, [mobileNavOpen]);
 
   // Google Service Integration State (Real Google OAuth & GSC API)
   const [googleConnected, setGoogleConnected] = useState<boolean>(false);
@@ -2507,7 +2525,7 @@ export function ReaiDashboard({
         };
         const mappedCountries = cData.rows.slice(0, 6).map((r: any) => {
           const rawCode = ((r.keys || [""])[0] || "").toLowerCase();
-          const info = ISO_NAMES[rawCode] || { name: rawCode.toUpperCase(), flag: "🌐" };
+          const info = ISO_NAMES[rawCode] || { name: rawCode.toUpperCase(), flag: "" };
           const share = totalCountryImpressions > 0 ? Number(((r.impressions / totalCountryImpressions) * 100).toFixed(1)) : 0;
           return {
             code: info.flag,
@@ -2646,7 +2664,7 @@ export function ReaiDashboard({
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
     } else if (params.get("google_error")) {
-      setSyncToast(`⚠️ Google OAuth error: ${params.get("google_error")}`);
+      setSyncToast(`Google OAuth error: ${params.get("google_error")}`);
       setTimeout(() => setSyncToast(null), 5000);
     }
 
@@ -2902,6 +2920,7 @@ export function ReaiDashboard({
   // Handle Project Creation in this single UI
   /** Blank the form and open it in create mode. */
   function openCreateProject() {
+    setMobileNavOpen(false);
     setEditingProject(null);
     setProjectError(null);
     setDomainMoved(null);
@@ -2919,6 +2938,7 @@ export function ReaiDashboard({
    * cost the keywords.
    */
   function openEditProject(c: any) {
+    setMobileNavOpen(false);
     if (!c) return;
     setEditingProject(c);
     setProjectError(null);
@@ -2982,8 +3002,16 @@ export function ReaiDashboard({
     }
   }
 
-  // ── Tool page controls, defined once and used by every report view and by
-  // Site Audit, so the copies cannot drift. ──
+  /** The on-page audit: exactly `ONPAGE_AUDIT_TOOLS`, crawled `pages` deep.
+   *  The Dashboard and Site Audit both run this and nothing wider (operator,
+   *  2026-09-15: "Run audit" used to run all 16 free tools). */
+  const runOnpageAudit = (url: string, tools: string[], pages: number) => {
+    onCrawlPagesChange?.(pages);
+    onTriggerScan?.(url, tools, pages);
+  };
+
+  // ── Tool page controls, defined once and used by every report view, so the
+  // copies cannot drift. ──
 
   /** The audit toolbar for a report view: Data source, run, pages, price. */
   const scanControlsFor = (view: ScannableView, viewLabel?: string) => {
@@ -3070,7 +3098,29 @@ export function ReaiDashboard({
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "var(--surface-2)", fontFamily: "system-ui, -apple-system, sans-serif" }}>
       
-      {/* Topbar removed — the app opens straight into the rail + workspace. */}
+      <a href="#main-content" className="skip-link">Skip to content</a>
+
+      {/* Phone top bar: the one way into the navigation below 860px. */}
+      <header className="mobile-bar">
+        <button
+          ref={mobileMenuButtonRef}
+          type="button"
+          className="mobile-bar__menu"
+          aria-expanded={mobileNavOpen}
+          aria-controls="app-nav-sheet"
+          onClick={() => setMobileNavOpen((v) => !v)}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            {mobileNavOpen ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+          </svg>
+          <span>Menu</span>
+        </button>
+        <div className="mobile-bar__where">
+          <span className="mobile-bar__section">{NAV_SECTIONS.find((s) => s.id === activeBigNav)?.label ?? "Home"}</span>
+          {currentBusiness && <span className="mobile-bar__project">{currentBusiness}</span>}
+        </div>
+      </header>
+      {mobileNavOpen && <div className="nav-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
 
       {/* ── 2. UNIFIED MODERN SIDEBAR + MAIN CONTENT ── */}
       <div style={{ display: "flex", flex: 1, alignItems: "stretch" }}>
@@ -3079,14 +3129,16 @@ export function ReaiDashboard({
         {/* ── 2A. BIG SIDEBAR (PRIMARY RAIL) ── */}
         <aside
           aria-label="Primary Navigation Rail"
+          className="app-rail"
           style={{
             // 80px is the measurement, not a round number: the widest label
             // ("Research") runs ~51px at 12px/600 Inter, and the button carries
             // 4px of side padding inside 8px of rail padding. Narrower than this
             // and the label overflows its own selected pill.
             width: 80,
-            background: "var(--surface)",
-            borderRight: "1px solid var(--border)",
+            // DESIGN.md v2 §5.3: the navigation is the dark section.
+            background: "var(--color-ink-900)",
+            borderRight: "1px solid var(--color-ink-700)",
             display: "flex",
             flexDirection: "column",
             alignItems: "stretch",
@@ -3130,7 +3182,7 @@ export function ReaiDashboard({
             not project reports, so they sit apart from the sections rather than
             in a group of their own inside the drawer.
           */}
-          <div style={{ marginTop: "auto", width: "100%", display: "flex", flexDirection: "column", gap: "var(--space-1)", paddingTop: "var(--space-2)", borderTop: "1px solid var(--border)" }}>
+          <div style={{ marginTop: "auto", width: "100%", display: "flex", flexDirection: "column", gap: "var(--space-1)", paddingTop: "var(--space-2)", borderTop: "1px solid var(--color-ink-700)" }}>
             {[
               { id: "profile", label: "Account", title: "Profile & Account", href: "/profile", icon: <IconUser size={19} /> },
             ].map((item) => (
@@ -3151,14 +3203,17 @@ export function ReaiDashboard({
         </aside>
 
         {/* ── 2B. SMALL SIDEBAR (CONTEXTUAL DRAWER) ── */}
-        {!isSmallSidebarCollapsed && (
+        {(!isSmallSidebarCollapsed || mobileNavOpen) && (
           <aside
             aria-label="Main Navigation"
+            id="app-nav-sheet"
+            ref={mobileSheetRef as React.RefObject<HTMLElement>}
+            className={`app-drawer${mobileNavOpen ? " is-open" : ""}`}
             style={{
               width: 228,
               flexShrink: 0,
               background: "var(--surface)",
-              borderRight: "1px solid #edf0f4",
+              borderRight: "1px solid var(--border)",
               display: "flex",
               flexDirection: "column",
               padding: "16px 12px 96px 12px",
@@ -3170,10 +3225,29 @@ export function ReaiDashboard({
               zIndex: 11,
             }}
           >
+            {/* Phone only: the rail's sections, so the sheet holds the whole
+                navigation. Choosing one lists its pages below; it does not
+                navigate until a page is chosen. */}
+            <nav className="drawer-sections" aria-label="Sections">
+              {NAV_SECTIONS.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  className="drawer-sections__btn"
+                  aria-current={activeBigNav === section.id ? "true" : undefined}
+                  onClick={() => setActiveBigNav(section.id)}
+                >
+                  <span aria-hidden="true" className="drawer-sections__icon">{RAIL_ICONS[section.id]}</span>
+                  {section.label}
+                </button>
+              ))}
+              <a className="drawer-sections__btn" href="/profile">Account</a>
+            </nav>
+
             {/* Active Project Switcher Card */}
             <div style={{
               marginBottom: 16, padding: "10px 12px", background: "var(--surface-2)",
-              border: "1px solid #e2e8f0", borderRadius: 8,
+              border: "1px solid var(--border)", borderRadius: 8,
               position: "relative",
             }}>
               <div style={{
@@ -3186,7 +3260,7 @@ export function ReaiDashboard({
                   type="button"
                   onClick={() => openCreateProject()}
                   style={{
-                    background: "none", border: 0, color: "#2563eb",
+                    background: "none", border: 0, color: "var(--accent)",
                     fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0,
                   }}
                 >
@@ -3194,12 +3268,18 @@ export function ReaiDashboard({
                 </button>
               </div>
 
+              {!selectedClient && (
+                <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--ink-muted)" }}>
+                  No project yet. Add a website to start.
+                </p>
+              )}
+              {selectedClient && (
               <button
                 type="button"
                 onClick={() => setSidebarProjectOpen(!sidebarProjectOpen)}
                 style={{
                   width: "100%", padding: "6px 8px", background: "var(--surface)",
-                  border: "1px solid", borderColor: sidebarProjectOpen ? "#3b82f6" : "var(--border-strong)",
+                  border: "1px solid", borderColor: sidebarProjectOpen ? "var(--info)" : "var(--border-strong)",
                   borderRadius: 6, outline: "none", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
                   textAlign: "left",
@@ -3208,7 +3288,7 @@ export function ReaiDashboard({
                 <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                   <div style={{
                     width: 20, height: 20, borderRadius: 4,
-                    background: "linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)",
+                    background: "linear-gradient(135deg, var(--accent) 0%, var(--info) 100%)",
                     color: "var(--surface)", display: "grid", placeItems: "center",
                     fontWeight: 800, fontSize: 12, flexShrink: 0,
                   }}>
@@ -3222,13 +3302,14 @@ export function ReaiDashboard({
                 </div>
                 <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>▾</span>
               </button>
+              )}
 
               {/* Custom Floating Project Menu Popover */}
-              {sidebarProjectOpen && (
+              {sidebarProjectOpen && selectedClient && (
                 <div style={{
                   position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
-                  background: "var(--surface)", borderRadius: 8, border: "1px solid #cbd5e1",
-                  boxShadow: "0 10px 24px -4px rgba(15, 23, 42, 0.18)",
+                  background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border-strong)",
+                  boxShadow: "0 10px 24px -4px rgba(17, 19, 23, 0.18)",
                   zIndex: 200, padding: "4px 0", maxHeight: 240, overflowY: "auto",
                 }}>
                   <div style={{ padding: "4px 10px", fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>
@@ -3285,14 +3366,16 @@ export function ReaiDashboard({
                     // look like a third nav layer. Quieter weight and ink, so it
                     // recedes behind the items it labels.
                     //
-                    // --ink-faint is 4.76:1 on this drawer's white surface and
+                    // --ink-muted (gray-600, 5.98:1 on white). It was --ink-faint,
+                    // which measured 2.63:1 after the v2 palette (UX audit #6).
+                    // Former note: --ink-faint was 4.76:1 on this drawer's white surface and
                     // passes AA there. It would fail on any tinted surface
                     // (4.34:1 on --surface-3), so this is not a pattern to copy
                     // onto a panel. Literal opacity is not an option for the
                     // same reason.
                     fontSize: 12,
                     fontWeight: 600,
-                    color: "var(--ink-faint)",
+                    color: "var(--ink-muted)",
                     padding: "4px 8px",
                     marginBottom: "var(--space-1)",
                     textTransform: "uppercase",
@@ -3356,8 +3439,8 @@ export function ReaiDashboard({
                           cursor: "pointer",
                           fontSize: 13,
                           fontWeight: isSelected ? 600 : 400,
-                          color: isSelected ? "var(--info)" : "var(--ink-muted)",
-                          background: isSelected ? "var(--info-tint)" : "transparent",
+                          color: isSelected ? "var(--accent-ink)" : "var(--ink-muted)",
+                          background: isSelected ? "var(--accent-tint)" : "transparent",
                         }}
                       >
                         {item.label}
@@ -3375,37 +3458,11 @@ export function ReaiDashboard({
               sections rather than inside one. "New Project" went entirely: the
               project card at the top of this drawer already has a "+ New".
             */}
-            <div style={{ marginTop: "auto", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-              {/* All Tools Directory Pinned */}
-              <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #edf0f4" }}>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("All Tools Directory")}
-                  style={{
-                    width: "100%", padding: "7px 10px", borderRadius: 6,
-                    border: "1px solid #cbd5e1", background: activeTab === "All Tools Directory" ? "#2563eb" : "var(--surface)",
-                    color: activeTab === "All Tools Directory" ? "var(--surface)" : "var(--ink-body)",
-                    fontSize: 12, fontWeight: 600, cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                  }}
-                >
-                  <span>All Tools Directory</span>
-                  <span style={{
-                    fontSize: 12, padding: "1px 5px", borderRadius: 8,
-                    background: activeTab === "All Tools Directory" ? "rgba(255,255,255,0.2)" : "var(--surface-3)",
-                    color: activeTab === "All Tools Directory" ? "var(--surface)" : "var(--ink-muted)",
-                    fontWeight: 700,
-                  }}>
-                    {catalogSummary.tools}
-                  </span>
-                </button>
-              </div>
-            </div>
           </aside>
         )}
 
         {/* ── 3. MAIN WORKSPACE STAGE ── */}
-        <main style={{ flex: 1, minWidth: 0, padding: "24px 32px 80px 32px", overflowY: "auto", background: "var(--surface-2)" }}>
+        <main id="main-content" tabIndex={-1} className="app-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", background: "var(--surface-2)" }}>
 
           {/*
             A report view replaces the tab content. Each view is a named slice
@@ -3422,7 +3479,7 @@ export function ReaiDashboard({
               const hasResult = st.id === "plan" ? Boolean(lanes) : false;
 
               const card: React.CSSProperties = {
-                background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "16px 18px",
+                background: "var(--color-white)", border: "1px solid var(--border)", borderRadius: 8, padding: "16px 18px",
               };
 
               return (
@@ -3440,7 +3497,7 @@ export function ReaiDashboard({
                             border: 0, cursor: "pointer", borderRadius: 999, padding: "4px 12px",
                             fontSize: 12.5, fontWeight: 700,
                             background: s.id === st.id ? "var(--ink-body)" : "var(--surface-3)",
-                            color: s.id === st.id ? "#fff" : "var(--ink-muted)",
+                            color: s.id === st.id ? "var(--color-white)" : "var(--ink-muted)",
                           }}
                         >
                           {s.step}. {s.label}
@@ -3455,9 +3512,9 @@ export function ReaiDashboard({
                       <span style={{
                         fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
                         padding: "3px 8px", borderRadius: 4,
-                        color: st.connected ? "#2c6b4f" : "var(--ink-muted)",
-                        background: st.connected ? "#e4efe9" : "var(--surface-3)",
-                        border: `1px solid ${st.connected ? "#c7e0d3" : "var(--border)"}`,
+                        color: st.connected ? "var(--ok)" : "var(--ink-muted)",
+                        background: st.connected ? "var(--ok-tint)" : "var(--surface-3)",
+                        border: `1px solid ${st.connected ? "var(--ok-border)" : "var(--border)"}`,
                       }}>
                         {st.connected ? "Reads real results" : "Result not connected"}
                       </span>
@@ -3471,8 +3528,8 @@ export function ReaiDashboard({
                   {st.id === "plan" && lanes ? (
                     <>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 14 }}>
-                        {([["Regression", lanes.REGRESSION, "#a33a22"], ["New", lanes.NEW, "#8a6a14"],
-                           ["Persisting", lanes.PERSISTING, "#55646f"], ["Resolved", lanes.RESOLVED, "#2c6b4f"]] as const)
+                        {([["Regression", lanes.REGRESSION, "var(--bad)"], ["New", lanes.NEW, "var(--warn)"],
+                           ["Persisting", lanes.PERSISTING, "var(--ink-muted)"], ["Resolved", lanes.RESOLVED, "var(--ok)"]] as const)
                           .map(([label, n, colour]) => (
                           <div key={label} style={card}>
                             <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink-muted)" }}>{label}</div>
@@ -3489,7 +3546,7 @@ export function ReaiDashboard({
                           <thead>
                             <tr>
                               {["Finding", "Page", "Lane", "Agent can fix?"].map(h => (
-                                <th key={h} style={{ textAlign: "left", padding: "10px 14px", borderBottom: "1.5px solid #1e293b", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink)", whiteSpace: "nowrap" }}>{h}</th>
+                                <th key={h} style={{ textAlign: "left", padding: "10px 14px", borderBottom: "1.5px solid var(--ink-body)", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink)", whiteSpace: "nowrap" }}>{h}</th>
                               ))}
                             </tr>
                           </thead>
@@ -3498,10 +3555,10 @@ export function ReaiDashboard({
                               const why = blockedReason(item);
                               return (
                                 <tr key={item.id ?? i}>
-                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-body)" }}>{item.code ?? item.what ?? "—"}</td>
-                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-muted)", fontFamily: "ui-monospace, monospace", fontSize: 12.5 }}>{item.location ?? item.url ?? "—"}</td>
-                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-muted)" }}>{item.status ?? "—"}</td>
-                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid #eef1f4", color: why ? "var(--ink-muted)" : "#2c6b4f", fontWeight: why ? 400 : 600 }}>
+                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "var(--ink-body)" }}>{item.code ?? item.what ?? "—"}</td>
+                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontFamily: "ui-monospace, monospace", fontSize: 12.5 }}>{item.location ?? item.url ?? "—"}</td>
+                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)" }}>{item.status ?? "—"}</td>
+                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: why ? "var(--ink-muted)" : "var(--ok)", fontWeight: why ? 400 : 600 }}>
                                     {why ?? "yes"}
                                   </td>
                                 </tr>
@@ -3534,18 +3591,18 @@ export function ReaiDashboard({
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
                         <button
                           type="button" onClick={() => loadPulls()} disabled={ghBusy}
-                          style={{ padding: "7px 13px", borderRadius: 6, border: "1px solid #e2e8f0", cursor: "pointer",
-                                   background: "#fff", fontSize: 13, fontWeight: 600, opacity: ghBusy ? 0.6 : 1 }}
+                          style={{ padding: "7px 13px", borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer",
+                                   background: "var(--color-white)", fontSize: 13, fontWeight: 600, opacity: ghBusy ? 0.6 : 1 }}
                         >
                           {ghBusy ? "Checking…" : "Refresh from GitHub"}
                         </button>
                         {mergeNote ? (
-                          <span style={{ fontSize: 13, color: /^Merged/.test(mergeNote) ? "#2c6b4f" : "#a33a22" }}>{mergeNote}</span>
+                          <span style={{ fontSize: 13, color: /^Merged/.test(mergeNote) ? "var(--ok)" : "var(--bad)" }}>{mergeNote}</span>
                         ) : null}
                       </div>
 
                       {ghConnected === false ? (
-                        <div style={{ border: "1px dashed #e2e8f0", borderRadius: 8, background: "#fafbfc", padding: "24px 22px", maxWidth: 800 }}>
+                        <div style={{ border: "1px dashed var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "24px 22px", maxWidth: 800 }}>
                           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-body)", marginBottom: 8 }}>
                             Not connected to this client&rsquo;s repository
                           </div>
@@ -3569,7 +3626,7 @@ export function ReaiDashboard({
                             const unknown = !c || c.runs === null;
                             return (
                               <div key={pr.number} style={{ ...card, padding: 0, overflow: "hidden" }}>
-                                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 18px", borderBottom: "1px solid #eef1f4", flexWrap: "wrap" }}>
+                                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 18px", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
                                   <div style={{ flex: "1 1 320px", minWidth: 0 }}>
                                     <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)" }}>
                                       #{pr.number} {pr.title}
@@ -3581,8 +3638,8 @@ export function ReaiDashboard({
                                   <span style={{
                                     fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
                                     padding: "4px 9px", borderRadius: 4, whiteSpace: "nowrap",
-                                    background: unknown ? "var(--surface-3)" : green ? "#e4efe9" : c.pending ? "#f7efd9" : "#f8e8e3",
-                                    color: unknown ? "var(--ink-muted)" : green ? "#2c6b4f" : c.pending ? "#8a6a14" : "#a33a22",
+                                    background: unknown ? "var(--surface-3)" : green ? "var(--ok-tint)" : c.pending ? "var(--warn-tint)" : "var(--bad-tint)",
+                                    color: unknown ? "var(--ink-muted)" : green ? "var(--ok)" : c.pending ? "var(--warn)" : "var(--bad)",
                                   }}>
                                     {unknown ? "No gate results" : c.pending ? `${c.passed}/${c.total} · still running`
                                       : green ? `All ${c.total} gates green` : `${c.failed} of ${c.total} failed`}
@@ -3596,7 +3653,7 @@ export function ReaiDashboard({
                                       padding: "8px 15px", borderRadius: 6, border: 0, fontSize: 13, fontWeight: 700,
                                       cursor: green ? "pointer" : "not-allowed", whiteSpace: "nowrap",
                                       background: green ? "var(--ink-body)" : "var(--border)",
-                                      color: green ? "#fff" : "var(--ink-muted)",
+                                      color: green ? "var(--color-white)" : "var(--ink-muted)",
                                     }}
                                   >
                                     {mergeBusy === pr.number ? "Merging…" : "Merge"}
@@ -3612,11 +3669,11 @@ export function ReaiDashboard({
                                           const running = r.status !== "completed";
                                           return (
                                             <tr key={r.name}>
-                                              <td style={{ padding: "7px 18px", borderBottom: "1px solid #f4f6f8", width: 24, color: running ? "#8a6a14" : ok ? "#2c6b4f" : "#a33a22", fontWeight: 700 }}>
+                                              <td style={{ padding: "7px 18px", borderBottom: "1px solid var(--surface-2)", width: 24, color: running ? "var(--warn)" : ok ? "var(--ok)" : "var(--bad)", fontWeight: 700 }}>
                                                 {running ? "•" : ok ? "✓" : "✗"}
                                               </td>
-                                              <td style={{ padding: "7px 0", borderBottom: "1px solid #f4f6f8", fontFamily: "ui-monospace, monospace", fontSize: 12.5, color: "var(--ink-body)" }}>{r.name}</td>
-                                              <td style={{ padding: "7px 18px", borderBottom: "1px solid #f4f6f8", color: "var(--ink-muted)", textAlign: "right" }}>
+                                              <td style={{ padding: "7px 0", borderBottom: "1px solid var(--surface-2)", fontFamily: "ui-monospace, monospace", fontSize: 12.5, color: "var(--ink-body)" }}>{r.name}</td>
+                                              <td style={{ padding: "7px 18px", borderBottom: "1px solid var(--surface-2)", color: "var(--ink-muted)", textAlign: "right" }}>
                                                 {running ? r.status.replace("_", " ") : r.conclusion}
                                               </td>
                                             </tr>
@@ -3656,7 +3713,7 @@ export function ReaiDashboard({
                                     took. "One gate is red" is the least useful
                                     moment to have no visibility into what it looked
                                     at. Polls only while something is running. */}
-                                <details style={{ borderTop: "1px solid #eef1f4" }}>
+                                <details style={{ borderTop: "1px solid var(--border)" }}>
                                   <summary style={{ cursor: "pointer", padding: "10px 18px", fontSize: 12.5, fontWeight: 600, color: "var(--accent)" }}>
                                     Watch this run, step by step
                                   </summary>
@@ -3675,7 +3732,7 @@ export function ReaiDashboard({
                       ) : ghConnected === null ? (
                         <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>Loading pull requests…</div>
                       ) : (
-                        <div style={{ border: "1px dashed #e2e8f0", borderRadius: 8, background: "#fafbfc", padding: "24px 22px", maxWidth: 760 }}>
+                        <div style={{ border: "1px dashed var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "24px 22px", maxWidth: 760 }}>
                           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-body)", marginBottom: 8 }}>No open pull requests</div>
                           <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: 0, lineHeight: 1.6, maxWidth: "68ch" }}>{st.absent}</p>
                         </div>
@@ -3691,18 +3748,18 @@ export function ReaiDashboard({
                           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13.5 }}>
                             <thead>
                               <tr>{["#", "Gate", "Phase", "Blocks the merge when"].map(h => (
-                                <th key={h} style={{ textAlign: "left", padding: "10px 14px", borderBottom: "1.5px solid #1e293b", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink)", whiteSpace: "nowrap" }}>{h}</th>
+                                <th key={h} style={{ textAlign: "left", padding: "10px 14px", borderBottom: "1.5px solid var(--ink-body)", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink)", whiteSpace: "nowrap" }}>{h}</th>
                               ))}</tr>
                             </thead>
                             <tbody>
                               {GATE_ROSTER.map((g, i) => (
                                 <tr key={g.name}>
-                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-muted)", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
-                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid #eef1f4", fontFamily: "ui-monospace, monospace", fontSize: 12.5, color: "var(--ink-body)", whiteSpace: "nowrap" }}>{g.name}</td>
-                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid #eef1f4" }}>
-                                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: g.phase === "PRE" ? "var(--accent-tint)" : "var(--surface-3)", color: g.phase === "PRE" ? "var(--accent-hover)" : "#55646f" }}>{g.phase}</span>
+                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
+                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid var(--border)", fontFamily: "ui-monospace, monospace", fontSize: 12.5, color: "var(--ink-body)", whiteSpace: "nowrap" }}>{g.name}</td>
+                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid var(--border)" }}>
+                                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: g.phase === "PRE" ? "var(--accent-tint)" : "var(--surface-3)", color: g.phase === "PRE" ? "var(--accent-hover)" : "var(--ink-muted)" }}>{g.phase}</span>
                                   </td>
-                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid #eef1f4", color: "var(--ink-muted)" }}>{g.blocks}</td>
+                                  <td style={{ padding: "9px 14px", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)" }}>{g.blocks}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -3715,7 +3772,7 @@ export function ReaiDashboard({
                           <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13.5, color: "var(--ink-body)", lineHeight: 1.7 }}>
                             {MERGE_POLICY.map((r) => (
                               <li key={r.condition}>
-                                {r.condition} <span style={{ color: "var(--ink-muted)" }}>— otherwise <b style={{ color: "#a33a22" }}>HUMAN</b>: {r.otherwise}</span>
+                                {r.condition} <span style={{ color: "var(--ink-muted)" }}>— otherwise <b style={{ color: "var(--bad)" }}>HUMAN</b>: {r.otherwise}</span>
                               </li>
                             ))}
                           </ol>
@@ -3726,7 +3783,7 @@ export function ReaiDashboard({
 
                   {/* ── Stages with no result yet: plan (unplanned) and fix ── */}
                   {(st.id === "fix" || (st.id === "plan" && !hasResult)) ? (
-                    <div style={{ border: "1px dashed #e2e8f0", borderRadius: 8, background: "#fafbfc", padding: "28px 24px", maxWidth: 760 }}>
+                    <div style={{ border: "1px dashed var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "28px 24px", maxWidth: 760 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-body)", marginBottom: 8 }}>
                         {st.id === "plan" ? "Nothing planned for this cycle yet" : "Nothing fixed in this cycle yet"}
                       </div>
@@ -3737,7 +3794,7 @@ export function ReaiDashboard({
                           type="button"
                           onClick={() => planState.runPlan()}
                           disabled={planState.planBusy}
-                          style={{ marginTop: 16, padding: "8px 14px", borderRadius: 6, border: 0, cursor: "pointer", background: "var(--ink-body)", color: "#fff", fontSize: 13, fontWeight: 600, opacity: planState.planBusy ? 0.6 : 1 }}
+                          style={{ marginTop: 16, padding: "8px 14px", borderRadius: 6, border: 0, cursor: "pointer", background: "var(--ink-body)", color: "var(--color-white)", fontSize: 13, fontWeight: 600, opacity: planState.planBusy ? 0.6 : 1 }}
                         >
                           {planState.planBusy ? "Planning…" : "Run Plan"}
                         </button>
@@ -3746,7 +3803,7 @@ export function ReaiDashboard({
                         <button
                           type="button"
                           onClick={() => { setActiveStage(null); setActiveTab("Auto-Fix Engine"); }}
-                          style={{ marginTop: 16, padding: "8px 14px", borderRadius: 6, border: 0, cursor: "pointer", background: "var(--ink-body)", color: "#fff", fontSize: 13, fontWeight: 600 }}
+                          style={{ marginTop: 16, padding: "8px 14px", borderRadius: 6, border: 0, cursor: "pointer", background: "var(--ink-body)", color: "var(--color-white)", fontSize: 13, fontWeight: 600 }}
                         >
                           Open the Auto-Fix Engine
                         </button>
@@ -3785,19 +3842,19 @@ export function ReaiDashboard({
                       <div style={{
                         marginTop: 12, display: "flex", gap: 10, alignItems: "flex-start",
                         padding: "10px 13px", borderRadius: 6, maxWidth: "78ch",
-                        background: ct.evidence.strength === "strong" ? "#e4efe9"
-                          : ct.evidence.strength === "mixed" ? "#f7efd9" : "var(--surface-3)",
-                        border: `1px solid ${ct.evidence.strength === "strong" ? "#c7e0d3"
-                          : ct.evidence.strength === "mixed" ? "#ecdcb0" : "var(--border)"}`,
+                        background: ct.evidence.strength === "strong" ? "var(--ok-tint)"
+                          : ct.evidence.strength === "mixed" ? "var(--warn-tint)" : "var(--surface-3)",
+                        border: `1px solid ${ct.evidence.strength === "strong" ? "var(--ok-border)"
+                          : ct.evidence.strength === "mixed" ? "var(--warn-border)" : "var(--border)"}`,
                       }}>
                         <span style={{
                           fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase",
                           padding: "2px 7px", borderRadius: 3, whiteSpace: "nowrap", marginTop: 1,
-                          background: "#fff",
-                          color: ct.evidence.strength === "strong" ? "#2c6b4f"
-                            : ct.evidence.strength === "mixed" ? "#8a6a14" : "var(--ink-muted)",
-                          border: `1px solid ${ct.evidence.strength === "strong" ? "#c7e0d3"
-                            : ct.evidence.strength === "mixed" ? "#ecdcb0" : "var(--border)"}`,
+                          background: "var(--color-white)",
+                          color: ct.evidence.strength === "strong" ? "var(--ok)"
+                            : ct.evidence.strength === "mixed" ? "var(--warn)" : "var(--ink-muted)",
+                          border: `1px solid ${ct.evidence.strength === "strong" ? "var(--ok-border)"
+                            : ct.evidence.strength === "mixed" ? "var(--warn-border)" : "var(--border)"}`,
                         }}>
                           {ct.evidence.strength === "strong" ? "Evidence: strong"
                             : ct.evidence.strength === "mixed" ? "Evidence: mixed" : "Evidence: weak"}
@@ -3916,20 +3973,11 @@ export function ReaiDashboard({
                   {/* The comparison hero carries its own centred title, so the
                       plain page header would only duplicate it. */}
                   {!HERO_VIEWS.has(view.id) && (
-                    <div style={{ marginBottom: "var(--space-5)" }}>
-                      <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)", margin: 0 }}>
-                        {view.label}
-                      </h1>
-                      <p
-                        style={{
-                          fontSize: 13,
-                          color: "var(--ink-muted)",
-                          margin: "var(--space-1) 0 0",
-                          maxWidth: "70ch",
-                        }}
-                      >
-                        {view.blurb}
-                      </p>
+                    <div className="tool-head" style={{ marginBottom: "var(--space-4)" }}>
+                      <div className="tool-head__text">
+                        <h1 className="tool-head__title">{view.label}</h1>
+                        <p className="tool-head__blurb">{view.blurb}</p>
+                      </div>
                     </div>
                   )}
                   {/* "If SEO, when audit only audit about SEO." Mounted once on
@@ -3964,21 +4012,21 @@ export function ReaiDashboard({
                     // The one search tool built out as a full dashboard: cards,
                     // position distribution, movement, trend and top keywords,
                     // from the metrics the scanner now attaches to the row.
-                    <>
-                      {/* Charts of the domain's ranked keywords, which older scans
-                          have even without the detailed overview metrics. */}
-                      <ViewCharts viewId="organic-rankings" label="Domain Overview" rows={rowsForView(report, viewById("organic-rankings")!) as any} report={report} />
-                      <DomainOverviewDashboard rows={[...rows, ...rowsForView(report, viewById("organic-rankings")!)]} />
-                    </>
+                    // One dashboard. The ranked-keyword charts that sat above it
+                    // repeated its positions and keywords (a second summary).
+                    <DomainOverviewDashboard rows={[...rows, ...rowsForView(report, viewById("organic-rankings")!)]} />
                   ) : (
                     <>
-                      <ReportStats rows={rows} search={isSearchView(view)} />
+                      {/* Counts and charts only over data: an unscanned page showed
+                          a "Results 0" strip and an empty chart card above the
+                          table's own empty state, three empty boxes for one fact. */}
+                      {rows.length > 0 && <ReportStats rows={rows} search={isSearchView(view)} />}
                       {/* Every search view gets charts above its table when its
                           rows carry rank/volume — a picture first, then the data.
                           Renders nothing when there is nothing to plot. */}
                       {/* Every tool page opens on charts of its own rows (operator,
                           2026-09-15: "every overview"), then the table. */}
-                      <ViewCharts viewId={view.id} label={view.label} rows={rows as any} report={report} />
+                      {rows.length > 0 && <ViewCharts viewId={view.id} label={view.label} rows={rows as any} report={report} />}
                       {/* No empty-state "Run an audit" button here: it navigated
                           to the Site Health screen instead of running this tool,
                           and every view already carries its own correctly-worded
@@ -4009,6 +4057,9 @@ export function ReaiDashboard({
             <>
           
           {/* Breadcrumb & Project Selector Header */}
+          {/* First run shows only the onboarding panel: no header, title or picker
+              over a project that does not exist (UX audit #3). */}
+          {!(activeTab === "Overview" && !selectedClient) && (
           <div style={{ marginBottom: 18 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ink-muted)", marginBottom: 8, flexWrap: "wrap" }}>
               <span>Home</span>
@@ -4019,10 +4070,10 @@ export function ReaiDashboard({
                 <>
                   <span style={{
                     fontSize: 12, fontWeight: 700, color: "var(--ink-body)",
-                    background: "var(--surface-3)", border: "1px solid #e2e8f0",
+                    background: "var(--surface-3)", border: "1px solid var(--border)",
                     padding: "1px 8px", borderRadius: 12, display: "inline-flex", alignItems: "center", gap: 4,
                   }}>
-                    <span>📊</span> Traffic & Market
+                    <Icon name="chart" /> Traffic & Market
                   </span>
                   <span>›</span>
                   <span style={{ color: "var(--ink-body)", fontWeight: 700 }}>Traffic Analytics</span>
@@ -4030,11 +4081,11 @@ export function ReaiDashboard({
               ) : activeTab === "AI & AEO Lab" ? (
                 <>
                   <span style={{
-                    fontSize: 12, fontWeight: 700, color: "#6d28d9",
-                    background: "#f5f3ff", border: "1px solid #ddd6fe",
-                    padding: "1px 8px", borderRadius: 12, display: "inline-flex", alignItems: "center", gap: 4,
+                    fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    padding: "1px 8px", borderRadius: "var(--radius-full)", display: "inline-flex", alignItems: "center", gap: 4,
                   }}>
-                    <span>🤖</span> AI Search Visibility (AEO)
+                    <Icon name="bot" /> AI Search Visibility (AEO)
                   </span>
                   <span>›</span>
                   <span style={{ color: "var(--ink-body)", fontWeight: 700 }}>
@@ -4047,11 +4098,11 @@ export function ReaiDashboard({
               ) : activeTab === "Auto-Fix Engine" ? (
                 <>
                   <span style={{
-                    fontSize: 12, fontWeight: 700, color: "#065f46",
-                    background: "var(--ok-tint)", border: "1px solid #a7f3d0",
-                    padding: "1px 8px", borderRadius: 12, display: "inline-flex", alignItems: "center", gap: 4,
+                    fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    padding: "1px 8px", borderRadius: "var(--radius-full)", display: "inline-flex", alignItems: "center", gap: 4,
                   }}>
-                    <span>⚡</span> Fix & Improve
+                    <Icon name="bolt" /> Fix & Improve
                   </span>
                   <span>›</span>
                   <span style={{ color: "var(--ink-body)", fontWeight: 700 }}>Auto-Fix Review</span>
@@ -4061,11 +4112,11 @@ export function ReaiDashboard({
               ) : (
                 <>
                   <span style={{
-                    fontSize: 12, fontWeight: 700, color: "#1e40af",
-                    background: "var(--info-tint)", border: "1px solid #bfdbfe",
-                    padding: "1px 8px", borderRadius: 12, display: "inline-flex", alignItems: "center", gap: 4,
+                    fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    padding: "1px 8px", borderRadius: "var(--radius-full)", display: "inline-flex", alignItems: "center", gap: 4,
                   }}>
-                    <span>🌐</span> SEO Foundations
+                    <Icon name="globe" /> SEO Foundations
                   </span>
                   <span>›</span>
                   <span style={{ color: "var(--ink-body)", fontWeight: 700 }}>
@@ -4089,7 +4140,7 @@ export function ReaiDashboard({
 
             {/* Project Title Bar with Real Domain Switcher */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-              <div style={{ position: "relative", display: "inline-block" }}>
+              <div style={{ position: "relative", display: "inline-block", maxWidth: "100%", minWidth: 0 }}>
                 {showHeaderSkeleton ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0" }}>
                     <SkeletonBox width={190} height={24} borderRadius={6} />
@@ -4101,11 +4152,13 @@ export function ReaiDashboard({
                     onClick={() => setDomainDropdown(!domainDropdown)}
                     style={{
                       background: "none", border: 0, padding: "2px 0", cursor: "pointer",
-                      display: "flex", alignItems: "center", gap: 8, fontSize: 18, fontWeight: 700, color: "var(--ink-body)",
+                      display: "flex", alignItems: "baseline", flexWrap: "wrap", columnGap: 8, rowGap: 2, maxWidth: "100%", textAlign: "left",
+                      fontSize: "var(--text-h3)", fontWeight: 700, color: "var(--ink)",
+                      letterSpacing: "var(--tracking-heading)",
                     }}
                   >
                     <span>{currentBusiness}</span>
-                    <span style={{ fontSize: 12.5, color: "var(--ink-muted)", fontWeight: 400 }}>({currentDomain})</span>
+                    <span style={{ fontSize: "var(--text-body-sm)", color: "var(--ink-muted)", fontWeight: 400, letterSpacing: 0, overflowWrap: "anywhere" }}>({currentDomain})</span>
                     <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>▼</span>
                   </button>
                 )}
@@ -4114,7 +4167,7 @@ export function ReaiDashboard({
                 {domainDropdown && (
                   <div style={{
                     position: "absolute", top: "100%", left: 0, marginTop: 10, background: "var(--surface)",
-                    border: "1px solid #e8ecf1", borderRadius: 12, boxShadow: "0 12px 30px -5px rgba(0,0,0,0.1)",
+                    border: "1px solid var(--border)", borderRadius: 12, boxShadow: "0 12px 30px -5px rgba(0,0,0,0.1)",
                     width: 340, zIndex: 100, padding: "8px 0",
                   }}>
                     <div style={{ padding: "10px 18px 6px", fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -4129,8 +4182,8 @@ export function ReaiDashboard({
                         }}
                         style={{
                           padding: "12px 18px", cursor: "pointer",
-                          background: c.id === selectedClient?.id ? "#eff3f8" : "transparent",
-                          borderBottom: "1px solid #f8fafc",
+                          background: c.id === selectedClient?.id ? "var(--surface-3)" : "transparent",
+                          borderBottom: "1px solid var(--surface-2)",
                           transition: "background 0.15s ease",
                         }}
                         onMouseEnter={(e) => {
@@ -4141,7 +4194,7 @@ export function ReaiDashboard({
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div style={{ fontSize: 13.5, fontWeight: 600, color: c.id === selectedClient?.id ? "var(--ink-body)" : "#334155" }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 600, color: c.id === selectedClient?.id ? "var(--ink-body)" : "var(--ink-body)" }}>
                             {c.business || c.domain}
                           </div>
                           {c.lastCounts && (
@@ -4171,7 +4224,7 @@ export function ReaiDashboard({
                                 openEditProject(c);
                               }}
                               style={{
-                                background: "transparent", border: "1px solid #e2e8f0", borderRadius: 6,
+                                background: "transparent", border: "1px solid var(--border)", borderRadius: 6,
                                 padding: "3px 9px", fontSize: 11.5, fontWeight: 600,
                                 color: "var(--ink-muted)", cursor: "pointer", whiteSpace: "nowrap",
                               }}
@@ -4187,7 +4240,7 @@ export function ReaiDashboard({
                         setDomainDropdown(false);
                         openCreateProject();
                       }}
-                      style={{ padding: "12px 18px", cursor: "pointer", color: "var(--accent)", fontSize: 12.5, fontWeight: 600, borderTop: "1px solid #edf0f4" }}
+                      style={{ padding: "12px 18px", cursor: "pointer", color: "var(--accent)", fontSize: 12.5, fontWeight: 600, borderTop: "1px solid var(--border)" }}
                     >
                       + Create New SEO Project
                     </div>
@@ -4196,26 +4249,18 @@ export function ReaiDashboard({
               </div>
 
               {/* Action Buttons */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                 <button
                   type="button"
                   onClick={() => setShowExecutiveReportModal(true)}
-                  style={{
-                    background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 8,
-                    padding: "9px 16px", fontSize: 13, fontWeight: 600, color: "var(--ink-body)", cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6,
-                  }}
+                  className="btn btn--secondary btn--sm"
                 >
-                  <span>📄</span> Client Report
+                  Client Report
                 </button>
                 <button
                   type="button"
                   onClick={() => openCreateProject()}
-                  style={{
-                    background: "var(--surface)", border: "1px solid #e2e8f0", borderRadius: 8,
-                    padding: "9px 18px", fontSize: 13, fontWeight: 600, color: "#334155", cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-                  }}
+                  className="btn btn--secondary btn--sm"
                 >
                   + Create Project
                 </button>
@@ -4225,36 +4270,62 @@ export function ReaiDashboard({
                     setActiveTab("Site Health & Audit");
                     setAuditSubTab("all_checks");
                   }}
-                  style={{
-                    background: "var(--ink-body)", border: 0, borderRadius: 8,
-                    padding: "9px 18px", fontSize: 13, fontWeight: 600, color: "var(--surface)", cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(30, 41, 59, 0.2)",
-                  }}
+                  className="btn btn--secondary btn--sm"
                 >
                   Full Technical Report →
                 </button>
               </div>
             </div>
           </div>
+          )}
 
           {/* ── SUB-VIEW 1: EXECUTIVE OVERVIEW DASHBOARD (OR SKELETON SHIMMER) ── */}
           {showSkeleton ? (
             <PageSkeletonLayout tab={activeTab} />
           ) : (
             <>
-              {activeTab === "Overview" && (
+              {activeTab === "Overview" && !selectedClient && (
+                <Onboarding
+                  url={newUrl} setUrl={setNewUrl}
+                  biz={newBiz} setBiz={setNewBiz}
+                  saving={savingProject}
+                  onSubmit={handleCreateProjectSubmit}
+                  projects={clients.map((c) => ({ id: c.id, business: c.business, domain: c.domain }))}
+                  onChooseProject={(id) => { const c = clients.find((x) => x.id === id); if (c) onSelectClient(c); }}
+                />
+              )}
+              {activeTab === "Overview" && selectedClient && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* ── 1. SEO DASHBOARD: monitoring charts from the saved scans and the
-                  open report (components/dashboard/SeoDashboard.tsx). Replaced four
-                  KPI cards and a traffic chart with no data behind it. ── */}
+              {/* Step 2 of getting started, until the first audit exists. */}
+              {!report && <OnboardingSteps current={2} />}
+              {/* ── SEO DASHBOARD ── The on-page audit's run bar, then the
+                  dashboard (components/dashboard/SeoDashboard.tsx): Site Health
+                  and why, top issues, crawled pages, then search and links.
+                  The ranked issues replaced PriorityActions here, which listed
+                  the same findings a second time. ── */}
+              <AuditHeroBar
+                currentDomain={currentDomain}
+                onRunAudit={runOnpageAudit}
+                isScanning={scanState?.busy}
+                phaseLine={scanState?.phaseLine}
+                scanTools={scanState?.tools}
+                liveLogs={scanState?.live}
+                pages={crawlPages}
+                onPagesChange={(n) => onCrawlPagesChange?.(n)}
+                lastScanAt={openReport?.scan?.created_at}
+                onEditProject={selectedClient ? () => openEditProject(selectedClient) : undefined}
+                onCreateProject={() => openCreateProject()}
+              />
               <SeoDashboard
                 report={report}
                 scans={scans}
                 domain={currentDomain}
+                onRun={currentDomain ? () => runOnpageAudit(currentDomain, [...ONPAGE_AUDIT_TOOLS], crawlPages) : undefined}
                 onOpen={(target) => {
-                  if (target === "site-audit") {
+                  if (target === "site-audit" || target === "issues" || target === "pages") {
                     setActiveTab("Site Health & Audit");
                     setAuditProjectList(false);
+                    setAuditSubTab(target === "site-audit" ? "summary" : target);
                   } else if (target === "ai") {
                     selectAeoFocus("matrix");
                   } else {
@@ -4262,273 +4333,6 @@ export function ReaiDashboard({
                   }
                 }}
               />
-
-              {/* ── 3. AUDIT WEBSITE HERO INPUT ── */}
-              <AuditHeroBar
-                currentDomain={currentDomain}
-                onRunAudit={(url) => {
-                  if (onTriggerScan) onTriggerScan(url);
-                }}
-                isScanning={scanState?.busy}
-                phaseLine={scanState?.phaseLine}
-                scanTools={scanState?.tools}
-                liveLogs={scanState?.live}
-                report={report}
-                onSelectFix={(code) => {
-                  setActiveTab("Auto-Fix Engine");
-                  if (planState && !planState.plan?.worklist) planState.runPlan();
-                }}
-              />
-
-              {/* ── 4. TWO-COLUMN DEEP DIAGNOSTICS: TECHNICAL SEO & AEO MATRIX ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 14 }}>
-                {/* ── LEFT COLUMN: TECHNICAL SEO & WEB VITALS ── */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                      <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Technical Health & Web Vitals</h4>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 8px", borderRadius: 4 }}>
-                        {dynamicHealth == null ? "Not measured" : `${dynamicHealth}% Score`}
-                      </span>
-                    </div>
-
-                    {/* Donut & Summary row */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14 }}>
-                      {/* No donut over an unmeasured score: a ring at 0% reads
-                          as a verdict, and there isn't one. */}
-                      {dynamicHealth !== null && <SiteHealthDonut score={dynamicHealth} size={76} />}
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
-                          <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid #edf0f4" }}>
-                            <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Errors</div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: "#ef4444", marginTop: 2 }}>{errChecks}</div>
-                          </div>
-                          <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid #edf0f4" }}>
-                            <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Warnings</div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: "#f59e0b", marginTop: 2 }}>{warnChecks}</div>
-                          </div>
-                          <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid #edf0f4" }}>
-                            <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Passing</div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: "#10b981", marginTop: 2 }}>{okChecks}</div>
-                          </div>
-                        </div>
-                        <div style={{ marginTop: 12, marginBottom: 4 }}>
-                          <CrawledPagesBar ok={okChecks} warn={warnChecks} error={errChecks} info={infoChecks} />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Core Web Vitals */}
-                    <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>Core Web Vitals (Lighthouse)</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                        <div style={{ padding: "10px 12px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid #e2e8f0" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>LCP</span>
-                            <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.lcp.status)}>
-                              {projectMetrics.onPageSeoData.coreWebVitals.lcp.status}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: 18, fontWeight: 800, color: projectMetrics.onPageSeoData.coreWebVitals.lcp.color, marginBottom: 6 }}>
-                            {projectMetrics.onPageSeoData.coreWebVitals.lcp.val}
-                          </div>
-                          <LighthouseGaugeBar
-                            val={projectMetrics.onPageSeoData.coreWebVitals.lcp.val}
-                            status={projectMetrics.onPageSeoData.coreWebVitals.lcp.status}
-                            color={projectMetrics.onPageSeoData.coreWebVitals.lcp.color}
-                          />
-                        </div>
-                        <div style={{ padding: "10px 12px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid #e2e8f0" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>INP</span>
-                            <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.inp.status)}>
-                              {projectMetrics.onPageSeoData.coreWebVitals.inp.status}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: 18, fontWeight: 800, color: projectMetrics.onPageSeoData.coreWebVitals.inp.color, marginBottom: 6 }}>
-                            {projectMetrics.onPageSeoData.coreWebVitals.inp.val}
-                          </div>
-                          <LighthouseGaugeBar
-                            val={projectMetrics.onPageSeoData.coreWebVitals.inp.val}
-                            status={projectMetrics.onPageSeoData.coreWebVitals.inp.status}
-                            color={projectMetrics.onPageSeoData.coreWebVitals.inp.color}
-                          />
-                        </div>
-                        <div style={{ padding: "10px 12px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid #e2e8f0" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>CLS</span>
-                            <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.cls.status)}>
-                              {projectMetrics.onPageSeoData.coreWebVitals.cls.status}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: 18, fontWeight: 800, color: projectMetrics.onPageSeoData.coreWebVitals.cls.color, marginBottom: 6 }}>
-                            {projectMetrics.onPageSeoData.coreWebVitals.cls.val}
-                          </div>
-                          <LighthouseGaugeBar
-                            val={projectMetrics.onPageSeoData.coreWebVitals.cls.val}
-                            status={projectMetrics.onPageSeoData.coreWebVitals.cls.status}
-                            color={projectMetrics.onPageSeoData.coreWebVitals.cls.color}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12, marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                      {pagesChecked > 0 ? `${pagesChecked} URL(s) checked` : "No URLs checked yet"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab("Site Health & Audit");
-                        setAuditSubTab("all_checks");
-                      }}
-                      style={{ background: "var(--ink-body)", color: "#fff", border: 0, borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      Audit Details →
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── RIGHT COLUMN: AI SEARCH CITATIONS & EXTRACTION ── */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div>
-                    <AeoAccessPanel aeoRows={measured(report?.aeo as any[])} />
-                  </div>
-
-                  <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12, marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                      {/* The mentions tool is paid and off by default, so the
-                          honest reading is usually "not measured", not a count. */}
-                      {(() => {
-                        const rows = measured(report?.mentions as any[]) as Array<any>;
-                        const row = rows.find((r) => typeof r?.detail === "string" && /\d/.test(r.detail));
-                        return row ? `${row.detail} brand mentions` : "Brand mentions not measured";
-                      })()}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("AI & AEO Lab")}
-                      style={{ background: "var(--accent)", color: "#fff", border: 0, borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      AEO Lab →
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* ── 6. SHARED "TOP PRIORITIES" LIST (WHAT TO DO NEXT) ── */}
-              <PriorityActions
-                priorities={livePriorities}
-                onSelectAction={(priority) => {
-                  // Route on the finding's own code rather than on fixture ids.
-                  // The previous branches matched three hardcoded ids that no
-                  // longer exist now the list is derived from the scan.
-                  const code = priority.id.replace(/^priority-/, "");
-                  if (priority.isAutoFixable) {
-                    setActiveTab("Auto-Fix Engine");
-                  } else if (code.startsWith("schema.") || code.includes("schema")) {
-                    setActiveTab("AI & AEO Lab");
-                    setAeoActiveFocus("schema");
-                  } else if (code.startsWith("aeo.") || code.startsWith("ai.")) {
-                    setActiveTab("AI & AEO Lab");
-                  } else if (priority.actionTab) {
-                    setActiveTab(priority.actionTab);
-                  } else {
-                    setActiveTab("Site Health & Audit");
-                  }
-                }}
-              />
-
-              {/* ── 7. REMEDIATION ACTION CARD ── */}
-              <div style={{
-                background: "linear-gradient(135deg, #181f2a 0%, #252e3d 100%)",
-                borderRadius: 8, padding: "14px 20px", color: "var(--surface)",
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                border: "1px solid #2d384a",
-              }}>
-                <div>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>
-                    Auto-Fix Review & Remediation
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                    Automated inspection and safe code remediation for {currentDomain}. Review changes before applying.
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("Auto-Fix Engine")}
-                    style={{
-                      background: "#059669", color: "#fff", border: 0, borderRadius: 6,
-                      padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                    }}
-                  >
-                    Review in Auto-Fix →
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab("Site Health & Audit");
-                      setAuditSubTab("all_checks");
-                    }}
-                    style={{
-                      background: "rgba(255,255,255,0.08)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)",
-                      borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                    }}
-                  >
-                    Full Report
-                  </button>
-                </div>
-              </div>
-
-              {/* ── 8. GUIDED PROJECT JOURNEY CHECKLIST & ROADMAP ── */}
-              {/*
-                Evidence in, stage out. This call site used to hand the bar a
-                literal stage number, and never passed the Google flag at all,
-                so it reported the same stage forever and always showed Search
-                Console as disconnected. `lib/journey` derives the stage now;
-                nothing here can assert one, and a navigation test fails if a
-                caller starts doing so again.
-              */}
-              <ProjectJourney
-                client={selectedClient}
-                hasGsc={googleConnected && !!selectedGscProperty}
-                report={report}
-                plan={planState?.plan}
-                remediations={remedHist}
-                apply={planState?.apply}
-                onStepClick={(step) => {
-                  if (step === 2) { setActiveTab("Traffic Analytics"); }
-                  else if (step === 3) { setActiveTab("Site Health & Audit"); setAuditSubTab("summary"); }
-                  else if (step === 5) { setActiveTab("Auto-Fix Engine"); }
-                }}
-              />
-
-              {/* ── 9. FOUNDATIONAL PRINCIPLE CALLOUT BANNER ── */}
-              <div style={{
-                background: "var(--surface)", border: "1px solid #e2e8f0", borderRadius: 8,
-                padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 8, background: "var(--info-tint)",
-                    border: "1px solid #bfdbfe", display: "grid", placeItems: "center", fontSize: 18, flexShrink: 0,
-                  }}>
-                    💡
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)" }}>
-                      SEO is the foundation. AI Search Visibility builds on good SEO.
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                      SEO helps search engines understand and rank your site. AI Search Visibility builds on SEO to help AI answer tools understand and cite it.
-                      {" "}<span style={{ color: "var(--ink-muted)", fontSize: 12 }}>(AEO optimizes technical extractability and schema clarity; it does not guarantee citations, rankings, or traffic).</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -4538,62 +4342,59 @@ export function ReaiDashboard({
               {/* ── GOOGLE SEARCH CONSOLE & GA4 INTEGRATION BAR ── */}
               {!googleConnected ? (
                 <div style={{
-                  background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)",
-                  borderRadius: 10, padding: "14px 18px", color: "var(--surface)",
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-md)",
+                  boxShadow: "var(--shadow-sm)",
+                  padding: "var(--space-4) var(--space-5)",
                   display: "flex", justifyContent: "space-between", alignItems: "center",
-                  flexWrap: "wrap", gap: 12, boxShadow: "0 4px 14px rgba(49, 46, 129, 0.2)",
+                  flexWrap: "wrap", gap: "var(--space-4)",
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flex: "1 1 260px", minWidth: 0 }}>
                     <div style={{
-                      width: 38, height: 38, borderRadius: 9, background: "var(--surface)",
+                      width: 40, height: 40, borderRadius: "var(--radius-md)", background: "var(--accent-tint)",
+                      border: "1px solid var(--accent-border)",
                       display: "grid", placeItems: "center", flexShrink: 0,
                     }}>
                       <IconGoogle size={22} />
                     </div>
-                    <div>
-                      <div style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: "-0.01em" }}>
+                    <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                      <div style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--ink)" }}>
                         Connect Google Search Console & GA4
                       </div>
-                      <div style={{ fontSize: 12, color: "var(--accent-border)", marginTop: 2 }}>
-                        Unlock 100% verified first-party organic clicks, impressions, and exact Google search queries for <b>{currentDomain}</b> with zero manual credentials.
+                      <div style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)", marginTop: 2, maxWidth: "62ch" }}>
+                        Show verified first-party organic clicks, impressions, and exact Google search queries for <b>{currentDomain}</b>. No manual credentials.
                       </div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button
-                      type="button"
-                      onClick={handleConnectGoogle}
-                      disabled={googleConnecting}
-                      style={{
-                        background: "var(--surface)", color: "#1e1b4b", fontWeight: 700, fontSize: 12.5,
-                        padding: "8px 16px", borderRadius: 7, border: 0, cursor: "pointer",
-                        display: "flex", alignItems: "center", gap: 7, boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-                      }}
-                    >
-                      <IconGoogle size={14} />
-                      <span>{googleConnecting ? "Connecting to Google..." : "Connect Google Account →"}</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={handleConnectGoogle}
+                    disabled={googleConnecting}
+                  >
+                    <IconGoogle size={14} />
+                    <span>{googleConnecting ? "Connecting to Google..." : "Connect Google Account"}</span>
+                  </button>
                 </div>
               ) : (
                 <div style={{
-                  background: "var(--surface)", border: "1px solid #dcfce7", borderRadius: 10,
-                  padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center",
-                  flexWrap: "wrap", gap: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                  background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-4)", display: "flex", justifyContent: "space-between", alignItems: "center",
+                  flexWrap: "wrap", gap: "var(--space-3)", boxShadow: "var(--shadow-sm)",
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: hasCurrentDomainInGsc ? "var(--ok)" : "#d97706" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-sm)", fontWeight: 600, color: hasCurrentDomainInGsc ? "var(--ok)" : "var(--warn)" }}>
                       <span style={{
-                        width: 8, height: 8, borderRadius: "50%",
-                        background: hasCurrentDomainInGsc ? "#10b981" : "#f59e0b",
-                        boxShadow: `0 0 6px ${hasCurrentDomainInGsc ? "#10b981" : "#f59e0b"}`
+                        width: 8, height: 8, borderRadius: "var(--radius-full)",
+                        background: hasCurrentDomainInGsc ? "var(--ok)" : "var(--warn)",
                       }} />
                       <span>{hasCurrentDomainInGsc ? "Google Search Console Connected" : "Google Account Connected"}</span>
                     </div>
-                    <span style={{ color: "var(--border)" }}>|</span>
+                    <span style={{ color: "var(--border-strong)" }}>|</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                        Account: <b style={{ color: "#334155" }}>{googleAccount}</b>
+                      <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
+                        Account: <b style={{ color: "var(--ink-body)" }}>{googleAccount}</b>
                       </span>
                       <button
                         type="button"
@@ -4601,17 +4402,17 @@ export function ReaiDashboard({
                           window.location.href = "/api/auth/google?prompt=select_account%20consent";
                         }}
                         style={{
-                          background: "var(--surface-3)", border: "1px solid #cbd5e1", borderRadius: 4,
-                          padding: "1px 6px", fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", cursor: "pointer",
+                          background: "var(--surface-3)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-xs)",
+                          padding: "1px 6px", fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-muted)", cursor: "pointer",
                         }}
                         title="Switch to another Google Account"
                       >
                         Switch Gmail
                       </button>
                     </div>
-                    <span style={{ color: "var(--border)" }}>|</span>
+                    <span style={{ color: "var(--border-strong)" }}>|</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>Property:</span>
+                      <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>Property:</span>
                       <select
                         value={selectedGscProperty}
                         onChange={(e) => {
@@ -4625,8 +4426,8 @@ export function ReaiDashboard({
                           fetchGscAnalytics(nextProp);
                         }}
                         style={{
-                          background: "var(--surface-2)", border: "1px solid #cbd5e1", borderRadius: 6,
-                          padding: "3px 8px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
+                          background: "var(--surface-2)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-sm)",
+                          padding: "3px 8px", fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-body)",
                         }}
                       >
                         {verifiedGscProperties.length > 0 ? (
@@ -4646,8 +4447,8 @@ export function ReaiDashboard({
                   {/* Mode Switcher Toggle */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{
-                      fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)",
-                      border: "1px solid #a7f3d0", padding: "3px 9px", borderRadius: 6,
+                      fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ok)", background: "var(--ok-tint)",
+                      border: "1px solid var(--ok-border)", padding: "3px 9px", borderRadius: "var(--radius-sm)",
                     }}>
                       Source: Google Search Console
                     </span>
@@ -4655,17 +4456,16 @@ export function ReaiDashboard({
                     {/* Live Auto-Refresh Controller */}
                     {trafficDataSource === "gsc" && (
                       <div style={{
-                        display: "flex", alignItems: "center", gap: 6, fontSize: 12,
-                        background: autoRefreshInterval !== "off" ? "#f0fdf4" : "var(--surface-2)",
-                        border: `1px solid ${autoRefreshInterval !== "off" ? "#bbf7d0" : "var(--border)"}`,
-                        padding: "3px 8px", borderRadius: 6,
+                        display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)",
+                        background: autoRefreshInterval !== "off" ? "var(--ok-tint)" : "var(--surface-2)",
+                        border: `1px solid ${autoRefreshInterval !== "off" ? "var(--ok-border)" : "var(--border)"}`,
+                        padding: "3px 8px", borderRadius: "var(--radius-sm)",
                       }}>
                         <span style={{
-                          width: 6.5, height: 6.5, borderRadius: "50%",
-                          background: autoRefreshInterval !== "off" ? "#10b981" : "#94a3b8",
-                          boxShadow: autoRefreshInterval !== "off" ? "0 0 5px #10b981" : "none",
+                          width: 8, height: 8, borderRadius: "var(--radius-full)",
+                          background: autoRefreshInterval !== "off" ? "var(--ok)" : "var(--ink-faint)",
                         }} />
-                        <span style={{ color: autoRefreshInterval !== "off" ? "#166534" : "var(--ink-muted)", fontWeight: 700 }}>
+                        <span style={{ color: autoRefreshInterval !== "off" ? "var(--ok)" : "var(--ink-muted)", fontWeight: 600 }}>
                           {autoRefreshInterval !== "off" ? `Auto-refresh (${syncCountdown}s)` : "Paused"}
                         </span>
                         <select
@@ -4676,8 +4476,8 @@ export function ReaiDashboard({
                             if (typeof window !== "undefined") localStorage.setItem("reai_traffic_autorefresh", val);
                           }}
                           style={{
-                            background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 4,
-                            padding: "1px 4px", fontSize: 12, fontWeight: 700, color: "var(--ink-body)", cursor: "pointer",
+                            background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-xs)",
+                            padding: "1px 4px", fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-body)", cursor: "pointer",
                           }}
                         >
                           <option value="30s">30s</option>
@@ -4693,12 +4493,12 @@ export function ReaiDashboard({
                             setTimeout(() => setSyncToast(null), 2500);
                           }}
                           style={{
-                            background: "transparent", border: 0, cursor: "pointer", fontSize: 12,
-                            color: "var(--ok)", padding: "0 2px", fontWeight: 700,
+                            background: "transparent", border: 0, cursor: "pointer", fontSize: "var(--text-xs)",
+                            color: "var(--accent-ink)", padding: "0 2px", fontWeight: 600,
                           }}
                           title="Force sync now"
                         >
-                          🔄
+                          Sync now
                         </button>
                       </div>
                     )}
@@ -4707,11 +4507,11 @@ export function ReaiDashboard({
                       type="button"
                       onClick={() => setShowIntegrationsModal(true)}
                       style={{
-                        background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 6,
-                        padding: "5px 9px", fontSize: 12, color: "var(--ink-muted)", cursor: "pointer", fontWeight: 600,
+                        background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+                        padding: "5px 9px", fontSize: "var(--text-xs)", color: "var(--ink-muted)", cursor: "pointer", fontWeight: 600,
                       }}
                     >
-                      ⚙️ Manage
+                      Manage
                     </button>
                   </div>
                 </div>
@@ -4720,24 +4520,22 @@ export function ReaiDashboard({
               {/* Notice when current project website is NOT in the connected Google Account */}
               {googleConnected && !hasCurrentDomainInGsc && (
                 <div style={{
-                  background: "var(--warn-tint)", border: "1px solid #fcd34d", borderRadius: 10,
-                  padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12,
-                  boxShadow: "0 2px 5px rgba(245, 158, 11, 0.08)",
+                  background: "var(--warn-tint)", border: "1px solid var(--warn-border)", borderRadius: "var(--radius-md)",
+                  padding: "var(--space-4) var(--space-5)", display: "flex", flexDirection: "column", gap: "var(--space-3)",
                 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                    <span style={{ fontSize: 22, lineHeight: 1 }}>⚠️</span>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-3)" }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#92400e" }}>
+                      <div style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--warn)" }}>
                         Website "{currentDomain}" Not Found in Connected Google Account ({googleAccount})
                       </div>
-                      <p style={{ margin: "6px 0 10px", fontSize: 12.5, color: "var(--warn)", lineHeight: 1.5 }}>
+                      <p style={{ margin: "6px 0 10px", fontSize: "var(--text-sm)", color: "var(--warn)", lineHeight: 1.5 }}>
                         Your connected Gmail account <b>{googleAccount}</b> does not own or manage Search Console data for <b>{currentDomain}</b>.
                         To view real first-party Google analytics for <b>{currentBusiness}</b>, please connect the Gmail account that has verified ownership of this site.
                       </p>
 
                       {verifiedGscProperties.length > 0 && (
-                        <div style={{ background: "var(--surface)", border: "1px solid #fef3c7", borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: "#78350f" }}>
+                        <div style={{ background: "var(--surface)", border: "1px solid var(--warn-border)", borderRadius: "var(--radius-md)", padding: "10px 14px", marginBottom: 12 }}>
+                          <span style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--warn)" }}>
                             Websites verified under {googleAccount} ({verifiedGscProperties.length}):
                           </span>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
@@ -4758,14 +4556,14 @@ export function ReaiDashboard({
                                     fetchGscAnalytics(prop);
                                   }}
                                   style={{
-                                    background: isSelected ? "#f59e0b" : "#fef3c7",
-                                    color: isSelected ? "var(--surface)" : "#92400e",
-                                    border: `1px solid ${isSelected ? "#d97706" : "var(--warn-border)"}`,
-                                    borderRadius: 6, padding: "4px 10px",
-                                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                                    background: isSelected ? "var(--warn)" : "var(--warn-tint)",
+                                    color: isSelected ? "var(--color-white)" : "var(--warn)",
+                                    border: `1px solid ${isSelected ? "var(--warn)" : "var(--warn-border)"}`,
+                                    borderRadius: "var(--radius-sm)", padding: "4px 10px",
+                                    fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
                                   }}
                                 >
-                                  {cleanProp} {isSelected ? "✓ Active View" : "→ View Traffic"}
+                                  {cleanProp}{isSelected ? " · Active" : ""}
                                 </button>
                               );
                             })}
@@ -4780,24 +4578,24 @@ export function ReaiDashboard({
                             window.location.href = "/api/auth/google?prompt=select_account%20consent";
                           }}
                           style={{
-                            background: "#d97706", color: "var(--surface)", border: 0, borderRadius: 6,
-                            padding: "7px 15px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                            display: "flex", alignItems: "center", gap: 7, boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+                            background: "var(--warn)", color: "var(--color-white)", border: 0, borderRadius: "var(--radius-sm)",
+                            padding: "7px 15px", fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 7,
                           }}
                         >
                           <IconGoogle size={14} />
-                          <span>Connect Another Gmail Account →</span>
+                          <span>Connect Another Gmail Account</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={handleSwitchToGscProject}
                           style={{
-                            background: "var(--surface)", color: "#92400e", border: "1px solid #fcd34d", borderRadius: 6,
-                            padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                            background: "var(--surface)", color: "var(--warn)", border: "1px solid var(--warn-border)", borderRadius: "var(--radius-sm)",
+                            padding: "7px 14px", fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
                           }}
                         >
-                          ⚡ Switch Workspace to {cleanGscDomain}
+                          Switch Workspace to {cleanGscDomain}
                         </button>
 
                         <a
@@ -4805,7 +4603,7 @@ export function ReaiDashboard({
                           target="_blank"
                           rel="noreferrer"
                           style={{
-                            color: "var(--warn)", fontSize: 12, textDecoration: "underline", fontWeight: 600, marginLeft: 4,
+                            color: "var(--warn)", fontSize: "var(--text-xs)", textDecoration: "underline", fontWeight: 600, marginLeft: 4,
                           }}
                         >
                           Add {currentDomain} to Search Console ↗
@@ -4818,38 +4616,33 @@ export function ReaiDashboard({
 
               {!googleConnected ? (
                 <div style={{
-                  background: "var(--surface)", borderRadius: 10, border: "1px solid #e2e8f0",
-                  padding: "54px 24px", textAlign: "center", display: "flex", flexDirection: "column",
-                  alignItems: "center", gap: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+                  background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)",
+                  padding: "var(--space-7) var(--space-5)", textAlign: "center", display: "flex", flexDirection: "column",
+                  alignItems: "center", gap: "var(--space-4)", boxShadow: "var(--shadow-sm)",
                 }}>
                   <div style={{
-                    width: 58, height: 58, borderRadius: 16, background: "var(--surface-2)",
-                    border: "1px solid #e2e8f0", display: "grid", placeItems: "center",
+                    width: 58, height: 58, borderRadius: "var(--radius-lg)", background: "var(--accent-tint)",
+                    border: "1px solid var(--accent-border)", display: "grid", placeItems: "center",
                   }}>
                     <IconGoogle size={30} />
                   </div>
-                  <div style={{ maxWidth: 540 }}>
-                    <h3 style={{ margin: "0 0 8px 0", fontSize: 17, fontWeight: 800, color: "var(--ink)" }}>
+                  <div style={{ maxWidth: "56ch" }}>
+                    <h3 style={{ margin: "0 0 8px 0", fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--ink)" }}>
                       Google Search Console & GA4 Disconnected
                     </h3>
-                    <p style={{ margin: 0, fontSize: 13, color: "var(--ink-muted)", lineHeight: 1.6 }}>
+                    <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--ink-muted)", lineHeight: 1.6 }}>
                       No active Google account is connected for <b>{currentDomain}</b>.
-                      To ensure 100% data integrity without mock, estimated, or simulated traffic, real organic clicks and search impressions are only displayed once you sign in with the Google account that manages this website.
+                      Real organic clicks and search impressions appear once you sign in with the Google account that manages this website. Nothing is estimated or simulated.
                     </p>
                   </div>
                   <button
                     type="button"
+                    className="btn btn--primary btn--lg"
                     onClick={handleConnectGoogle}
                     disabled={googleConnecting}
-                    style={{
-                      marginTop: 4, background: "var(--ink-body)", color: "var(--surface)", border: 0,
-                      borderRadius: 8, padding: "10px 22px", fontSize: 13, fontWeight: 700,
-                      cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
-                    }}
                   >
                     <IconGoogle size={16} />
-                    <span>{googleConnecting ? "Connecting to Google..." : "Sign in with Google Account →"}</span>
+                    <span>{googleConnecting ? "Connecting to Google..." : "Sign in with Google Account"}</span>
                   </button>
                 </div>
               ) : (
@@ -4857,7 +4650,7 @@ export function ReaiDashboard({
                   {/* Top Traffic KPIs with Integrated Live GSC Data */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
                     {/* Verified Clicks */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           Verified Clicks (28d)
@@ -4868,46 +4661,46 @@ export function ReaiDashboard({
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
                         <div>
-                          <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>
+                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
                             {isGscLoading ? "..." : gscMetrics.clicks.toLocaleString()}
                           </div>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
                             Organic search clicks
                           </div>
                         </div>
                         {gscDateTrend.length > 0 && (
-                          <MiniSparkline data={gscDateTrend.map((p) => p.v)} color="#10b981" width={58} height={24} />
+                          <MiniSparkline data={gscDateTrend.map((p) => p.v)} color="var(--ok)" width={58} height={24} />
                         )}
                       </div>
                     </div>
 
                     {/* Total Impressions */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           Total Impressions (28d)
                         </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#0284c7", background: "#f0f9ff", padding: "1px 6px", borderRadius: 4 }}>
+                        <span style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--info)", background: "var(--info-tint)", padding: "1px 6px", borderRadius: "var(--radius-xs)" }}>
                           Google SERP
                         </span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
                         <div>
-                          <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>
+                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
                             {isGscLoading ? "..." : gscMetrics.impressions.toLocaleString()}
                           </div>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
                             Search visibility
                           </div>
                         </div>
                         {gscDateTrend.length > 0 && (
-                          <MiniSparkline data={gscDateTrend.map((p) => p.i ?? 0)} color="#0284c7" width={58} height={24} />
+                          <MiniSparkline data={gscDateTrend.map((p) => p.i ?? 0)} color="var(--info)" width={58} height={24} />
                         )}
                       </div>
                     </div>
 
                     {/* Average CTR */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           Average CTR
@@ -4916,10 +4709,10 @@ export function ReaiDashboard({
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
                         <div>
-                          <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>
+                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
                             {isGscLoading ? "..." : `${gscMetrics.ctr}%`}
                           </div>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
                             Click-through rate
                           </div>
                         </div>
@@ -4933,7 +4726,7 @@ export function ReaiDashboard({
                     </div>
 
                     {/* Average Position */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           Average Position
@@ -4942,10 +4735,10 @@ export function ReaiDashboard({
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
                         <div>
-                          <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>
+                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
                             {isGscLoading ? "..." : gscMetrics.avgPosition > 0 ? `#${gscMetrics.avgPosition}` : "—"}
                           </div>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
                             Average Google rank
                           </div>
                         </div>
@@ -4954,7 +4747,7 @@ export function ReaiDashboard({
                     </div>
 
                     {/* Ranked Queries */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           Ranked Queries
@@ -4965,21 +4758,21 @@ export function ReaiDashboard({
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
                         <div>
-                          <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>
+                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
                             {isGscLoading ? "..." : gscMetrics.topQueries.length.toString()}
                           </div>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
                             Search queries recorded
                           </div>
                         </div>
-                        <MiniRadialGauge score={Math.min(100, gscMetrics.topQueries.length * 4)} size={34} color="#10b981" />
+                        <MiniRadialGauge score={Math.min(100, gscMetrics.topQueries.length * 4)} size={34} color="var(--ok)" />
                       </div>
                     </div>
                   </div>
 
                   {/* Traffic Trend & Device Split */}
                   <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 12 }}>
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                    <div style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "var(--shadow-sm)" }}>
                       <ExecutiveTrafficChart
                         trend={gscDateTrend}
                         totalVisits={`${gscMetrics.clicks.toLocaleString()} Clicks`}
@@ -4989,13 +4782,13 @@ export function ReaiDashboard({
                     </div>
 
                     {/* Device Split Card with Donut Chart */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                    <div style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Device Breakdown</h4>
+                          <h4 style={{ margin: 0, fontSize: "var(--text-base)", fontWeight: 700, color: "var(--ink-body)" }}>Device Breakdown</h4>
                           <span style={{
-                            fontSize: 12, fontWeight: 700,
-                            color: gscDeviceSplit ? "var(--ok)" : "var(--ink-faint)",
+                            fontSize: "var(--text-xs)", fontWeight: 600,
+                            color: gscDeviceSplit ? "var(--ok)" : "var(--ink-muted)",
                             background: gscDeviceSplit ? "var(--ok-tint)" : "var(--surface-3)",
                             border: `1px solid ${gscDeviceSplit ? "var(--ok-border)" : "var(--border)"}`,
                             padding: "2px 7px", borderRadius: 4,
@@ -5010,16 +4803,16 @@ export function ReaiDashboard({
                               size={68}
                               strokeWidth={6.5}
                               slices={[
-                                { pct: gscDeviceSplit.mobile, color: "#10b981" },
-                                { pct: gscDeviceSplit.desktop, color: "#6366f1" },
+                                { pct: gscDeviceSplit.mobile, color: "var(--ok)" },
+                                { pct: gscDeviceSplit.desktop, color: "var(--accent)" },
                               ]}
                             />
                             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
-                              {([["Mobile Devices", gscDeviceSplit.mobile, "#10b981"],
-                                 ["Desktop Browsers", gscDeviceSplit.desktop, "#6366f1"]] as const).map(([label, pct, colour]) => (
+                              {([["Mobile Devices", gscDeviceSplit.mobile, "var(--ok)"],
+                                 ["Desktop Browsers", gscDeviceSplit.desktop, "var(--accent)"]] as const).map(([label, pct, colour]) => (
                                 <div key={label}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                                    <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#334155" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--text-xs)", fontWeight: 600, marginBottom: 4 }}>
+                                    <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-body)" }}>
                                       <span style={{ width: 7, height: 7, borderRadius: "50%", background: colour }} />
                                       {label}
                                     </span>
@@ -5043,7 +4836,7 @@ export function ReaiDashboard({
                         )}
                       </div>
 
-                      <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 10, fontSize: 12, color: "var(--ink-muted)" }}>
+                      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
                         {/* Was "Mobile-first indexing compliant · ✓ Verified" -
                             a hardcoded pair. Nothing in this codebase measures
                             mobile-first indexing. */}
@@ -5055,7 +4848,7 @@ export function ReaiDashboard({
                   </div>
 
                   {/* Geographic Country Distribution Table */}
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                         Traffic by Country & Geographic Market
@@ -5067,11 +4860,11 @@ export function ReaiDashboard({
                       </span>
                     </div>
 
-                    <div style={{ marginTop: 14, border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
                       <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", textAlign: "left" }}>
                           <thead>
-                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: "var(--text-xs)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
                               <th style={{ padding: "10px 14px", fontWeight: 700 }}>Country / Region</th>
                               <th style={{ padding: "10px 14px", fontWeight: 700 }}>Traffic Share</th>
                               <th style={{ padding: "10px 14px", fontWeight: 700 }}>Impressions</th>
@@ -5087,7 +4880,7 @@ export function ReaiDashboard({
                               </tr>
                             ) : (
                               gscCountrySplit.map((c: any, i: number) => (
-                                <tr key={i} style={{ borderBottom: i === gscCountrySplit.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                                <tr key={i} style={{ borderBottom: i === gscCountrySplit.length - 1 ? "none" : "1px solid var(--border)", color: "var(--ink-body)" }}>
                                   <td style={{ padding: "11px 14px", fontWeight: 600 }}>
                                     <span style={{ marginRight: 8 }}>{c.code}</span> {c.country}
                                   </td>
@@ -5108,25 +4901,25 @@ export function ReaiDashboard({
                   </div>
 
                   {/* Google Search Console Verified Queries Section */}
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-                    <div style={{ padding: "14px 18px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface-2)" }}>
+                  <div style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", overflow: "hidden" }}>
+                    <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface-2)" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <IconGoogle size={17} />
-                        <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)" }}>Top Verified Google Search Console Queries</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "1px 7px", borderRadius: 10 }}>
-                          ● First-Party Data
+                        <span style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--ink-body)" }}>Top Verified Google Search Console Queries</span>
+                        <span style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "1px 7px", borderRadius: "var(--radius-full)" }}>
+                          First-Party Data
                         </span>
                       </div>
-                      <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                      <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
                         {isGscLoading ? "Refreshing live data..." : `Showing ${gscMetrics.topQueries.length} live queries for `}
                         <b>{selectedGscProperty}</b>
                       </span>
                     </div>
 
                     <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 12.5 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "var(--text-sm)" }}>
                         <thead>
-                          <tr style={{ background: "var(--surface)", borderBottom: "1px solid #edf2f7", color: "var(--ink-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          <tr style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: "var(--text-xs)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                             <th style={{ padding: "11px 18px", fontWeight: 700 }}>Search Query</th>
                             <th style={{ padding: "11px 18px", fontWeight: 700 }}>Clicks</th>
                             <th style={{ padding: "11px 18px", fontWeight: 700 }}>Impressions</th>
@@ -5139,7 +4932,7 @@ export function ReaiDashboard({
                           {isGscLoading ? (
                             <tr>
                               <td colSpan={6} style={{ padding: "32px 18px", textAlign: "center", color: "var(--ink-muted)" }}>
-                                <div style={{ display: "inline-block", width: 18, height: 18, border: "2px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 1s linear infinite", marginRight: 8, verticalAlign: "middle" }} />
+                                <div style={{ display: "inline-block", width: 18, height: 18, border: "2px solid var(--border)", borderTopColor: "var(--accent)", borderRadius: "var(--radius-full)", animation: "spin 1s linear infinite", marginRight: 8, verticalAlign: "middle" }} />
                                 Loading live Google Search Console performance data for <b>{selectedGscProperty}</b>...
                               </td>
                             </tr>
@@ -5151,8 +4944,8 @@ export function ReaiDashboard({
                             </tr>
                           ) : (
                             gscMetrics.topQueries.map((q, idx) => (
-                              <tr key={idx} style={{ borderBottom: idx === gscMetrics.topQueries.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
-                                <td style={{ padding: "12px 18px", fontWeight: 600, color: "#2563eb" }}>
+                              <tr key={idx} style={{ borderBottom: idx === gscMetrics.topQueries.length - 1 ? "none" : "1px solid var(--border)", color: "var(--ink-body)" }}>
+                                <td style={{ padding: "12px 18px", fontWeight: 600, color: "var(--accent-ink)" }}>
                                   {q.query}
                                 </td>
                                 <td style={{ padding: "12px 18px", fontWeight: 700, color: "var(--ink)" }}>
@@ -5169,12 +4962,12 @@ export function ReaiDashboard({
                                 </td>
                                 <td style={{ padding: "12px 18px" }}>
                                   <span style={{
-                                    fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 4,
+                                    fontSize: "var(--text-xs)", fontWeight: 600, padding: "2px 8px", borderRadius: "var(--radius-xs)",
                                     background: q.position <= 3 ? "var(--ok-tint)" : q.position <= 10 ? "var(--info-tint)" : "var(--surface-2)",
                                     color: q.position <= 3 ? "var(--ok)" : q.position <= 10 ? "var(--info)" : "var(--ink-muted)",
                                     border: `1px solid ${q.position <= 3 ? "var(--ok-border)" : q.position <= 10 ? "var(--info-border)" : "var(--border)"}`,
                                   }}>
-                                    {q.position <= 3 ? "🏆 Top 3" : q.position <= 10 ? "⭐ Page 1" : q.position <= 20 ? "Page 2" : "Deep SERP"}
+                                    {q.position <= 3 ? "Top 3" : q.position <= 10 ? "Page 1" : q.position <= 20 ? "Page 2" : "Deep SERP"}
                                   </span>
                                 </td>
                               </tr>
@@ -5194,22 +4987,22 @@ export function ReaiDashboard({
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Organic Research Intelligence Header Bar */}
               <div style={{
-                background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0",
+                background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)",
                 padding: "16px 20px", display: "flex", justifyContent: "space-between",
                 alignItems: "center", flexWrap: "wrap", gap: 12,
               }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>🔍</span>
+                    <Icon name="search" size={18} />
                     <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--ink)" }}>
                       Organic Search Research & SERP Intelligence
                     </h3>
                     <span style={{
-                      fontSize: 12, fontWeight: 700, color: "#1e40af",
-                      background: "var(--info-tint)", border: "1px solid #bfdbfe",
+                      fontSize: 12, fontWeight: 700, color: "var(--info)",
+                      background: "var(--info-tint)", border: "1px solid var(--info-border)",
                       padding: "2px 8px", borderRadius: 10,
                     }}>
-                      🌐 SEO Pipeline
+                      <Icon name="globe" /> SEO Pipeline
                     </span>
                   </div>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
@@ -5222,13 +5015,13 @@ export function ReaiDashboard({
                     type="button"
                     onClick={() => setShowOrganicGuideModal(true)}
                     style={{
-                      background: "var(--info-tint)", color: "var(--info)", border: "1px solid #bfdbfe",
+                      background: "var(--info-tint)", color: "var(--info)", border: "1px solid var(--info-border)",
                       borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 600,
                       cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
                       transition: "all 0.15s ease",
                     }}
                   >
-                    <span>💡</span> What is Organic Research?
+                    <Icon name="bulb" /> What is Organic Research?
                   </button>
                   <a
                     href="/docs/Organic_Research_Guide.pdf"
@@ -5236,13 +5029,13 @@ export function ReaiDashboard({
                     rel="noopener noreferrer"
                     download="Organic_Research_Guide.pdf"
                     style={{
-                      background: "#2563eb", color: "var(--surface)", border: 0,
+                      background: "var(--accent)", color: "var(--surface)", border: 0,
                       borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700,
                       cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
-                      textDecoration: "none", boxShadow: "0 1px 2px rgba(37,99,235,0.2)",
+                      textDecoration: "none", boxShadow: "0 1px 2px rgba(194, 65, 12,0.2)",
                     }}
                   >
-                    <span>📄</span> Download Guide (PDF)
+                    <Icon name="file" /> Download Guide (PDF)
                   </a>
                 </div>
               </div>
@@ -5250,10 +5043,10 @@ export function ReaiDashboard({
               {/* Position Distribution & Intent Breakdown */}
               <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
                 {/* Position Distribution Card */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>SERP Position Distribution</h4>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "#0284c7", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 7px", borderRadius: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--info)", background: "var(--info-tint)", border: "1px solid var(--info-border)", padding: "2px 7px", borderRadius: 4 }}>
                       Google Top 100
                     </span>
                   </div>
@@ -5262,7 +5055,7 @@ export function ReaiDashboard({
                     {projectMetrics.organicResearch.posDistribution.map((p: any) => (
                       <div key={p.range}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                          <span style={{ fontWeight: 600, color: "#334155" }}>{p.range}</span>
+                          <span style={{ fontWeight: 600, color: "var(--ink-body)" }}>{p.range}</span>
                           <span style={{ color: "var(--ink-muted)", fontSize: 12 }}><b>{p.count}</b> kw ({p.pct}%)</span>
                         </div>
                         <div style={{ height: 6, background: "var(--surface-3)", borderRadius: 3, overflow: "hidden" }}>
@@ -5274,11 +5067,11 @@ export function ReaiDashboard({
                 </div>
 
                 {/* Intent Breakdown Card with Segment Bar */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Search Intent Breakdown</h4>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4 }}>
                         4 Categories
                       </span>
                     </div>
@@ -5297,12 +5090,12 @@ export function ReaiDashboard({
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                       {projectMetrics.organicResearch.intentSplit.map((it: any) => (
-                        <div key={it.intent} style={{ padding: "8px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid #edf0f4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div key={it.intent} style={{ padding: "8px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 12, color: "var(--ink-body)" }}>{it.intent}</div>
                             <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>{it.count}</div>
                           </div>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: it.color, background: "var(--surface)", border: "1px solid #e2e8f0", padding: "2px 6px", borderRadius: 4 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: it.color, background: "var(--surface)", border: "1px solid var(--border)", padding: "2px 6px", borderRadius: 4 }}>
                             {it.pct}%
                           </span>
                         </div>
@@ -5310,7 +5103,7 @@ export function ReaiDashboard({
                     </div>
                   </div>
 
-                  <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 10, marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>High commercial intent</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)" }}>+22% Conversion value</span>
                   </div>
@@ -5318,16 +5111,16 @@ export function ReaiDashboard({
               </div>
 
               {/* SERP Features Won */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>SERP Features in Search Landscape</h4>
                   <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>Active snippet enhancements</span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 10px))), 1fr))", gap: 10 }}>
                   {projectMetrics.organicResearch.serpFeatures.map((f: any) => (
-                    <div key={f.name} style={{ padding: "10px 14px", borderRadius: 6, background: f.active ? "var(--ok-tint)" : "var(--surface-2)", border: "1px solid", borderColor: f.active ? "var(--ok-border)" : "#edf0f4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontWeight: 600, fontSize: 12, color: f.active ? "#065f46" : "var(--ink-muted)" }}>{f.name}</span>
+                    <div key={f.name} style={{ padding: "10px 14px", borderRadius: 6, background: f.active ? "var(--ok-tint)" : "var(--surface-2)", border: "1px solid", borderColor: f.active ? "var(--ok-border)" : "var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontWeight: 600, fontSize: 12, color: f.active ? "var(--ok)" : "var(--ink-muted)" }}>{f.name}</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: f.active ? "var(--ok)" : "var(--ink-muted)" }}>{f.count} Active</span>
                     </div>
                   ))}
@@ -5335,17 +5128,17 @@ export function ReaiDashboard({
               </div>
 
               {/* Organic Competitors Map Table */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Organic Competitors Positioning Matrix</h4>
                   <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>Direct SERP rivals</span>
                 </div>
 
-                <div style={{ marginTop: 14, border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                       <thead>
-                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Competitor Domain</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Common Keywords</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Search Visibility</th>
@@ -5355,7 +5148,7 @@ export function ReaiDashboard({
                       </thead>
                       <tbody>
                         {projectMetrics.organicResearch.competitorMap.map((cm: any, i: number) => (
-                          <tr key={i} style={{ borderBottom: i === projectMetrics.organicResearch.competitorMap.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                          <tr key={i} style={{ borderBottom: i === projectMetrics.organicResearch.competitorMap.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                             <td style={{ padding: "11px 14px", fontWeight: 600 }}>{cm.domain}</td>
                             <td style={{ padding: "11px 14px", color: "var(--accent)", fontWeight: 600 }}>{cm.commonKeywords} shared</td>
                             <td style={{ padding: "11px 14px", fontWeight: 600 }}>{cm.searchVisibility}</td>
@@ -5364,7 +5157,7 @@ export function ReaiDashboard({
                               <button
                                 type="button"
                                 onClick={() => setActiveTab("Keyword Gap")}
-                                style={{ background: "var(--info-tint)", border: "1px solid #dbeafe", color: "#2563eb", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                                style={{ background: "var(--info-tint)", border: "1px solid var(--info-tint)", color: "var(--accent)", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                               >
                                 Gap →
                               </button>
@@ -5378,12 +5171,12 @@ export function ReaiDashboard({
               </div>
 
               {/* Top Organic Pages & Content Silos */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Top Organic Pages & Content Silos</h4>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 7px", borderRadius: 4 }}>
                         Traffic Drivers
                       </span>
                     </div>
@@ -5394,7 +5187,7 @@ export function ReaiDashboard({
 
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ position: "relative", minWidth: 200 }}>
-                      <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ink-muted)", fontSize: 12 }}>🔍</span>
+                      <Icon name="search" size={14} />
                       <input
                         type="text"
                         value={organicPagesQuery}
@@ -5402,7 +5195,7 @@ export function ReaiDashboard({
                         placeholder="Filter page URL..."
                         style={{
                           width: "100%", padding: "5px 10px 5px 28px", borderRadius: 6,
-                          border: "1px solid #cbd5e1", fontSize: 12, background: "var(--surface-2)", color: "var(--ink-body)", outline: "none",
+                          border: "1px solid var(--border-strong)", fontSize: 12, background: "var(--surface-2)", color: "var(--ink-body)", outline: "none",
                         }}
                       />
                       {organicPagesQuery && (
@@ -5421,11 +5214,11 @@ export function ReaiDashboard({
                   </div>
                 </div>
 
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                       <thead>
-                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Page URL</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Traffic Share</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Ranked Keywords</th>
@@ -5437,10 +5230,10 @@ export function ReaiDashboard({
                         {(projectMetrics.topOrganicPages || [])
                           .filter((p: any) => !organicPagesQuery || p.url.toLowerCase().includes(organicPagesQuery.toLowerCase()) || p.topKeyword.toLowerCase().includes(organicPagesQuery.toLowerCase()))
                           .map((page: any, idx: number, arr: any[]) => (
-                            <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                            <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                               <td style={{ padding: "11px 14px" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#2563eb", fontSize: 12 }}>
+                                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--accent)", fontSize: 12 }}>
                                     {page.url}
                                   </span>
                                   <a
@@ -5458,22 +5251,22 @@ export function ReaiDashboard({
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                   <span style={{ fontWeight: 700, color: "var(--ink-body)", minWidth: 42 }}>{page.traffic}</span>
                                   <div style={{ width: 65, height: 5, background: "var(--surface-3)", borderRadius: 3, overflow: "hidden" }}>
-                                    <div style={{ width: `${page.trafficPct}%`, height: "100%", background: "#3b82f6", borderRadius: 3 }} />
+                                    <div style={{ width: `${page.trafficPct}%`, height: "100%", background: "var(--info)", borderRadius: 3 }} />
                                   </div>
                                   <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>{page.trafficPct}%</span>
                                 </div>
                               </td>
                               <td style={{ padding: "11px 14px" }}>
-                                <span style={{ fontWeight: 600, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4, fontSize: 12 }}>
+                                <span style={{ fontWeight: 600, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4, fontSize: 12 }}>
                                   {page.keywordsCount} kw
                                 </span>
                               </td>
                               <td style={{ padding: "11px 14px" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "1px 5px", borderRadius: 3 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "1px 5px", borderRadius: 3 }}>
                                     #{page.topPosition}
                                   </span>
-                                  <span style={{ color: "#334155", fontWeight: 500, fontSize: 12 }}>{page.topKeyword}</span>
+                                  <span style={{ color: "var(--ink-body)", fontWeight: 500, fontSize: 12 }}>{page.topKeyword}</span>
                                 </div>
                               </td>
                               <td style={{ padding: "11px 14px" }}>
@@ -5481,12 +5274,12 @@ export function ReaiDashboard({
                                   type="button"
                                   onClick={() => setActiveTab("On-Page SEO")}
                                   style={{
-                                    background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534",
+                                    background: "var(--ok-tint)", border: "1px solid var(--ok-border)", color: "var(--ok)",
                                     borderRadius: 4, padding: "4px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                                     display: "inline-flex", alignItems: "center", gap: 4,
                                   }}
                                 >
-                                  <span>⚡</span> Audit
+                                  <Icon name="bolt" /> Audit
                                 </button>
                               </td>
                             </tr>
@@ -5503,11 +5296,11 @@ export function ReaiDashboard({
           {activeTab === "Keyword Gap" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Header Card with Competitors Matrix & Visual Ratio Bar */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Keyword Gap Comparison</h4>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4 }}>
                       Intersection Matrix
                     </span>
                   </div>
@@ -5540,7 +5333,7 @@ export function ReaiDashboard({
                 </div>
 
                 {/* Filter Tabs */}
-                <div style={{ display: "flex", gap: 6, borderTop: "1px solid #edf0f4", paddingTop: 12 }}>
+                <div style={{ display: "flex", gap: 6, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
                   {(["all", "missing", "untapped", "weak", "shared"] as const).map((f) => (
                     <button
                       key={f}
@@ -5561,12 +5354,12 @@ export function ReaiDashboard({
               </div>
 
               {/* Gap Keywords Table */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
+                <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                       <thead>
-                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Keyword</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Intent</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>You ({currentDomain.replace(/\..*$/, "")})</th>
@@ -5581,16 +5374,16 @@ export function ReaiDashboard({
                         {projectMetrics.keywordGapData
                           .filter((item: any) => gapFilter === "all" || item.type === gapFilter)
                           .map((item: any, idx: number, arr: any[]) => (
-                            <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                            <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                               <td style={{ padding: "11px 14px", fontWeight: 600 }}>{item.keyword}</td>
                               <td style={{ padding: "11px 14px" }}>
-                                <span style={{ fontSize: 12, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "var(--surface-2)", border: "1px solid #e2e8f0", color: "var(--ink-muted)" }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--ink-muted)" }}>
                                   {item.intent}
                                 </span>
                               </td>
                               <td style={{ padding: "11px 14px" }}>
                                 {item.myRank ? (
-                                  <span style={{ fontWeight: 700, fontSize: 12, color: "#10b981", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 4 }}>
+                                  <span style={{ fontWeight: 700, fontSize: 12, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 7px", borderRadius: 4 }}>
                                     #{item.myRank}
                                   </span>
                                 ) : (
@@ -5622,7 +5415,7 @@ export function ReaiDashboard({
                                   style={{
                                     background: savedKeywords.includes(item.keyword) ? "var(--ok-tint)" : "var(--surface)",
                                     border: "1px solid", borderColor: savedKeywords.includes(item.keyword) ? "var(--ok-border)" : "var(--border-strong)",
-                                    color: savedKeywords.includes(item.keyword) ? "var(--ok)" : "#334155",
+                                    color: savedKeywords.includes(item.keyword) ? "var(--ok)" : "var(--ink-body)",
                                     borderRadius: 4, padding: "3px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                                   }}
                                 >
@@ -5642,7 +5435,7 @@ export function ReaiDashboard({
           {/* ── SUB-VIEW: BACKLINK GAP (REAI FLAGSHIP) ── */}
           {activeTab === "Backlink Gap" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -5652,16 +5445,16 @@ export function ReaiDashboard({
                       Domains referring to competitors where {currentDomain} has 0 links
                     </div>
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#e11d48", background: "var(--bad-tint)", border: "1px solid #fecaca", padding: "3px 9px", borderRadius: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--bad)", background: "var(--bad-tint)", border: "1px solid var(--bad-border)", padding: "3px 9px", borderRadius: 4 }}>
                     {projectMetrics.backlinkGapData.length} Link Opportunities
                   </span>
                 </div>
 
-                <div style={{ marginTop: 14, border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                       <thead>
-                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Referring Domain</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Authority (AS)</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Category</th>
@@ -5673,10 +5466,10 @@ export function ReaiDashboard({
                       </thead>
                       <tbody>
                         {projectMetrics.backlinkGapData.map((item: any, idx: number, arr: any[]) => (
-                          <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                          <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                             <td style={{ padding: "11px 14px", fontWeight: 600 }}>{item.domain}</td>
                             <td style={{ padding: "11px 14px" }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4 }}>
                                 AS {item.as}
                               </span>
                             </td>
@@ -5684,7 +5477,7 @@ export function ReaiDashboard({
                             <td style={{ padding: "11px 14px", fontWeight: 600 }}>{item.comp1Links} links</td>
                             <td style={{ padding: "11px 14px", fontWeight: 600 }}>{item.comp2Links} links</td>
                             <td style={{ padding: "11px 14px" }}>
-                              <span style={{ color: "#e11d48", fontWeight: 700, background: "var(--bad-tint)", border: "1px solid #fecaca", padding: "2px 6px", borderRadius: 4, fontSize: 12 }}>
+                              <span style={{ color: "var(--bad)", fontWeight: 700, background: "var(--bad-tint)", border: "1px solid var(--bad-border)", padding: "2px 6px", borderRadius: 4, fontSize: 12 }}>
                                 0 links (Gap)
                               </span>
                             </td>
@@ -5698,8 +5491,8 @@ export function ReaiDashboard({
                                 }}
                                 style={{
                                   background: outreachPitchedDomains.includes(item.domain) ? "var(--ok-tint)" : "var(--accent)",
-                                  color: outreachPitchedDomains.includes(item.domain) ? "var(--ok)" : "#fff",
-                                  border: outreachPitchedDomains.includes(item.domain) ? "1px solid #a7f3d0" : 0,
+                                  color: outreachPitchedDomains.includes(item.domain) ? "var(--ok)" : "var(--color-white)",
+                                  border: outreachPitchedDomains.includes(item.domain) ? "1px solid var(--ok-border)" : 0,
                                   borderRadius: 4, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                                   display: "inline-flex", alignItems: "center", gap: 4,
                                 }}
@@ -5715,9 +5508,9 @@ export function ReaiDashboard({
                 </div>
 
                 {outreachToast && (
-                  <div style={{ marginTop: 10, padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, fontSize: 12, color: "#166534", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ marginTop: 10, padding: "8px 12px", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", borderRadius: 6, fontSize: 12, color: "var(--ok)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span>✓ Added <b>{outreachToast}</b> to Outreach Pitch Queue. AI pitch template staged.</span>
-                    <button type="button" onClick={() => setOutreachToast(null)} style={{ background: "none", border: 0, color: "#166534", cursor: "pointer" }}>✕</button>
+                    <button type="button" onClick={() => setOutreachToast(null)} style={{ background: "none", border: 0, color: "var(--ok)", cursor: "pointer" }}>✕</button>
                   </div>
                 )}
               </div>
@@ -5779,22 +5572,22 @@ export function ReaiDashboard({
             return (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {/* Top Metrics Strip */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(170px, calc(100% / 4 - 10px))), 1fr))", gap: 10 }}>
+                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Total Keywords</div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "var(--ink)", marginTop: 4 }}>{filteredMagicKws.length}</div>
                     <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Clusters active: {magicCluster === "all" ? "All" : magicCluster}</div>
                   </div>
 
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
+                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Total Search Volume</div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "var(--accent)", marginTop: 4 }}>{totalVolFiltered.toLocaleString()} / mo</div>
                     <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Monthly organic searches</div>
                   </div>
 
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
+                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Average KD%</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: avgKdFiltered < 30 ? "var(--ok)" : avgKdFiltered < 50 ? "#d97706" : "#dc2626", marginTop: 4 }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: avgKdFiltered < 30 ? "var(--ok)" : avgKdFiltered < 50 ? "var(--warn)" : "var(--bad)", marginTop: 4 }}>
                       {avgKdFiltered}%
                     </div>
                     <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
@@ -5802,7 +5595,7 @@ export function ReaiDashboard({
                     </div>
                   </div>
 
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
+                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Saved in Strategy Deck</div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "var(--ok)", marginTop: 4 }}>{savedKeywords.length} kw</div>
                     <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Targeted for AI content</div>
@@ -5812,7 +5605,7 @@ export function ReaiDashboard({
                 {/* 2-Column Layout: Cluster Tree Sidebar + Keyword Data Grid */}
                 <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 12, alignItems: "start" }}>
                   {/* Left Column: Sub-Groups / Cluster Tree */}
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 14px", position: "sticky", top: 16 }}>
+                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 14px", position: "sticky", top: 16 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
                       Keyword Clusters
                     </div>
@@ -5828,7 +5621,7 @@ export function ReaiDashboard({
                           display: "flex", justifyContent: "space-between", alignItems: "center",
                           padding: "7px 10px", borderRadius: 6,
                           background: magicCluster === "all" ? "var(--ink-body)" : "transparent",
-                          color: magicCluster === "all" ? "var(--surface)" : "#334155",
+                          color: magicCluster === "all" ? "var(--surface)" : "var(--ink-body)",
                           border: 0, fontSize: 12, fontWeight: magicCluster === "all" ? 700 : 500,
                           cursor: "pointer", textAlign: "left", width: "100%",
                         }}
@@ -5852,7 +5645,7 @@ export function ReaiDashboard({
                             display: "flex", justifyContent: "space-between", alignItems: "center",
                             padding: "7px 10px", borderRadius: 6,
                             background: magicCluster === term ? "var(--ink-body)" : "transparent",
-                            color: magicCluster === term ? "var(--surface)" : "#334155",
+                            color: magicCluster === term ? "var(--surface)" : "var(--ink-body)",
                             border: 0, fontSize: 12, fontWeight: magicCluster === term ? 700 : 500,
                             cursor: "pointer", textAlign: "left", width: "100%",
                             textTransform: "capitalize",
@@ -5874,7 +5667,7 @@ export function ReaiDashboard({
                     </div>
 
                     {/* Intent Quick Filter */}
-                    <div style={{ marginTop: 16, borderTop: "1px solid #f1f5f9", paddingTop: 12 }}>
+                    <div style={{ marginTop: 16, borderTop: "1px solid var(--surface-3)", paddingTop: 12 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", marginBottom: 8 }}>
                         Search Intent
                       </div>
@@ -5887,17 +5680,17 @@ export function ReaiDashboard({
                             style={{
                               display: "flex", justifyContent: "space-between", alignItems: "center",
                               padding: "5px 8px", borderRadius: 4,
-                              background: magicIntentFilter === it ? "#e0e7ff" : "transparent",
+                              background: magicIntentFilter === it ? "var(--accent-tint)" : "transparent",
                               color: magicIntentFilter === it ? "var(--accent-ink)" : "var(--ink-muted)",
                               border: 0, fontSize: 12, fontWeight: magicIntentFilter === it ? 700 : 500,
                               cursor: "pointer", textAlign: "left", width: "100%",
                             }}
                           >
                             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              {it === "Informational" && <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#3b82f6", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>I</span>}
-                              {it === "Commercial" && <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#f59e0b", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>C</span>}
-                              {it === "Transactional" && <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#10b981", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>T</span>}
-                              {it === "Navigational" && <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#8b5cf6", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>N</span>}
+                              {it === "Informational" && <span style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--info)", color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>I</span>}
+                              {it === "Commercial" && <span style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--warn)", color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>C</span>}
+                              {it === "Transactional" && <span style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--ok)", color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>T</span>}
+                              {it === "Navigational" && <span style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--accent)", color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>N</span>}
                               {it === "all" ? "All Intents" : it}
                             </span>
                             <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
@@ -5912,10 +5705,10 @@ export function ReaiDashboard({
                   {/* Right Column: Keyword Filters & Data Table */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     {/* Search & Match Types Bar */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
                       <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
                         <div style={{ position: "relative", flex: 1 }}>
-                          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-muted)", fontSize: 13 }}>🔍</span>
+                          <Icon name="search" size={14} />
                           <input
                             type="text"
                             value={magicQuery}
@@ -5923,7 +5716,7 @@ export function ReaiDashboard({
                             placeholder="Search keyword variations (e.g. hospital, clinic, doctors)..."
                             style={{
                               width: "100%", padding: "7px 12px 7px 32px", borderRadius: 6,
-                              border: "1px solid #cbd5e1", fontSize: 12.5, background: "var(--surface-2)", color: "var(--ink-body)", outline: "none",
+                              border: "1px solid var(--border-strong)", fontSize: 12.5, background: "var(--surface-2)", color: "var(--ink-body)", outline: "none",
                             }}
                           />
                           {magicQuery && (
@@ -5956,18 +5749,18 @@ export function ReaiDashboard({
                               setTimeout(() => setPlanExportToast(false), 3500);
                             }}
                             style={{
-                              background: planExportToast ? "var(--ok)" : "#059669", color: "var(--surface)", border: 0, borderRadius: 6,
+                              background: planExportToast ? "var(--ok)" : "var(--ok)", color: "var(--surface)", border: 0, borderRadius: 6,
                               padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                               display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
                             }}
                           >
-                            <span>{planExportToast ? "✓" : "📥"}</span> {planExportToast ? `Exported (${savedKeywords.length})` : `Export Deck (${savedKeywords.length})`}
+                            {planExportToast ? <span aria-hidden="true">✓</span> : <Icon name="download" />} {planExportToast ? `Exported (${savedKeywords.length})` : `Export Deck (${savedKeywords.length})`}
                           </button>
                         )}
                       </div>
 
                       {/* Match types & KD filter controls */}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, borderTop: "1px solid #f1f5f9", paddingTop: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, borderTop: "1px solid var(--surface-3)", paddingTop: 10 }}>
                         <div style={{ display: "flex", gap: 6 }}>
                           {(["broad", "phrase", "exact", "questions"] as const).map((m) => (
                             <button
@@ -6009,12 +5802,12 @@ export function ReaiDashboard({
                     </div>
 
                     {/* Table View */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
-                      <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
+                      <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                         <div style={{ overflowX: "auto" }}>
                           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" }}>
                             <thead>
-                              <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                              <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                                 <th style={{ padding: "10px 14px", fontWeight: 700 }}>Keyword Variation</th>
                                 <th style={{ padding: "10px 14px", fontWeight: 700 }}>Intent</th>
                                 <th style={{ padding: "10px 14px", fontWeight: 700 }}>Volume</th>
@@ -6028,11 +5821,11 @@ export function ReaiDashboard({
                               {filteredMagicKws.map((item: any, idx: number, arr: any[]) => {
                                 const isAdded = savedKeywords.includes(item.keyword);
                                 const intentCode = item.intent.startsWith("Info") ? "I" : item.intent.startsWith("Comm") ? "C" : item.intent.startsWith("Trans") ? "T" : "N";
-                                const intentColor = intentCode === "I" ? "#3b82f6" : intentCode === "C" ? "#f59e0b" : intentCode === "T" ? "#10b981" : "#8b5cf6";
-                                const intentBg = intentCode === "I" ? "var(--info-tint)" : intentCode === "C" ? "#fef3c7" : intentCode === "T" ? "var(--ok-tint)" : "#f5f3ff";
+                                const intentColor = intentCode === "I" ? "var(--info)" : intentCode === "C" ? "var(--warn)" : intentCode === "T" ? "var(--ok)" : "var(--accent)";
+                                const intentBg = intentCode === "I" ? "var(--info-tint)" : intentCode === "C" ? "var(--warn-tint)" : intentCode === "T" ? "var(--ok-tint)" : "var(--accent-tint)";
 
                                 return (
-                                  <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                                  <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                                     <td style={{ padding: "11px 14px", fontWeight: 600 }}>
                                       <div style={{ color: "var(--ink-body)", fontSize: 12.5 }}>{item.keyword}</div>
                                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Match: {item.type}</div>
@@ -6041,9 +5834,9 @@ export function ReaiDashboard({
                                       <span style={{
                                         display: "inline-flex", alignItems: "center", gap: 5,
                                         fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                        background: intentBg, color: intentColor, border: `1px solid ${intentColor}33`,
+                                        background: intentBg, color: intentColor, border: `1px solid color-mix(in srgb, ${intentColor} 20%, transparent)`,
                                       }}>
-                                        <span style={{ width: 13, height: 13, borderRadius: "50%", background: intentColor, color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 800 }}>
+                                        <span style={{ width: 13, height: 13, borderRadius: "50%", background: intentColor, color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 800 }}>
                                           {intentCode}
                                         </span>
                                         {item.intent}
@@ -6098,7 +5891,7 @@ export function ReaiDashboard({
                                             cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4,
                                           }}
                                         >
-                                          <span>⚡</span> AI Brief
+                                          <Icon name="bolt" /> AI Brief
                                         </button>
                                         <button
                                           type="button"
@@ -6112,7 +5905,7 @@ export function ReaiDashboard({
                                           style={{
                                             background: isAdded ? "var(--ok-tint)" : "var(--surface)",
                                             border: "1px solid", borderColor: isAdded ? "var(--ok-border)" : "var(--border-strong)",
-                                            color: isAdded ? "var(--ok)" : "#334155",
+                                            color: isAdded ? "var(--ok)" : "var(--ink-body)",
                                             borderRadius: 4, padding: "4px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                                           }}
                                         >
@@ -6133,22 +5926,17 @@ export function ReaiDashboard({
 
                 {/* Interactive AI Content Brief Modal (REAI Exclusive Flow) */}
                 {activeMagicBrief && (
-                  <div style={{
-                    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-                    background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)",
-                    display: "flex", justifyContent: "center", alignItems: "center",
-                    zIndex: 9999, padding: 20,
-                  }}>
+                  <Modal onClose={() => setActiveMagicBrief(null)} label="AI content brief">
                     <div style={{
                       background: "var(--surface)", borderRadius: 10, width: "100%", maxWidth: 680,
-                      maxHeight: "90vh", overflowY: "auto", border: "1px solid #e2e8f0",
+                      maxHeight: "90vh", overflowY: "auto", border: "1px solid var(--border)",
                       boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
                       padding: "20px 24px",
                     }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #edf0f4", paddingBottom: 12, marginBottom: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: 12, marginBottom: 14 }}>
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 12, fontWeight: 800, background: "var(--accent)", color: "#fff", padding: "2px 7px", borderRadius: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 800, background: "var(--accent)", color: "var(--color-white)", padding: "2px 7px", borderRadius: 4 }}>
                               REAI MODEL B CONTENT ENGINE
                             </span>
                             <span style={{ fontSize: 14, fontWeight: 800, color: "var(--ink)" }}>
@@ -6170,7 +5958,7 @@ export function ReaiDashboard({
 
                       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                         {/* SERP Snippet Preview */}
-                        <div style={{ background: "var(--surface-2)", borderRadius: 6, border: "1px solid #edf0f4", padding: "12px 14px" }}>
+                        <div style={{ background: "var(--surface-2)", borderRadius: 6, border: "1px solid var(--border)", padding: "12px 14px" }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", marginBottom: 6 }}>
                             Google SERP Snippet Preview
                           </div>
@@ -6199,7 +5987,7 @@ export function ReaiDashboard({
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             {activeMagicBrief.headings.map((h: string, i: number) => (
-                              <div key={i} style={{ padding: "6px 10px", background: "var(--surface-3)", borderRadius: 4, fontSize: 12, color: "#334155" }}>
+                              <div key={i} style={{ padding: "6px 10px", background: "var(--surface-3)", borderRadius: 4, fontSize: 12, color: "var(--ink-body)" }}>
                                 <b style={{ color: "var(--accent)" }}>H2:</b> {h}
                               </div>
                             ))}
@@ -6213,7 +6001,7 @@ export function ReaiDashboard({
                           </div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                             {activeMagicBrief.entities.map((e: string, i: number) => (
-                              <span key={i} style={{ fontSize: 12, background: "#e0e7ff", color: "var(--accent-ink)", padding: "2px 8px", borderRadius: 12, border: "1px solid #c7d2fe" }}>
+                              <span key={i} style={{ fontSize: 12, background: "var(--accent-tint)", color: "var(--accent-ink)", padding: "2px 8px", borderRadius: 12, border: "1px solid var(--accent-border)" }}>
                                 {e}
                               </span>
                             ))}
@@ -6221,7 +6009,7 @@ export function ReaiDashboard({
                         </div>
 
                         {/* Action buttons */}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #edf0f4", paddingTop: 14, marginTop: 4 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 4 }}>
                           <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
                             Schema: <code style={{ background: "var(--surface-3)", padding: "1px 5px", borderRadius: 3 }}>{activeMagicBrief.schemaType}</code>
                           </span>
@@ -6235,7 +6023,7 @@ export function ReaiDashboard({
                                 setActiveMagicBrief(null);
                               }}
                               style={{
-                                background: "var(--surface-2)", color: "#334155", border: "1px solid #cbd5e1",
+                                background: "var(--surface-2)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                                 borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                               }}
                             >
@@ -6250,18 +6038,18 @@ export function ReaiDashboard({
                                 if (planState && !planState.plan?.worklist) planState.runPlan();
                               }}
                               style={{
-                                background: "linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)",
+                                background: "linear-gradient(135deg, var(--accent) 0%, var(--accent) 100%)",
                                 color: "var(--surface)", border: 0, borderRadius: 6, padding: "7px 16px",
                                 fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
                               }}
                             >
-                              <span>⚡</span> Scaffold in Repo via Claude Code
+                              <Icon name="bolt" /> Scaffold in Repo via Claude Code
                             </button>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </Modal>
                 )}
               </div>
             );
@@ -6271,8 +6059,8 @@ export function ReaiDashboard({
           {activeTab === "Keyword Data Lab" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* 4 Standardized KPI Cards with Integrated Charts */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(170px, calc(100% / 4 - 12px))), 1fr))", gap: 12 }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Ranked Keywords</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)" }}>Top 100</span>
@@ -6286,7 +6074,7 @@ export function ReaiDashboard({
                   </div>
                 </div>
 
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Page 1 (Top 10)</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)" }}>Prime SERP</span>
@@ -6298,11 +6086,11 @@ export function ReaiDashboard({
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>High conversion</div>
                     </div>
-                    <MiniRadialGauge score={Math.round((projectMetrics.keywords.filter((k) => k.position <= 10).length / Math.max(1, projectMetrics.keywords.length)) * 100)} size={34} color="#4f46e5" />
+                    <MiniRadialGauge score={Math.round((projectMetrics.keywords.filter((k) => k.position <= 10).length / Math.max(1, projectMetrics.keywords.length)) * 100)} size={34} color="var(--accent)" />
                   </div>
                 </div>
 
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Volume</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)" }}>Monthly</span>
@@ -6316,10 +6104,10 @@ export function ReaiDashboard({
                   </div>
                 </div>
 
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Competitors</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#d97706" }}>Tracked</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--warn)" }}>Tracked</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
                     <div>
@@ -6336,7 +6124,7 @@ export function ReaiDashboard({
               </div>
 
               {/* Keywords Table with Toolbar */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 14 }}>
                   <div>
                     <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -6373,28 +6161,28 @@ export function ReaiDashboard({
                       style={{
                         display: "flex", alignItems: "center", gap: 6,
                         background: dataLabExported ? "var(--ok-tint)" : "var(--surface)",
-                        color: dataLabExported ? "var(--ok)" : "#334155",
+                        color: dataLabExported ? "var(--ok)" : "var(--ink-body)",
                         border: "1px solid", borderColor: dataLabExported ? "var(--ok-border)" : "var(--border-strong)",
                         padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
                       }}
                     >
-                      <span>{dataLabExported ? "✓ Exported" : "📥 Export CSV"}</span>
+                      <span>{dataLabExported ? "✓ Exported" : "Export CSV"}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setActiveTab("Keyword Magic Tool")}
                       style={{
-                        background: "var(--info-tint)", color: "#2563eb", border: "1px solid #bfdbfe",
+                        background: "var(--info-tint)", color: "var(--accent)", border: "1px solid var(--info-border)",
                         padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
                       }}
                     >
-                      ⚡ Magic Tool Clusters →
+                      <Icon name="bolt" /> Magic Tool Clusters →
                     </button>
                   </div>
                 </div>
 
                 {/* Filter Bar */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14, background: "var(--surface-2)", padding: "10px 12px", borderRadius: 8, border: "1px solid #edf0f4" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14, background: "var(--surface-2)", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)" }}>
                   <div style={{ position: "relative", minWidth: 200, flex: 1 }}>
                     <input
                       type="text"
@@ -6403,10 +6191,10 @@ export function ReaiDashboard({
                       onChange={(e) => setDataLabQuery(e.target.value)}
                       style={{
                         width: "100%", padding: "6px 10px 6px 28px", borderRadius: 6,
-                        border: "1px solid #cbd5e1", fontSize: 12, outline: "none", background: "var(--surface)",
+                        border: "1px solid var(--border-strong)", fontSize: 12, outline: "none", background: "var(--surface)",
                       }}
                     />
-                    <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "var(--ink-muted)" }}>🔍</span>
+                    <Icon name="search" size={14} />
                   </div>
 
                   {/* Intent Filter */}
@@ -6499,11 +6287,11 @@ export function ReaiDashboard({
                   };
 
                   return (
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                       <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                           <thead>
-                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                               <th
                                 onClick={() => handleSort("keyword")}
                                 style={{ padding: "10px 14px", fontWeight: 700, cursor: "pointer", userSelect: "none" }}
@@ -6543,9 +6331,9 @@ export function ReaiDashboard({
                             ) : (
                               sortedKws.map((k: any, i: number) => {
                                 const kdVal = (k as any).kd || (k.position <= 5 ? 42 : k.position <= 10 ? 32 : 19);
-                                const kdColor = kdVal < 30 ? "#10b981" : kdVal < 50 ? "#f59e0b" : "#ef4444";
+                                const kdColor = kdVal < 30 ? "var(--ok)" : kdVal < 50 ? "var(--warn)" : "var(--bad)";
                                 return (
-                                  <tr key={i} style={{ borderBottom: i === filteredKws.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                                  <tr key={i} style={{ borderBottom: i === filteredKws.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                                     <td style={{ padding: "11px 14px", fontWeight: 600 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                         <span>{k.keyword}</span>
@@ -6555,7 +6343,7 @@ export function ReaiDashboard({
                                           onClick={() => navigator.clipboard.writeText(k.keyword)}
                                           style={{ background: "transparent", border: 0, cursor: "pointer", color: "var(--ink-muted)", fontSize: 12, padding: 2 }}
                                         >
-                                          📋
+                                          <Icon name="copy" size={18} />
                                         </button>
                                       </div>
                                     </td>
@@ -6624,11 +6412,11 @@ export function ReaiDashboard({
                                           });
                                         }}
                                         style={{
-                                          background: "var(--info-tint)", color: "#2563eb", border: "1px solid #bfdbfe",
+                                          background: "var(--info-tint)", color: "var(--accent)", border: "1px solid var(--info-border)",
                                           borderRadius: 4, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer",
                                         }}
                                       >
-                                        ⚡ AI Brief
+                                        <Icon name="bolt" /> AI Brief
                                       </button>
                                     </td>
                                   </tr>
@@ -6644,7 +6432,7 @@ export function ReaiDashboard({
               </div>
 
               {/* SERP Competitors Gap */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                     SERP Competitors Gap & Keyword Overlap
@@ -6657,9 +6445,9 @@ export function ReaiDashboard({
                     View Full Keyword Gap Matrix →
                   </button>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 10px))), 1fr))", gap: 10 }}>
                   {projectMetrics.competitors.map((comp) => (
-                    <div key={comp} style={{ border: "1px solid #edf0f4", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div key={comp} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 12.5, color: "var(--ink-body)" }}>{comp}</div>
                         <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Direct SERP rival</div>
@@ -6689,42 +6477,25 @@ export function ReaiDashboard({
             <button
               type="button"
               onClick={() => setAuditProjectList(true)}
-              style={{ background: "none", border: 0, padding: 0, marginBottom: 10, color: "#2563eb", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              style={{ background: "none", border: 0, padding: 0, marginBottom: 10, color: "var(--accent)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
             >
               ← All projects
             </button>
           )}
           {activeTab === "Site Health & Audit" && auditProjectList === false && (
-            <SiteAuditCharts report={report} scans={scans} domain={currentDomain} />
-          )}
-          {activeTab === "Site Health & Audit" && auditProjectList === false && (
             <MeasureScreen
               report={report}
+              scans={scans}
               allIssues={allIssues}
               auditSubTab={auditSubTab}
               onSubTabChange={setAuditSubTab}
               currentDomain={currentDomain}
-              onRunAudit={onTriggerScan}
-              {...(() => {
-                // Crawl Issues lives here now: same controls and table the
-                // separate page had, scoped to the open project's domain.
-                const crawlView = viewById("site-crawl")!;
-                const crawlSources = TOOL_SOURCES["site-crawl"];
-                const crawlSource: SourceId = effectiveSource("site-crawl", viewSources["site-crawl"], toolPicker?.catalog)
-                  ?? (isEnabled(crawlSources.dataforseo) ? "dataforseo" : "ours");
-                const opt = crawlSources[crawlSource];
-                const crawlRows = rowsForView(report, crawlView, isEnabled(opt) ? opt : undefined);
-                return {
-                  crawlControls: scanControlsFor(crawlView as ScannableView, "Site Audit"),
-                  crawlIssues: (
-                    <div>
-                      <ViewCharts viewId="site-crawl" label="Crawl Issues" rows={crawlRows as any} report={report} />
-                      <ReportStats rows={crawlRows} />
-                      <ReportTable view={crawlView} rows={crawlRows} />
-                    </div>
-                  ),
-                };
-              })()}
+              onRunAudit={runOnpageAudit}
+              crawlPages={crawlPages}
+              onCrawlPagesChange={(n) => onCrawlPagesChange?.(n)}
+              lastScanAt={openReport?.scan?.created_at}
+              onEditProject={selectedClient ? () => openEditProject(selectedClient) : undefined}
+              onCreateProject={() => openCreateProject()}
               scanState={scanState}
               currentBusiness={currentBusiness}
               okChecks={okChecks}
@@ -6804,25 +6575,25 @@ export function ReaiDashboard({
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                     {/* 4-Step Interactive Pipeline Stepper */}
                     <div style={{
-                      background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px",
+                      background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px",
                       boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                     }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
                         Autonomous Remediation Pipeline (The 4 Flows)
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginTop: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(170px, calc(100% / 4 - 12px))), 1fr))", gap: 12, marginTop: 10 }}>
                         {/* Step 1 */}
                         <div style={{
                           padding: "12px 14px", borderRadius: 8,
-                          background: "#f0fdf4", border: "1px solid #bbf7d0",
+                          background: "var(--ok-tint)", border: "1px solid var(--ok-border)",
                           display: "flex", flexDirection: "column", justifyContent: "space-between",
                         }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                            <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#16a34a", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>{okChecks + errChecks > 0 ? "✓" : "1"}</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#166534" }}>Flow 1: Audit</span>
+                            <span style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--ok)", color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>{okChecks + errChecks > 0 ? "✓" : "1"}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)" }}>Flow 1: Audit</span>
                           </div>
-                          <div style={{ fontSize: 12, color: "#15803d" }}>Findings from the last scan</div>
-                          <div style={{ fontSize: 12, color: "#166534", marginTop: 4, fontWeight: 600 }}>{okChecks} passed · {errChecks} errors</div>
+                          <div style={{ fontSize: 12, color: "var(--ok)" }}>Findings from the last scan</div>
+                          <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 4, fontWeight: 600 }}>{okChecks} passed · {errChecks} errors</div>
                         </div>
 
                         {/* Step 2 */}
@@ -6835,10 +6606,10 @@ export function ReaiDashboard({
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                             <span style={{
                               width: 20, height: 20, borderRadius: "50%",
-                              background: activeWorklist.length > 0 ? "var(--accent)" : "#94a3b8",
-                              color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700,
+                              background: activeWorklist.length > 0 ? "var(--accent)" : "var(--ink-faint)",
+                              color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700,
                             }}>
-                              {planState?.planBusy ? "⏳" : activeWorklist.length > 0 ? "✓" : "2"}
+                              {planState?.planBusy ? "…" : activeWorklist.length > 0 ? "✓" : "2"}
                             </span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: activeWorklist.length > 0 ? "var(--accent-ink)" : "var(--ink-muted)" }}>
                               Flow 2: Model A Plan
@@ -6855,26 +6626,26 @@ export function ReaiDashboard({
                         {/* Step 3 */}
                         <div style={{
                           padding: "12px 14px", borderRadius: 8,
-                          background: hasDryRun ? "#f0f9ff" : "var(--surface-2)",
-                          border: "1px solid", borderColor: hasDryRun ? "#bae6fd" : "var(--border)",
+                          background: hasDryRun ? "var(--info-tint)" : "var(--surface-2)",
+                          border: "1px solid", borderColor: hasDryRun ? "var(--info-border)" : "var(--border)",
                           display: "flex", flexDirection: "column", justifyContent: "space-between",
                         }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                             <span style={{
                               width: 20, height: 20, borderRadius: "50%",
-                              background: hasDryRun ? "#0284c7" : "#94a3b8",
-                              color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700,
+                              background: hasDryRun ? "var(--info)" : "var(--ink-faint)",
+                              color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700,
                             }}>
-                              {planState?.dryBusy ? "⏳" : hasDryRun ? "✓" : "3"}
+                              {planState?.dryBusy ? "…" : hasDryRun ? "✓" : "3"}
                             </span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: hasDryRun ? "#075985" : "var(--ink-muted)" }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: hasDryRun ? "var(--info)" : "var(--ink-muted)" }}>
                               Flow 3: Safe Dry-Run
                             </span>
                           </div>
-                          <div style={{ fontSize: 12, color: hasDryRun ? "#0369a1" : "var(--ink-muted)" }}>
+                          <div style={{ fontSize: 12, color: hasDryRun ? "var(--info)" : "var(--ink-muted)" }}>
                             Unified Git Simulation
                           </div>
-                          <div style={{ fontSize: 12, color: hasDryRun ? "#075985" : "var(--ink-muted)", marginTop: 4, fontWeight: 600 }}>
+                          <div style={{ fontSize: 12, color: hasDryRun ? "var(--info)" : "var(--ink-muted)", marginTop: 4, fontWeight: 600 }}>
                             {hasDryRun
                               ? `${(dry?.prompts || []).length} fix prompt(s) prepared, nothing written`
                               : dryFailed ? "Dry-run failed" : "Not run"}
@@ -6891,19 +6662,19 @@ export function ReaiDashboard({
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                             <span style={{
                               width: 20, height: 20, borderRadius: "50%",
-                              background: hasApplied ? "#059669" : "#94a3b8",
-                              color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700,
+                              background: hasApplied ? "var(--ok)" : "var(--ink-faint)",
+                              color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700,
                             }}>
-                              {planState?.applyBusy ? "⏳" : hasApplied ? "✓" : "4"}
+                              {planState?.applyBusy ? "…" : hasApplied ? "✓" : "4"}
                             </span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: hasApplied ? "#065f46" : "var(--ink-muted)" }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: hasApplied ? "var(--ok)" : "var(--ink-muted)" }}>
                               Flow 4: Claude Code
                             </span>
                           </div>
                           <div style={{ fontSize: 12, color: hasApplied ? "var(--ok)" : "var(--ink-muted)" }}>
                             Edits the repository (no commit)
                           </div>
-                          <div style={{ fontSize: 12, color: hasApplied ? "#065f46" : "var(--ink-muted)", marginTop: 4, fontWeight: 600 }}>
+                          <div style={{ fontSize: 12, color: hasApplied ? "var(--ok)" : "var(--ink-muted)", marginTop: 4, fontWeight: 600 }}>
                             {hasApplied
                               ? `${apply?.applied ?? 0} of ${apply?.summary?.attempted ?? 0} fixed`
                               : applyFailed ? "Apply failed" : planReady ? "Not run" : "Plan first"}
@@ -6914,14 +6685,14 @@ export function ReaiDashboard({
 
                     {/* REAI Advantage Banner */}
                     <div style={{
-                      background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)",
+                      background: "linear-gradient(135deg, var(--ink) 0%, var(--ink) 100%)",
                       borderRadius: 8, padding: "14px 18px", color: "var(--surface)",
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
                     }}>
-                      <div style={{ maxWidth: "70%" }}>
+                      <div style={{ flex: "1 1 280px", minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 12, fontWeight: 800, background: "#ec4899", color: "#fff", padding: "1px 6px", borderRadius: 3 }}>
-                            THE REAI ADVANTAGE
+                          <span style={{ fontSize: 12, fontWeight: 700, background: "var(--color-primary)", color: "var(--color-ink-900)", padding: "2px 10px", borderRadius: "var(--radius-full)" }}>
+                            The REAI advantage
                           </span>
                           <span style={{ fontSize: 13, fontWeight: 700, color: "var(--border)" }}>
                             Diagnostics That Become Commits
@@ -6931,7 +6702,7 @@ export function ReaiDashboard({
                           Most audit tools stop at a report and leave engineering to triage and hand-code every fix. REAI closes the loop: findings become reviewable git diffs, tested in zero-risk dry runs and opened as a gated pull request.
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button
                           type="button"
                           onClick={() => {
@@ -6940,12 +6711,12 @@ export function ReaiDashboard({
                           disabled={planState?.dryBusy || !planReady}
                           title={planReady ? undefined : "Run Plan first: the dry-run works on the planned worklist."}
                           style={{
-                            background: "#334155", color: "var(--surface)", border: "1px solid #475569",
+                            background: "var(--ink-body)", color: "var(--surface)", border: "1px solid var(--ink-muted)",
                             borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 600,
                             cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
                           }}
                         >
-                          <span>🛡️</span> {planState?.dryBusy ? "Simulating..." : "Run Safe Dry-Run"}
+                          <Icon name="shield" /> {planState?.dryBusy ? "Simulating..." : "Run Safe Dry-Run"}
                         </button>
                         <button
                           type="button"
@@ -6958,19 +6729,19 @@ export function ReaiDashboard({
                           disabled={planState?.applyBusy || !planReady}
                           title={planReady ? undefined : "Run Plan first: apply works on the planned worklist."}
                           style={{
-                            background: "linear-gradient(135deg, #059669 0%, #047857 100%)", color: "var(--surface)",
+                            background: "linear-gradient(135deg, var(--ok) 0%, var(--ok) 100%)", color: "var(--surface)",
                             border: 0, borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700,
                             cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
                             boxShadow: "0 2px 4px rgba(5, 150, 105, 0.3)",
                           }}
                         >
-                          <span>⚡</span> {planState?.applyBusy ? "Claude Executing..." : "Apply All via Claude Code"}
+                          <Icon name="bolt" /> {planState?.applyBusy ? "Claude Executing..." : "Apply All via Claude Code"}
                         </button>
                       </div>
                     </div>
 
                     {/* Worklist Section */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                         <div>
                           <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -6990,7 +6761,7 @@ export function ReaiDashboard({
                               onClick={planState.runPlan}
                               disabled={planState.planBusy}
                               style={{
-                                background: "var(--surface-3)", color: "#334155", border: "1px solid #cbd5e1",
+                                background: "var(--surface-3)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                                 borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                               }}
                             >
@@ -7010,24 +6781,24 @@ export function ReaiDashboard({
                               key={idx}
                               style={{
                                 padding: "12px 14px", borderRadius: 8, background: "var(--surface-2)",
-                                border: "1px solid #edf0f4", display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                                border: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start",
                               }}
                             >
                               <div style={{ flex: 1, paddingRight: 16 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                   <span style={{
                                     fontSize: 12, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
-                                    background: isP1 ? "#fee2e2" : "#fef3c7",
-                                    color: isP1 ? "#991b1b" : "#92400e",
+                                    background: isP1 ? "var(--bad-tint)" : "var(--warn-tint)",
+                                    color: isP1 ? "var(--bad)" : "var(--warn)",
                                   }}>
                                     {priority}
                                   </span>
                                   <code style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-body)" }}>{item.code}</code>
-                                  {targetFile && <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>📁 {targetFile}</span>}
+                                  {targetFile && <span style={{ fontSize: 12, color: "var(--ink-muted)" }}><Icon name="folder" size={14} /> {targetFile}</span>}
                                 </div>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{item.what}</div>
-                                <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 4 }}>
-                                  <b>Claude Code Action:</b> {item.fix}
+                                <div style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--ink)" }}>{item.what}</div>
+                                <div style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)", marginTop: 4 }}>
+                                  <b style={{ color: "var(--ink-body)" }}>Claude Code action:</b> {item.fix}
                                 </div>
                               </div>
                             </div>
@@ -7040,7 +6811,7 @@ export function ReaiDashboard({
                         list with "All Files (+42 -1)" and "3 files changed, 42
                         insertions(+)" written in. The dry-run returns fix prompts,
                         not a diff; this shows exactly that. */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                       <h4 style={{ margin: "0 0 4px", fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)" }}>
                         Dry-Run Result
                       </h4>
@@ -7078,7 +6849,7 @@ export function ReaiDashboard({
 
                     {/* Applied Execution Log & History */}
                     {(hasApplied || remedHist.length > 0) && (
-                      <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                      <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                           <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)" }}>
                             Claude Code Runs (edits, not commits)
@@ -7106,7 +6877,7 @@ export function ReaiDashboard({
                               </div>
                             ))}
                             {apply?.diffstat && (
-                              <pre style={{ margin: "8px 0 0", padding: "8px 10px", background: "#161b26", color: "var(--ok-border)", borderRadius: 4, fontSize: 12 }}>{apply.diffstat}</pre>
+                              <pre style={{ margin: "8px 0 0", padding: "8px 10px", background: "var(--color-ink-900)", color: "var(--ok-border)", borderRadius: 4, fontSize: 12 }}>{apply.diffstat}</pre>
                             )}
                             <div style={{ marginTop: 6, color: "var(--ink-muted)" }}>The changes are in the repository's working tree, uncommitted. Review them before committing.</div>
                           </div>
@@ -7115,13 +6886,13 @@ export function ReaiDashboard({
                         {remedHist.length > 0 && (
                           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                             {remedHist.map((rm) => (
-                              <div key={rm.id} style={{ border: "1px solid #edf0f4", borderRadius: 6, padding: "10px 12px", background: "var(--surface-2)" }}>
+                              <div key={rm.id} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", background: "var(--surface-2)" }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                                   <b>{rm.applied} fixes applied</b>
                                   <span style={{ color: "var(--ink-muted)" }}>{new Date(rm.created_at).toLocaleString()}</span>
                                 </div>
                                 {rm.diffstat && (
-                                  <pre style={{ margin: "8px 0 0", padding: "8px 10px", background: "#161b26", color: "var(--ok-border)", borderRadius: 4, fontSize: 12 }}>
+                                  <pre style={{ margin: "8px 0 0", padding: "8px 10px", background: "var(--color-ink-900)", color: "var(--ok-border)", borderRadius: 4, fontSize: 12 }}>
                                     {rm.diffstat}
                                   </pre>
                                 )}
@@ -7138,17 +6909,23 @@ export function ReaiDashboard({
           {/* ── SUB-VIEW: LOCAL SEO & GOOGLE BUSINESS PROFILE (GBP) ── */}
           {activeTab === "Local SEO & GBP" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div className="tool-head" style={{ marginBottom: 0 }}>
+                <div className="tool-head__text">
+                  <h1 className="tool-head__title">Local Presence</h1>
+                  <p className="tool-head__blurb">Your Google Business Profile, local search signals and directory listings for {currentBusiness}.</p>
+                </div>
+              </div>
               {/* Interactive Local Business & Google Business Profile Management */}
               <LocalBusinessManager subTab={localSubTab} onSubTabChange={setLocalSubTab} />
 
-              {/* Header card with Project Info & Controls */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)" }}>
-                        Local SEO & Google Business Profile (GBP) Matrix
-                      </h4>
+              {/* Local signals panel */}
+              <div className="seo-panel" role="region" aria-labelledby="local-signals-title">
+                <div className="seo-panel__head" style={{ flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <h2 id="local-signals-title" className="seo-panel__title">
+                        Local Search Signals
+                      </h2>
                       {(() => {
                         // Read "Live Signals" in green whether or not anything had
                         // been measured. The badge IS the claim.
@@ -7158,18 +6935,18 @@ export function ReaiDashboard({
                         return (
                           <span style={{
                             fontSize: 12, fontWeight: 700,
-                            color: live ? "var(--ok)" : "var(--ink-faint)",
+                            color: live ? "var(--ok)" : "var(--ink-muted)",
                             background: live ? "var(--ok-tint)" : "var(--surface-3)",
                             border: `1px solid ${live ? "var(--ok-border)" : "var(--border)"}`,
-                            padding: "1px 6px", borderRadius: 3,
+                            padding: "2px 10px", borderRadius: "var(--radius-full)",
                           }}>
                             {live ? "Live signals" : "Nothing measured yet"}
                           </span>
                         );
                       })()}
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                      Local search presence, Map Pack rank, NAP consistency, and citations for <b>{currentBusiness}</b>
+                    <div className="seo-panel__sub">
+                      Map Pack presence, name, address and phone consistency, and citations for <b>{currentBusiness}</b>
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -7178,13 +6955,9 @@ export function ReaiDashboard({
                       onClick={() => {
                         if (onTriggerScan) onTriggerScan(currentDomain);
                       }}
-                      style={{
-                        background: "var(--accent)", color: "var(--surface)", border: 0, borderRadius: 6,
-                        padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                        display: "flex", alignItems: "center", gap: 6,
-                      }}
+                      className="btn btn--secondary btn--sm"
                     >
-                      <span>🔄</span> Refresh Local Signals
+                      <Icon name="refresh" /> Refresh Local Signals
                     </button>
                   </div>
                 </div>
@@ -7216,7 +6989,7 @@ export function ReaiDashboard({
                     : claimedFinding?.severity === "warn" ? "Unclaimed"
                     : "Claimed & active";
                   const gbpOk = gbpStatusText === "Claimed & active";
-                  const gbpColor = !gbpMeasured ? "var(--ink-faint)" : gbpOk ? "var(--ok)" : "#d97706";
+                  const gbpColor = !gbpMeasured ? "var(--ink-muted)" : gbpOk ? "var(--ok)" : "var(--warn)";
                   const gbpRatingText = reviewFinding?.detail || "Not measured";
                   const primaryCategoryText = catFinding?.detail || "Not measured";
                   const mentionsCount = mentionFinding?.detail || "0";
@@ -7226,12 +6999,12 @@ export function ReaiDashboard({
                       <GbpMatrix gbpRows={gbpRows} mentionsRows={mentionsRows} />
 
                       {/* Directory Citations & NAP Sync Matrix */}
-                      <div style={{ marginTop: 14, marginBottom: 14, border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", background: "var(--surface-2)" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div style={{ marginTop: "var(--space-5)", marginBottom: "var(--space-5)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
                           <div>
-                            <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ink-body)" }}>
-                              Primary Directory Listings & NAP Sync
-                            </span>
+                            <h3 style={{ display: "inline", margin: 0, fontSize: "var(--text-base)", fontWeight: 600, color: "var(--ink)" }}>
+                              Directory Listings
+                            </h3>
                             <span style={{ fontSize: 12, color: "var(--ink-muted)", marginLeft: 8 }}>
                               {directorySummary(localDirectories)}
                             </span>
@@ -7239,13 +7012,9 @@ export function ReaiDashboard({
                           <button
                             type="button"
                             onClick={() => setShowLocalSchemaModal(true)}
-                            style={{
-                              background: "var(--ok)", color: "var(--surface)", border: 0,
-                              borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                              display: "flex", alignItems: "center", gap: 5,
-                            }}
+                            className="btn btn--secondary btn--sm"
                           >
-                            <span>⚡</span> Generate LocalBusiness Schema
+                            <Icon name="bolt" /> Generate LocalBusiness Schema
                           </button>
                         </div>
                         {/* B-096. Six literal verdicts used to live here - Apple
@@ -7255,21 +7024,21 @@ export function ReaiDashboard({
                             read API at all. "No public API" is the only honest
                             thing to print, and it stops an operator promising a
                             client a sync that cannot exist. */}
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 8px))), 1fr))", gap: 8 }}>
                           {localDirectories.map((dir) => (
-                            <div key={dir.name} style={{ background: "var(--surface)", border: "1px solid #edf0f4", borderRadius: 6, padding: "10px 12px" }}>
+                            <div key={dir.name} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontSize: 14 }}>{dir.icon}</span>
+                                <Icon name={dir.icon} size={16} />
                                 <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-body)" }}>{dir.name}</span>
                               </div>
                               <span style={{
-                                fontSize: 11.5, fontWeight: 700, color: directoryColor(dir.state),
-                                border: "1px solid #e2e8f0", background: "var(--surface-2)",
-                                padding: "1px 5px", borderRadius: 3, display: "inline-block", marginTop: 5,
+                                fontSize: 12, fontWeight: 600, color: directoryColor(dir.state),
+                                border: "1px solid var(--border)", background: "var(--surface-2)",
+                                padding: "1px 8px", borderRadius: "var(--radius-full)", display: "inline-block", marginTop: 6,
                               }}>
                                 {directoryLabel(dir.state)}
                               </span>
-                              <div style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.45 }}>
+                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4, lineHeight: 1.45 }}>
                                 {dir.note}
                               </div>
                             </div>
@@ -7280,9 +7049,9 @@ export function ReaiDashboard({
                       {/* Full Local & Reputation Check Table */}
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                          <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)" }}>
-                            Local Business Findings Checklist
-                          </h4>
+                          <h3 style={{ margin: 0, fontSize: "var(--text-base)", fontWeight: 600, color: "var(--ink)" }}>
+                            Local Findings
+                          </h3>
                           <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
                             6 core local signals audited
                           </span>
@@ -7302,7 +7071,7 @@ export function ReaiDashboard({
                           if (activeLocalRows.length === 0) {
                             return (
                               <div style={{
-                                border: "1px dashed #cbd5e1", borderRadius: 8, padding: "22px 18px",
+                                border: "1px dashed var(--border-strong)", borderRadius: 8, padding: "22px 18px",
                                 textAlign: "center", background: "var(--surface-2)",
                               }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-muted)" }}>
@@ -7319,10 +7088,10 @@ export function ReaiDashboard({
                           }
 
                           return (
-                            <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                            <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                                 <thead>
-                                  <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                                  <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                                     <th style={{ padding: "10px 14px", width: 90, fontWeight: 700 }}>Status</th>
                                     <th style={{ padding: "10px 14px", width: 220, fontWeight: 700 }}>Check / Signal</th>
                                     <th style={{ padding: "10px 14px", fontWeight: 700 }}>Finding & Impact</th>
@@ -7334,12 +7103,12 @@ export function ReaiDashboard({
                                     const isOk = row.severity === "ok";
                                     const isWarn = row.severity === "warn";
                                     return (
-                                      <tr key={`${row.what}-${idx}`} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9" }}>
+                                      <tr key={`${row.what}-${idx}`} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)" }}>
                                         <td style={{ padding: "11px 14px" }}>
                                           <span style={{
                                             fontSize: 12, fontWeight: 700,
                                             color: isOk ? "var(--ok)" : isWarn ? "var(--warn)" : "var(--accent-hover)",
-                                            background: isOk ? "var(--ok-tint)" : isWarn ? "#fef3c7" : "#e0e7ff",
+                                            background: isOk ? "var(--ok-tint)" : isWarn ? "var(--warn-tint)" : "var(--accent-tint)",
                                             border: `1px solid ${isOk ? "var(--ok-border)" : isWarn ? "var(--warn-border)" : "var(--accent-border)"}`,
                                             padding: "2px 7px", borderRadius: 4, display: "inline-block",
                                           }}>
@@ -7365,12 +7134,12 @@ export function ReaiDashboard({
                                                 type="button"
                                                 onClick={() => setShowLocalSchemaModal(true)}
                                                 style={{
-                                                  background: "var(--info-tint)", color: "#2563eb", border: "1px solid #bfdbfe",
+                                                  background: "var(--info-tint)", color: "var(--accent)", border: "1px solid var(--info-border)",
                                                   padding: "3px 8px", borderRadius: 4, fontSize: 12, fontWeight: 700, cursor: "pointer",
                                                   whiteSpace: "nowrap", flexShrink: 0,
                                                 }}
                                               >
-                                                ⚡ Auto-Fix
+                                                <Icon name="bolt" /> Auto-Fix
                                               </button>
                                             )}
                                           </div>
@@ -7568,9 +7337,9 @@ export function ReaiDashboard({
                             display: "flex", justifyContent: "space-between", alignItems: "center",
                           }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <span style={{ fontSize: 16 }}>🤖</span>
+                              <Icon name="bot" size={16} />
                               <div>
-                                <span style={{ fontSize: 12.5, fontWeight: 700, color: realLlm.severity === "ok" ? "#065f46" : "#92400e" }}>
+                                <span style={{ fontSize: 12.5, fontWeight: 700, color: realLlm.severity === "ok" ? "var(--ok)" : "var(--warn)" }}>
                                   {realLlm.what}:
                                 </span>
                                 <span style={{ fontSize: 12, color: realLlm.severity === "ok" ? "var(--ok)" : "var(--warn)", marginLeft: 6 }}>
@@ -7589,14 +7358,21 @@ export function ReaiDashboard({
                           </div>
                         )}
 
+                        {/* Charts overview — readiness ring, signal-group pass
+                            rates, headline counts — on the main AI Readiness
+                            view. Sub-studios keep their focused detail. */}
+                        {aeoActiveFocus === "matrix" && (
+                          <AeoOverviewDashboard aeoRows={aeoRows} aiRows={aiRows} />
+                        )}
+
                         {/* 3 Interactive Quick-Jump Stat Cards */}
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 12px))), 1fr))", gap: 12 }}>
                           {aeoTiles.map((tile) => (
                             <div
                               key={tile.id}
                               onClick={() => selectAeoFocus(tile.id)}
                               style={{
-                                border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface)",
+                                border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface)",
                                 cursor: "pointer", transition: "all 0.15s ease",
                               }}
                             >
@@ -7604,7 +7380,7 @@ export function ReaiDashboard({
                                 <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 700, textTransform: "uppercase" }}>
                                   {tile.label}
                                 </div>
-                                <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600 }}>
+                                <span style={{ fontSize: 12, color: "var(--info)", fontWeight: 600 }}>
                                   {tile.verdict === null ? "" : tile.id === "crawlers" ? "Manage →" : tile.id === "schema" ? "Inspect →" : "Optimize →"}
                                 </span>
                               </div>
@@ -7612,7 +7388,7 @@ export function ReaiDashboard({
                                   claim, and a grey "Not measured" is the only
                                   honest thing to print over an empty scan. */}
                               <div style={{ fontSize: 18, fontWeight: 800, color: aeoVerdictColor(tile.verdict), marginTop: 4 }}>
-                                {tile.value}{tile.verdict === "ok" ? " ✓" : tile.verdict === "problem" ? " ⚠️" : ""}
+                                {tile.value}{tile.verdict === "ok" ? " ✓" : tile.verdict === "problem" ? "" : ""}
                               </div>
                               <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>{tile.note}</div>
                             </div>
@@ -7620,7 +7396,7 @@ export function ReaiDashboard({
                         </div>
 
                         {/* Detailed AEO Checklist Table */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
                             <div>
                               <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -7640,17 +7416,17 @@ export function ReaiDashboard({
                                   display: "flex", alignItems: "center", gap: 5,
                                 }}
                               >
-                                <span>⚡</span> Scaffold /llms.txt
+                                <Icon name="bolt" /> Scaffold /llms.txt
                               </button>
                               <button
                                 type="button"
                                 onClick={() => selectAeoFocus("schema")}
                                 style={{
-                                  background: "var(--info-tint)", color: "#2563eb", border: "1px solid #bfdbfe",
+                                  background: "var(--info-tint)", color: "var(--accent)", border: "1px solid var(--info-border)",
                                   borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer",
                                 }}
                               >
-                                ⚡ Inject Schema
+                                <Icon name="bolt" /> Inject Schema
                               </button>
                             </div>
                           </div>
@@ -7668,7 +7444,7 @@ export function ReaiDashboard({
                             if (!displayAeoRows) {
                               return (
                                 <div style={{
-                                  border: "1px dashed #cbd5e1", borderRadius: 8, padding: "22px 18px",
+                                  border: "1px dashed var(--border-strong)", borderRadius: 8, padding: "22px 18px",
                                   textAlign: "center", background: "var(--surface-2)",
                                 }}>
                                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-muted)" }}>
@@ -7683,10 +7459,10 @@ export function ReaiDashboard({
                             }
 
                             return (
-                              <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                              <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                                   <thead>
-                                    <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                                    <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                                       <th style={{ padding: "10px 14px", width: 90, fontWeight: 700 }}>Status</th>
                                       <th style={{ padding: "10px 14px", width: 240, fontWeight: 700 }}>Signal Check</th>
                                       <th style={{ padding: "10px 14px", fontWeight: 700 }}>Impact</th>
@@ -7695,12 +7471,12 @@ export function ReaiDashboard({
                                   </thead>
                                   <tbody>
                                     {displayAeoRows.map((r: any, i: number) => (
-                                      <tr key={i} style={{ borderBottom: i === displayAeoRows.length - 1 ? "none" : "1px solid #f1f5f9" }}>
+                                      <tr key={i} style={{ borderBottom: i === displayAeoRows.length - 1 ? "none" : "1px solid var(--surface-3)" }}>
                                         <td style={{ padding: "11px 14px" }}>
                                           <span style={{
                                             fontSize: 12, fontWeight: 700,
                                             color: r.severity === "ok" ? "var(--ok)" : "var(--warn)",
-                                            background: r.severity === "ok" ? "var(--ok-tint)" : "#fef3c7",
+                                            background: r.severity === "ok" ? "var(--ok-tint)" : "var(--warn-tint)",
                                             border: `1px solid ${r.severity === "ok" ? "var(--ok-border)" : "var(--warn-border)"}`,
                                             padding: "2px 7px", borderRadius: 4,
                                           }}>
@@ -7717,7 +7493,7 @@ export function ReaiDashboard({
                                                 type="button"
                                                 onClick={() => selectAeoFocus(r.targetFocus)}
                                                 style={{
-                                                  background: "var(--surface-3)", color: "var(--ink-body)", border: "1px solid #cbd5e1",
+                                                  background: "var(--surface-3)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                                                   padding: "3px 8px", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer",
                                                   whiteSpace: "nowrap", flexShrink: 0,
                                                 }}
@@ -7738,7 +7514,7 @@ export function ReaiDashboard({
 
                         {/* Banner linking to Citations Simulator */}
                         <div style={{
-                          background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+                          background: "linear-gradient(135deg, var(--accent) 0%, var(--accent) 100%)",
                           borderRadius: 8, padding: "16px 20px", color: "var(--surface)",
                           display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
                         }}>
@@ -7752,7 +7528,7 @@ export function ReaiDashboard({
                             type="button"
                             onClick={() => selectAeoFocus("citations")}
                             style={{
-                              background: "var(--surface)", color: "#6d28d9", border: 0,
+                              background: "var(--surface)", color: "var(--accent)", border: 0,
                               borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
                             }}
                           >
@@ -7766,7 +7542,7 @@ export function ReaiDashboard({
                     {aeoActiveFocus === "citations" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                         {/* AI Search Citations & Extraction Rates */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ marginBottom: 12 }}>
                             <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                               AI Crawler Access By Engine
@@ -7781,7 +7557,7 @@ export function ReaiDashboard({
                               Whether each engine&rsquo;s crawler is permitted in robots.txt. Access is a precondition for citation, not a measure of it.
                             </div>
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(240px, calc(100% / 2 - 10px))), 1fr))", gap: 10 }}>
                             {(() => {
                               // B-094. Three of these read `crawlerBlocked ? ... : ...`,
                               // so "never scanned" printed Indexed / Direct /
@@ -7791,15 +7567,15 @@ export function ReaiDashboard({
                               // in this product measures.
                               const v = aeoTiles.find((t) => t.id === "crawlers")?.verdict ?? null;
                               const status = v === null ? "Not measured" : v === "ok" ? "Allowed" : "Blocked";
-                              const tone = v === null ? "var(--ink-faint)" : undefined;
+                              const tone = v === null ? "var(--ink-muted)" : undefined;
                               return [
-                                { engine: "ChatGPT / OpenAI", bot: "GPTBot", color: tone ?? "#10b981", status },
-                                { engine: "Google AI Overviews", bot: "Googlebot", color: tone ?? "#3b82f6", status },
-                                { engine: "Perplexity AI", bot: "PerplexityBot", color: tone ?? "#06b6d4", status },
-                                { engine: "Claude / Anthropic", bot: "ClaudeBot", color: tone ?? "#8b5cf6", status },
+                                { engine: "ChatGPT / OpenAI", bot: "GPTBot", color: tone ?? "var(--ok)", status },
+                                { engine: "Google AI Overviews", bot: "Googlebot", color: tone ?? "var(--info)", status },
+                                { engine: "Perplexity AI", bot: "PerplexityBot", color: tone ?? "var(--info)", status },
+                                { engine: "Claude / Anthropic", bot: "ClaudeBot", color: tone ?? "var(--accent)", status },
                               ];
                             })().map((e) => (
-                              <div key={e.engine} style={{ padding: "10px 14px", border: "1px solid #edf0f4", borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface-2)" }}>
+                              <div key={e.engine} style={{ padding: "10px 14px", border: "1px solid var(--border)", borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface-2)" }}>
                                 <div>
                                   <div style={{ fontWeight: 600, fontSize: 12.5, color: "var(--ink-body)" }}>{e.engine}</div>
                                   <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>User-Agent: {e.bot}</div>
@@ -7807,7 +7583,7 @@ export function ReaiDashboard({
                                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                   <span style={{
                                     fontSize: 12, fontWeight: 700,
-                                    color: e.color, background: "var(--surface)", border: "1px solid #e2e8f0",
+                                    color: e.color, background: "var(--surface)", border: "1px solid var(--border)",
                                     padding: "2px 7px", borderRadius: 4,
                                   }}>
                                     {e.status}
@@ -7842,7 +7618,7 @@ export function ReaiDashboard({
                     {aeoActiveFocus === "schema" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                         {/* Schema Overview Card */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                             <div>
                               <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -7857,41 +7633,41 @@ export function ReaiDashboard({
                                 type="button"
                                 onClick={() => setShowLocalSchemaModal(true)}
                                 style={{
-                                  background: "#2563eb", color: "var(--surface)", border: 0,
+                                  background: "var(--accent)", color: "var(--surface)", border: 0,
                                   borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                                   display: "flex", alignItems: "center", gap: 6,
                                 }}
                               >
-                                <span>🛠️</span> Open Full Schema Wizard
+                                <Icon name="tool" /> Open Full Schema Wizard
                               </button>
                               <a
                                 href={`https://search.google.com/test/rich-results?url=${encodeURIComponent(`https://${currentDomain}`)}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 style={{
-                                  background: "var(--surface)", color: "var(--ink-muted)", border: "1px solid #cbd5e1",
+                                  background: "var(--surface)", color: "var(--ink-muted)", border: "1px solid var(--border-strong)",
                                   borderRadius: 6, padding: "7px 12px", fontSize: 12, fontWeight: 600,
                                   textDecoration: "none", display: "flex", alignItems: "center", gap: 6,
                                 }}
                               >
-                                <span>🧪</span> Test on Google
+                                <Icon name="flask" /> Test on Google
                               </a>
                             </div>
                           </div>
 
                           {/* Entity Resolution Badge Strip */}
-                          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-                            <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
+                          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(170px, calc(100% / 4 - 10px))), 1fr))", gap: 10 }}>
+                            <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
                               <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>Primary Entity Type</div>
                               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-body)", marginTop: 2 }}>LocalBusiness</div>
                               <div style={{ fontSize: 12, color: "var(--ok)" }}>Valid Schema.org Type</div>
                             </div>
-                            <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
+                            <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
                               <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>Entity Name</div>
                               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-body)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentBusiness}</div>
                               <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Canonical Name</div>
                             </div>
-                            <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
+                            <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
                               {/* "94% High Confidence / AI Disambiguation Verified"
                                   and a set of coordinates were literals: a
                                   confidence score nothing computed, a verdict
@@ -7910,7 +7686,7 @@ export function ReaiDashboard({
                         </div>
 
                         {/* Live JSON-LD Viewer */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-body)" }}>
                               Generated JSON-LD Structured Data Snippet
@@ -7923,12 +7699,12 @@ export function ReaiDashboard({
                                 setTimeout(() => setSchemaCopied(false), 2000);
                               }}
                               style={{
-                                background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                                background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                                 padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
                                 cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
                               }}
                             >
-                              <span>📋</span> {schemaCopied ? "✓ Copied JSON-LD!" : "Copy JSON-LD"}
+                              <Icon name="copy" /> {schemaCopied ? "✓ Copied JSON-LD!" : "Copy JSON-LD"}
                             </button>
                           </div>
                           <pre style={{
@@ -7941,14 +7717,14 @@ export function ReaiDashboard({
                         </div>
 
                         {/* Entity Properties Coverage Table */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-body)", marginBottom: 10 }}>
                             Entity Attributes Verification Checklist
                           </div>
-                          <div style={{ border: "1px solid #e2e8f0", borderRadius: 6, overflow: "hidden" }}>
+                          <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                               <thead>
-                                <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", textAlign: "left", color: "var(--ink-muted)" }}>
+                                <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", textAlign: "left", color: "var(--ink-muted)" }}>
                                   <th style={{ padding: "8px 12px" }}>Attribute</th>
                                   <th style={{ padding: "8px 12px" }}>Required For</th>
                                   <th style={{ padding: "8px 12px" }}>Value for {currentBusiness}</th>
@@ -7972,12 +7748,12 @@ export function ReaiDashboard({
                                   { prop: "geo", purpose: "Local AI & Map Entity Search", val: "[confirm]", status: "NOT MEASURED" },
                                   { prop: "openingHoursSpecification", purpose: "Operating Schedule Clarity", val: "[confirm]", status: "NOT MEASURED" },
                                 ].map((row, idx) => (
-                                  <tr key={idx} style={{ borderBottom: idx === 5 ? "none" : "1px solid #f1f5f9" }}>
-                                    <td style={{ padding: "8px 12px", fontFamily: "monospace", fontWeight: 600, color: "#7c3aed" }}>{row.prop}</td>
+                                  <tr key={idx} style={{ borderBottom: idx === 5 ? "none" : "1px solid var(--surface-3)" }}>
+                                    <td style={{ padding: "8px 12px", fontFamily: "monospace", fontWeight: 600, color: "var(--accent)" }}>{row.prop}</td>
                                     <td style={{ padding: "8px 12px", color: "var(--ink-muted)" }}>{row.purpose}</td>
                                     <td style={{ padding: "8px 12px", color: "var(--ink-body)", fontWeight: 500 }}>{row.val}</td>
                                     <td style={{ padding: "8px 12px" }}>
-                                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 6px", borderRadius: 3 }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 6px", borderRadius: 3 }}>
                                         {row.status}
                                       </span>
                                     </td>
@@ -7994,7 +7770,7 @@ export function ReaiDashboard({
                     {aeoActiveFocus === "answers" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                         {/* Answer Optimization Overview */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                             <div>
                               <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -8013,7 +7789,7 @@ export function ReaiDashboard({
                                 display: "flex", alignItems: "center", gap: 6,
                               }}
                             >
-                              <span>⚡</span> Open /llms.txt Builder Modal
+                              <Icon name="bolt" /> Open /llms.txt Builder Modal
                             </button>
                           </div>
 
@@ -8027,7 +7803,7 @@ export function ReaiDashboard({
                               length at all, so there was no number to show. They now
                               report the two verdicts that do exist, and say plainly
                               which measurements do not. */}
-                          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 10px))), 1fr))", gap: 10 }}>
                             {(() => {
                               const rows = measured(report?.aeo as any[]) as Array<any>;
                               const byCode = (code: string) => rows.find((r) => r?.code === code);
@@ -8059,7 +7835,7 @@ export function ReaiDashboard({
                                 },
                               ];
                               return cards.map((c) => (
-                                <div key={c.label} style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}>
+                                <div key={c.label} style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}>
                                   <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase" }}>{c.label}</div>
                                   <div style={{ fontSize: 16, fontWeight: 800, marginTop: 2, color: aeoVerdictColor(c.v) }}>
                                     {c.v === null ? "Not measured" : c.v === "ok" ? c.ok : c.bad}
@@ -8074,7 +7850,7 @@ export function ReaiDashboard({
                         </div>
 
                         {/* Live /llms.txt Studio */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                             <div>
                               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -8093,28 +7869,28 @@ export function ReaiDashboard({
                                   setTimeout(() => setLlmsCopied(false), 2000);
                                 }}
                                 style={{
-                                  background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                                  background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                                   padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
                                   cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
                                 }}
                               >
-                                <span>📋</span> {llmsCopied ? "✓ Copied /llms.txt!" : "Copy /llms.txt"}
+                                <Icon name="copy" /> {llmsCopied ? "✓ Copied /llms.txt!" : "Copy /llms.txt"}
                               </button>
                               <button
                                 type="button"
                                 onClick={handleDownloadLlmsTxt}
                                 style={{
-                                  background: "var(--surface-3)", border: "1px solid #cbd5e1", borderRadius: 6,
+                                  background: "var(--surface-3)", border: "1px solid var(--border-strong)", borderRadius: 6,
                                   padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
                                   cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
                                 }}
                               >
-                                <span>💾</span> Download llms.txt
+                                <Icon name="save" /> Download llms.txt
                               </button>
                             </div>
                           </div>
                           <pre style={{
-                            background: "var(--ink)", color: "#93c5fd", padding: "14px 16px",
+                            background: "var(--ink)", color: "var(--info-border)", padding: "14px 16px",
                             borderRadius: 8, fontSize: 12, lineHeight: 1.5, overflowX: "auto",
                             margin: 0, fontFamily: "ui-monospace, monospace",
                           }}>
@@ -8128,7 +7904,7 @@ export function ReaiDashboard({
                     {aeoActiveFocus === "crawlers" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                         {/* Crawler Overview Card */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                             <div>
                               <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -8143,12 +7919,12 @@ export function ReaiDashboard({
                               target="_blank"
                               rel="noreferrer"
                               style={{
-                                background: "var(--surface)", color: "var(--ink-muted)", border: "1px solid #cbd5e1",
+                                background: "var(--surface)", color: "var(--ink-muted)", border: "1px solid var(--border-strong)",
                                 borderRadius: 6, padding: "7px 12px", fontSize: 12, fontWeight: 600,
                                 textDecoration: "none", display: "flex", alignItems: "center", gap: 6,
                               }}
                             >
-                              <span>🌐</span> View Live robots.txt
+                              <Icon name="globe" /> View Live robots.txt
                             </a>
                           </div>
 
@@ -8161,7 +7937,7 @@ export function ReaiDashboard({
                         </div>
 
                         {/* Recommended robots.txt Snippet */}
-                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                        <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                             <div>
                               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -8179,12 +7955,12 @@ export function ReaiDashboard({
                                 setTimeout(() => setRobotsCopied(false), 2000);
                               }}
                               style={{
-                                background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                                background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                                 padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
                                 cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
                               }}
                             >
-                              <span>📋</span> {robotsCopied ? "✓ Copied robots.txt!" : "Copy robots.txt Snippet"}
+                              <Icon name="copy" /> {robotsCopied ? "✓ Copied robots.txt!" : "Copy robots.txt Snippet"}
                             </button>
                           </div>
                           <pre style={{
@@ -8206,15 +7982,15 @@ export function ReaiDashboard({
           {/* ── SUB-VIEW 5: DATA LAB & BACKLINKS (DYNAMIC BY PROJECT) ── */}
           {activeTab === "Data Lab & Backlinks" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                     Authority & Backlink Profile · {currentBusiness}
                   </h3>
                   <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>Live Backlink Index</span>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                  <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", height: 82, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 10px))), 1fr))", gap: 10 }}>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", height: 82, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Authority Score</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: "var(--ink-body)", marginTop: 2 }}>
@@ -8222,23 +7998,23 @@ export function ReaiDashboard({
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 2, fontWeight: 600 }}>Tier 1 Foundation</div>
                     </div>
-                    <MiniRadialGauge score={projectMetrics.authorityScore} size={48} strokeWidth={4.5} color="#4f46e5" />
+                    <MiniRadialGauge score={projectMetrics.authorityScore} size={48} strokeWidth={4.5} color="var(--accent)" />
                   </div>
 
-                  <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", height: 82, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", height: 82, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Referring Domains</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: "var(--ink-body)", marginTop: 2 }}>
                         {projectMetrics.refDomains}
                       </div>
-                      <div style={{ fontSize: 12, color: projectMetrics.refDelta.includes("-") ? "#e11d48" : "var(--ok)", marginTop: 2, fontWeight: 600 }}>
+                      <div style={{ fontSize: 12, color: projectMetrics.refDelta.includes("-") ? "var(--bad)" : "var(--ok)", marginTop: 2, fontWeight: 600 }}>
                         {projectMetrics.refDelta} change
                       </div>
                     </div>
                     {/* A sparkline was here, fed a hardcoded series. A trend needs two scans; this product stores one. The most deceptive of them appended the ONE real number to five invented history points, so it read as a measured climb. */}
                   </div>
 
-                  <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", height: 82, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", height: 82, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Backlinks</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: "var(--ink-body)", marginTop: 2 }}>
@@ -8254,10 +8030,10 @@ export function ReaiDashboard({
               {/* Link Attributes & TLD Profile */}
               <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
                 {/* Link Attributes Card */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Link Attributes Breakdown</h4>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 7px", borderRadius: 4 }}>
                       82% Natural Equity
                     </span>
                   </div>
@@ -8270,22 +8046,22 @@ export function ReaiDashboard({
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid #edf0f4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 12, color: "var(--ink-body)" }}>DoFollow Links</div>
                         <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Passes PageRank equity</div>
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 8px", borderRadius: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 8px", borderRadius: 4 }}>
                         82%
                       </span>
                     </div>
 
-                    <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid #edf0f4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ padding: "10px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 12, color: "var(--ink-body)" }}>NoFollow Links</div>
                         <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Referral traffic value</div>
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", background: "var(--surface)", border: "1px solid #e2e8f0", padding: "2px 8px", borderRadius: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", background: "var(--surface)", border: "1px solid var(--border)", padding: "2px 8px", borderRadius: 4 }}>
                         18%
                       </span>
                     </div>
@@ -8293,7 +8069,7 @@ export function ReaiDashboard({
                 </div>
 
                 {/* TLD Distribution Card */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Top-Level Domains (TLD)</h4>
                     <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>Root zone diversity</span>
@@ -8303,7 +8079,7 @@ export function ReaiDashboard({
                     {projectMetrics.backlinkAuditData.tldDist.map((t: any) => (
                       <div key={t.tld}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
-                          <span style={{ fontWeight: 600, color: "#334155", fontFamily: "monospace" }}>{t.tld}</span>
+                          <span style={{ fontWeight: 600, color: "var(--ink-body)", fontFamily: "monospace" }}>{t.tld}</span>
                           <span style={{ color: "var(--ink-muted)", fontSize: 12 }}><b>{t.share}%</b></span>
                         </div>
                         <div style={{ height: 5, background: "var(--surface-3)", borderRadius: 3, overflow: "hidden" }}>
@@ -8316,12 +8092,12 @@ export function ReaiDashboard({
               </div>
 
               {/* Referring Domains Matrix Table */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Top Referring Domains Matrix</h4>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4 }}>
                         Live Backlink Index
                       </span>
                     </div>
@@ -8332,7 +8108,7 @@ export function ReaiDashboard({
 
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ position: "relative", minWidth: 200 }}>
-                      <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ink-muted)", fontSize: 12 }}>🔍</span>
+                      <Icon name="search" size={14} />
                       <input
                         type="text"
                         value={backlinkDomainQuery}
@@ -8340,7 +8116,7 @@ export function ReaiDashboard({
                         placeholder="Search referring domain..."
                         style={{
                           width: "100%", padding: "5px 10px 5px 28px", borderRadius: 6,
-                          border: "1px solid #cbd5e1", fontSize: 12, background: "var(--surface-2)", color: "var(--ink-body)", outline: "none",
+                          border: "1px solid var(--border-strong)", fontSize: 12, background: "var(--surface-2)", color: "var(--ink-body)", outline: "none",
                         }}
                       />
                       {backlinkDomainQuery && (
@@ -8373,21 +8149,21 @@ export function ReaiDashboard({
                         document.body.removeChild(link);
                       }}
                       style={{
-                        background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
-                        padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "#334155",
+                        background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
+                        padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
                         cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
                       }}
                     >
-                      <span>📥</span> Export CSV
+                      <Icon name="download" /> Export CSV
                     </button>
                   </div>
                 </div>
 
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                       <thead>
-                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Referring Domain</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Authority (AS)</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Category</th>
@@ -8402,7 +8178,7 @@ export function ReaiDashboard({
                         {(projectMetrics.referringDomainsList || [])
                           .filter((d: any) => !backlinkDomainQuery || d.domain.toLowerCase().includes(backlinkDomainQuery.toLowerCase()) || d.category.toLowerCase().includes(backlinkDomainQuery.toLowerCase()))
                           .map((item: any, idx: number, arr: any[]) => (
-                            <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                            <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                               <td style={{ padding: "11px 14px" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                   <span style={{ fontWeight: 600, color: "var(--ink-body)" }}>{item.domain}</span>
@@ -8420,7 +8196,7 @@ export function ReaiDashboard({
                               <td style={{ padding: "11px 14px" }}>
                                 <span style={{
                                   fontSize: 12, fontWeight: 700,
-                                  color: item.as >= 70 ? "var(--ok)" : item.as >= 50 ? "#2563eb" : "#d97706",
+                                  color: item.as >= 70 ? "var(--ok)" : item.as >= 50 ? "var(--accent)" : "var(--warn)",
                                   background: item.as >= 70 ? "var(--ok-tint)" : item.as >= 50 ? "var(--info-tint)" : "var(--warn-tint)",
                                   border: "1px solid",
                                   borderColor: item.as >= 70 ? "var(--ok-border)" : item.as >= 50 ? "var(--info-border)" : "var(--warn-border)",
@@ -8438,7 +8214,7 @@ export function ReaiDashboard({
                               </td>
                               <td style={{ padding: "11px 14px", color: "var(--ink-muted)" }}>{item.firstSeen}</td>
                               <td style={{ padding: "11px 14px" }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "1px 6px", borderRadius: 3 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "1px 6px", borderRadius: 3 }}>
                                   ● {item.status}
                                 </span>
                               </td>
@@ -8452,13 +8228,13 @@ export function ReaiDashboard({
                                   }}
                                   style={{
                                     background: outreachPitchedDomains.includes(item.domain) ? "var(--ok-tint)" : "var(--accent)",
-                                    color: outreachPitchedDomains.includes(item.domain) ? "var(--ok)" : "#fff",
-                                    border: outreachPitchedDomains.includes(item.domain) ? "1px solid #a7f3d0" : 0,
+                                    color: outreachPitchedDomains.includes(item.domain) ? "var(--ok)" : "var(--color-white)",
+                                    border: outreachPitchedDomains.includes(item.domain) ? "1px solid var(--ok-border)" : 0,
                                     borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                                     display: "inline-flex", alignItems: "center", gap: 4,
                                   }}
                                 >
-                                  {outreachPitchedDomains.includes(item.domain) ? "✓ Pitched" : "⚡ Outreach"}
+                                  {outreachPitchedDomains.includes(item.domain) ? "✓ Pitched" : "Outreach"}
                                 </button>
                               </td>
                             </tr>
@@ -8469,15 +8245,15 @@ export function ReaiDashboard({
                 </div>
 
                 {outreachToast && (
-                  <div style={{ marginTop: 10, padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, fontSize: 12, color: "#166534", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ marginTop: 10, padding: "8px 12px", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", borderRadius: 6, fontSize: 12, color: "var(--ok)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span>✓ Added <b>{outreachToast}</b> to Outreach Pitch Queue. AI pitch template staged.</span>
-                    <button type="button" onClick={() => setOutreachToast(null)} style={{ background: "none", border: 0, color: "#166534", cursor: "pointer" }}>✕</button>
+                    <button type="button" onClick={() => setOutreachToast(null)} style={{ background: "none", border: 0, color: "var(--ok)", cursor: "pointer" }}>✕</button>
                   </div>
                 )}
               </div>
 
               {/* Anchor Text Distribution */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                   <div>
                     <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Anchor Text Diversity Profile</h4>
@@ -8485,16 +8261,16 @@ export function ReaiDashboard({
                       Anchor text spread across inbound links to avoid algorithmic over-optimization penalties
                     </p>
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 7px", borderRadius: 4 }}>
                     Healthy Distribution
                   </span>
                 </div>
 
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                       <thead>
-                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Anchor Text</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Share</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Referring Domains</th>
@@ -8503,7 +8279,7 @@ export function ReaiDashboard({
                       </thead>
                       <tbody>
                         {(projectMetrics.backlinkAuditData.anchors || []).map((anc: any, idx: number, arr: any[]) => (
-                          <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                          <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                             <td style={{ padding: "11px 14px", fontWeight: 600, color: "var(--ink-body)" }}>
                               &ldquo;{anc.text}&rdquo;
                             </td>
@@ -8519,10 +8295,10 @@ export function ReaiDashboard({
                             <td style={{ padding: "11px 14px" }}>
                               <span style={{
                                 fontSize: 12, fontWeight: 700,
-                                color: anc.type === "Branded" ? "var(--ok)" : anc.type === "Exact Match" ? "#2563eb" : "#8b5cf6",
-                                background: anc.type === "Branded" ? "var(--ok-tint)" : anc.type === "Exact Match" ? "var(--info-tint)" : "#f5f3ff",
+                                color: anc.type === "Branded" ? "var(--ok)" : anc.type === "Exact Match" ? "var(--accent)" : "var(--accent)",
+                                background: anc.type === "Branded" ? "var(--ok-tint)" : anc.type === "Exact Match" ? "var(--info-tint)" : "var(--accent-tint)",
                                 border: "1px solid",
-                                borderColor: anc.type === "Branded" ? "var(--ok-border)" : anc.type === "Exact Match" ? "var(--info-border)" : "#ddd6fe",
+                                borderColor: anc.type === "Branded" ? "var(--ok-border)" : anc.type === "Exact Match" ? "var(--info-border)" : "var(--accent-border)",
                                 padding: "2px 7px", borderRadius: 4,
                               }}>
                                 {anc.type}
@@ -8543,15 +8319,15 @@ export function ReaiDashboard({
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Toxicity Header & KPI Cards */}
               <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 12 }}>
-                <div style={{ background: "var(--surface)", padding: "18px 20px", borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                  <MiniRadialGauge score={projectMetrics.backlinkAuditData.toxicityScore ?? undefined} size={68} strokeWidth={5.5} color="#10b981" />
+                <div style={{ background: "var(--surface)", padding: "18px 20px", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                  <MiniRadialGauge score={projectMetrics.backlinkAuditData.toxicityScore ?? undefined} size={68} strokeWidth={5.5} color="var(--ok)" />
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ok)", marginTop: 10 }}>{projectMetrics.backlinkAuditData.toxicityLevel} Toxicity</div>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", textAlign: "center", marginTop: 3 }}>
                     Safe profile · Low penalty risk
                   </div>
                 </div>
 
-                <div style={{ background: "var(--surface)", padding: "18px 20px", borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ background: "var(--surface)", padding: "18px 20px", borderRadius: 8, border: "1px solid var(--border)", display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div>
                       <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>Referring Domain Health Breakdown</h3>
@@ -8562,12 +8338,12 @@ export function ReaiDashboard({
                         type="button"
                         onClick={() => setShowDisavowModal(true)}
                         style={{
-                          background: "var(--surface)", color: "var(--ink-body)", border: "1px solid #cbd5e1", borderRadius: 6,
+                          background: "var(--surface)", color: "var(--ink-body)", border: "1px solid var(--border-strong)", borderRadius: 6,
                           padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                           display: "flex", alignItems: "center", gap: 6,
                         }}
                       >
-                        <span>🛡️</span> Manage Disavow File ({disavowedDomains.length})
+                        <Icon name="shield" /> Manage Disavow File ({disavowedDomains.length})
                       </button>
                       <button
                         type="button"
@@ -8595,7 +8371,7 @@ export function ReaiDashboard({
                   </div>
 
                   {disavowDownloaded && (
-                    <div style={{ background: "var(--ok-tint)", border: "1px solid #a7f3d0", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "var(--ok)", fontWeight: 500, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ background: "var(--ok-tint)", border: "1px solid var(--ok-border)", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "var(--ok)", fontWeight: 500, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span>✓ Disavow file downloaded! Upload to Google Search Console Disavow Links tool.</span>
                       <span style={{ cursor: "pointer", fontWeight: 700 }} onClick={() => setDisavowDownloaded(false)}>✕</span>
                     </div>
@@ -8612,29 +8388,29 @@ export function ReaiDashboard({
                         <MiniSegmentBar
                           height={6}
                           segments={[
-                            { label: "Clean", pct: (clean / tot) * 100, color: "#10b981" },
-                            { label: "Suspicious", pct: (susp / tot) * 100, color: "#f59e0b" },
-                            { label: "Toxic", pct: (tox / tot) * 100, color: "#ef4444" },
+                            { label: "Clean", pct: (clean / tot) * 100, color: "var(--ok)" },
+                            { label: "Suspicious", pct: (susp / tot) * 100, color: "var(--warn)" },
+                            { label: "Toxic", pct: (tox / tot) * 100, color: "var(--bad)" },
                           ]}
                         />
                       </div>
                     );
                   })()}
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                    <div style={{ border: "1px solid #edf0f4", borderRadius: 8, padding: "10px 14px", background: "var(--surface-2)" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 10px))), 1fr))", gap: 10 }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", background: "var(--surface-2)" }}>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Clean Domains</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: "var(--ok)", marginTop: 2 }}>{projectMetrics.backlinkAuditData.cleanDomains}</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>High trust</div>
                     </div>
-                    <div style={{ border: "1px solid #edf0f4", borderRadius: 8, padding: "10px 14px", background: "var(--surface-2)" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", background: "var(--surface-2)" }}>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Suspicious</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: "#d97706", marginTop: 2 }}>{projectMetrics.backlinkAuditData.suspiciousDomains}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: "var(--warn)", marginTop: 2 }}>{projectMetrics.backlinkAuditData.suspiciousDomains}</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Monitor</div>
                     </div>
-                    <div style={{ border: "1px solid #edf0f4", borderRadius: 8, padding: "10px 14px", background: "var(--surface-2)" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", background: "var(--surface-2)" }}>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Toxic</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: "#e11d48", marginTop: 2 }}>{projectMetrics.backlinkAuditData.toxicDomains}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: "var(--bad)", marginTop: 2 }}>{projectMetrics.backlinkAuditData.toxicDomains}</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Disavow ready</div>
                     </div>
                   </div>
@@ -8643,16 +8419,16 @@ export function ReaiDashboard({
 
               {/* Anchor Texts & TLD Distribution */}
               <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                   <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                     Top Anchor Text Distribution
                   </h3>
 
-                  <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                         <thead>
-                          <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                          <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                             <th style={{ padding: "10px 14px", fontWeight: 700 }}>Anchor Text</th>
                             <th style={{ padding: "10px 14px", fontWeight: 700 }}>Type</th>
                             <th style={{ padding: "10px 14px", fontWeight: 700 }}>Domains</th>
@@ -8661,10 +8437,10 @@ export function ReaiDashboard({
                         </thead>
                         <tbody>
                           {projectMetrics.backlinkAuditData.anchors.map((anc: any, idx: number, arr: any[]) => (
-                            <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                            <tr key={idx} style={{ borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                               <td style={{ padding: "11px 14px", fontWeight: 600 }}>&ldquo;{anc.text}&rdquo;</td>
                               <td style={{ padding: "11px 14px" }}>
-                                <span style={{ fontSize: 12, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "var(--surface-2)", border: "1px solid #e2e8f0", color: "var(--ink-muted)" }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--ink-muted)" }}>
                                   {anc.type}
                                 </span>
                               </td>
@@ -8686,7 +8462,7 @@ export function ReaiDashboard({
                 </div>
 
                 {/* TLD Distribution Card */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                   <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                     TLD Distribution
                   </h3>
@@ -8708,14 +8484,14 @@ export function ReaiDashboard({
               </div>
 
               {/* Toxic & Suspicious Referring Domains Table */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                         Toxic & Suspicious Inbound Footprint
                       </h3>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#e11d48", background: "#fff1f2", border: "1px solid #fecdd3", padding: "2px 8px", borderRadius: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--bad)", background: "var(--bad-tint)", border: "1px solid var(--bad-border)", padding: "2px 8px", borderRadius: 4 }}>
                         {projectMetrics.backlinkAuditData.toxicDomainList?.length || 0} Domains Flagged
                       </span>
                     </div>
@@ -8742,7 +8518,7 @@ export function ReaiDashboard({
                         }
                       }}
                       style={{
-                        padding: "6px 10px", fontSize: 12, border: "1px solid #cbd5e1", borderRadius: 6,
+                        padding: "6px 10px", fontSize: 12, border: "1px solid var(--border-strong)", borderRadius: 6,
                         outline: "none", width: 240, background: "var(--surface-2)"
                       }}
                     />
@@ -8769,11 +8545,11 @@ export function ReaiDashboard({
                 </div>
 
                 {/* Table */}
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                       <thead>
-                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Referring Domain</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Toxicity Score</th>
                           <th style={{ padding: "10px 14px", fontWeight: 700 }}>Classification / Penalty Risk</th>
@@ -8789,9 +8565,9 @@ export function ReaiDashboard({
 
                           return (
                             <tr key={idx} style={{
-                              borderBottom: idx === arr.length - 1 ? "none" : "1px solid #f1f5f9",
+                              borderBottom: idx === arr.length - 1 ? "none" : "1px solid var(--surface-3)",
                               color: "var(--ink-body)",
-                              background: isDisavowed ? "var(--surface-2)" : isWhitelisted ? "#f0fdf4" : "var(--surface)",
+                              background: isDisavowed ? "var(--surface-2)" : isWhitelisted ? "var(--ok-tint)" : "var(--surface)",
                             }}>
                               <td style={{ padding: "12px 14px", fontWeight: 600 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -8802,7 +8578,7 @@ export function ReaiDashboard({
                                     </span>
                                   )}
                                   {isWhitelisted && (
-                                    <span style={{ fontSize: 12, fontWeight: 700, background: "#dcfce7", color: "#15803d", padding: "1px 6px", borderRadius: 3 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700, background: "var(--ok-tint)", color: "var(--ok)", padding: "1px 6px", borderRadius: 3 }}>
                                       Whitelisted
                                     </span>
                                   )}
@@ -8812,24 +8588,24 @@ export function ReaiDashboard({
                               <td style={{ padding: "12px 14px" }}>
                                 <span style={{
                                   fontSize: 12, fontWeight: 700,
-                                  color: item.toxicityScore >= 80 ? "#dc2626" : item.toxicityScore >= 60 ? "#d97706" : "#4b5563",
-                                  background: item.toxicityScore >= 80 ? "var(--bad-tint)" : item.toxicityScore >= 60 ? "var(--warn-tint)" : "#f3f4f6",
+                                  color: item.toxicityScore >= 80 ? "var(--bad)" : item.toxicityScore >= 60 ? "var(--warn)" : "var(--ink-muted)",
+                                  background: item.toxicityScore >= 80 ? "var(--bad-tint)" : item.toxicityScore >= 60 ? "var(--warn-tint)" : "var(--surface-3)",
                                   border: "1px solid",
-                                  borderColor: item.toxicityScore >= 80 ? "var(--bad-border)" : item.toxicityScore >= 60 ? "var(--warn-border)" : "#e5e7eb",
+                                  borderColor: item.toxicityScore >= 80 ? "var(--bad-border)" : item.toxicityScore >= 60 ? "var(--warn-border)" : "var(--border)",
                                   padding: "2px 8px", borderRadius: 4, display: "inline-block"
                                 }}>
                                   {item.toxicityScore} / 100
                                 </span>
                               </td>
                               <td style={{ padding: "12px 14px" }}>
-                                <div style={{ fontWeight: 600, color: "#334155" }}>{item.category}</div>
+                                <div style={{ fontWeight: 600, color: "var(--ink-body)" }}>{item.category}</div>
                               </td>
                               <td style={{ padding: "12px 14px" }}>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                                   {item.markers.map((m: string, mIdx: number) => (
                                     <span key={mIdx} style={{
                                       fontSize: 12, fontWeight: 500, color: "var(--ink-muted)",
-                                      background: "var(--surface-3)", border: "1px solid #e2e8f0",
+                                      background: "var(--surface-3)", border: "1px solid var(--border)",
                                       padding: "1px 6px", borderRadius: 3, whiteSpace: "nowrap"
                                     }}>
                                       {m}
@@ -8847,7 +8623,7 @@ export function ReaiDashboard({
                                       type="button"
                                       onClick={() => setDisavowedDomains(disavowedDomains.filter((d) => d !== item.domain))}
                                       style={{
-                                        background: "var(--surface)", border: "1px solid #cbd5e1", color: "var(--ink-muted)",
+                                        background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--ink-muted)",
                                         borderRadius: 5, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer"
                                       }}
                                     >
@@ -8861,7 +8637,7 @@ export function ReaiDashboard({
                                         setWhitelistedDomains(whitelistedDomains.filter((d) => d !== item.domain));
                                       }}
                                       style={{
-                                        background: "#dc2626", border: 0, color: "var(--surface)",
+                                        background: "var(--bad)", border: 0, color: "var(--surface)",
                                         borderRadius: 5, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer"
                                       }}
                                     >
@@ -8874,7 +8650,7 @@ export function ReaiDashboard({
                                       type="button"
                                       onClick={() => setWhitelistedDomains(whitelistedDomains.filter((d) => d !== item.domain))}
                                       style={{
-                                        background: "var(--surface)", border: "1px solid #cbd5e1", color: "var(--ink-muted)",
+                                        background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--ink-muted)",
                                         borderRadius: 5, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer"
                                       }}
                                     >
@@ -8888,7 +8664,7 @@ export function ReaiDashboard({
                                         setDisavowedDomains(disavowedDomains.filter((d) => d !== item.domain));
                                       }}
                                       style={{
-                                        background: "var(--surface)", border: "1px solid #cbd5e1", color: "var(--ok)",
+                                        background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--ok)",
                                         borderRadius: 5, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer"
                                       }}
                                     >
@@ -8949,13 +8725,13 @@ export function ReaiDashboard({
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {/* Summary KPI cards: each value read from the scan report (B-113). */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
+                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>Optimization Ideas</div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "var(--accent)", marginTop: 4 }}>{recs.length}</div>
                     <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>Site-wide issues from this scan's crawl</div>
                   </div>
 
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "14px 16px" }}>
+                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px 16px" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>On-Page Checks Passing</div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "var(--ink)", marginTop: 4 }}>
                       {onPageScore === null ? "Not measured" : `${onPageScore}%`}
@@ -8969,7 +8745,7 @@ export function ReaiDashboard({
                 </div>
 
                 {/* Core Web Vitals Row (Google Real-User Metrics) */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div>
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -8984,8 +8760,8 @@ export function ReaiDashboard({
                     </span>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 10px))), 1fr))", gap: 10 }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>LCP (Loading)</span>
                         <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.lcp.status)}>
@@ -9002,7 +8778,7 @@ export function ReaiDashboard({
                       />
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>INP (Interactivity)</span>
                         <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.inp.status)}>
@@ -9019,7 +8795,7 @@ export function ReaiDashboard({
                       />
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface)", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>CLS (Stability)</span>
                         <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.cls.status)}>
@@ -9039,7 +8815,7 @@ export function ReaiDashboard({
                 </div>
 
                 {/* Priority Target Pages Table */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div>
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -9056,7 +8832,7 @@ export function ReaiDashboard({
                         if (planState && !planState.plan?.worklist) planState.runPlan();
                       }}
                       style={{
-                        background: "var(--accent)", color: "#fff", border: 0, borderRadius: 6,
+                        background: "var(--accent)", color: "var(--color-white)", border: 0, borderRadius: 6,
                         padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                         display: "flex", alignItems: "center", gap: 6,
                       }}
@@ -9065,11 +8841,11 @@ export function ReaiDashboard({
                     </button>
                   </div>
 
-                  <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" }}>
                         <thead>
-                          <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                          <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                             <th style={{ padding: "10px 14px", fontWeight: 700 }}>Page URL & Title</th>
                             <th style={{ padding: "10px 14px", fontWeight: 700 }}>Target Keyword</th>
                             <th style={{ padding: "10px 14px", fontWeight: 700 }}>Ideas</th>
@@ -9085,25 +8861,25 @@ export function ReaiDashboard({
                                 key={idx}
                                 onClick={() => setSelectedOnPageUrl(pg.url)}
                                 style={{
-                                  borderBottom: idx === targetPages.length - 1 ? "none" : "1px solid #f1f5f9",
+                                  borderBottom: idx === targetPages.length - 1 ? "none" : "1px solid var(--surface-3)",
                                   color: "var(--ink-body)", cursor: "pointer",
-                                  background: isSelected ? "var(--info-tint)" : "transparent",
+                                  background: isSelected ? "var(--accent-tint)" : "transparent",
                                   transition: "background 0.12s ease",
                                 }}
                               >
                                 <td style={{ padding: "11px 14px" }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                    <div style={{ fontWeight: isSelected ? 700 : 600, color: isSelected ? "var(--info)" : "var(--ink-body)" }}>{pg.title}</div>
+                                    <div style={{ fontWeight: isSelected ? 700 : 600, color: isSelected ? "var(--accent-ink)" : "var(--ink-body)" }}>{pg.title}</div>
                                     {isSelected && (
-                                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--info)", background: "#dbeafe", padding: "1px 5px", borderRadius: 3 }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--info)", background: "var(--info-tint)", padding: "1px 5px", borderRadius: 3 }}>
                                         ACTIVE
                                       </span>
                                     )}
                                   </div>
-                                  <div style={{ fontSize: 12, color: isSelected ? "#2563eb" : "var(--ink-muted)", fontFamily: "monospace", marginTop: 2 }}>{pg.url}</div>
+                                  <div style={{ fontSize: 12, color: isSelected ? "var(--accent)" : "var(--ink-muted)", fontFamily: "monospace", marginTop: 2 }}>{pg.url}</div>
                                 </td>
                                 <td style={{ padding: "11px 14px" }}>
-                                  <span style={{ background: isSelected ? "var(--surface)" : "var(--surface-3)", padding: "2px 8px", borderRadius: 4, fontSize: 12, color: "#334155", fontWeight: 500, border: isSelected ? "1px solid #bfdbfe" : 0 }}>
+                                  <span style={{ background: isSelected ? "var(--surface)" : "var(--surface-3)", padding: "2px 8px", borderRadius: 4, fontSize: 12, color: "var(--ink-body)", fontWeight: 500, border: isSelected ? "1px solid var(--info-border)" : 0 }}>
                                     {pg.targetKw}
                                   </span>
                                 </td>
@@ -9114,9 +8890,9 @@ export function ReaiDashboard({
                                 </td>
                                 <td style={{ padding: "11px 14px" }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <span style={{ fontWeight: 700, color: pg.score >= 80 ? "var(--ok)" : "#d97706" }}>{pg.score}%</span>
+                                    <span style={{ fontWeight: 700, color: pg.score >= 80 ? "var(--ok)" : "var(--warn)" }}>{pg.score}%</span>
                                     <div style={{ width: 60, height: 5, background: "var(--surface-3)", borderRadius: 3, overflow: "hidden" }}>
-                                      <div style={{ width: `${pg.score}%`, height: "100%", background: pg.score >= 80 ? "#059669" : "#d97706", borderRadius: 3 }} />
+                                      <div style={{ width: `${pg.score}%`, height: "100%", background: pg.score >= 80 ? "var(--ok)" : "var(--warn)", borderRadius: 3 }} />
                                     </div>
                                   </div>
                                 </td>
@@ -9134,7 +8910,7 @@ export function ReaiDashboard({
                                       display: "inline-flex", alignItems: "center", gap: 4,
                                     }}
                                   >
-                                    <span>⚡</span> Enrich Content
+                                    <Icon name="bolt" /> Enrich Content
                                   </button>
                                 </td>
                               </tr>
@@ -9153,14 +8929,14 @@ export function ReaiDashboard({
                     competitor content benchmark. It rendered "-0 words (Deficit)" and
                     "Target: 0 words" as if measured. Shown only once a target exists. */}
                 {onPageSemanticData.wordCount.target > 0 && (
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                           Content & TF-IDF Semantic Entity Gap
                         </h4>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4 }}>
                           Competitor Content Benchmark
                         </span>
                       </div>
@@ -9194,10 +8970,10 @@ export function ReaiDashboard({
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 14 }}>
                     {/* Left: 4 Competitor Metric Benchmarks */}
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px" }}>
+                      <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
                           <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>Total Word Count</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: "#e11d48" }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--bad)" }}>
                             -{onPageSemanticData.wordCount.deficit} words (Deficit)
                           </span>
                         </div>
@@ -9206,20 +8982,20 @@ export function ReaiDashboard({
                           <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>Target: {onPageSemanticData.wordCount.target} words</span>
                         </div>
                         <div style={{ height: 6, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
-                          <div style={{ width: `${Math.min(100, Math.round((onPageSemanticData.wordCount.current / onPageSemanticData.wordCount.target) * 100))}%`, height: "100%", background: "#e11d48", borderRadius: 3 }} />
+                          <div style={{ width: `${Math.min(100, Math.round((onPageSemanticData.wordCount.current / onPageSemanticData.wordCount.target) * 100))}%`, height: "100%", background: "var(--bad)", borderRadius: 3 }} />
                         </div>
                       </div>
 
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px" }}>
+                        <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px" }}>
                           <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Heading Depth</div>
                           <div style={{ fontSize: 16, fontWeight: 800, color: "var(--ink-body)", marginTop: 2 }}>
                             {onPageSemanticData.headingCount.current} <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>/ {onPageSemanticData.headingCount.target} H2-H3s</span>
                           </div>
-                          <div style={{ fontSize: 12, color: "#d97706", marginTop: 2, fontWeight: 600 }}>Expand Subsections</div>
+                          <div style={{ fontSize: 12, color: "var(--warn)", marginTop: 2, fontWeight: 600 }}>Expand Subsections</div>
                         </div>
 
-                        <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px" }}>
+                        <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px" }}>
                           <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Entity Density</div>
                           <div style={{ fontSize: 16, fontWeight: 800, color: "var(--ink-body)", marginTop: 2 }}>
                             {onPageSemanticData.entityDensity.current} <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>/ {onPageSemanticData.entityDensity.target}</span>
@@ -9228,12 +9004,12 @@ export function ReaiDashboard({
                         </div>
                       </div>
 
-                      <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div>
                           <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Readability Score</div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>{onPageSemanticData.readability.current}</div>
                         </div>
-                        <span style={{ fontSize: 12, color: "var(--ok)", fontWeight: 700, background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 4 }}>
+                        <span style={{ fontSize: 12, color: "var(--ok)", fontWeight: 700, background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 7px", borderRadius: 4 }}>
                           Target: {onPageSemanticData.readability.target}
                         </span>
                       </div>
@@ -9243,23 +9019,23 @@ export function ReaiDashboard({
                         type="button"
                         onClick={() => setShowContentEnrichModal(true)}
                         style={{
-                          background: "linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)",
+                          background: "linear-gradient(135deg, var(--accent) 0%, var(--info) 100%)",
                           color: "var(--surface)", border: 0, borderRadius: 8,
                           padding: "9px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
                           display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-                          boxShadow: "0 2px 6px rgba(79, 70, 229, 0.25)",
+                          boxShadow: "0 2px 6px rgba(194, 65, 12, 0.25)",
                         }}
                       >
-                        <span>⚡</span> Auto-Generate Content Block with Claude Code
+                        <Icon name="bolt" /> Auto-Generate Content Block with Claude Code
                       </button>
                     </div>
 
                     {/* Right: Missing Semantic Entities & Keywords Table */}
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                       <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" }}>
                           <thead>
-                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: 12 }}>
                               <th style={{ padding: "8px 12px", fontWeight: 700 }}>Semantic Entity Keyword</th>
                               <th style={{ padding: "8px 12px", fontWeight: 700 }}>Section</th>
                               <th style={{ padding: "8px 12px", fontWeight: 700 }}>Rival Usage</th>
@@ -9269,7 +9045,7 @@ export function ReaiDashboard({
                           </thead>
                           <tbody>
                             {onPageSemanticData.entities.map((ent, i) => (
-                              <tr key={i} style={{ borderBottom: i === onPageSemanticData.entities.length - 1 ? "none" : "1px solid #f1f5f9", color: "var(--ink-body)" }}>
+                              <tr key={i} style={{ borderBottom: i === onPageSemanticData.entities.length - 1 ? "none" : "1px solid var(--surface-3)", color: "var(--ink-body)" }}>
                                 <td style={{ padding: "9px 12px", fontWeight: 600 }}>{ent.term}</td>
                                 <td style={{ padding: "9px 12px", color: "var(--ink-muted)", fontSize: 12 }}>{ent.section}</td>
                                 <td style={{ padding: "9px 12px", color: "var(--ink-muted)" }}>{ent.competitors} / 10</td>
@@ -9279,7 +9055,7 @@ export function ReaiDashboard({
                                 <td style={{ padding: "9px 12px" }}>
                                   <span style={{
                                     fontSize: 12, fontWeight: 700,
-                                    color: ent.status === "Missing" ? "#e11d48" : "#d97706",
+                                    color: ent.status === "Missing" ? "var(--bad)" : "var(--warn)",
                                     background: ent.status === "Missing" ? "var(--bad-tint)" : "var(--warn-tint)",
                                     border: "1px solid", borderColor: ent.status === "Missing" ? "var(--bad-border)" : "var(--warn-border)",
                                     padding: "1px 6px", borderRadius: 3,
@@ -9298,7 +9074,7 @@ export function ReaiDashboard({
                 )}
 
                 {/* On-Page SEO Recommendations List with Category Filter Tabs */}
-                <div style={{ background: "var(--surface)", borderRadius: 10, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                <div style={{ background: "var(--surface)", borderRadius: 10, border: "1px solid var(--border)", padding: "18px 20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
                     <div>
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -9344,7 +9120,7 @@ export function ReaiDashboard({
                         <div
                           key={idx}
                           style={{
-                            border: "1px solid #edf0f4", borderRadius: 8, padding: "12px 14px",
+                            border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px",
                             background: "var(--surface-2)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14,
                           }}
                         >
@@ -9352,7 +9128,7 @@ export function ReaiDashboard({
                             <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
                               <span style={{
                                 fontSize: 12, fontWeight: 700, textTransform: "uppercase",
-                                padding: "2px 6px", borderRadius: 4, background: "var(--accent-tint)", color: "var(--accent)", border: "1px solid #c7d2fe",
+                                padding: "2px 6px", borderRadius: 4, background: "var(--accent-tint)", color: "var(--accent)", border: "1px solid var(--accent-border)",
                               }}>
                                 {rec.cat}
                               </span>
@@ -9390,7 +9166,7 @@ export function ReaiDashboard({
 
                 {/* Clean CTA Card to open dedicated SERP Snippet Optimizer */}
                 <div style={{
-                  background: "var(--surface)", borderRadius: 10, border: "1px solid #e2e8f0", padding: "20px 24px",
+                  background: "var(--surface)", borderRadius: 10, border: "1px solid var(--border)", padding: "20px 24px",
                   display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
                 }}>
                   <div>
@@ -9399,7 +9175,7 @@ export function ReaiDashboard({
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                         Live Google SERP & Social Snippet Optimizer
                       </h4>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#0284c7", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 7px", borderRadius: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--info)", background: "var(--info-tint)", border: "1px solid var(--info-border)", padding: "2px 7px", borderRadius: 4 }}>
                         Pixel-Width Engine
                       </span>
                     </div>
@@ -9433,21 +9209,21 @@ export function ReaiDashboard({
                   // Title validation
                   const isTitleTruncated = titleWidth > 580 || titleChars > 65;
                   const isTitleTooShort = titleChars < 35;
-                  const titleColor = isTitleTruncated ? "#e11d48" : isTitleTooShort ? "#d97706" : "#059669";
+                  const titleColor = isTitleTruncated ? "var(--bad)" : isTitleTooShort ? "var(--warn)" : "var(--ok)";
                   const titleBadgeText = isTitleTruncated
-                    ? `⚠️ Truncated by Google (>580px)`
+                    ? `Truncated by Google (>580px)`
                     : isTitleTooShort
-                    ? `⚠️ Short Title (<35 chars)`
+                    ? `Short Title (<35 chars)`
                     : `✓ Optimal Pixel Width (${titleWidth}px / 580px max)`;
 
                   // Description validation
                   const isDescTruncated = descWidth > 960 || descChars > 165;
                   const isDescTooShort = descChars < 100;
-                  const descColor = isDescTruncated ? "#e11d48" : isDescTooShort ? "#d97706" : "#059669";
+                  const descColor = isDescTruncated ? "var(--bad)" : isDescTooShort ? "var(--warn)" : "var(--ok)";
                   const descBadgeText = isDescTruncated
-                    ? `⚠️ Truncated by Google (>960px)`
+                    ? `Truncated by Google (>960px)`
                     : isDescTooShort
-                    ? `⚠️ Short Snippet (<100 chars)`
+                    ? `Short Snippet (<100 chars)`
                     : `✓ Optimal Pixel Width (${descWidth}px / 960px max)`;
 
                   // Helper to highlight matching target keywords in snippet preview
@@ -9473,7 +9249,7 @@ export function ReaiDashboard({
                   const cleanDomainDisplay = currentDomain.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
                   return (
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 20px" }}>
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
                       {/* Card Header & Simulator Mode Switcher */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
                         <div>
@@ -9481,7 +9257,7 @@ export function ReaiDashboard({
                             <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                               Live Google SERP & Social Snippet Simulator
                             </h4>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#0284c7", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 7px", borderRadius: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--info)", background: "var(--info-tint)", border: "1px solid var(--info-border)", padding: "2px 7px", borderRadius: 4 }}>
                               Pixel-Width Engine
                             </span>
                           </div>
@@ -9503,7 +9279,7 @@ export function ReaiDashboard({
                               display: "flex", alignItems: "center", gap: 5,
                             }}
                           >
-                            <span>🖥️</span> Desktop (600px)
+                            <Icon name="monitor" /> Desktop (600px)
                           </button>
                           <button
                             type="button"
@@ -9516,7 +9292,7 @@ export function ReaiDashboard({
                               display: "flex", alignItems: "center", gap: 5,
                             }}
                           >
-                            <span>📱</span> Mobile (380px)
+                            <Icon name="mobile" /> Mobile (380px)
                           </button>
                           <button
                             type="button"
@@ -9529,7 +9305,7 @@ export function ReaiDashboard({
                               display: "flex", alignItems: "center", gap: 5,
                             }}
                           >
-                            <span>🌐</span> Social Card (OG)
+                            <Icon name="globe" /> Social Card (OG)
                           </button>
                         </div>
                       </div>
@@ -9537,11 +9313,11 @@ export function ReaiDashboard({
                       {/* 2-Column Grid: Editor on Left, Live Authentic Preview Canvas on Right */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.25fr", gap: 16, alignItems: "start" }}>
                         {/* ── LEFT COLUMN: INTERACTIVE SERP TAGS EDITOR ── */}
-                        <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+                        <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
                           {/* Title Input & Pixel Width Bar */}
                           <div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                              <label style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>SEO Page Title</label>
+                              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-body)" }}>SEO Page Title</label>
                               <span style={{ fontSize: 12, fontWeight: 700, color: titleColor }}>
                                 {titleBadgeText}
                               </span>
@@ -9561,7 +9337,7 @@ export function ReaiDashboard({
                               }}
                               style={{
                                 width: "100%", padding: "7px 10px", fontSize: 12.5,
-                                border: `1px solid ${isTitleTruncated ? "#fca5a5" : "var(--border-strong)"}`,
+                                border: `1px solid ${isTitleTruncated ? "var(--bad-border)" : "var(--border-strong)"}`,
                                 borderRadius: 6, background: "var(--surface)", color: "var(--ink-body)",
                                 outline: "none", boxSizing: "border-box",
                               }}
@@ -9587,7 +9363,7 @@ export function ReaiDashboard({
                           {/* Meta Description Input & Pixel Width Bar */}
                           <div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                              <label style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>Meta Description</label>
+                              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-body)" }}>Meta Description</label>
                               <span style={{ fontSize: 12, fontWeight: 700, color: descColor }}>
                                 {descBadgeText}
                               </span>
@@ -9607,7 +9383,7 @@ export function ReaiDashboard({
                               }}
                               style={{
                                 width: "100%", padding: "7px 10px", fontSize: 12, lineHeight: 1.45,
-                                border: `1px solid ${isDescTruncated ? "#fca5a5" : "var(--border-strong)"}`,
+                                border: `1px solid ${isDescTruncated ? "var(--bad-border)" : "var(--border-strong)"}`,
                                 borderRadius: 6, background: "var(--surface)", color: "var(--ink-body)",
                                 outline: "none", resize: "vertical", boxSizing: "border-box",
                               }}
@@ -9632,7 +9408,7 @@ export function ReaiDashboard({
 
                           {/* Target Keyword for SERP Highlight */}
                           <div>
-                            <label style={{ fontSize: 12, fontWeight: 700, color: "#334155", display: "block", marginBottom: 4 }}>
+                            <label style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-body)", display: "block", marginBottom: 4 }}>
                               Search Query / Target Keyword (SERP Bold Simulation)
                             </label>
                             <input
@@ -9651,7 +9427,7 @@ export function ReaiDashboard({
                               }}
                               style={{
                                 width: "100%", padding: "6px 10px", fontSize: 12,
-                                border: "1px solid #cbd5e1", borderRadius: 6,
+                                border: "1px solid var(--border-strong)", borderRadius: 6,
                                 background: "var(--surface)", color: "var(--ink-body)", outline: "none",
                                 boxSizing: "border-box",
                               }}
@@ -9662,7 +9438,7 @@ export function ReaiDashboard({
                           </div>
 
                           {/* SERP Features Toggles */}
-                          <div style={{ display: "flex", gap: 14, paddingTop: 4, borderTop: "1px solid #e2e8f0" }}>
+                          <div style={{ display: "flex", gap: 14, paddingTop: 4, borderTop: "1px solid var(--border)" }}>
                             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ink-muted)", cursor: "pointer" }}>
                               <input
                                 type="checkbox"
@@ -9742,26 +9518,26 @@ export function ReaiDashboard({
                                 }
                               }}
                               style={{
-                                flex: 1, minWidth: 140, background: "var(--surface)", border: "1px solid #c7d2fe",
+                                flex: 1, minWidth: 140, background: "var(--surface)", border: "1px solid var(--accent-border)",
                                 color: "var(--accent)", padding: "7px 10px", borderRadius: 6, fontSize: 12,
                                 fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                               }}
                             >
-                              <span>🪄</span> {serpAiBusy ? "Claude is writing…" : "Write titles with Claude"}
+                              <Icon name="wand" /> {serpAiBusy ? "Claude is writing…" : "Write titles with Claude"}
                             </button>
 
                             <button
                               type="button"
                               onClick={() => setShowSerpMetaModal(true)}
                               style={{
-                                flex: 1.2, minWidth: 160, background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
+                                flex: 1.2, minWidth: 160, background: "linear-gradient(135deg, var(--info) 0%, var(--info) 100%)",
                                 color: "var(--surface)", border: 0, padding: "7px 12px", borderRadius: 6,
                                 fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex",
                                 alignItems: "center", justifyContent: "center", gap: 5,
                                 boxShadow: "0 1px 3px rgba(2, 132, 199, 0.25)",
                               }}
                             >
-                              <span>⚡</span> Apply via Claude Code
+                              <Icon name="bolt" /> Apply via Claude Code
                             </button>
                           </div>
 
@@ -9772,14 +9548,14 @@ export function ReaiDashboard({
                             </div>
                           )}
                           {serpAiError && (
-                            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, border: "1px solid #fecaca", background: "var(--bad-tint)", fontSize: 11.5, color: "#991b1b" }}>
+                            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--bad-border)", background: "var(--bad-tint)", fontSize: 11.5, color: "var(--bad)" }}>
                               {serpAiError}
                             </div>
                           )}
                           {serpAiDraft && (
                             <pre style={{
                               marginTop: 8, padding: "10px 12px", borderRadius: 6,
-                              border: "1px solid #e2e8f0", background: "var(--ink)", color: "var(--border)",
+                              border: "1px solid var(--border)", background: "var(--ink)", color: "var(--border)",
                               fontSize: 11.5, lineHeight: 1.55, whiteSpace: "pre-wrap",
                               maxHeight: 260, overflowY: "auto",
                               fontFamily: "ui-monospace, SFMono-Regular, monospace",
@@ -9790,16 +9566,16 @@ export function ReaiDashboard({
                         </div>
 
                         {/* ── RIGHT COLUMN: AUTHENTIC SERP & SOCIAL PREVIEW CANVAS ── */}
-                        <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 8, padding: "16px", minHeight: 330, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                        <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "16px", minHeight: 330, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                           
                           {/* DESKTOP SERP CANVAS */}
                           {serpPreviewMode === "desktop" && (
-                            <div style={{ background: "var(--surface)", border: "1px solid #e2e8f0", borderRadius: 10, padding: "16px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+                            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
                               {/* Google Breadcrumb & Identity */}
                               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 5 }}>
                                 <div style={{
                                   width: 26, height: 26, borderRadius: "50%", background: "var(--info-tint)",
-                                  border: "1px solid #bfdbfe", display: "grid", placeItems: "center",
+                                  border: "1px solid var(--info-border)", display: "grid", placeItems: "center",
                                   fontSize: 12, fontWeight: 800, color: "var(--info)",
                                 }}>
                                   {currentBusiness.charAt(0)}
@@ -9826,7 +9602,7 @@ export function ReaiDashboard({
                               {/* Rich Snippet: Star Rating */}
                               {serpShowRating && (
                                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 12.5, color: "#4d5156" }}>
-                                  <span style={{ color: "#e37400", letterSpacing: 1, fontSize: 13 }}>★★★★★</span>
+                                  <span style={{ color: "var(--warn)", letterSpacing: 1, fontSize: 13 }}>★★★★★</span>
                                   {/* Was "Rating: 4.9 · 128 reviews", on by
                                       default for every client. Nothing in the
                                       dashboard measures a rating or a review
@@ -9853,7 +9629,7 @@ export function ReaiDashboard({
                                   Physicians, Insurance billing) were drawn here for every client.
                                   Google picks sitelinks itself; a preview cannot know them. */}
                               {serpShowSitelinks && (
-                                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9", fontSize: 12, color: "#5f6368" }}>
+                                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--surface-3)", fontSize: 12, color: "#5f6368" }}>
                                   Sitelinks are chosen by Google from the site&apos;s own pages and are not previewed here.
                                 </div>
                               )}
@@ -9866,7 +9642,7 @@ export function ReaiDashboard({
                               {/* Mobile Identity */}
                               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--info-tint)", border: "1px solid #bfdbfe", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 800, color: "var(--info)" }}>
+                                  <div style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--info-tint)", border: "1px solid var(--info-border)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 800, color: "var(--info)" }}>
                                     {currentBusiness.charAt(0)}
                                   </div>
                                   <div>
@@ -9891,12 +9667,12 @@ export function ReaiDashboard({
                               </div>
 
                               {/* Mobile Action Buttons */}
-                              <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid #f1f5f9" }}>
-                                <div style={{ flex: 1, textAlign: "center", padding: "6px 0", background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 20, fontSize: 12, fontWeight: 600, color: "var(--ink-body)" }}>
-                                  📞 Call
+                              <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--surface-3)" }}>
+                                <div style={{ flex: 1, textAlign: "center", padding: "6px 0", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 20, fontSize: 12, fontWeight: 600, color: "var(--ink-body)" }}>
+                                  <Icon name="phone" /> Call
                                 </div>
-                                <div style={{ flex: 1, textAlign: "center", padding: "6px 0", background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 20, fontSize: 12, fontWeight: 600, color: "var(--ink-body)" }}>
-                                  📍 Directions
+                                <div style={{ flex: 1, textAlign: "center", padding: "6px 0", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 20, fontSize: 12, fontWeight: 600, color: "var(--ink-body)" }}>
+                                  <Icon name="pin" /> Directions
                                 </div>
                               </div>
                             </div>
@@ -9904,11 +9680,11 @@ export function ReaiDashboard({
 
                           {/* SOCIAL GRAPH (OPEN GRAPH) CANVAS */}
                           {serpPreviewMode === "social" && (
-                            <div style={{ background: "var(--surface)", border: "1px solid #cfd9de", borderRadius: 12, overflow: "hidden", maxWidth: 520, margin: "0 auto", boxShadow: "0 2px 6px rgba(0,0,0,0.05)" }}>
+                            <div style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 12, overflow: "hidden", maxWidth: 520, margin: "0 auto", boxShadow: "0 2px 6px rgba(0,0,0,0.05)" }}>
                               {/* 16:9 Aspect Ratio Simulated Banner */}
                               <div style={{
                                 height: 170,
-                                background: "linear-gradient(135deg, #1e293b 0%, #1e1b4b 50%, #312e81 100%)",
+                                background: "linear-gradient(135deg, var(--ink-body) 0%, var(--ink) 50%, var(--accent-ink) 100%)",
                                 position: "relative", padding: "20px", display: "flex", flexDirection: "column",
                                 justifyContent: "space-between", color: "var(--surface)",
                               }}>
@@ -9929,14 +9705,14 @@ export function ReaiDashboard({
                               </div>
 
                               {/* OG Text Metadata Footer */}
-                              <div style={{ padding: "12px 16px", background: "#f7f9fa", borderTop: "1px solid #edf0f4" }}>
-                                <div style={{ fontSize: 12, color: "#536471", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+                              <div style={{ padding: "12px 16px", background: "var(--surface-2)", borderTop: "1px solid var(--border)" }}>
+                                <div style={{ fontSize: 12, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
                                   {cleanDomainDisplay}
                                 </div>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: "#0f1419", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink-900)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                   {activeSerpMeta.title}
                                 </div>
-                                <div style={{ fontSize: 12, color: "#536471", marginTop: 3, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                                <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                                   {activeSerpMeta.description}
                                 </div>
                               </div>
@@ -9954,13 +9730,13 @@ export function ReaiDashboard({
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Directory Header Banner */}
               <div style={{
-                background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)",
+                background: "linear-gradient(135deg, var(--ink-body) 0%, var(--ink) 100%)",
                 borderRadius: 8, padding: "14px 18px", color: "var(--surface)",
                 display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
               }}>
                 <div>
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(99, 102, 241, 0.2)", border: "1px solid rgba(99, 102, 241, 0.4)", padding: "2px 8px", borderRadius: 12, fontSize: 12, fontWeight: 700, color: "#a5b4fc", marginBottom: 6 }}>
-                    <span>⚡ {catalogSummary.tools} TOOLS</span>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(194, 65, 12, 0.2)", border: "1px solid rgba(194, 65, 12, 0.4)", padding: "2px 8px", borderRadius: 12, fontSize: 12, fontWeight: 700, color: "var(--accent-border)", marginBottom: 6 }}>
+                    <span>{catalogSummary.tools} TOOLS</span>
                   </div>
                   <h2 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 800 }}>
                     REAI Complete Tools & Engines Directory
@@ -9977,21 +9753,21 @@ export function ReaiDashboard({
                     if (onTriggerScan) onTriggerScan(currentDomain);
                   }}
                   style={{
-                    background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                    background: "linear-gradient(135deg, var(--ok) 0%, var(--ok) 100%)",
                     color: "var(--surface)", border: 0, borderRadius: 6, padding: "8px 16px",
                     fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
                   }}
                 >
-                  <span>⚡ Run Full Scan</span>
+                  <span>Run Full Scan</span>
                 </button>
               </div>
 
               {/* Filter & Search Bar */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "12px 14px" }}>
+              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "12px 14px" }}>
                 <div style={{ display: "flex", gap: 12, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
                   <div style={{ position: "relative", flex: 1, minWidth: 240 }}>
                     <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-muted)", fontSize: 13 }}>
-                      🔍
+                      <Icon name="search" size={18} />
                     </span>
                     <input
                       type="text"
@@ -10001,7 +9777,7 @@ export function ReaiDashboard({
                       onChange={(e) => setToolCatalogQuery(e.target.value)}
                       style={{
                         width: "100%", height: 34, padding: "0 12px 0 32px",
-                        fontSize: 12.5, border: "1px solid #cbd5e1", borderRadius: 6,
+                        fontSize: 12.5, border: "1px solid var(--border-strong)", borderRadius: 6,
                         background: "var(--surface-2)", color: "var(--ink-body)", outline: "none",
                       }}
                     />
@@ -10012,7 +9788,7 @@ export function ReaiDashboard({
                 </div>
 
                 {/* Category Filter Pills */}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", borderTop: "1px solid #edf0f4", paddingTop: 10 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
                   {[
                     // Derived from the scanner's own categories, so a pill
                     // cannot name a category no tool belongs to. The old list
@@ -10146,14 +9922,11 @@ export function ReaiDashboard({
 
       {/* ── INTEGRATIONS & PLATFORM CONTROL CENTER MODAL ── */}
       {showIntegrationsModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(5px)",
-          display: "grid", placeItems: "center", zIndex: 1100, padding: 20,
-        }}>
+        <Modal onClose={() => setShowIntegrationsModal(false)} label="Integrations">
           <div style={{
-            background: "var(--surface)", borderRadius: 14, border: "1px solid #e2e8f0",
+            background: "var(--surface)", borderRadius: 14, border: "1px solid var(--border)",
             width: "100%", maxWidth: 640, maxHeight: "90vh", overflowY: "auto",
-            boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.25)", padding: "28px 32px",
+            boxShadow: "0 25px 50px -12px rgba(17, 19, 23, 0.25)", padding: "28px 32px",
           }}>
             {/* Modal Header */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
@@ -10162,7 +9935,7 @@ export function ReaiDashboard({
                   <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: "var(--ink)" }}>
                     Platform Control Center
                   </h2>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 8px", borderRadius: 12 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 8px", borderRadius: 12 }}>
                     Zero Credentials Required
                   </span>
                 </div>
@@ -10183,12 +9956,12 @@ export function ReaiDashboard({
               {/* Service 1: Google Search Console & GA4 */}
               <div style={{
                 border: "1px solid", borderColor: googleConnected ? "var(--ok-border)" : "var(--border)",
-                borderRadius: 10, padding: 18, background: googleConnected ? "#f0fdf4" : "var(--surface)",
+                borderRadius: 10, padding: 18, background: googleConnected ? "var(--ok-tint)" : "var(--surface)",
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ display: "flex", gap: 12 }}>
                     <div style={{
-                      width: 40, height: 40, borderRadius: 10, background: "var(--surface)", border: "1px solid #e2e8f0",
+                      width: 40, height: 40, borderRadius: 10, background: "var(--surface)", border: "1px solid var(--border)",
                       display: "grid", placeItems: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
                     }}>
                       <IconGoogle size={22} />
@@ -10197,7 +9970,7 @@ export function ReaiDashboard({
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 15, fontWeight: 700, color: "var(--ink-body)" }}>Google Search Console & GA4</span>
                         {googleConnected ? (
-                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#d1fae5", padding: "1px 7px", borderRadius: 10 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", padding: "1px 7px", borderRadius: 10 }}>
                             ● Connected
                           </span>
                         ) : (
@@ -10220,7 +9993,7 @@ export function ReaiDashboard({
                           window.location.href = `/api/auth/google?prompt=select_account%20consent`;
                         }}
                         style={{
-                          background: "var(--surface-3)", color: "#334155", border: "1px solid #cbd5e1",
+                          background: "var(--surface-3)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                           borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                         }}
                       >
@@ -10230,7 +10003,7 @@ export function ReaiDashboard({
                         type="button"
                         onClick={handleDisconnectGoogle}
                         style={{
-                          background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca",
+                          background: "var(--bad-tint)", color: "var(--bad)", border: "1px solid var(--bad-border)",
                           borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                         }}
                       >
@@ -10257,7 +10030,7 @@ export function ReaiDashboard({
                 </div>
 
                 {googleConnected && (
-                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #dcfce7", display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--ok-tint)", display: "flex", flexDirection: "column", gap: 10 }}>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 12 }}>
                       <div>
                         <span style={{ color: "var(--ink-muted)" }}>Authorized Account:</span>
@@ -10285,7 +10058,7 @@ export function ReaiDashboard({
                             fetchGscAnalytics(nextProp);
                           }}
                           style={{
-                            background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                            background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                             padding: "4px 8px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
                           }}
                         >
@@ -10311,11 +10084,11 @@ export function ReaiDashboard({
                             setTimeout(() => setSyncToast(null), 3000);
                           }}
                           style={{
-                            background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                            background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                             padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)", cursor: "pointer",
                           }}
                         >
-                          🔄 Re-Sync Now
+                          <Icon name="refresh" /> Re-Sync Now
                         </button>
                       </div>
                     </div>
@@ -10324,11 +10097,11 @@ export function ReaiDashboard({
               </div>
 
               {/* Service 2: GitHub Auto-Fix Code Engine */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 18, background: "var(--surface)" }}>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 18, background: "var(--surface)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ display: "flex", gap: 12 }}>
                     <div style={{
-                      width: 40, height: 40, borderRadius: 10, background: "var(--surface-2)", border: "1px solid #e2e8f0",
+                      width: 40, height: 40, borderRadius: 10, background: "var(--surface-2)", border: "1px solid var(--border)",
                       display: "grid", placeItems: "center", color: "var(--ink-body)",
                     }}>
                       <IconTerminal size={20} />
@@ -10351,7 +10124,7 @@ export function ReaiDashboard({
                   </span>
                 </div>
 
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--surface-3)", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
                   <span style={{ color: "var(--ink-muted)" }}>Execution Policy: <b>Safe Dry-Run (Human Confirms Before Merge)</b></span>
                   <button
                     type="button"
@@ -10371,12 +10144,12 @@ export function ReaiDashboard({
                 const dailyCap = budget?.dailyBudget ?? 5;
                 const spent = budget?.spentToday ?? 0;
                 return (
-                  <div style={{ border: "1px solid #a7f3d0", borderRadius: 10, padding: 18, background: "var(--ok-tint)" }}>
+                  <div style={{ border: "1px solid var(--ok-border)", borderRadius: 10, padding: 18, background: "var(--ok-tint)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontSize: 18 }}>🛡️</span>
+                        <Icon name="shield" size={18} />
                         <div>
-                          <div style={{ fontSize: 14, fontWeight: 700, color: "#065f46" }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ok)" }}>
                             Daily Spend Budget ({formatUsd(dailyCap)}/day Cap)
                           </div>
                           <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 2 }}>
@@ -10384,7 +10157,7 @@ export function ReaiDashboard({
                           </div>
                         </div>
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: "var(--ok)", background: "var(--surface)", border: "1px solid #a7f3d0", padding: "4px 10px", borderRadius: 20 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "var(--ok)", background: "var(--surface)", border: "1px solid var(--ok-border)", padding: "4px 10px", borderRadius: 20 }}>
                         {formatUsd(spent)} / {formatUsd(dailyCap)}
                       </span>
                     </div>
@@ -10406,7 +10179,7 @@ export function ReaiDashboard({
                         }}
                         style={{
                           display: "inline-flex", alignItems: "center", gap: 6,
-                          background: "var(--surface)", color: "#065f46", border: "1px solid #a7f3d0",
+                          background: "var(--surface)", color: "var(--ok)", border: "1px solid var(--ok-border)",
                           borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 600,
                           cursor: selectedClient ? "pointer" : "not-allowed",
                           opacity: selectedClient ? 1 : 0.6,
@@ -10433,7 +10206,7 @@ export function ReaiDashboard({
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Floating Sync Toast */}
@@ -10442,9 +10215,9 @@ export function ReaiDashboard({
           position: "fixed", bottom: 24, right: 24, background: "var(--ink-body)", color: "var(--surface)",
           padding: "12px 20px", borderRadius: 8, boxShadow: "0 10px 25px rgba(0,0,0,0.25)",
           fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 10, zIndex: 3000,
-          border: "1px solid #334155",
+          border: "1px solid var(--ink-body)",
         }}>
-          <span style={{ color: "#10b981", fontSize: 16 }}>✓</span>
+          <span style={{ color: "var(--ok)", fontSize: 16 }}>✓</span>
           <span>{syncToast}</span>
         </div>
       )}
@@ -10460,7 +10233,7 @@ export function ReaiDashboard({
       {domainMoved && (
         <div role="status" style={{
           position: "fixed", bottom: 24, right: 24, maxWidth: 420,
-          background: "var(--warn-tint)", color: "#92400e", border: "1px solid #fde68a",
+          background: "var(--warn-tint)", color: "var(--warn)", border: "1px solid var(--warn-border)",
           padding: "14px 18px", borderRadius: 10, boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
           fontSize: 12.5, lineHeight: 1.55, zIndex: 3000,
         }}>
@@ -10475,7 +10248,7 @@ export function ReaiDashboard({
             type="button"
             onClick={() => setDomainMoved(null)}
             style={{
-              marginTop: 10, background: "#92400e", color: "#fff", border: 0,
+              marginTop: 10, background: "var(--warn)", color: "var(--color-white)", border: 0,
               borderRadius: 6, padding: "5px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
             }}
           >
@@ -10505,20 +10278,17 @@ export function ReaiDashboard({
 
       {/* ── LIVE SCAN DRAWER / MODAL (INLINE, NEVER LEAVES PAGE) ── */}
       {showScanDrawer && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.5)", backdropFilter: "blur(4px)",
-          display: "grid", placeItems: "center", zIndex: 1000, padding: 24,
-        }}>
+        <Modal onClose={() => setShowScanDrawer(false)} label="Live scan">
           <div style={{
-            background: "var(--surface)", borderRadius: 14, border: "1px solid #e9edf2",
-            width: "100%", maxWidth: 660, padding: "32px 36px", boxShadow: "0 20px 25px -5px rgba(15, 23, 42, 0.12)",
+            background: "var(--surface)", borderRadius: 14, border: "1px solid var(--border)",
+            width: "100%", maxWidth: 660, padding: "32px 36px", boxShadow: "0 20px 25px -5px rgba(17, 19, 23, 0.12)",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{
                   width: 10, height: 10, borderRadius: "50%",
-                  background: scanState?.busy ? "#3b82f6" : "#10b981",
-                  boxShadow: scanState?.busy ? "0 0 10px #3b82f6" : "0 0 10px #10b981",
+                  background: scanState?.busy ? "var(--info)" : "var(--ok)",
+                  boxShadow: scanState?.busy ? "0 0 10px var(--info)" : "0 0 10px var(--ok)",
                 }} />
                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--ink-body)" }}>
                   {scanState?.busy ? "Scanning…" : scanState?.error ? "Scan Failed" : "Scan"}
@@ -10536,7 +10306,7 @@ export function ReaiDashboard({
             <div style={{ fontSize: 13.5, color: "var(--ink-muted)", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
               <div>
                 Target: <b>{currentDomain}</b>
-                {selectedClient?.repo && <span style={{ color: "var(--ink-muted)", marginLeft: 8 }}>· Repo: <b style={{ color: "#334155" }}>{selectedClient.repo}</b></span>}
+                {selectedClient?.repo && <span style={{ color: "var(--ink-muted)", marginLeft: 8 }}>· Repo: <b style={{ color: "var(--ink-body)" }}>{selectedClient.repo}</b></span>}
                 {scanState?.phaseLine && <span style={{ color: "var(--accent)", marginLeft: 8 }}>· {scanState.phaseLine}</span>}
               </div>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
@@ -10546,8 +10316,8 @@ export function ReaiDashboard({
                   disabled={scanState?.busy}
                   onChange={(e) => onCrawlPagesChange?.(Number(e.target.value))}
                   style={{
-                    padding: "3px 8px", borderRadius: 6, border: "1px solid #cbd5e1",
-                    fontSize: 12, fontWeight: 600, background: "#fff", color: "var(--ink-body)",
+                    padding: "3px 8px", borderRadius: 6, border: "1px solid var(--border-strong)",
+                    fontSize: 12, fontWeight: 600, background: "var(--color-white)", color: "var(--ink-body)",
                     cursor: scanState?.busy ? "not-allowed" : "pointer",
                   }}
                 >
@@ -10562,11 +10332,11 @@ export function ReaiDashboard({
             </div>
 
             <div style={{
-              background: "var(--ok-tint)", border: "1px solid #a7f3d0", borderRadius: 8,
+              background: "var(--ok-tint)", border: "1px solid var(--ok-border)", borderRadius: 8,
               padding: "9px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8,
-              fontSize: 12, color: "#065f46", fontWeight: 600,
+              fontSize: 12, color: "var(--ok)", fontWeight: 600,
             }}>
-              <span style={{ fontSize: 14 }}>🛡️</span>
+              <Icon name="shield" size={14} />
               <span><b>Daily Spend Limit Active:</b> Max {formatUsd(budget?.dailyBudget ?? 5)}/day ({formatUsd(budget?.spentToday ?? 0)} spent today). Free on-page & tech checks cost $0.00.</span>
             </div>
 
@@ -10586,7 +10356,7 @@ export function ReaiDashboard({
             )}
 
             <div style={{
-              background: "#161b26", borderRadius: 10, padding: "16px 20px", maxHeight: 240,
+              background: "var(--color-ink-900)", borderRadius: 10, padding: "16px 20px", maxHeight: 240,
               overflowY: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "var(--ok-border)", lineHeight: 1.6,
             }}>
               {scanState?.live && scanState.live.length > 0 ? (
@@ -10609,22 +10379,19 @@ export function ReaiDashboard({
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── LOCALBUSINESS JSON-LD GENERATOR & INJECTOR MODAL ── */}
       {showLocalSchemaModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)",
-          display: "grid", placeItems: "center", zIndex: 1000, padding: 20,
-        }}>
+        <Modal onClose={() => setShowLocalSchemaModal(false)} label="LocalBusiness schema">
           <div style={{
-            background: "var(--surface)", borderRadius: 14, border: "1px solid #e2e8f0",
-            width: "100%", maxWidth: 640, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+            background: "var(--surface)", borderRadius: 14, border: "1px solid var(--border)",
+            width: "100%", maxWidth: 640, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(17, 19, 23, 0.25)",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
-                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
                   Auto-Fix Action: Schema Injector
                 </span>
                 <h3 style={{ margin: "6px 0 0", fontSize: 17, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -10647,7 +10414,7 @@ export function ReaiDashboard({
               A LocalBusiness schema template for <b>{currentBusiness}</b> ({currentDomain}). Replace every [confirm: …] with the business&apos;s real details before publishing.
             </p>
 
-            <div style={{ background: "var(--ink)", borderRadius: 8, padding: "14px 16px", maxHeight: 260, overflowY: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#a5b4fc", lineHeight: 1.5 }}>
+            <div style={{ background: "var(--ink)", borderRadius: 8, padding: "14px 16px", maxHeight: 260, overflowY: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "var(--accent-border)", lineHeight: 1.5 }}>
               <pre style={{ margin: 0 }}>{`<script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -10702,11 +10469,11 @@ export function ReaiDashboard({
                   setTimeout(() => setSchemaCopied(false), 2000);
                 }}
                 style={{
-                  background: "var(--surface)", color: "#334155", border: "1px solid #cbd5e1",
+                  background: "var(--surface)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                   borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                 }}
               >
-                {schemaCopied ? "✓ Copied to Clipboard" : "📋 Copy JSON-LD"}
+                {schemaCopied ? "✓ Copied to Clipboard" : "Copy JSON-LD"}
               </button>
 
               <div style={{ display: "flex", gap: 8 }}>
@@ -10733,27 +10500,24 @@ export function ReaiDashboard({
                     boxShadow: "0 1px 2px rgba(4, 120, 87, 0.3)",
                   }}
                 >
-                  ⚡ Deploy to Repo via Claude Code
+                  <Icon name="bolt" /> Deploy to Repo via Claude Code
                 </button>
               </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── AEO /LLMS.TXT SCAFFOLD MODAL ── */}
       {showLlmsTxtModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)",
-          display: "grid", placeItems: "center", zIndex: 1000, padding: 20,
-        }}>
+        <Modal onClose={() => setShowLlmsTxtModal(false)} label="llms.txt scaffold">
           <div style={{
-            background: "var(--surface)", borderRadius: 14, border: "1px solid #e2e8f0",
-            width: "100%", maxWidth: 640, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+            background: "var(--surface)", borderRadius: 14, border: "1px solid var(--border)",
+            width: "100%", maxWidth: 640, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(17, 19, 23, 0.25)",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
-                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
                   Auto-Fix Action: AEO Suite
                 </span>
                 <h3 style={{ margin: "6px 0 0", fontSize: 17, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -10773,7 +10537,7 @@ export function ReaiDashboard({
               Standardized markdown citation file for <b>{currentBusiness}</b>. Placed at <code>public/llms.txt</code> to guide Perplexity, Claude, and ChatGPT web crawlers with verified facts and services.
             </p>
 
-            <div style={{ background: "var(--ink)", borderRadius: 8, padding: "14px 16px", maxHeight: 260, overflowY: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#38bdf8", lineHeight: 1.5 }}>
+            <div style={{ background: "var(--ink)", borderRadius: 8, padding: "14px 16px", maxHeight: 260, overflowY: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "var(--info)", lineHeight: 1.5 }}>
               {/*
                 Published at the client's own domain, so every line here is a
                 claim made on their behalf to answer engines.
@@ -10815,11 +10579,11 @@ certifications, awards or memberships without a source.]
                   setTimeout(() => setLlmsCopied(false), 2000);
                 }}
                 style={{
-                  background: "var(--surface)", color: "#334155", border: "1px solid #cbd5e1",
+                  background: "var(--surface)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                   borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                 }}
               >
-                {llmsCopied ? "✓ Copied to Clipboard" : "📋 Copy /llms.txt"}
+                {llmsCopied ? "✓ Copied to Clipboard" : "Copy /llms.txt"}
               </button>
 
               <div style={{ display: "flex", gap: 8 }}>
@@ -10843,30 +10607,27 @@ certifications, awards or memberships without a source.]
                   style={{
                     background: "var(--accent)", color: "var(--surface)", border: 0,
                     borderRadius: 6, padding: "8px 18px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(79, 70, 229, 0.3)",
+                    boxShadow: "0 1px 2px rgba(194, 65, 12, 0.3)",
                   }}
                 >
-                  ⚡ Scaffold in Repo via Claude Code
+                  <Icon name="bolt" /> Scaffold in Repo via Claude Code
                 </button>
               </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── AUTONOMOUS FLOW 4: LINK OUTREACH GENERATOR MODAL ── */}
       {showOutreachModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)",
-          display: "grid", placeItems: "center", zIndex: 1000, padding: 20,
-        }}>
+        <Modal onClose={() => setShowOutreachModal(false)} label="Link outreach">
           <div style={{
-            background: "var(--surface)", borderRadius: 14, border: "1px solid #e2e8f0",
-            width: "100%", maxWidth: 640, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+            background: "var(--surface)", borderRadius: 14, border: "1px solid var(--border)",
+            width: "100%", maxWidth: 640, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(17, 19, 23, 0.25)",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
-                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
                   Auto-Fix Action: Link Outreach
                 </span>
                 <h3 style={{ margin: "6px 0 0", fontSize: 17, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -10882,11 +10643,11 @@ certifications, awards or memberships without a source.]
               </button>
             </div>
 
-            <div style={{ background: "var(--surface-2)", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
                 Target Category: <b>{selectedOutreachCategory || "Industry Resource"}</b>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid #a7f3d0", padding: "2px 8px", borderRadius: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "2px 8px", borderRadius: 4 }}>
                 Draft: fill every [confirm]
               </div>
             </div>
@@ -10895,7 +10656,7 @@ certifications, awards or memberships without a source.]
               <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", marginBottom: 4 }}>
                 Subject Line
               </div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-body)", background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6, padding: "7px 12px" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-body)", background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "7px 12px" }}>
                 Resource for your readers: {currentBusiness}
               </div>
             </div>
@@ -10930,11 +10691,11 @@ https://${currentDomain}`}</pre>
                   setTimeout(() => setOutreachCopied(false), 2000);
                 }}
                 style={{
-                  background: "var(--surface)", color: "#334155", border: "1px solid #cbd5e1",
+                  background: "var(--surface)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                   borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                 }}
               >
-                {outreachCopied ? "✓ Copied Pitch" : "📋 Copy Pitch Email"}
+                {outreachCopied ? "✓ Copied Pitch" : "Copy Pitch Email"}
               </button>
 
               <div style={{ display: "flex", gap: 8 }}>
@@ -10961,7 +10722,7 @@ https://${currentDomain}`}</pre>
                   style={{
                     background: "var(--accent)", color: "var(--surface)", border: 0,
                     borderRadius: 6, padding: "8px 18px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(79, 70, 229, 0.3)",
+                    boxShadow: "0 1px 2px rgba(194, 65, 12, 0.3)",
                   }}
                 >
                   ✓ Add to Pitch Queue
@@ -10969,22 +10730,19 @@ https://${currentDomain}`}</pre>
               </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── AUTONOMOUS FLOW 1: CONTENT ENRICHMENT MODAL (CLAUDE CODE AST INJECTOR) ── */}
       {showContentEnrichModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)",
-          display: "grid", placeItems: "center", zIndex: 1000, padding: 20,
-        }}>
+        <Modal onClose={() => setShowContentEnrichModal(false)} label="Content enrichment">
           <div style={{
-            background: "var(--surface)", borderRadius: 14, border: "1px solid #e2e8f0",
-            width: "100%", maxWidth: 660, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+            background: "var(--surface)", borderRadius: 14, border: "1px solid var(--border)",
+            width: "100%", maxWidth: 660, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(17, 19, 23, 0.25)",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
-                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-border)", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
                   Auto-Fix Action: Content Enricher
                 </span>
                 <h3 style={{ margin: "6px 0 0", fontSize: 17, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -11019,11 +10777,11 @@ https://${currentDomain}`}</pre>
                   setTimeout(() => setContentEnrichCopied(false), 2000);
                 }}
                 style={{
-                  background: "var(--surface)", color: "#334155", border: "1px solid #cbd5e1",
+                  background: "var(--surface)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                   borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                 }}
               >
-                {contentEnrichCopied ? "✓ Copied Section" : "📋 Copy Content Block"}
+                {contentEnrichCopied ? "✓ Copied Section" : "Copy Content Block"}
               </button>
 
               <div style={{ display: "flex", gap: 8 }}>
@@ -11051,12 +10809,12 @@ https://${currentDomain}`}</pre>
                     boxShadow: "0 1px 2px rgba(4, 120, 87, 0.3)",
                   }}
                 >
-                  ⚡ Inject into Page via Claude Code
+                  <Icon name="bolt" /> Inject into Page via Claude Code
                 </button>
               </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── AUTONOMOUS FLOW 5: NEXT.JS & HTML METADATA AST INJECTOR MODAL ── */}
@@ -11115,17 +10873,14 @@ export const metadata: Metadata = {
         const targetFilePath = `web/app${selectedOnPageUrl === "/" ? "" : selectedOnPageUrl}/page.tsx`;
 
         return (
-          <div style={{
-            position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)",
-            display: "grid", placeItems: "center", zIndex: 1000, padding: 20,
-          }}>
+          <Modal onClose={() => setShowSerpMetaModal(false)} label="SERP snippet">
             <div style={{
-              background: "var(--surface)", borderRadius: 14, border: "1px solid #e2e8f0",
-              width: "100%", maxWidth: 680, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+              background: "var(--surface)", borderRadius: 14, border: "1px solid var(--border)",
+              width: "100%", maxWidth: 680, padding: "26px 30px", boxShadow: "0 25px 50px -12px rgba(17, 19, 23, 0.25)",
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                 <div>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: "#0284c7", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "var(--info)", background: "var(--info-tint)", border: "1px solid var(--info-border)", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>
                     Auto-Fix Action: Metadata AST Auto-Repair
                   </span>
                   <h3 style={{ margin: "6px 0 0", fontSize: 17, fontWeight: 700, color: "var(--ink-body)" }}>
@@ -11190,11 +10945,11 @@ export const metadata: Metadata = {
                     setTimeout(() => setSerpMetaCopied(false), 2000);
                   }}
                   style={{
-                    background: "var(--surface)", color: "#334155", border: "1px solid #cbd5e1",
+                    background: "var(--surface)", color: "var(--ink-body)", border: "1px solid var(--border-strong)",
                     borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer",
                   }}
                 >
-                  {serpMetaCopied ? "✓ Copied to Clipboard" : `📋 Copy ${serpFormatType === "nextjs" ? "Next.js Metadata" : "HTML Tags"}`}
+                  {serpMetaCopied ? "✓ Copied to Clipboard" : `Copy ${serpFormatType === "nextjs" ? "Next.js Metadata" : "HTML Tags"}`}
                 </button>
 
                 <div style={{ display: "flex", gap: 8 }}>
@@ -11217,17 +10972,17 @@ export const metadata: Metadata = {
                       if (planState && !planState.plan?.worklist) planState.runPlan();
                     }}
                     style={{
-                      background: "#0284c7", color: "var(--surface)", border: 0,
+                      background: "var(--info)", color: "var(--surface)", border: 0,
                       borderRadius: 6, padding: "8px 18px", fontSize: 12, fontWeight: 700, cursor: "pointer",
                       boxShadow: "0 1px 3px rgba(2, 132, 199, 0.3)",
                     }}
                   >
-                    ⚡ Apply AST Modification in Repo
+                    <Icon name="bolt" /> Apply AST Modification in Repo
                   </button>
                 </div>
               </div>
             </div>
-          </div>
+          </Modal>
         );
       })()}
 
@@ -11257,16 +11012,11 @@ export const metadata: Metadata = {
           agency: agencyName,
         });
 
-        const overlayStyle: React.CSSProperties = {
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.75)", backdropFilter: "blur(5px)",
-          display: "flex", justifyContent: "center", zIndex: 2000, padding: "var(--space-5) var(--space-4)", overflowY: "auto",
-        };
-
         // No scan, no deliverable. Generating one anyway is how the fabricated
         // version happened in the first place.
         if (!exec) {
           return (
-            <div style={overlayStyle}>
+            <Modal onClose={() => setShowExecutiveReportModal(false)} label="Client report" align="top">
               <div style={{
                 background: "var(--surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border)",
                 boxShadow: "var(--shadow-lg)", padding: "var(--space-6)", maxWidth: 520, height: "fit-content",
@@ -11310,7 +11060,7 @@ export const metadata: Metadata = {
                   </button>
                 </div>
               </div>
-            </div>
+            </Modal>
           );
         }
 
@@ -11319,7 +11069,7 @@ export const metadata: Metadata = {
         const vitalKeys = ["lcp", "inp", "cls"] as const;
 
         return (
-          <div style={overlayStyle}>
+          <Modal onClose={() => setShowExecutiveReportModal(false)} label="Client report" align="top">
             {/* Print CSS Rules */}
             <style>{`
               @media print {
@@ -11338,7 +11088,7 @@ export const metadata: Metadata = {
                   padding: 24px !important;
                   box-shadow: none !important;
                   border: none !important;
-                  background: #ffffff !important;
+                  background: var(--color-white) !important;
                   -webkit-print-color-adjust: exact !important;
                   print-color-adjust: exact !important;
                 }
@@ -11386,7 +11136,7 @@ export const metadata: Metadata = {
                       display: "flex", alignItems: "center", gap: "var(--space-1)",
                     }}
                   >
-                    <span>📋</span> {reportCopied ? "✓ Copied Markdown" : "Copy Summary"}
+                    <Icon name="copy" /> {reportCopied ? "✓ Copied Markdown" : "Copy Summary"}
                   </button>
 
                   <button
@@ -11399,7 +11149,7 @@ export const metadata: Metadata = {
                       display: "flex", alignItems: "center", gap: "var(--space-1)", boxShadow: "var(--shadow-sm)",
                     }}
                   >
-                    <span>🖨️</span> Print / Save as PDF
+                    <Icon name="print" /> Print / Save as PDF
                   </button>
 
                   <button
@@ -11459,7 +11209,7 @@ export const metadata: Metadata = {
 
                   {/* Metadata Bar */}
                   <div style={{
-                    display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-3)",
+                    display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 12px))), 1fr))", gap: "var(--space-3)",
                     paddingTop: "var(--space-4)", borderTop: "1px solid var(--ink-body)", fontSize: "var(--text-xs)",
                   }}>
                     <div>
@@ -11547,7 +11297,7 @@ export const metadata: Metadata = {
                       2. Core Web Vitals (CrUX Field Data)
                     </h3>
                     {exec.vitalsMeasured ? (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-3)" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, max(200px, calc(100% / 3 - 12px))), 1fr))", gap: "var(--space-3)" }}>
                         {vitalKeys.map((k) => (
                           <div key={k} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "var(--space-4)" }}>
                             <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>
@@ -11660,7 +11410,7 @@ export const metadata: Metadata = {
                 </div>
               </div>
             </div>
-          </div>
+          </Modal>
         );
       })()}
 
@@ -11676,31 +11426,26 @@ export const metadata: Metadata = {
         ].join("\n");
 
         return (
-          <div style={{
-            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-            background: "rgba(15, 23, 42, 0.65)", backdropFilter: "blur(4px)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 99999, padding: 20,
-          }}>
+          <Modal onClose={() => setShowDisavowModal(false)} label="Disavow file">
             <div style={{
               background: "var(--surface)", borderRadius: 12, width: "100%", maxWidth: 640,
               maxHeight: "90vh", display: "flex", flexDirection: "column",
               boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-              border: "1px solid #e2e8f0", overflow: "hidden",
+              border: "1px solid var(--border)", overflow: "hidden",
             }}>
               {/* Header */}
               <div style={{
-                padding: "18px 24px", borderBottom: "1px solid #f1f5f9",
+                padding: "18px 24px", borderBottom: "1px solid var(--surface-3)",
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 background: "var(--surface-2)",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{
-                    width: 34, height: 34, borderRadius: 8, background: "#fee2e2",
+                    width: 34, height: 34, borderRadius: 8, background: "var(--bad-tint)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 18,
                   }}>
-                    🛡️
+                    <Icon name="shield" size={18} />
                   </div>
                   <div>
                     <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--ink)" }}>
@@ -11728,15 +11473,15 @@ export const metadata: Metadata = {
               <div style={{ padding: "20px 24px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 16 }}>
                 {/* Info Note */}
                 <div style={{
-                  background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8,
-                  padding: "12px 16px", fontSize: 12, color: "#166534", lineHeight: 1.5,
+                  background: "var(--ok-tint)", border: "1px solid var(--ok-border)", borderRadius: 8,
+                  padding: "12px 16px", fontSize: 12, color: "var(--ok)", lineHeight: 1.5,
                 }}>
                   <b>Instructions:</b> Download or copy this file and upload it directly into your{" "}
                   <a
                     href="https://search.google.com/search-console/disavow-links"
                     target="_blank"
                     rel="noreferrer"
-                    style={{ color: "#15803d", fontWeight: 700, textDecoration: "underline" }}
+                    style={{ color: "var(--ok)", fontWeight: 700, textDecoration: "underline" }}
                   >
                     Google Search Console Disavow Links Tool
                   </a>. This instructs Google algorithms to disregard link equity from flagged low-trust or spam networks.
@@ -11762,12 +11507,12 @@ export const metadata: Metadata = {
                           title="Click to remove from disavow list"
                           style={{
                             display: "inline-flex", alignItems: "center", gap: 6,
-                            background: "var(--bad-tint)", border: "1px solid #fecaca", color: "#991b1b",
+                            background: "var(--bad-tint)", border: "1px solid var(--bad-border)", color: "var(--bad)",
                             padding: "4px 9px", borderRadius: 6, fontSize: 12, fontWeight: 600,
                             cursor: "pointer",
                           }}
                         >
-                          {dom} <span style={{ color: "#dc2626", fontWeight: 800 }}>✕</span>
+                          {dom} <span style={{ color: "var(--bad)", fontWeight: 800 }}>✕</span>
                         </span>
                       ))}
                     </div>
@@ -11780,10 +11525,10 @@ export const metadata: Metadata = {
                     File Content Preview (Plaintext)
                   </div>
                   <pre style={{
-                    background: "var(--ink)", color: "#38bdf8", padding: "14px 16px",
+                    background: "var(--ink)", color: "var(--info)", padding: "14px 16px",
                     borderRadius: 8, fontSize: 12, fontFamily: "monospace",
                     margin: 0, maxHeight: 160, overflowY: "auto", whiteSpace: "pre-wrap",
-                    lineHeight: 1.45, border: "1px solid #334155",
+                    lineHeight: 1.45, border: "1px solid var(--ink-body)",
                   }}>
                     {disavowText}
                   </pre>
@@ -11792,14 +11537,14 @@ export const metadata: Metadata = {
 
               {/* Footer */}
               <div style={{
-                padding: "16px 24px", borderTop: "1px solid #f1f5f9",
+                padding: "16px 24px", borderTop: "1px solid var(--surface-3)",
                 background: "var(--surface-2)", display: "flex", justifyContent: "space-between", alignItems: "center",
               }}>
                 <button
                   type="button"
                   onClick={() => setShowDisavowModal(false)}
                   style={{
-                    background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                    background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                     padding: "8px 16px", fontSize: 12.5, fontWeight: 600, color: "var(--ink-muted)", cursor: "pointer",
                   }}
                 >
@@ -11815,11 +11560,11 @@ export const metadata: Metadata = {
                       setTimeout(() => setDisavowCopied(false), 2500);
                     }}
                     style={{
-                      background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                      background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                       padding: "8px 16px", fontSize: 12.5, fontWeight: 600, color: "var(--ink-body)", cursor: "pointer",
                     }}
                   >
-                    {disavowCopied ? "✓ Copied!" : "📋 Copy File Content"}
+                    {disavowCopied ? "✓ Copied!" : "Copy File Content"}
                   </button>
 
                   <button
@@ -11845,30 +11590,26 @@ export const metadata: Metadata = {
                 </div>
               </div>
             </div>
-          </div>
+          </Modal>
         );
       })()}
 
       {/* ── ORGANIC RESEARCH COMPLETE DOCUMENTATION & PLAYBOOK MODAL ── */}
       {showOrganicGuideModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.6)",
-          backdropFilter: "blur(4px)", zIndex: 9999,
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
-        }}>
+        <Modal onClose={() => setShowOrganicGuideModal(false)} label="Organic research guide">
           <div style={{
             background: "var(--surface)", borderRadius: 12, width: "100%", maxWidth: 880,
             maxHeight: "90vh", display: "flex", flexDirection: "column",
             boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)", overflow: "hidden",
-            border: "1px solid #cbd5e1",
+            border: "1px solid var(--border-strong)",
           }}>
             {/* Modal Header */}
             <div style={{
-              padding: "18px 24px", borderBottom: "1px solid #e2e8f0", background: "var(--surface-2)",
+              padding: "18px 24px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)",
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 22 }}>📘</span>
+                <Icon name="book" size={22} />
                 <div>
                   <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--ink)" }}>
                     Organic Research: Feature & Strategic Guide
@@ -11886,19 +11627,19 @@ export const metadata: Metadata = {
                   rel="noopener noreferrer"
                   download="Organic_Research_Guide.pdf"
                   style={{
-                    background: "#2563eb", color: "var(--surface)", border: 0,
+                    background: "var(--accent)", color: "var(--surface)", border: 0,
                     borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700,
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
                     textDecoration: "none",
                   }}
                 >
-                  <span>📄</span> Download PDF
+                  <Icon name="file" /> Download PDF
                 </a>
                 <button
                   type="button"
                   onClick={() => setShowOrganicGuideModal(false)}
                   style={{
-                    background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                    background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                     width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center",
                     cursor: "pointer", color: "var(--ink-muted)", fontSize: 15, fontWeight: 700,
                   }}
@@ -11909,7 +11650,7 @@ export const metadata: Metadata = {
             </div>
 
             {/* Modal Navigation Tabs */}
-            <div style={{ display: "flex", background: "var(--surface-3)", padding: "6px 20px 0", borderBottom: "1px solid #e2e8f0", gap: 4 }}>
+            <div style={{ display: "flex", background: "var(--surface-3)", padding: "6px 20px 0", borderBottom: "1px solid var(--border)", gap: 4 }}>
               {[
                 { id: "overview", label: "1. Overview & Definition" },
                 { id: "modules", label: "2. Every Feature" },
@@ -11926,7 +11667,7 @@ export const metadata: Metadata = {
                     fontSize: 12, fontWeight: organicGuideTab === tab.id ? 700 : 500,
                     color: organicGuideTab === tab.id ? "var(--info)" : "var(--ink-muted)",
                     background: organicGuideTab === tab.id ? "var(--surface)" : "transparent",
-                    borderBottom: organicGuideTab === tab.id ? "2px solid #2563eb" : "2px solid transparent",
+                    borderBottom: organicGuideTab === tab.id ? "2px solid var(--accent)" : "2px solid transparent",
                     cursor: "pointer",
                   }}
                 >
@@ -11936,31 +11677,31 @@ export const metadata: Metadata = {
             </div>
 
             {/* Modal Body */}
-            <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1, fontSize: 13, lineHeight: 1.6, color: "#334155" }}>
+            <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1, fontSize: 13, lineHeight: 1.6, color: "var(--ink-body)" }}>
               
               {/* Tab 1: Overview */}
               {organicGuideTab === "overview" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div style={{ background: "var(--info-tint)", border: "1px solid #bfdbfe", borderRadius: 8, padding: "14px 16px" }}>
-                    <div style={{ fontWeight: 700, color: "#1e40af", fontSize: 14, marginBottom: 4 }}>
+                  <div style={{ background: "var(--info-tint)", border: "1px solid var(--info-border)", borderRadius: 8, padding: "14px 16px" }}>
+                    <div style={{ fontWeight: 700, color: "var(--info)", fontSize: 14, marginBottom: 4 }}>
                       What is Organic Research?
                     </div>
-                    <p style={{ margin: 0, color: "#1e3a8a" }}>
+                    <p style={{ margin: 0, color: "var(--accent-ink)" }}>
                       <b>Organic Research</b> is the competitive intelligence and search performance engine of our platform. It reverse-engineers a website's presence in non-paid (organic) search engine results pages (SERPs)—principally across Google and modern generative AI answer engines.
                     </p>
                   </div>
 
                   <h4 style={{ margin: "10px 0 6px", fontSize: 14, color: "var(--ink)" }}>Why Organic Search Matters Over Paid Ads:</h4>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <div style={{ border: "1px solid #fee2e2", background: "#fff5f5", borderRadius: 8, padding: "12px 14px" }}>
-                      <div style={{ fontWeight: 700, color: "#991b1b", marginBottom: 4 }}>❌ Paid Search (PPC / Google Ads)</div>
-                      <div style={{ fontSize: 12, color: "#7f1d1d" }}>
+                    <div style={{ border: "1px solid var(--bad-tint)", background: "var(--bad-tint)", borderRadius: 8, padding: "12px 14px" }}>
+                      <div style={{ fontWeight: 700, color: "var(--bad)", marginBottom: 4 }}>Paid Search (PPC / Google Ads)</div>
+                      <div style={{ fontSize: 12, color: "var(--bad)" }}>
                         Traffic completely stops the moment ad spend ends. High ongoing cost per click ($1–$15+) with zero lasting equity.
                       </div>
                     </div>
-                    <div style={{ border: "1px solid #dcfce7", background: "#f0fdf4", borderRadius: 8, padding: "12px 14px" }}>
-                      <div style={{ fontWeight: 700, color: "#166534", marginBottom: 4 }}>✅ Organic Search (SEO / AEO)</div>
-                      <div style={{ fontSize: 12, color: "#14532d" }}>
+                    <div style={{ border: "1px solid var(--ok-tint)", background: "var(--ok-tint)", borderRadius: 8, padding: "12px 14px" }}>
+                      <div style={{ fontWeight: 700, color: "var(--ok)", marginBottom: 4 }}>Organic Search (SEO / AEO)</div>
+                      <div style={{ fontSize: 12, color: "var(--ok)" }}>
                         Earned topical authority that compounds month after month with <b>zero marginal cost per click</b>. Delivers higher consumer trust and conversion rates.
                       </div>
                     </div>
@@ -11983,42 +11724,42 @@ export const metadata: Metadata = {
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
                       <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13.5 }}>1. SERP Position Distribution (Tiers 1–3, 4–10, 11–20, 21–50, 51–100)</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
                         Categorizes all rankings into performance buckets. Positions 1–3 capture ~60% of all clicks. Positions 11–20 ("Striking Distance") represent the highest ROI targets for quick promotion into Page 1.
                       </div>
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
                       <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13.5 }}>2. Search Intent Breakdown (Informational, Commercial, Transactional, Navigational)</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
                         Classifies query psychology. Ensures content satisfies user intent (e.g. providing price comparisons for Commercial queries, and booking forms for Transactional queries).
                       </div>
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
                       <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13.5 }}>3. SERP Features in Search Landscape</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
                         Tracks rich enhancements won or lost: Featured Snippets (Position 0), People Also Ask (PAA), Local 3-Packs, and Knowledge Panels. Pushes competitors below the fold.
                       </div>
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
                       <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13.5 }}>4. Organic Competitors Positioning Matrix</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
                         Maps real SERP rivals based on shared search terms. Compares Common Keywords, Search Visibility %, and Estimated Monthly Traffic with direct one-click jump to Keyword Gap.
                       </div>
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
                       <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13.5 }}>5. Top Organic Pages & Content Silos</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
                         Uncovers the 20% of URLs generating 80% of site traffic. Highlights primary keyword drivers, click share, and content silos requiring internal link reinforcement.
                       </div>
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 16px", background: "var(--surface-2)" }}>
                       <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13.5 }}>6. Organic Search Keyword Positions Table</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
                         Granular table of each keyword, live position, monthly search volume, estimated CPC advertiser benchmark, and Keyword Difficulty (KD%).
@@ -12037,37 +11778,37 @@ export const metadata: Metadata = {
 
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
                     <thead>
-                      <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0" }}>
+                      <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
                         <th style={{ padding: "10px 12px", fontWeight: 700, color: "var(--ink-muted)" }}>Tool / API Engine</th>
                         <th style={{ padding: "10px 12px", fontWeight: 700, color: "var(--ink-muted)" }}>Operational Purpose</th>
                         <th style={{ padding: "10px 12px", fontWeight: 700, color: "var(--ink-muted)" }}>SEO Impact</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <tr style={{ borderBottom: "1px solid var(--surface-3)" }}>
                         <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--info)" }}>Google SERP Live Crawler</td>
                         <td style={{ padding: "10px 12px" }}>Real-time search scraping across target country & device</td>
                         <td style={{ padding: "10px 12px", color: "var(--ok)" }}>Live ranking accuracy</td>
                       </tr>
-                      <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <tr style={{ borderBottom: "1px solid var(--surface-3)" }}>
                         <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--info)" }}>DataForSEO Labs API</td>
                         <td style={{ padding: "10px 12px" }}>Historical keyword database, volume, CPC valuation, competitor overlap</td>
                         <td style={{ padding: "10px 12px", color: "var(--ok)" }}>Commercial traffic valuation</td>
                       </tr>
-                      <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <tr style={{ borderBottom: "1px solid var(--surface-3)" }}>
                         <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--info)" }}>NLP Intent Classifier</td>
                         <td style={{ padding: "10px 12px" }}>Lexical parsing categorizing queries into I, C, T, N</td>
                         <td style={{ padding: "10px 12px", color: "var(--ok)" }}>Satisfies helpful content standards</td>
                       </tr>
-                      <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <tr style={{ borderBottom: "1px solid var(--surface-3)" }}>
                         <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--info)" }}>Google CrUX & CWV</td>
                         <td style={{ padding: "10px 12px" }}>Correlates LCP, INP, and CLS speed with ranking volatility</td>
                         <td style={{ padding: "10px 12px", color: "var(--ok)" }}>Technical speed diagnostics</td>
                       </tr>
                       <tr>
-                        <td style={{ padding: "10px 12px", fontWeight: 600, color: "#7c3aed" }}>AEO Knowledge Graph Engine</td>
+                        <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--accent)" }}>AEO Knowledge Graph Engine</td>
                         <td style={{ padding: "10px 12px" }}>Checks entity resolution and structured JSON-LD for LLM citations</td>
-                        <td style={{ padding: "10px 12px", color: "#7c3aed" }}>Bridges SEO into AI Overviews</td>
+                        <td style={{ padding: "10px 12px", color: "var(--accent)" }}>Bridges SEO into AI Overviews</td>
                       </tr>
                     </tbody>
                   </table>
@@ -12080,29 +11821,29 @@ export const metadata: Metadata = {
                   <h4 style={{ margin: 0, fontSize: 14, color: "var(--ink)" }}>Strategic Rationale: Why Organic Research is Essential:</h4>
                   
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
-                      <div style={{ fontWeight: 700, color: "#2563eb", marginBottom: 4 }}>🎯 Low-Hanging Fruit Optimization</div>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
+                      <div style={{ fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>Low-Hanging Fruit Optimization</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
                         Keywords in positions 4–15 already have Google's trust. Applying quick schema, meta, or heading fixes can leap them into the Top 3 within weeks, generating <b>200%–500% traffic lift</b>.
                       </div>
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
-                      <div style={{ fontWeight: 700, color: "var(--ok)", marginBottom: 4 }}>🛡️ Stopping Keyword Cannibalization</div>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
+                      <div style={{ fontWeight: 700, color: "var(--ok)", marginBottom: 4 }}>Stopping Keyword Cannibalization</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
                         Identifies when two different pages on your site compete for the same keyword, confusing Google and diluting authority. Consolidating them restores #1 rankings.
                       </div>
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
-                      <div style={{ fontWeight: 700, color: "#d97706", marginBottom: 4 }}>🥷 Competitor Content Blueprint</div>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
+                      <div style={{ fontWeight: 700, color: "var(--warn)", marginBottom: 4 }}>Competitor Content Blueprint</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
                         Shows exactly which topics and structural formats competitors use to win market share. You can produce superior content that captures their audience.
                       </div>
                     </div>
 
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
-                      <div style={{ fontWeight: 700, color: "#7c3aed", marginBottom: 4 }}>🤖 Direct AEO Citation Feeder</div>
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
+                      <div style={{ fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>Direct AEO Citation Feeder</div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
                         Pages in Google's Top 3 with structured answers are <b>3.8x more likely to be cited by Perplexity, ChatGPT, and Google AI Overviews</b>.
                       </div>
@@ -12114,36 +11855,36 @@ export const metadata: Metadata = {
               {/* Tab 5: How It Helps SEO */}
               {organicGuideTab === "sop" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "14px 16px" }}>
-                    <div style={{ fontWeight: 700, color: "#166534", fontSize: 14, marginBottom: 4 }}>
+                  <div style={{ background: "var(--ok-tint)", border: "1px solid var(--ok-border)", borderRadius: 8, padding: "14px 16px" }}>
+                    <div style={{ fontWeight: 700, color: "var(--ok)", fontSize: 14, marginBottom: 4 }}>
                       How Organic Research Directly Powers the 16-Test Auto-Fix Pipeline:
                     </div>
-                    <div style={{ fontSize: 12.5, color: "#14532d" }}>
+                    <div style={{ fontSize: 12.5, color: "var(--ok)" }}>
                       Organic Research is not merely an analytics dashboard—it is an <b>automated operational trigger</b> that feeds Step 3 (Plan & Triage) and Step 4 (Auto-Fix Engine):
                     </div>
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                      <span style={{ width: 22, height: 22, borderRadius: "50%", background: "#2563eb", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>1</span>
+                      <span style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--accent)", color: "var(--color-white)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>1</span>
                       <div>
                         <b>Automatic Striking Distance Triage:</b> Keywords in positions 4–15 with high commercial intent are prioritized in the Auto-Fix Worklist.
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                      <span style={{ width: 22, height: 22, borderRadius: "50%", background: "#2563eb", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>2</span>
+                      <span style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--accent)", color: "var(--color-white)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>2</span>
                       <div>
                         <b>Autonomous Snippet Rewrites:</b> The Auto-Fix Engine rewrites meta titles and descriptions to precisely match the character and pixel width tolerances shown in the SERP Optimizer.
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                      <span style={{ width: 22, height: 22, borderRadius: "50%", background: "#2563eb", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>3</span>
+                      <span style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--accent)", color: "var(--color-white)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>3</span>
                       <div>
                         <b>Schema Injection:</b> Adds FAQPage, MedicalEntity, or LocalBusiness JSON-LD schema to capture Featured Snippets and PAA accordions.
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                      <span style={{ width: 22, height: 22, borderRadius: "50%", background: "#2563eb", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>4</span>
+                      <span style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--accent)", color: "var(--color-white)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>4</span>
                       <div>
                         <b>Competitor Gap Exploitation:</b> High-volume keywords competitors rank for that your domain is missing are converted into new content briefs with a single click.
                       </div>
@@ -12156,7 +11897,7 @@ export const metadata: Metadata = {
 
             {/* Modal Footer */}
             <div style={{
-              padding: "14px 24px", borderTop: "1px solid #e2e8f0", background: "var(--surface-2)",
+              padding: "14px 24px", borderTop: "1px solid var(--border)", background: "var(--surface-2)",
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
               <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
@@ -12169,7 +11910,7 @@ export const metadata: Metadata = {
                   rel="noopener noreferrer"
                   download="Organic_Research_Guide.pdf"
                   style={{
-                    background: "var(--surface)", border: "1px solid #cbd5e1", borderRadius: 6,
+                    background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: 6,
                     padding: "6px 14px", fontSize: 12, fontWeight: 600, color: "var(--ink-body)",
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
                   }}
@@ -12189,7 +11930,7 @@ export const metadata: Metadata = {
               </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
     </div>

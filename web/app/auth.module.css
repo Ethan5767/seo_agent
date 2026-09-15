@@ -1,0 +1,200 @@
+/* Sign-in screen (app/auth.tsx). Tokens only: DESIGN.md §2-§5, §8, §13. */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  background: var(--surface-2);
+  font-family: var(--font-body);
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  min-width: 0;
+  padding: var(--space-8);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink-body);
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: var(--space-6);
+  }
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-ink-900);
+  color: var(--color-white);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-h3);
+  line-height: var(--leading-tight);
+  font-weight: 700;
+  letter-spacing: var(--tracking-heading);
+  color: var(--ink);
+}
+
+.lead {
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  color: var(--ink-muted);
+}
+
+/* The message slot. It is always mounted, so the live regions inside it exist
+   before any text lands in them, and it opens by animating its row height
+   rather than pushing the form down in one frame. The global reduced-motion
+   block in tokens.css zeroes the transition. */
+.slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-slow) var(--ease);
+}
+
+.slot[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.slotInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-snug);
+}
+
+.message svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.alert {
+  background: var(--bad-tint);
+  border: 1px solid var(--bad-border);
+  color: var(--bad);
+}
+
+.notice {
+  background: var(--ok-tint);
+  border: 1px solid var(--ok-border);
+  color: var(--ok);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.label {
+  margin-bottom: var(--space-1);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-body);
+  font: inherit;
+  font-size: var(--text-body);
+}
+
+.input::placeholder {
+  color: var(--ink-muted);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+
+/* One caption line is always reserved, so a validation message never moves
+   the button under the pointer. */
+.fieldError {
+  min-height: 16px;
+  margin: var(--space-1) 0 var(--space-3);
+  font-size: var(--text-caption);
+  line-height: 16px;
+  color: var(--bad);
+}
+
+/* Two classes, so it wins over the shared `.btn` regardless of load order. */
+.card .fullBtn {
+  width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-6) 0;
+  font-size: var(--text-body-sm);
+  color: var(--ink-muted);
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.providers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.providerNote {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-caption);
+  line-height: 16px;
+  color: var(--ink-muted);
+}
+
+.trust {
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-body-sm);
+  color: var(--ink-muted);
+}
+
+.devBtn {
+  margin-top: var(--space-3);
+}

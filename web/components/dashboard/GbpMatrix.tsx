@@ -1,9 +1,11 @@
 "use client";
 
 import React from "react";
+import { StatStrip, type Stat } from "./Panel";
+import styles from "./LocalPresence.module.css";
 
 /**
- * The four Google Business Profile tiles.
+ * The four Google Business Profile figures, as one stat strip.
  *
  * B-097. Every one of them claimed something it had not measured:
  *
@@ -20,7 +22,7 @@ import React from "react";
  *                  line, and nothing stores a rating history to draw.
  *   a radial gauge fed 100-or-50 from a boolean: a picture of a number nobody
  *                  computed.
- *   "🏥"           a hospital emoji, hardcoded, on every client.
+ *   a hospital pictogram, hardcoded, on every client.
  *
  * Three states everywhere, never two: measured-and-fine, measured-and-not, and
  * not measured. Nothing unmeasured is green, and nothing unmeasured is drawn.
@@ -28,36 +30,37 @@ import React from "react";
 
 type Row = { what?: string; code?: string; detail?: string; severity?: string };
 
-const MUTED = "#64748b";
+const MUTED = "var(--ink-muted)";
 
-function Tile({
-  label, badge, badgeColor, value, valueColor, note, right,
-}: {
-  label: string; badge: string; badgeColor: string;
-  value: string; valueColor: string; note: string; right?: React.ReactNode;
-}) {
+/** ok/warn: a verdict. info: measured, but not a pass or a fail. none: not measured. */
+type MarkState = "ok" | "warn" | "info" | "none";
+
+/** A status word with its icon (DESIGN.md §2.5: never colour alone). */
+function Mark({ state, word }: { state: MarkState; word: string }) {
+  if (state === "info") {
+    return <span className={styles.statBadge} style={{ color: "var(--ink-body)", fontWeight: 600 }}>{word}</span>;
+  }
+  const cls = state === "ok" ? "sev sev--ok" : state === "warn" ? "sev sev--warn" : "sev";
   return (
-    <div style={{
-      border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#fff",
-      display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 82,
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>{label}</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: badgeColor, whiteSpace: "nowrap" }}>{badge}</span>
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 4, gap: 8 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{
-            fontSize: 17, fontWeight: 700, color: valueColor, lineHeight: 1.1,
-            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-          }}>
-            {value}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 3 }}>{note}</div>
-        </div>
-        {right}
-      </div>
-    </div>
+    <span className={`${cls} ${styles.statBadge}`}>
+      <span className="sev__glyph" aria-hidden="true">
+        <svg className={styles.glyphIcon} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {state === "ok" ? <polyline points="20 6 9 17 4 12" />
+            : state === "warn" ? <><line x1="12" y1="6" x2="12" y2="13" /><line x1="12" y1="18" x2="12.01" y2="18" /></>
+            : <line x1="6" y1="12" x2="18" y2="12" />}
+        </svg>
+      </span>
+      {word}
+    </span>
+  );
+}
+
+function sub(state: MarkState, badge: string, note: string) {
+  return (
+    <>
+      <Mark state={state} word={badge} />
+      {note}
+    </>
   );
 }
 
@@ -80,43 +83,47 @@ export function GbpMatrix({ gbpRows, mentionsRows }: { gbpRows: Row[]; mentionsR
     : claimed?.severity === "warn" ? "Unclaimed"
     : "Claimed & active";
   const ok = status === "Claimed & active";
-  const statusColor = !measured ? MUTED : ok ? "var(--ok)" : "#d97706";
+  const statusColor = !measured ? MUTED : ok ? "var(--ok)" : "var(--warn)";
+
+  // A finding's icon follows its own severity. A row existing is not a pass.
+  const stateOf = (row: Row | undefined): MarkState =>
+    !row ? "none" : row.severity === "ok" ? "ok" : row.severity === "warn" ? "warn" : "info";
+  const value = (text: string) => <span className={styles.statValue}>{text}</span>;
+
+  const stats: Stat[] = [
+    {
+      label: "GBP status",
+      value: value(status),
+      tone: statusColor,
+      sub: sub(
+        !measured ? "none" : ok ? "ok" : "warn",
+        !measured ? "Not asked" : ok ? "Verified" : "Action needed",
+        measured ? "From the live profile" : "Run the Local tool to read the profile",
+      ),
+    },
+    {
+      label: "Rating & reviews",
+      value: value(review?.detail || "Not measured"),
+      tone: review ? "var(--ink)" : MUTED,
+      sub: sub(stateOf(review), review ? "Trust signal" : "Not measured", review ? "From the live profile" : "No rating read yet"),
+    },
+    {
+      label: "Primary category",
+      value: value(category?.detail || "Not measured"),
+      tone: category ? "var(--ink)" : MUTED,
+      sub: sub(stateOf(category), category ? "Primary" : "Not measured", "The single strongest local ranking input"),
+    },
+    {
+      label: "Web mentions",
+      value: value(mention?.detail || "Not measured"),
+      tone: mention ? "var(--ink)" : MUTED,
+      sub: sub(stateOf(mention), mention ? "Reach" : "Not measured", mention ? "News, blogs and directories" : "The mentions tool has not run"),
+    },
+  ];
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
-      <Tile
-        label="GBP status"
-        badge={!measured ? "Not asked" : ok ? "Verified" : "Action needed"}
-        badgeColor={statusColor}
-        value={status}
-        valueColor={statusColor}
-        note={measured ? "From the live profile" : "Run the Local tool to read the profile"}
-      />
-      <Tile
-        label="Rating & reviews"
-        badge={review ? "Trust signal" : "Not measured"}
-        badgeColor={review ? "var(--ok)" : MUTED}
-        value={review?.detail || "Not measured"}
-        valueColor={review ? "#0f172a" : MUTED}
-        note={review ? "From the live profile" : "No rating read yet"}
-      />
-      <Tile
-        label="Primary category"
-        badge={category ? "Primary" : "Not measured"}
-        badgeColor={category ? "#4f46e5" : MUTED}
-        value={category?.detail || "Not measured"}
-        valueColor={category ? "#0f172a" : MUTED}
-        note="The single strongest local ranking input"
-        right={<span style={{ fontSize: 16 }}>{category ? "🏷️" : ""}</span>}
-      />
-      <Tile
-        label="Web mentions"
-        badge={mention ? "Reach" : "Not measured"}
-        badgeColor={mention ? "#4f46e5" : MUTED}
-        value={mention?.detail || "Not measured"}
-        valueColor={mention ? "#0f172a" : MUTED}
-        note={mention ? "News, blogs and directories" : "The mentions tool has not run"}
-      />
+    <div style={{ marginBottom: "var(--space-4)" }}>
+      <StatStrip stats={stats} label="Local signals" />
     </div>
   );
 }

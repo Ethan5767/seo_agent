@@ -238,14 +238,14 @@ export function AutoFixSkeleton() {
       </div>
 
       {/* Advantage Dark Banner */}
-      <div style={{ background: "#0f172a", borderRadius: 8, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ background: "var(--ink)", borderRadius: 8, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "65%" }}>
-          <SkeletonBox width={140} height={14} borderRadius={4} style={{ background: "#334155" }} />
-          <SkeletonBox width="90%" height={12} borderRadius={4} style={{ background: "#1e293b" }} />
+          <SkeletonBox width={140} height={14} borderRadius={4} style={{ background: "var(--ink-body)" }} />
+          <SkeletonBox width="90%" height={12} borderRadius={4} style={{ background: "var(--ink-body)" }} />
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <SkeletonBox width={120} height={34} borderRadius={6} style={{ background: "#334155" }} />
-          <SkeletonBox width={140} height={34} borderRadius={6} style={{ background: "#334155" }} />
+          <SkeletonBox width={120} height={34} borderRadius={6} style={{ background: "var(--ink-body)" }} />
+          <SkeletonBox width={140} height={34} borderRadius={6} style={{ background: "var(--ink-body)" }} />
         </div>
       </div>
 
@@ -255,7 +255,7 @@ export function AutoFixSkeleton() {
         <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px", display: "flex", flexDirection: "column", gap: 8 }}>
           <SkeletonBox width={110} height={13} borderRadius={4} />
           {[1, 2, 3, 4].map((f) => (
-            <div key={f} style={{ padding: "10px", borderRadius: 6, background: f === 1 ? "#eff6ff" : "var(--surface-2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div key={f} style={{ padding: "10px", borderRadius: 6, background: f === 1 ? "var(--info-tint)" : "var(--surface-2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <SkeletonBox width={130} height={12} borderRadius={3} />
               <SkeletonBox width={36} height={14} borderRadius={4} />
             </div>
@@ -268,11 +268,11 @@ export function AutoFixSkeleton() {
             <SkeletonBox width={180} height={14} borderRadius={4} />
             <SkeletonBox width={90} height={24} borderRadius={4} />
           </div>
-          <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: 8, background: "#0f172a" }}>
+          <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: 8, background: "var(--ink)" }}>
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((line) => (
               <div key={line} style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                <SkeletonBox width={28} height={12} borderRadius={3} style={{ background: "#1e293b" }} />
-                <SkeletonBox width={120 + (line * 37) % 240} height={12} borderRadius={3} style={{ background: line % 3 === 0 ? "#14532d" : line % 3 === 1 ? "#7f1d1d" : "#1e293b" }} />
+                <SkeletonBox width={28} height={12} borderRadius={3} style={{ background: "var(--ink-body)" }} />
+                <SkeletonBox width={120 + (line * 37) % 240} height={12} borderRadius={3} style={{ background: line % 3 === 0 ? "var(--ok)" : line % 3 === 1 ? "var(--bad)" : "var(--ink-body)" }} />
               </div>
             ))}
           </div>
@@ -387,9 +387,9 @@ export function KeywordMagicSkeleton() {
         <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "14px", display: "flex", flexDirection: "column", gap: 8 }}>
           <SkeletonBox width={100} height={13} borderRadius={4} />
           {[1, 2, 3, 4, 5, 6].map((cl) => (
-            <div key={cl} style={{ padding: "8px 10px", borderRadius: 6, background: cl === 1 ? "#1e293b" : "var(--surface-2)", display: "flex", justifyContent: "space-between" }}>
-              <SkeletonBox width={70} height={12} borderRadius={3} style={{ background: cl === 1 ? "#334155" : undefined }} />
-              <SkeletonBox width={24} height={12} borderRadius={3} style={{ background: cl === 1 ? "#334155" : undefined }} />
+            <div key={cl} style={{ padding: "8px 10px", borderRadius: 6, background: cl === 1 ? "var(--ink-body)" : "var(--surface-2)", display: "flex", justifyContent: "space-between" }}>
+              <SkeletonBox width={70} height={12} borderRadius={3} style={{ background: cl === 1 ? "var(--ink-body)" : undefined }} />
+              <SkeletonBox width={24} height={12} borderRadius={3} style={{ background: cl === 1 ? "var(--ink-body)" : undefined }} />
             </div>
           ))}
         </div>
@@ -567,12 +567,12 @@ export function AllToolsDirectorySkeleton() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* Header Banner */}
-      <div style={{ background: "#1e293b", borderRadius: 8, padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ background: "var(--ink-body)", borderRadius: 8, padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <SkeletonBox width={160} height={14} borderRadius={4} style={{ background: "#334155" }} />
-          <SkeletonBox width={260} height={20} borderRadius={4} style={{ background: "#334155" }} />
+          <SkeletonBox width={160} height={14} borderRadius={4} style={{ background: "var(--ink-body)" }} />
+          <SkeletonBox width={260} height={20} borderRadius={4} style={{ background: "var(--ink-body)" }} />
         </div>
-        <SkeletonBox width={130} height={36} borderRadius={6} style={{ background: "#334155" }} />
+        <SkeletonBox width={130} height={36} borderRadius={6} style={{ background: "var(--ink-body)" }} />
       </div>
 
       {/* Filter & Search Bar */}
@@ -784,7 +784,7 @@ export function BacklinksAnalyticsSkeleton() {
 export function BacklinkAuditSkeleton() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "14px 18px" }}>
+      <div style={{ background: "var(--bad-tint)", border: "1px solid var(--bad-border)", borderRadius: 8, padding: "14px 18px" }}>
         <SkeletonBox width={260} height={16} borderRadius={4} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>

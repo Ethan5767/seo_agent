@@ -96,7 +96,7 @@ export function SectionScanButton({
   if (!hasProjects) {
     return (
       <div style={{ ...shell, borderStyle: "dashed", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-body)" }}>
           Create a project before auditing
         </div>
         <div style={{ fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.5, maxWidth: "68ch" }}>
@@ -104,7 +104,7 @@ export function SectionScanButton({
           business name and the repository. {section.scope}
         </div>
         {onCreateProject && (
-          <button type="button" onClick={onCreateProject} style={primary}>
+          <button type="button" onClick={onCreateProject} className="btn btn--primary btn--sm">
             Create a project
           </button>
         )}
@@ -131,7 +131,7 @@ export function SectionScanButton({
     <div style={shell}>
       {source && onSourceChange && sourceBlockers && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <label htmlFor={`source-${viewId}`} style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>
+          <label htmlFor={`source-${viewId}`} style={label}>
             Data source
           </label>
           <select
@@ -140,11 +140,7 @@ export function SectionScanButton({
             value={source}
             disabled={busy}
             onChange={(e) => onSourceChange(e.target.value as SourceId)}
-            style={{
-              fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
-              border: "1px solid #cbd5e1", background: "#ffffff", color: "#1e293b",
-              cursor: busy ? "not-allowed" : "pointer",
-            }}
+            style={{ ...select, cursor: busy ? "not-allowed" : "pointer" }}
           >
             {(["dataforseo", "ours"] as SourceId[]).map((s) => (
               <option key={s} value={s} disabled={Boolean(sourceBlockers[s]) && s !== source} title={sourceBlockers[s] || undefined}>
@@ -172,31 +168,22 @@ export function SectionScanButton({
           }
         }}
         title={ready ? `Runs ${keys!.length} tool(s): ${keys!.join(", ")}` : "Tool list not loaded"}
-        style={{
-          ...primary,
-          background: ready && !busy ? "#1e293b" : "#e2e8f0",
-          color: ready && !busy ? "#fff" : "var(--ink-muted)",
-          cursor: ready && !busy ? "pointer" : "not-allowed",
-        }}
+        className="btn btn--primary btn--sm"
       >
         {busy ? "Scanning…" : isViewScoped ? `${action.verb} ${action.object}` : `Scan ${section.label} only`}
       </button>
 
       {viewId === "site-crawl" && !paidOnly && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <label htmlFor="crawl-depth-select" style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>
-            Pages:
+          <label htmlFor="crawl-depth-select" style={label}>
+            Pages
           </label>
           <select
             id="crawl-depth-select"
             value={selectedPages}
             disabled={busy}
             onChange={(e) => handlePagesChange(Number(e.target.value))}
-            style={{
-              fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
-              border: "1px solid #cbd5e1", background: "#ffffff", color: "#1e293b",
-              cursor: busy ? "not-allowed" : "pointer",
-            }}
+            style={{ ...select, cursor: busy ? "not-allowed" : "pointer" }}
           >
             <option value={2}>2 pages (fast link check)</option>
             <option value={5}>5 pages (standard)</option>
@@ -214,12 +201,7 @@ export function SectionScanButton({
           disabled={busy}
           onClick={() => onScan(domain, scanAllKeys)}
           title={`Scan ${scanAllKeys.length} tools in ${section.label}: ${scanAllKeys.join(", ")}`}
-          style={{
-            ...secondary,
-            background: !busy ? "#f8fafc" : "#e2e8f0",
-            color: !busy ? "#334155" : "var(--ink-muted)",
-            cursor: !busy ? "pointer" : "not-allowed",
-          }}
+          className="btn btn--secondary btn--sm"
         >
           Scan all {section.label}{scanAllPaid.length ? ` (${scanAllPaid.map((t) => `${t.label}${t.cost ? ` ${t.cost}` : ""}`).join(", ")})` : " (free)"}
         </button>
@@ -228,7 +210,7 @@ export function SectionScanButton({
       {/* The price before the click (operator, 2026-09-15: "price on paid
           buttons"). Each paid tool named, not a total: a total hides which one
           is expensive, and that is the decision being made. */}
-      <div style={{ minWidth: 0, flex: 1, fontSize: 11.5, color: "var(--ink-muted)" }}>
+      <div style={{ minWidth: 0, flex: 1, fontSize: "var(--text-sm)", color: "var(--ink-muted)" }}>
         {!keys
           ? "Tool list not loaded, so this cannot be scoped yet."
           : paid.length === 0
@@ -241,15 +223,15 @@ export function SectionScanButton({
           role="note"
           style={{
             flexBasis: "100%", fontSize: 12, lineHeight: 1.5,
-            color: "#92400e", background: "#fffbeb",
-            border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px",
+            color: "var(--warn)", background: "var(--warn-tint)",
+            border: "1px solid var(--warn-border)", borderRadius: 6, padding: "8px 10px",
           }}
         >
           <b>{SOURCE_LABEL[source!]} cannot run this page:</b> {sourceBlocked}
         </div>
       )}
       {source && sourceBlockers && !sourceBlocked && (["dataforseo", "ours"] as SourceId[]).filter((s) => s !== source && sourceBlockers[s]).map((s) => (
-        <div key={s} style={{ flexBasis: "100%", fontSize: 11.5, color: "var(--ink-muted)" }}>
+        <div key={s} style={{ flexBasis: "100%", fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
           {SOURCE_LABEL[s]} unavailable here: {sourceBlockers[s]}
         </div>
       ))}
@@ -259,8 +241,8 @@ export function SectionScanButton({
           role="alert"
           style={{
             flexBasis: "100%", fontSize: 12, lineHeight: 1.5,
-            color: "#991b1b", background: "#fef2f2",
-            border: "1px solid #fecaca", borderRadius: 6, padding: "8px 10px",
+            color: "var(--bad)", background: "var(--bad-tint)",
+            border: "1px solid var(--bad-border)", borderRadius: 6, padding: "8px 10px",
           }}
         >
           <b>The last scan did not run.</b> {error}
@@ -271,22 +253,18 @@ export function SectionScanButton({
 }
 
 const shell: React.CSSProperties = {
-  display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-  padding: "10px 14px", borderRadius: 8,
+  display: "flex", alignItems: "center", gap: "var(--space-3) var(--space-4)", flexWrap: "wrap",
+  padding: "var(--space-4) var(--space-6)", borderRadius: "var(--radius-md)",
   // Longhands, not `border`: three states override borderStyle to "dashed", and
   // React warns (and can mis-style) when a rerender drops a longhand that
   // conflicts with a shorthand still set.
-  borderWidth: 1, borderStyle: "solid", borderColor: "#e2e8f0", background: "#f8fafc", marginBottom: 14,
+  borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", background: "var(--surface)",
+  boxShadow: "var(--shadow-sm)", marginBottom: "var(--space-6)",
 };
 
-const primary: React.CSSProperties = {
-  background: "#1e293b", color: "#fff", border: 0, borderRadius: 6,
-  padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-  whiteSpace: "nowrap",
-};
+const label: React.CSSProperties = { fontSize: "var(--text-sm)", fontWeight: 500, color: "var(--ink-muted)" };
 
-const secondary: React.CSSProperties = {
-  background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: 6,
-  padding: "8px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-  whiteSpace: "nowrap",
+const select: React.CSSProperties = {
+  minHeight: 36, fontSize: "var(--text-sm)", fontWeight: 500, padding: "0 var(--space-3)", borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--border-strong)", background: "var(--color-white)", color: "var(--ink-body)",
 };

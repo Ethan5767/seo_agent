@@ -11,10 +11,10 @@ import { backlinks as backlinkMetrics, lighthouse } from "@/lib/dashboardMetrics
  * No rows yet: one card that says which button above fills it.
  */
 
-const PALETTE = ["var(--accent)", "var(--ok)", "var(--warn)", "var(--bad)", "var(--info, #0ea5e9)", "var(--ink-faint)"];
-const SEVERITY_COLORS: Record<string, string> = { Errors: "var(--bad)", Warnings: "var(--warn)", Passed: "var(--ok)", Notices: "var(--ink-faint)" };
+const PALETTE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
+const SEVERITY_COLORS: Record<string, string> = { Errors: "var(--bad-fill)", Warnings: "var(--warn-fill)", Passed: "var(--ok-fill)", Notices: "var(--ink-faint)" };
 
-const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-5)" };
+const grid: React.CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: "var(--space-4)", marginBottom: "var(--space-5)" };
 const fmt = (n: number | null | undefined) => (typeof n === "number" ? n.toLocaleString() : "—");
 
 export function ViewCharts({ viewId, label, rows, report }: { viewId: string; label: string; rows: ChartRow[]; report?: Record<string, unknown> | null }) {
@@ -48,10 +48,10 @@ export function ViewCharts({ viewId, label, rows, report }: { viewId: string; la
           <ChartCard title="Position distribution"><DistributionBars items={k.positions} empty="No positions reported." /></ChartCard>
         )}
         {k.topVolume.length > 0 && (
-          <ChartCard title="Top search volume" subtitle="monthly searches"><DistributionBars items={k.topVolume} color="var(--ok)" empty="No volume reported." /></ChartCard>
+          <ChartCard title="Top search volume" subtitle="monthly searches"><DistributionBars items={k.topVolume} color="var(--chart-1)" empty="No volume reported." /></ChartCard>
         )}
         {k.difficulty.length > 0 && (
-          <ChartCard title="Keyword difficulty"><DistributionBars items={k.difficulty} color="var(--warn)" empty="No difficulty reported." /></ChartCard>
+          <ChartCard title="Keyword difficulty"><DistributionBars items={k.difficulty} color="var(--chart-1)" empty="No difficulty reported." /></ChartCard>
         )}
         {k.intent.length > 0 && (
           <ChartCard title="Search intent">
@@ -70,7 +70,7 @@ export function ViewCharts({ viewId, label, rows, report }: { viewId: string; la
           <DistributionBars items={c.keywords} empty="No keyword counts reported for these domains." />
         </ChartCard>
         <ChartCard title="Estimated traffic by domain" subtitle="monthly, DataForSEO estimate">
-          <DistributionBars items={c.traffic} color="var(--ok)" empty="No traffic estimate reported for these domains." />
+          <DistributionBars items={c.traffic} color="var(--chart-1)" empty="No traffic estimate reported for these domains." />
         </ChartCard>
       </div>
     );
@@ -94,8 +94,8 @@ export function ViewCharts({ viewId, label, rows, report }: { viewId: string; la
           <ChartCard title="Working vs broken">
             <Donut
               segments={[
-                { label: "Working", value: Math.max(0, b.backlinks - b.broken), color: "var(--ok)" },
-                { label: "Broken", value: b.broken, color: "var(--bad)" },
+                { label: "Working", value: Math.max(0, b.backlinks - b.broken), color: "var(--ok-fill)" },
+                { label: "Broken", value: b.broken, color: "var(--bad-fill)" },
               ]}
               center={<span><b style={{ color: "var(--ink)" }}>{b.backlinks ? Math.round((b.broken / b.backlinks) * 1000) / 10 : 0}%</b><br />broken</span>}
             />
@@ -110,7 +110,7 @@ export function ViewCharts({ viewId, label, rows, report }: { viewId: string; la
     return (
       <div style={grid}>
         <ChartCard title="Gap domains with the most links"><DistributionBars items={g.topLinks} empty="No link counts reported." /></ChartCard>
-        <ChartCard title="Spam score of gap domains"><DistributionBars items={g.spam} color="var(--warn)" empty="No spam scores reported." /></ChartCard>
+        <ChartCard title="Spam score of gap domains"><DistributionBars items={g.spam} color="var(--chart-1)" empty="No spam scores reported." /></ChartCard>
       </div>
     );
   }
@@ -141,7 +141,7 @@ export function ViewCharts({ viewId, label, rows, report }: { viewId: string; la
         <Donut segments={f.severity.map((s) => ({ ...s, color: SEVERITY_COLORS[s.label] }))} center={<span><b style={{ color: "var(--ink)", fontSize: 15 }}>{f.graded ? Math.round((f.severity[2].value / f.graded) * 100) : 0}%</b><br />passed</span>} />
       </ChartCard>
       <ChartCard title="Most frequent issues" subtitle="pages affected, or findings" span={2}>
-        <DistributionBars items={f.topIssues} color="var(--bad)" empty="Nothing failing on this page." />
+        <DistributionBars items={f.topIssues} color="var(--chart-1)" empty="Nothing failing on this page." />
       </ChartCard>
     </div>
   );

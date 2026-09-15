@@ -59,8 +59,8 @@ export function LiveScanActivity({
 
 const CSS = `
 .lsl{margin:0 0 14px}
-.lsl-bar{height:4px;border-radius:2px;background:#e0e7ff;overflow:hidden;position:relative}
-.lsl-bar span{position:absolute;top:0;left:-40%;width:40%;height:100%;border-radius:2px;background:#4f46e5;animation:lsl-slide 1.2s ease-in-out infinite}
+.lsl-bar{height:4px;border-radius:2px;background:var(--accent-tint);overflow:hidden;position:relative}
+.lsl-bar span{position:absolute;top:0;left:-40%;width:40%;height:100%;border-radius:2px;background:var(--accent);animation:lsl-slide 1.2s ease-in-out infinite}
 .lsl-text{display:flex;justify-content:space-between;gap:12px;margin-top:6px;font-size:12px;color:var(--ink-muted)}
 .lsl-time{font-variant-numeric:tabular-nums}
 @keyframes lsl-slide{0%{left:-40%}100%{left:100%}}

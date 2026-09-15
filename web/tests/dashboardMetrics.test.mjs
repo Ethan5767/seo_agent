@@ -76,18 +76,32 @@ test("health trend uses graded scans of this domain only, oldest first", () => {
 
 test("the Overview opens on the chart dashboard, fed the project's scans", () => {
   const dash = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
-  const overview = dash.slice(dash.indexOf('{activeTab === "Overview" && ('));
-  assert.ok(overview.indexOf("<SeoDashboard") > 0 && overview.indexOf("<SeoDashboard") < overview.indexOf("<AuditHeroBar"));
+  const start = dash.indexOf('{activeTab === "Overview" && (');
+  const overview = dash.slice(start, dash.indexOf('{activeTab === "Traffic Analytics" && (', start));
+  // The run bar, then the dashboard, and nothing else: the ranked issues live
+  // inside the dashboard now (operator, 2026-09-15).
+  assert.ok(overview.indexOf("<AuditHeroBar") > 0 && overview.indexOf("<AuditHeroBar") < overview.indexOf("<SeoDashboard"), "the run bar leads");
+  for (const extra of ["<PriorityActions", "<ProjectJourney", "Technical Health & Web Vitals", "Auto-Fix Review & Remediation", "SEO is the foundation"]) {
+    assert.ok(!overview.includes(extra), `${extra} is back on the Dashboard`);
+  }
+  const seo = readFileSync(new URL("../components/dashboard/SeoDashboard.tsx", import.meta.url), "utf8");
+  for (const block of ["<ScoreWhy", "<IssuesTable", "<PagesTable", "<HealthTrendPanel"]) {
+    assert.ok(seo.includes(block), `the Dashboard must render ${block}`);
+  }
   assert.match(dash, /scans=\{scans\}/);
   assert.match(readFileSync(new URL("../app/ScannerApp.tsx", import.meta.url), "utf8"), /scans=\{hist\}/);
   const charts = readFileSync(new URL("../components/dashboard/Charts.tsx", import.meta.url), "utf8");
   assert.match(charts, /if \(points\.length < 2\) return <Empty/, "one point is not a trend");
 });
 
-test("Site Audit shows the same health charts above its report", () => {
+test("Site Audit shows one run bar and one set of results", () => {
   const dash = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
-  const i = dash.indexOf("<SiteAuditCharts report={report} scans={scans} domain={currentDomain} />");
-  assert.ok(i > 0 && i < dash.indexOf("<MeasureScreen"), "charts sit above the Site Audit report");
+  assert.ok(!dash.includes("<SiteAuditCharts"), "a second set of charts is back above the Site Audit report");
+  const m = readFileSync(new URL("../components/dashboard/MeasureScreen.tsx", import.meta.url), "utf8");
+  assert.equal(m.split("<AuditHeroBar").length - 1, 1, "exactly one run bar");
+  for (const block of ["<ScoreWhy", "<IssuesTable report={report} />", "<PagesTable report={report} />"]) {
+    assert.ok(m.includes(block), `Site Audit must render ${block}`);
+  }
   const panel = readFileSync(new URL("../components/dashboard/CompareInputPanel.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(panel, /\.\.\.sub, marginTop/, "React warns when margin and marginTop are mixed");
 });

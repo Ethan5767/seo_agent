@@ -114,7 +114,7 @@ export function deriveAeoTiles(aeoRows: AeoRow[] | null | undefined): AeoTile[] 
 
 /** The colour for a verdict. `null` is grey - never the pass green. */
 export function aeoVerdictColor(v: AeoVerdict): string {
-  return v === null ? "#64748b" : v === "ok" ? "#047857" : "#d97706";
+  return v === null ? "var(--ink-muted)" : v === "ok" ? "var(--ok)" : "var(--warn)";
 }
 
 /**

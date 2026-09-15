@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from "react";
+import { Icon } from "@/components/dashboard/Icon";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import type { Session, User } from "@supabase/supabase-js";
@@ -149,7 +150,7 @@ function ProfilePageContent() {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: "#f8fafc",
+          backgroundColor: "var(--surface-2)",
           fontFamily: "'Inter', -apple-system, sans-serif",
         }}
       >
@@ -157,8 +158,8 @@ function ProfilePageContent() {
           style={{
             width: "36px",
             height: "36px",
-            border: "3px solid #e2e8f0",
-            borderTopColor: "#2563eb",
+            border: "3px solid var(--border)",
+            borderTopColor: "var(--accent)",
             borderRadius: "50%",
             animation: "authSpin 0.8s linear infinite",
           }}
@@ -189,10 +190,10 @@ function ProfilePageContent() {
     <div
       style={{
         minHeight: "100vh",
-        backgroundColor: "#f8fafc",
+        backgroundColor: "var(--surface-2)",
         padding: "32px 20px 80px",
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-        color: "#0f172a",
+        color: "var(--ink)",
       }}
     >
       <div style={{ maxWidth: 840, margin: "0 auto" }}>
@@ -206,12 +207,12 @@ function ProfilePageContent() {
               gap: 6,
               fontSize: 13,
               fontWeight: 600,
-              color: "#2563eb",
+              color: "var(--accent)",
               textDecoration: "none",
               padding: "6px 12px",
               borderRadius: 6,
-              background: "#ffffff",
-              border: "1px solid #e2e8f0",
+              background: "var(--color-white)",
+              border: "1px solid var(--border)",
               boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
             }}
           >
@@ -224,9 +225,9 @@ function ProfilePageContent() {
               fontWeight: 600,
               padding: "4px 10px",
               borderRadius: 12,
-              background: session ? "#dcfce7" : "#fef3c7",
-              color: session ? "#166534" : "#92400e",
-              border: `1px solid ${session ? "#bbf7d0" : "#fde68a"}`,
+              background: session ? "var(--ok-tint)" : "var(--warn-tint)",
+              color: session ? "var(--ok)" : "var(--warn)",
+              border: `1px solid ${session ? "var(--ok-border)" : "var(--warn-border)"}`,
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
@@ -237,7 +238,7 @@ function ProfilePageContent() {
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: session ? "#22c55e" : "#d97706",
+                background: session ? "var(--ok)" : "var(--warn)",
               }}
             />
             {session ? "Authenticated Session" : "Signed Out"}
@@ -250,11 +251,11 @@ function ProfilePageContent() {
             style={{
               marginBottom: 20,
               padding: "12px 16px",
-              backgroundColor: "#fef2f2",
-              border: "1px solid #fecaca",
+              backgroundColor: "var(--bad-tint)",
+              border: "1px solid var(--bad-border)",
               borderRadius: 8,
               fontSize: 13,
-              color: "#b91c1c",
+              color: "var(--bad)",
             }}
           >
             {errorMsg}
@@ -266,11 +267,11 @@ function ProfilePageContent() {
             style={{
               marginBottom: 20,
               padding: "12px 16px",
-              backgroundColor: "#f0fdf4",
-              border: "1px solid #bbf7d0",
+              backgroundColor: "var(--ok-tint)",
+              border: "1px solid var(--ok-border)",
               borderRadius: 8,
               fontSize: 13,
-              color: "#166534",
+              color: "var(--ok)",
             }}
           >
             {successMsg}
@@ -283,9 +284,9 @@ function ProfilePageContent() {
             {/* Profile Overview Card */}
             <div
               style={{
-                background: "#ffffff",
+                background: "var(--color-white)",
                 borderRadius: 12,
-                border: "1px solid #e2e8f0",
+                border: "1px solid var(--border)",
                 padding: "24px 28px",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
                 display: "flex",
@@ -305,7 +306,7 @@ function ProfilePageContent() {
                       height: 64,
                       borderRadius: "50%",
                       objectFit: "cover",
-                      border: "2px solid #e2e8f0",
+                      border: "2px solid var(--border)",
                     }}
                   />
                 ) : (
@@ -314,8 +315,8 @@ function ProfilePageContent() {
                       width: 64,
                       height: 64,
                       borderRadius: "50%",
-                      background: "linear-gradient(135deg, #2563eb, #7c3aed)",
-                      color: "#ffffff",
+                      background: "linear-gradient(135deg, var(--accent), var(--accent))",
+                      color: "var(--color-white)",
                       fontSize: 22,
                       fontWeight: 700,
                       display: "flex",
@@ -328,7 +329,7 @@ function ProfilePageContent() {
                 )}
 
                 <div>
-                  <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", margin: 0 }}>
+                  <h1 style={{ fontSize: 20, fontWeight: 800, color: "var(--ink)", margin: 0 }}>
                     {displayName}
                   </h1>
                   <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: "3px 0 0" }}>
@@ -341,9 +342,9 @@ function ProfilePageContent() {
                         fontWeight: 600,
                         padding: "2px 8px",
                         borderRadius: 4,
-                        background: "#f1f5f9",
-                        color: "#475569",
-                        border: "1px solid #e2e8f0",
+                        background: "var(--surface-3)",
+                        color: "var(--ink-muted)",
+                        border: "1px solid var(--border)",
                       }}
                     >
                       Signed in with {providerLabel}
@@ -359,9 +360,9 @@ function ProfilePageContent() {
                     type="button"
                     onClick={() => setConfirmSignOut(true)}
                     style={{
-                      background: "#fee2e2",
-                      color: "#991b1b",
-                      border: "1px solid #fecaca",
+                      background: "var(--bad-tint)",
+                      color: "var(--bad)",
+                      border: "1px solid var(--bad-border)",
                       borderRadius: 6,
                       padding: "8px 16px",
                       fontSize: 13,
@@ -372,19 +373,19 @@ function ProfilePageContent() {
                       gap: 6,
                     }}
                   >
-                    <span>🚪</span>
+                    <Icon name="logout" />
                     <span>Sign Out</span>
                   </button>
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 12, color: "#991b1b", fontWeight: 600 }}>Confirm sign out?</span>
+                    <span style={{ fontSize: 12, color: "var(--bad)", fontWeight: 600 }}>Confirm sign out?</span>
                     <button
                       type="button"
                       onClick={handleSignOut}
                       disabled={signingOut}
                       style={{
-                        background: "#dc2626",
-                        color: "#ffffff",
+                        background: "var(--bad)",
+                        color: "var(--color-white)",
                         border: "none",
                         borderRadius: 6,
                         padding: "7px 12px",
@@ -399,9 +400,9 @@ function ProfilePageContent() {
                       type="button"
                       onClick={() => setConfirmSignOut(false)}
                       style={{
-                        background: "#f1f5f9",
-                        color: "#475569",
-                        border: "1px solid #cbd5e1",
+                        background: "var(--surface-3)",
+                        color: "var(--ink-muted)",
+                        border: "1px solid var(--border-strong)",
                         borderRadius: 6,
                         padding: "7px 12px",
                         fontSize: 12,
@@ -419,42 +420,42 @@ function ProfilePageContent() {
             {/* Account & Identity Details */}
             <div
               style={{
-                background: "#ffffff",
+                background: "var(--color-white)",
                 borderRadius: 12,
-                border: "1px solid #e2e8f0",
+                border: "1px solid var(--border)",
                 padding: "24px 28px",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
               }}
             >
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: "0 0 16px" }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)", margin: "0 0 16px" }}>
                 Account & Identity
               </h2>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
-                <div style={{ background: "#f8fafc", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                <div style={{ background: "var(--surface-2)", padding: "12px 14px", borderRadius: 8, border: "1px solid var(--border)" }}>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>User ID (Tenant UUID)</div>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "#0f172a", marginTop: 4, fontFamily: "monospace" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ink)", marginTop: 4, fontFamily: "monospace" }}>
                     {user.id}
                   </div>
                 </div>
 
-                <div style={{ background: "#f8fafc", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                <div style={{ background: "var(--surface-2)", padding: "12px 14px", borderRadius: 8, border: "1px solid var(--border)" }}>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Primary Authentication</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginTop: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", marginTop: 4 }}>
                     {providerLabel}
                   </div>
                 </div>
 
-                <div style={{ background: "#f8fafc", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                <div style={{ background: "var(--surface-2)", padding: "12px 14px", borderRadius: 8, border: "1px solid var(--border)" }}>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>GitHub Handle</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginTop: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", marginTop: 4 }}>
                     {metadata.user_name || metadata.preferred_username ? `@${metadata.user_name || metadata.preferred_username}` : "Not signed in with GitHub"}
                   </div>
                 </div>
 
-                <div style={{ background: "#f8fafc", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                <div style={{ background: "var(--surface-2)", padding: "12px 14px", borderRadius: 8, border: "1px solid var(--border)" }}>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Session Expiration</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginTop: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", marginTop: 4 }}>
                     {session.expires_at ? new Date(session.expires_at * 1000).toLocaleString() : "Active Session"}
                   </div>
                 </div>
@@ -464,14 +465,14 @@ function ProfilePageContent() {
             {/* Connected Services */}
             <div
               style={{
-                background: "#ffffff",
+                background: "var(--color-white)",
                 borderRadius: 12,
-                border: "1px solid #e2e8f0",
+                border: "1px solid var(--border)",
                 padding: "24px 28px",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
               }}
             >
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: "0 0 16px" }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)", margin: "0 0 16px" }}>
                 Connected Services & Integrations
               </h2>
 
@@ -483,19 +484,19 @@ function ProfilePageContent() {
                     justifyContent: "space-between",
                     alignItems: "center",
                     padding: "14px 16px",
-                    background: "#f8fafc",
+                    background: "var(--surface-2)",
                     borderRadius: 8,
-                    border: "1px solid #e2e8f0",
+                    border: "1px solid var(--border)",
                     flexWrap: "wrap",
                     gap: 10,
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#0f172a", color: "#ffffff", display: "grid", placeItems: "center", fontSize: 18 }}>
-                      🐙
+                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--ink)", color: "var(--color-white)", display: "grid", placeItems: "center", fontSize: 18 }}>
+                      <Icon name="github" size={18} />
                     </div>
                     <div>
-                      <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>
                         GitHub Integration
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
@@ -506,8 +507,8 @@ function ProfilePageContent() {
                   <span
                     style={{
                       fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: 4,
-                      color: github.state === "ok" ? "#166534" : github.state === "failed" ? "#991b1b" : "#475569",
-                      background: github.state === "ok" ? "#dcfce7" : github.state === "failed" ? "#fef2f2" : "#f1f5f9",
+                      color: github.state === "ok" ? "var(--ok)" : github.state === "failed" ? "var(--bad)" : "var(--ink-muted)",
+                      background: github.state === "ok" ? "var(--ok-tint)" : github.state === "failed" ? "var(--bad-tint)" : "var(--surface-3)",
                     }}
                   >
                     {github.state === "ok" ? "✓ Working" : github.state === "failed" ? "✕ Not working" : "Checking"}
@@ -526,9 +527,9 @@ function ProfilePageContent() {
           /* ── CASE 2: SIGNED OUT ── */
           <div
             style={{
-              background: "#ffffff",
+              background: "var(--color-white)",
               borderRadius: 12,
-              border: "1px solid #e2e8f0",
+              border: "1px solid var(--border)",
               padding: "40px 32px",
               boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
               textAlign: "center",
@@ -541,8 +542,8 @@ function ProfilePageContent() {
                 width: 54,
                 height: 54,
                 borderRadius: 12,
-                background: "linear-gradient(135deg, #1e293b, #0f172a)",
-                color: "#ffffff",
+                background: "linear-gradient(135deg, var(--ink-body), var(--ink))",
+                color: "var(--color-white)",
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -550,10 +551,10 @@ function ProfilePageContent() {
                 marginBottom: 16,
               }}
             >
-              🔒
+              <Icon name="lock" size={18} />
             </div>
 
-            <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", margin: "0 0 8px" }}>
+            <h1 style={{ fontSize: 20, fontWeight: 800, color: "var(--ink)", margin: "0 0 8px" }}>
               Sign In to Your REAI Account
             </h1>
             <p style={{ fontSize: 13.5, color: "var(--ink-muted)", margin: "0 0 24px", lineHeight: 1.5 }}>
@@ -567,8 +568,8 @@ function ProfilePageContent() {
               style={{
                 width: "100%",
                 padding: "12px 20px",
-                background: "#0f172a",
-                color: "#ffffff",
+                background: "var(--ink)",
+                color: "var(--color-white)",
                 border: "none",
                 borderRadius: 8,
                 fontSize: 14,
@@ -597,7 +598,7 @@ export default function ProfilePage() {
   return (
     <Suspense
       fallback={
-        <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f8fafc" }}>
+        <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--surface-2)" }}>
           <div style={{ color: "var(--ink-muted)", fontSize: 13, fontWeight: 500 }}>Loading profile...</div>
         </div>
       }

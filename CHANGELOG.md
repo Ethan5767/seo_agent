@@ -6,6 +6,88 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed (tool pages redesigned: one template, a chart palette, responsive shell)
+
+- **Why.** Reported by the operator: every page used the brand colour and still looked bad. Screenshots of Domain Overview, Backlink Overview, On-Page Checks and Keyword Gap showed six problems:
+  - a centred marketing hero card at the top of each search tool;
+  - Domain Overview drawing two dashboards of the same data;
+  - orange, red and green on every chart and number;
+  - orange all-caps table headers;
+  - Home highlighted on the rail while a tool page was open;
+  - a 90px workspace on a phone.
+- **Chart palette (DESIGN.md §14).** `--chart-1…8` come from the dataviz method and pass its validator on white: worst adjacent CVD ΔE 9.1, normal-vision ΔE 19.6. Blue carries every single series and magnitude, status fills appear only where colour means pass or fail, and orange is kept for actions. `Metric` numbers are ink. Gauges and meters use the new `fillFor`, while text keeps `toneFor`.
+- **Tool page template (DESIGN.md §15).**
+  - `CompareInputPanel` is a left-aligned page header plus a toolbar holding the domain, only the inputs the tool reads, one primary button and the price. Every string and input it had is kept.
+  - `SectionScanButton` uses the same toolbar and button classes.
+  - New `components/dashboard/Panel.tsx` provides `Panel` and `StatStrip`. `ReportStats` renders a `StatStrip`, `ChartCard` shares the panel header, and chart rows are flex rows whose cards grow to fill them, so no row ends in a dead column.
+  - `ReportTable` is a panel with sentence-case sortable headers, pill status badges and row hover.
+- **Domain Overview is one dashboard.** The ranked-keyword charts above it are gone. It now shows a headline strip, the shared axis trend chart, position distribution, neutral movement tiles with glyphs, and one table style.
+- **Empty pages.** An unscanned tool page shows the table's one empty state, instead of a "Results 0" strip and an empty chart card above it.
+- **Navigation.**
+  - The rail follows the page on screen (`sectionForNav`): /view/domain-overview lights SEO with its drawer, not Home.
+  - Below 860px the second column hides.
+- **Auto-Fix.** The hot-pink badge (the last stray colour) is now a brand pill, and actions are ink text instead of green.
+- **Verified:**
+  - `tsc` is clean.
+  - `npm test` → 548 of 550 (the same two known failures).
+  - `pytest -q` → `1369 passed, 2 skipped`.
+  - The app shell was rendered with scanner-shaped rows (DataForSEO parsers over `tests/fixtures`, and the real Orienda on-page audit) for Domain Overview, Backlink Overview, On-Page Checks, Keyword Gap, Traffic, AI Search and Auto-Fix at 1600px, and Domain Overview at 400px, with no sideways scroll and no console errors.
+  - Not seen signed in.
+
+### Changed (design system v2, applied to every page)
+
+- **`DESIGN.md` v2 replaces v1.** The style reference is Semrush: dark navigation, an orange accent, data-forward panels, 12px cards, 8px buttons, Inter, and an 8px spacing grid. `PRODUCT.md`'s anti-reference now allows that look, while still ruling out Semrush's vocabulary and its everything-at-once screens.
+- **Accessibility corrections (DESIGN.md §13), measured with the WCAG formula.**
+  - White on the brand orange `#FF642D` is 2.95:1. Buttons and links use `#C2410C` (5.18:1), and `#FF642D` is kept for fills that carry no text.
+  - The reference's success, warning, error and info text colours measure 2.59, 2.03, 3.91 and 3.68:1. Each status now has a fill (the brand hue) and an AA text shade.
+  - Placeholders use gray-600.
+  - Control borders use `#878E99` (3.3:1), because `#EDEFF2` is 1.15:1.
+- **Applied through the tokens (`web/app/tokens.css`).**
+  - The system's names (`--color-*`, `--text-h1…caption`, `--space-8/12/16/24`) are defined, and the app's role names (`--accent`, `--ink`, `--ok`, …) now resolve to them (DESIGN.md §12). Every component that already used a token changed with no edit.
+  - The type scale moved up to the spec (body 16px, panel titles 18px, section titles 24px). Radii are 8, 12 and 16px. Chart marks use the `-fill` colours.
+- **Hard-coded colours replaced.**
+  - 1,351 literal colour values in `web/app` and `web/components` now point at role tokens.
+  - Three `lib/` status-colour helpers use tokens too.
+  - Two `${color}33` alpha concatenations became `color-mix()`.
+  - 22 values remain on purpose: Google's own colours in the SERP preview and on the Google connect button (DESIGN.md §6).
+- **Shell.**
+  - The primary rail is ink-900: gray-100 labels, ink-800 hover, and the current section in white with an orange icon.
+  - Drawer and list selection are orange-tinted.
+  - The page title is 24px.
+  - The header's Client Report, Create Project and Full Technical Report buttons are secondary, so Run Audit is the one primary action on the Dashboard.
+  - Breadcrumb section chips are neutral.
+- **Verified:**
+  - `tsc --noEmit` is clean.
+  - `npm test` → 548 of 550, the same two known failures (`nav.test.mjs` drawer block; `AeoAccessPanel` unrendered).
+  - `pytest -q` → `1369 passed, 2 skipped`.
+  - The full app shell was rendered with a real scan report on Overview, Site Audit, Traffic, AI Search and Auto-Fix at 1912, 1600, 1366 and 400px, with no sideways scroll. The live login page on :3001 has no page errors.
+  - Not seen signed in, because of the login wall.
+  - `lib/costReport.ts` (a standalone printable HTML report) still uses its own colours.
+
+### Changed (on-page audit, Dashboard and Site Audit)
+
+- **The audit is the on-page audit, and Site Health scores only it (B-147).**
+  - **What runs.** `server.ONPAGE_AUDIT_TOOLS` = `seo, onpage, tech, schema, validate, internal`, all free, plus the crawl at 5, 10 or 25 pages. The Dashboard and Site Audit run exactly this. Run audit used to send all 16 free tools.
+  - **Score version 3.** `audit.SCORED_GROUPS` (those tools plus the crawl's `site` rows) is all Site Health counts. Rankings, backlinks, Lighthouse and AI rows no longer move it. `counts` and `graded` are the score's inputs; the new `counts_all` is every row. Scans saved before this keep their stored score, and the web labels the recomputed one.
+  - **Per-page summary.** `report.crawl.pages` holds, for each page the audit read: URL, status, title, meta description present, H1 count, words, internal links out and in, and its own failing checks. It is an object rather than a list, so it is never read as a row group. Duplicate-title and broken-link rows now carry `pages`.
+  - **Plain names.** Failing SEO checks are named ("Page title too long or too short") instead of by code ("title length").
+- **Why the score is what it is.** `web/lib/auditBreakdown.ts`:
+  - Every graded check weighs the same, so each failing check costs exactly `100 / graded` points.
+  - The breakdown adds those costs by category (titles and descriptions, headings and content, links, images, structured data, crawling and indexing, technical and mobile, social sharing), and the losses add back to the score.
+  - Issues rank errors first, then by pages affected.
+  - The web's lists are pinned to the scanner's by `test_the_web_runs_and_scores_the_same_lists`.
+  - The re-score after a partial scan uses it too, so a Backlinks run merged over the open report cannot move Site Health.
+- **Shared result blocks.** `components/dashboard/AuditResults.tsx` provides `ScoreWhy` (the score, the rule, and a category table with pass rate, failures and points lost), `IssuesTable` (filterable, with rows that open to why, how to fix and pages) and `PagesTable`. `AuditHeroBar` is now only the run bar: domain, pages to crawl, Run Audit and live progress. It used to render its own score banner and a list of every check.
+- **Dashboard.** Two sections. The on-page audit comes first: run bar, Site Health and why, health trend, top 8 issues, 8 worst pages. Search and links follows: organic, keywords, backlinks, speed, AI. Every row of both grids fills the width at every size. The Overview no longer renders the audit bar's results, the duplicate diagnostics, the promo card, the journey, the principle banner (still on AI Search) or `PriorityActions` (the Top Issues table replaced it).
+- **Site Audit.** One run bar, then tabs: Overview (score and why, trend, fix these first), Issues, Pages, All checks and History. Removed: the charts above the page, the second health summary and pillar cards, the Crawl Issues tab with its own Data source dropdown and charts, and the Launch Auto-Fix gradient button.
+- **Verified:**
+  - `pytest -q` → `1369 passed, 2 skipped`.
+  - `npm test` → 548 of 550. The two failures are unrelated to this change: `nav.test.mjs` "drawer block not found" comes from an uncommitted sidebar edit that removed "All Tools Directory Pinned", and `AeoAccessPanel` has been rendered nowhere since the first Dashboard trim (delete or re-wire: operator decision).
+  - `tsc --noEmit` is clean.
+  - The scanner on :8765 was restarted from this checkout and ran the real audit of oriendainternationalhospital.com.kh: `score 70 v 3 graded 53`, 5 pages. That report was rendered at 1912, 1366 and 400px, on the Dashboard and on Site Audit's Overview, Issues (row open) and Pages (row open), with no sideways scroll and no console errors.
+  - Not seen: the signed-in page itself, because the login wall blocks the headless browser.
+- **Found, not fixed:** B-148. A tool card's Run button in the All Tools directory runs every free tool.
+
 ### Fixed (charts)
 
 - **Organic and Compare Domains charts read the overview under the scanner's keys

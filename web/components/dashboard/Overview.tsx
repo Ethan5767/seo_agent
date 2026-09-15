@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { Icon } from "@/components/dashboard/Icon";
 import type { ReaiTab, NavSubTab, PriorityItem } from "./types";
 import { ProjectJourney } from "./ProjectJourney";
 import { PriorityActions } from "./PriorityActions";
@@ -69,16 +70,16 @@ export function Overview({
           phaseLine={phaseLine}
           scanTools={scanTools}
           liveLogs={liveLogs}
-          report={report}
-          onSelectFix={(code) => onNavigate("Auto-Fix Engine", "Auto-Fix Review")}
+          pages={5}
+          onPagesChange={() => {}}
         />
       </div>
 
       {/* 3. PRODUCT PRINCIPLE CALLOUT */}
       <div
         style={{
-          background: "#f0fdf4",
-          border: "1px solid #bbf7d0",
+          background: "var(--ok-tint)",
+          border: "1px solid var(--ok-border)",
           borderRadius: 8,
           padding: "12px 16px",
           marginBottom: 20,
@@ -87,14 +88,14 @@ export function Overview({
           gap: 12,
         }}
       >
-        <span style={{ fontSize: 18, lineHeight: 1 }}>💡</span>
+        <Icon name="bulb" size={18} />
         <div>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: "#166534" }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ok)" }}>
             SEO is the foundation. AI Search Visibility builds on good SEO.
           </div>
-          <div style={{ fontSize: 12, color: "#15803d", marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: "var(--ok)", marginTop: 2 }}>
             SEO helps traditional search engines index and rank your pages. AI Search Visibility ensures AI answer engines (SearchGPT, Perplexity, Gemini) can accurately parse and cite your site.
-            {" "}<span style={{ color: "#166534", opacity: 0.8 }}>(Note: Technical optimizations improve extractability and schema clarity; they do not guarantee citations, rankings, or traffic).</span>
+            {" "}<span style={{ color: "var(--ok)", opacity: 0.8 }}>(Note: Technical optimizations improve extractability and schema clarity; they do not guarantee citations, rankings, or traffic).</span>
           </div>
         </div>
       </div>
@@ -105,7 +106,7 @@ export function Overview({
         <div
           style={{
             background: "var(--surface)",
-            border: "1px solid #e2e8f0",
+            border: "1px solid var(--border)",
             borderRadius: 8,
             padding: "18px 20px",
             display: "flex",
@@ -131,7 +132,7 @@ export function Overview({
                   borderRadius: 4,
                   background: "var(--surface-3)",
                   color: "var(--ink-muted)",
-                  border: "1px solid #e2e8f0",
+                  border: "1px solid var(--border)",
                 }}
               >
                 Demo data
@@ -150,7 +151,7 @@ export function Overview({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
               <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Critical Issues: </span>
-                <strong style={{ color: "#dc2626" }}>2</strong>
+                <strong style={{ color: "var(--bad)" }}>2</strong>
               </div>
               <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Ranked Keywords: </span>
@@ -159,7 +160,7 @@ export function Overview({
             </div>
           </div>
 
-          <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid #f1f5f9" }}>
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--surface-3)" }}>
             <button
               type="button"
               onClick={() => onNavigate("Site Health & Audit")}
@@ -168,7 +169,7 @@ export function Overview({
                 padding: "8px 12px",
                 background: "var(--surface-2)",
                 color: "var(--ink-body)",
-                border: "1px solid #cbd5e1",
+                border: "1px solid var(--border-strong)",
                 borderRadius: 6,
                 fontSize: 12.5,
                 fontWeight: 600,
@@ -184,7 +185,7 @@ export function Overview({
         <div
           style={{
             background: "var(--surface)",
-            border: "1px solid #e2e8f0",
+            border: "1px solid var(--border)",
             borderRadius: 8,
             padding: "18px 20px",
             display: "flex",
@@ -208,9 +209,9 @@ export function Overview({
                   fontWeight: 600,
                   padding: "2px 6px",
                   borderRadius: 4,
-                  background: "#fef3c7",
-                  color: "#92400e",
-                  border: "1px solid #fde68a",
+                  background: "var(--warn-tint)",
+                  color: "var(--warn)",
+                  border: "1px solid var(--warn-border)",
                 }}
               >
                 Estimated
@@ -218,7 +219,7 @@ export function Overview({
             </div>
 
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "14px 0" }}>
-              <div style={{ fontSize: 36, fontWeight: 800, color: "#7c3aed", lineHeight: 1 }}>
+              <div style={{ fontSize: 36, fontWeight: 800, color: "var(--accent)", lineHeight: 1 }}>
                 74%
               </div>
               <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>
@@ -229,25 +230,25 @@ export function Overview({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
               <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>AI Crawlers: </span>
-                <strong style={{ color: "#166534" }}>Allowed</strong>
+                <strong style={{ color: "var(--ok)" }}>Allowed</strong>
               </div>
               <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Schema Clarity: </span>
-                <strong style={{ color: "#d97706" }}>Needs Review</strong>
+                <strong style={{ color: "var(--warn)" }}>Needs Review</strong>
               </div>
             </div>
           </div>
 
-          <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid #f1f5f9" }}>
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--surface-3)" }}>
             <button
               type="button"
               onClick={() => onNavigate("AI & AEO Lab", "AI Readiness")}
               style={{
                 width: "100%",
                 padding: "8px 12px",
-                background: "#f5f3ff",
-                color: "#6d28d9",
-                border: "1px solid #ddd6fe",
+                background: "var(--accent-tint)",
+                color: "var(--accent)",
+                border: "1px solid var(--accent-border)",
                 borderRadius: 6,
                 fontSize: 12.5,
                 fontWeight: 600,
@@ -279,7 +280,7 @@ export function Overview({
           onClick={() => setShowAdvanced((v) => !v)}
           style={{
             background: "var(--surface)",
-            border: "1px solid #cbd5e1",
+            border: "1px solid var(--border-strong)",
             borderRadius: 20,
             padding: "8px 18px",
             fontSize: 12.5,
@@ -300,7 +301,7 @@ export function Overview({
             marginTop: 20,
             padding: 20,
             background: "var(--surface)",
-            border: "1px solid #e2e8f0",
+            border: "1px solid var(--border)",
             borderRadius: 8,
           }}
         >
@@ -313,8 +314,8 @@ export function Overview({
                 fontSize: 12,
                 padding: "2px 6px",
                 borderRadius: 4,
-                background: "#fef3c7",
-                color: "#92400e",
+                background: "var(--warn-tint)",
+                color: "var(--warn)",
                 fontWeight: 600,
               }}
             >
@@ -325,7 +326,7 @@ export function Overview({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, fontSize: 12.5 }}>
             <div style={{ background: "var(--surface-2)", padding: 14, borderRadius: 6 }}>
               <div style={{ fontWeight: 600, color: "var(--ink-body)", marginBottom: 6 }}>Core Web Vitals (CrUX)</div>
-              <div style={{ color: "var(--ink-muted)" }}>Largest Contentful Paint (LCP): <strong style={{ color: "#d97706" }}>2.9s (Needs Work)</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>Largest Contentful Paint (LCP): <strong style={{ color: "var(--warn)" }}>2.9s (Needs Work)</strong></div>
               <div style={{ color: "var(--ink-muted)" }}>Interaction to Next Paint (INP): <strong style={{ color: "var(--ok)" }}>140ms (Good)</strong></div>
               <div style={{ color: "var(--ink-muted)" }}>Cumulative Layout Shift (CLS): <strong style={{ color: "var(--ok)" }}>0.04 (Good)</strong></div>
             </div>

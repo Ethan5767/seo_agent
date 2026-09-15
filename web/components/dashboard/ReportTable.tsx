@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { StatStrip } from "@/components/dashboard/Panel";
 import type { ReportRow } from "@/lib/priorities";
 import { tallyRows, isSearchView, type ReportView } from "@/lib/reportViews";
 
@@ -66,44 +67,9 @@ export function ReportStats({ rows, search }: { rows: ReportRow[]; search?: bool
       ];
 
   return (
-    <dl
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))",
-        gap: 0,
-        margin: "0 0 var(--space-4)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-md)",
-        background: "var(--surface)",
-        overflow: "hidden",
-      }}
-    >
-      {cells.map((c, i) => (
-        <div
-          key={c.label}
-          style={{
-            padding: "var(--space-3) var(--space-4)",
-            borderRight: i < cells.length - 1 ? "1px solid var(--border)" : 0,
-          }}
-        >
-          <dt style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 500 }}>{c.label}</dt>
-          <dd
-            style={{
-              margin: "var(--space-1) 0 0",
-              fontSize: 22,
-              fontWeight: 700,
-              lineHeight: 1,
-              fontVariantNumeric: "tabular-nums",
-              // A zero is a real reading, so it is not dimmed into a
-              // placeholder. Only a non-zero count takes its severity colour.
-              color: c.value > 0 && c.tone ? c.tone : "var(--ink)",
-            }}
-          >
-            {c.value}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <div style={{ marginBottom: "var(--space-4)" }}>
+      <StatStrip label="Row counts" stats={cells.map((c) => ({ label: c.label, value: c.value.toLocaleString(), tone: c.tone }))} />
+    </div>
   );
 }
 
@@ -231,7 +197,7 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
               type="button"
               onClick={checkedEmpty.action.onClick}
               style={{
-                marginTop: "var(--space-3)", background: "#4f46e5", color: "#fff", border: 0,
+                marginTop: "var(--space-3)", background: "var(--accent)", color: "var(--color-white)", border: 0,
                 borderRadius: 6, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
               }}
             >
@@ -249,7 +215,7 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
                 borderRadius: "var(--radius-sm)",
                 border: 0,
                 background: "var(--accent)",
-                color: "#ffffff",
+                color: "var(--color-white)",
                 fontSize: 13,
                 fontWeight: 600,
                 cursor: "pointer",
@@ -309,24 +275,24 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
           style={{
             flex: "1 1 16rem",
             minWidth: 0,
-            padding: "var(--space-2) var(--space-3)",
-            minHeight: 34,
+            padding: "0 var(--space-3)",
+            minHeight: 36,
             borderRadius: "var(--radius-sm)",
             border: "1px solid var(--border-strong)",
             background: "var(--surface)",
             color: "var(--ink-body)",
-            fontSize: 13,
+            fontSize: "var(--text-sm)",
           }}
         />
-        <span style={{ fontSize: 12, color: "var(--ink-muted)", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)", whiteSpace: "nowrap" }}>
           {filtered.length === rows.length
             ? `${rows.length} rows`
             : `${filtered.length} of ${rows.length} rows`}
         </span>
       </div>
 
-      <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-md)" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: "40rem" }}>
+      <div className="report-table">
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", minWidth: "40rem" }}>
           <caption style={{ position: "absolute", left: -9999 }}>{view.blurb}</caption>
           <thead>
             <tr>
@@ -384,16 +350,16 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
             {visible.map((row, i) => {
               const tone = SEVERITY_TONE[row.severity || "info"] ?? SEVERITY_TONE.info;
               return (
-                <tr key={`${row.code}-${row.what}-${i}`}>
+                <tr key={`${row.code}-${row.what}-${i}`} className="report-table__row">
                   {!search && (
                     <td style={cellStyle}>
                       <span
                         style={{
                           display: "inline-block",
-                          fontSize: 12,
+                          fontSize: "var(--text-xs)",
                           fontWeight: 600,
-                          padding: "1px 7px",
-                          borderRadius: "var(--radius-xs)",
+                          padding: "2px 10px",
+                          borderRadius: "var(--radius-full)",
                           color: tone.fg,
                           background: tone.bg,
                           border: `1px solid ${tone.border}`,
@@ -464,15 +430,16 @@ const headStyle: React.CSSProperties = {
   textAlign: "left",
   padding: 0,
   background: "var(--surface-2)",
-  borderBottom: "1px solid var(--border-strong)",
+  borderBottom: "1px solid var(--border)",
   position: "sticky",
   top: 0,
 };
 
 const cellStyle: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
+  padding: "var(--space-3) var(--space-4)",
   borderBottom: "1px solid var(--border)",
   verticalAlign: "top",
+  lineHeight: 1.45,
 };
 
 function SortButton({
@@ -498,16 +465,14 @@ function SortButton({
         justifyContent: align === "right" ? "flex-end" : "flex-start",
         alignItems: "center",
         gap: 4,
-        padding: "var(--space-2) var(--space-3)",
+        padding: "var(--space-3) var(--space-4)",
         border: 0,
         background: "transparent",
         cursor: "pointer",
         font: "inherit",
-        fontSize: 12,
+        fontSize: "var(--text-xs)",
         fontWeight: 600,
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-        color: active ? "var(--accent-ink)" : "var(--ink-muted)",
+        color: active ? "var(--ink)" : "var(--ink-muted)",
       }}
     >
       {label}
@@ -538,7 +503,7 @@ function PageButton({
         borderRadius: "var(--radius-sm)",
         border: "1px solid var(--border-strong)",
         background: "var(--surface)",
-        color: disabled ? "var(--ink-faint)" : "var(--ink-body)",
+        color: disabled ? "var(--ink-muted)" : "var(--ink-body)",
         fontSize: 13,
         fontWeight: 500,
         cursor: disabled ? "not-allowed" : "pointer",

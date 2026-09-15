@@ -43,19 +43,19 @@ export type RepoSummary = {
 function tag(color: string): React.CSSProperties {
   return {
     fontSize: 10, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase",
-    color, border: `1px solid ${color}33`, background: `${color}14`,
+    color, border: `1px solid color-mix(in srgb, ${color} 20%, transparent)`, background: `color-mix(in srgb, ${color} 8%, transparent)`,
     borderRadius: 4, padding: "1px 5px", whiteSpace: "nowrap",
   };
 }
 
 const link: React.CSSProperties = {
   background: "none", border: "none", padding: 0, fontSize: 11.5,
-  color: "#4f46e5", cursor: "pointer", fontWeight: 600,
+  color: "var(--accent)", cursor: "pointer", fontWeight: 600,
 };
 
 const field: React.CSSProperties = {
-  width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0",
-  fontSize: 13.5, background: "#f8fafc", color: "#1e293b",
+  width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)",
+  fontSize: 13.5, background: "var(--surface-2)", color: "var(--ink-body)",
 };
 
 export function RepoPicker({
@@ -105,7 +105,7 @@ export function RepoPicker({
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6, gap: 10 }}>
-        <label style={{ fontSize: 12.5, fontWeight: 600, color: "#334155" }}>GitHub Repository</label>
+        <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-body)" }}>GitHub Repository</label>
         <button type="button" style={link} onClick={() => { setManual((v) => !v); setQuery(""); }}>
           {manual ? "Pick from my repositories" : "Enter a path by hand"}
         </button>
@@ -120,13 +120,13 @@ export function RepoPicker({
             placeholder="owner/repo or a local path"
             style={field}
           />
-          <p style={{ margin: "6px 2px 0", fontSize: 11.5, color: "#64748b" }}>
+          <p style={{ margin: "6px 2px 0", fontSize: 11.5, color: "var(--ink-muted)" }}>
             A local path works too, for a checkout the pipeline runs against directly.
           </p>
         </>
       ) : repos === null ? (
-        <div style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #fde68a", background: "#fffbeb" }}>
-          <div style={{ fontSize: 12.5, color: "#92400e", lineHeight: 1.5 }}>
+        <div style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid var(--warn-border)", background: "var(--warn-tint)" }}>
+          <div style={{ fontSize: 12.5, color: "var(--warn)", lineHeight: 1.5 }}>
             {busy
               ? "Reading your repositories from GitHub..."
               : reason || "Your repositories have not been loaded yet."}
@@ -147,9 +147,9 @@ export function RepoPicker({
             placeholder={`Search ${repos.length} repositories`}
             style={{ ...field, marginBottom: 8 }}
           />
-          <div style={{ maxHeight: 190, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff" }}>
+          <div style={{ maxHeight: 190, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, background: "var(--color-white)" }}>
             {shown.length === 0 ? (
-              <div style={{ padding: "14px", fontSize: 12.5, color: "#64748b" }}>
+              <div style={{ padding: "14px", fontSize: 12.5, color: "var(--ink-muted)" }}>
                 {repos.length === 0
                   ? "This GitHub account is not a collaborator on any repository."
                   : `No repository matches "${query.trim()}".`}
@@ -162,24 +162,24 @@ export function RepoPicker({
                   onClick={() => onChange(r.fullName)}
                   style={{
                     display: "block", width: "100%", textAlign: "left", cursor: "pointer",
-                    padding: "9px 12px", border: "none", borderBottom: "1px solid #f1f5f9",
-                    background: value === r.fullName ? "#eef2ff" : "transparent",
+                    padding: "9px 12px", border: "none", borderBottom: "1px solid var(--surface-3)",
+                    background: value === r.fullName ? "var(--accent-tint)" : "transparent",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: value === r.fullName ? 700 : 600, color: "#1e293b" }}>
+                    <span style={{ fontSize: 13, fontWeight: value === r.fullName ? 700 : 600, color: "var(--ink-body)" }}>
                       {r.fullName}
                     </span>
-                    {r.private && <span style={tag("#64748b")}>Private</span>}
-                    {r.archived && <span style={tag("#b45309")}>Archived</span>}
+                    {r.private && <span style={tag("var(--ink-muted)")}>Private</span>}
+                    {r.archived && <span style={tag("var(--warn)")}>Archived</span>}
                     {/* Read-only is a NORMAL outcome: a client adds us as a
                         collaborator and may grant read access only. Saying so
                         here stops "merge not permitted" being a surprise three
                         screens later, after the client row is already written. */}
-                    {!r.canPush && <span style={tag("#b91c1c")}>Read only</span>}
+                    {!r.canPush && <span style={tag("var(--bad)")}>Read only</span>}
                   </div>
                   {r.description && (
-                    <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {r.description}
                     </div>
                   )}
@@ -187,8 +187,8 @@ export function RepoPicker({
               ))
             )}
           </div>
-          {reason && <p style={{ margin: "6px 2px 0", fontSize: 11.5, color: "#b45309" }}>{reason}</p>}
-          <p style={{ margin: "6px 2px 0", fontSize: 12, color: value ? "#166534" : "#64748b" }}>
+          {reason && <p style={{ margin: "6px 2px 0", fontSize: 11.5, color: "var(--warn)" }}>{reason}</p>}
+          <p style={{ margin: "6px 2px 0", fontSize: 12, color: value ? "var(--ok)" : "var(--ink-muted)" }}>
             {value ? `Selected: ${value}` : "No repository selected yet."}
           </p>
         </>

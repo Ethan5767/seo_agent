@@ -136,23 +136,23 @@ export function GscPanel({ view, siteUrl, onConnect }: GscPanelProps) {
 
       {/* Charts of the same rows the table lists (Search Console, last 28 days). */}
       {status === "ready" && rows.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
           {view.dimension === "date" ? (
             <>
               <ChartCard title="Clicks per day" span={2}>
                 <TrendChart points={rows.map((r) => ({ label: String(r.keys?.[0] ?? "").slice(5), value: Number(r.clicks) || 0 }))} height={140} empty="Not enough days reported." />
               </ChartCard>
               <ChartCard title="Impressions per day">
-                <TrendChart points={rows.map((r) => ({ label: String(r.keys?.[0] ?? "").slice(5), value: Number(r.impressions) || 0 }))} height={140} color="var(--ok)" empty="Not enough days reported." />
+                <TrendChart points={rows.map((r) => ({ label: String(r.keys?.[0] ?? "").slice(5), value: Number(r.impressions) || 0 }))} height={140} color="var(--chart-1)" empty="Not enough days reported." />
               </ChartCard>
             </>
           ) : view.dimension === "device" ? (
             <>
               <ChartCard title="Clicks by device">
-                <Donut segments={rows.map((r, i) => ({ label: String(r.keys?.[0] ?? "?").toLowerCase(), value: Number(r.clicks) || 0, color: ["var(--accent)", "var(--ok)", "var(--warn)"][i % 3] }))} />
+                <Donut segments={rows.map((r, i) => ({ label: String(r.keys?.[0] ?? "?").toLowerCase(), value: Number(r.clicks) || 0, color: ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)"][i % 3] }))} />
               </ChartCard>
               <ChartCard title="Impressions by device">
-                <Donut segments={rows.map((r, i) => ({ label: String(r.keys?.[0] ?? "?").toLowerCase(), value: Number(r.impressions) || 0, color: ["var(--accent)", "var(--ok)", "var(--warn)"][i % 3] }))} />
+                <Donut segments={rows.map((r, i) => ({ label: String(r.keys?.[0] ?? "?").toLowerCase(), value: Number(r.impressions) || 0, color: ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)"][i % 3] }))} />
               </ChartCard>
             </>
           ) : (
@@ -161,7 +161,7 @@ export function GscPanel({ view, siteUrl, onConnect }: GscPanelProps) {
                 <DistributionBars items={[...rows].sort((a, b) => (Number(b.clicks) || 0) - (Number(a.clicks) || 0)).slice(0, 8).map((r) => ({ label: String(r.keys?.[0] ?? ""), value: Number(r.clicks) || 0 }))} empty="No clicks in this period." />
               </ChartCard>
               <ChartCard title={`Top ${view.label.toLowerCase()} by impressions`}>
-                <DistributionBars color="var(--ok)" items={[...rows].sort((a, b) => (Number(b.impressions) || 0) - (Number(a.impressions) || 0)).slice(0, 8).map((r) => ({ label: String(r.keys?.[0] ?? ""), value: Number(r.impressions) || 0 }))} empty="No impressions in this period." />
+                <DistributionBars color="var(--chart-1)" items={[...rows].sort((a, b) => (Number(b.impressions) || 0) - (Number(a.impressions) || 0)).slice(0, 8).map((r) => ({ label: String(r.keys?.[0] ?? ""), value: Number(r.impressions) || 0 }))} empty="No impressions in this period." />
               </ChartCard>
             </>
           )}
@@ -388,7 +388,7 @@ function PageButton({
         borderRadius: "var(--radius-sm)",
         border: "1px solid var(--border-strong)",
         background: "var(--surface)",
-        color: disabled ? "var(--ink-faint)" : "var(--ink-body)",
+        color: disabled ? "var(--ink-muted)" : "var(--ink-body)",
         fontSize: 13,
         fontWeight: 500,
         cursor: disabled ? "not-allowed" : "pointer",

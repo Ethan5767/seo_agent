@@ -65,6 +65,7 @@ export type DirectoryState =
 
 export type Directory = {
   name: string;
+  /** A line icon name from components/dashboard/Icon.tsx. */
   icon: string;
   state: DirectoryState;
   note: string;
@@ -101,7 +102,7 @@ export function deriveDirectories(rows: LocalRow[] | null | undefined): Director
   return [
     {
       name: "Google Business Profile",
-      icon: "📍",
+      icon: "pin",
       state: google === null ? "unchecked" : google,
       note:
         google === null
@@ -112,7 +113,7 @@ export function deriveDirectories(rows: LocalRow[] | null | undefined): Director
     },
     {
       name: "On-page local signals",
-      icon: "🗺️",
+      icon: "map",
       state: page === null ? "unchecked" : page,
       note:
         page === null
@@ -123,7 +124,7 @@ export function deriveDirectories(rows: LocalRow[] | null | undefined): Director
     },
     {
       name: "Yelp",
-      icon: "⭐",
+      icon: "star",
       state: "not-built",
       note: "Checkable through the Yelp Fusion API (free, read-only). Not built yet - it needs an API key.",
     },
@@ -142,9 +143,9 @@ export function directoryLabel(s: DirectoryState): string {
 
 export function directoryColor(s: DirectoryState): string {
   switch (s) {
-    case "ok": return "#047857";
-    case "problem": return "#d97706";
-    default: return "#64748b"; // never green for something nobody measured
+    case "ok": return "var(--ok)";
+    case "problem": return "var(--warn)";
+    default: return "var(--ink-muted)"; // never green for something nobody measured
   }
 }
 

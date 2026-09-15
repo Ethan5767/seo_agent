@@ -38,7 +38,7 @@ test("no tick, no green, when nothing was measured", () => {
   for (const tile of deriveAeoTiles([])) {
     assert.ok(!/[✓✔]/.test(tile.value), `${tile.label} shows a tick with no data`);
   }
-  assert.equal(aeoVerdictColor(null), "#64748b", "grey, never the pass green");
+  assert.equal(aeoVerdictColor(null), "var(--ink-muted)", "grey, never the pass green");
   assert.notEqual(aeoVerdictColor(null), aeoVerdictColor("ok"));
 });
 
@@ -218,7 +218,7 @@ test("user-triggered fetchers are never graded", () => {
 
 test("blocking a training crawler is never coloured as a failure", () => {
   assert.notEqual(statusColor("blocked", "training"), statusColor("blocked", "citation"));
-  assert.notEqual(statusColor("blocked", "training"), "#dc2626");
+  assert.notEqual(statusColor("blocked", "training"), "var(--bad)");
 });
 
 test("the recommended robots.txt allows the bots that actually cite", () => {

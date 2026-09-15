@@ -37,7 +37,7 @@ from pipeline.scanner.plan import build_plan
 from pipeline.scanner.remediate import build_remediation
 from pipeline.scanner.remediate_bridge import bridge_worklist
 from pipeline.scanner.checks import checks_for
-from pipeline.scanner.crawl import crawl_site, site_rows
+from pipeline.scanner.crawl import crawl_site, links_in, site_rows
 from pipeline.scanner.rows import unavailable_row
 from pipeline.scanner import progress
 from pipeline.scanner.multipage import merge_by_code
@@ -217,6 +217,14 @@ PER_PAGE = {"seo", "onpage", "schema", "content", "video", "eeat", "internal"}
 # domain or brand, the source lane reads the repository. When the page cannot be
 # fetched their results still stand; they were bought, and they are true.
 PAGE_INDEPENDENT = {t.key for t in TOOLS if t.group in ("dataforseo", "source")}
+
+# The on-page audit: every free check that reads the site's own pages for
+# titles, meta, headings, links, images, schema, sitemap and technical setup.
+# The Dashboard and Site Audit run exactly this (operator, 2026-09-15: "Run
+# audit" used to run all 16 free tools, content, trust, local, AI visibility,
+# video and Lighthouse included). Site Health is scored over these groups plus
+# the crawl's `site` rows: `audit.SCORED_GROUPS`.
+ONPAGE_AUDIT_TOOLS = ("seo", "onpage", "tech", "schema", "validate", "internal")
 
 
 def handle_plan(req: dict) -> dict:
@@ -578,18 +586,37 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         if extra_pages:
             log.append(f"Crawled {len(extra_pages) + 1} pages for the free checks.")
 
+    # url -> {code: worst failing severity} for the per-page summary. Filled
+    # from the scored per-page tools only, so a page's counts add up to the
+    # same findings the health score graded.
+    page_issues: dict[str, dict] = {}
+
+    def _note_issues(page_url, rows):
+        mine = page_issues.setdefault(page_url, {})
+        for r in rows or []:
+            sev, code = r.get("severity"), r.get("code")
+            if code and sev in ("error", "warn") and (mine.get(code) != "error"):
+                mine[code] = sev
+
     def _run_tool(t):
         """Run one tool — across all crawled pages (merged) if it's per-page and
         a crawl is on, else once on the homepage."""
+        noted = t.key in PER_PAGE and t.key in A.SCORED_GROUPS
         if t.key in PER_PAGE and extra_pages:
             per = [(url, t.run(ctx)[0])]
             for pu, phtml, pstatus in extra_pages:
                 pctx = copy.copy(ctx)
                 pctx.url, pctx.html, pctx.status = pu, phtml, pstatus
                 per.append((pu, t.run(pctx)[0]))
+            if noted:
+                for pu, prows in per:
+                    _note_issues(pu, prows)
             merged = merge_by_code(per)
             return merged, f"{len(per)} pages checked", 0.0
-        return t.run(ctx)
+        result = t.run(ctx)
+        if noted:
+            _note_issues(url, result[0])
+        return result
 
     groups: dict[str, list] = {}
     if site_findings:
@@ -650,7 +677,51 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     # Pass/fail is a judgement. This is the evidence the judgement was made on,
     # and both of those features need the evidence, not the verdict.
     report["page"] = page_facts(url, html, status) if reachable else None
+
+    # One entry per page the audit read, for the Crawled Pages tables. An object
+    # rather than a list: every list at the top of a report is read as a row
+    # group (here by `assemble`, on the web by `rowsOf`), and a page is not a
+    # finding.
+    if reachable:
+        for r in groups.get("site", []):
+            if r.get("severity") in ("error", "warn"):
+                for pu in r.get("pages") or []:
+                    _note_issues(pu, [r])
+        report["crawl"] = {"requested": crawl_pages,
+                           "pages": page_summaries([(url, html, status)] + extra_pages, page_issues)}
+    else:
+        report["crawl"] = None
     return report
+
+
+def page_summaries(pages: list, issues: dict) -> list[dict]:
+    """`[(url, html, status)]` -> what the Crawled Pages table shows for each.
+    Read from HTML already fetched; costs nothing."""
+    from pipeline.lib.html import page_title, inner_text
+
+    links = {pu: links_in(pu, ph) for pu, ph, _ in pages}
+    out = []
+    for pu, ph, pstatus in pages:
+        h = ph or ""
+        text = inner_text(re.sub(r"(?is)<(script|style|noscript)\b.*?</\1>", " ", h))
+        desc = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']*)', h, re.I)
+        mine = issues.get(pu, {})
+        sevs = list(mine.values())
+        out.append({
+            "url": pu,
+            "status": pstatus,
+            "title": page_title(h),
+            "has_description": bool(desc and desc.group(1).strip()),
+            "h1_count": len(re.findall(r"<h1\b", h, re.I)),
+            "words": len(text.split()),
+            "links_out": len(links[pu]),
+            "links_in": sum(1 for other, ls in links.items()
+                            if other != pu and pu.rstrip("/") in {l.rstrip("/") for l in ls}),
+            "errors": sevs.count("error"),
+            "warnings": sevs.count("warn"),
+            "issues": mine,
+        })
+    return out
 
 
 

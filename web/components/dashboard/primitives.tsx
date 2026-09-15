@@ -25,8 +25,8 @@ export function MiniRadialGauge({
   score = 41,
   size = 34,
   strokeWidth = 3.5,
-  color = "#10b981",
-  bgColor = "#edf2f7",
+  color = "var(--ok)",
+  bgColor = "var(--border)",
 }: {
   score?: number;
   size?: number;
@@ -65,14 +65,14 @@ export function SiteHealthDonut({ score = 82, size = 110 }: { score?: number; si
   const radius = (size - stroke) / 2;
   const circ = 2 * Math.PI * radius;
   const offset = circ - (Math.max(0, Math.min(100, score)) / 100) * circ;
-  const color = score >= 80 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444";
+  const color = score >= 80 ? "var(--ok)" : score >= 50 ? "var(--warn)" : "var(--bad)";
   const valFontSize = size <= 80 ? 17 : 24;
   const labelFontSize = size <= 80 ? 8.5 : 10;
 
   return (
     <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#f1f3f7" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--surface-3)" strokeWidth={stroke} />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -115,24 +115,24 @@ export function CrawledPagesBar({
 
   return (
     <div style={{ width: "100%", marginTop: 8 }}>
-      <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", background: "#f1f3f7", gap: 1 }}>
-        <div style={{ width: `${pOk}%`, background: "#10b981" }} title={`Passing: ${ok}`} />
-        <div style={{ width: `${pErr}%`, background: "#ef4444" }} title={`Errors: ${error}`} />
-        <div style={{ width: `${pWarn}%`, background: "#f59e0b" }} title={`Warnings: ${warn}`} />
-        <div style={{ width: `${pInfo}%`, background: "#0ea5e9" }} title={`Notices: ${info}`} />
+      <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", background: "var(--surface-3)", gap: 1 }}>
+        <div style={{ width: `${pOk}%`, background: "var(--ok)" }} title={`Passing: ${ok}`} />
+        <div style={{ width: `${pErr}%`, background: "var(--bad)" }} title={`Errors: ${error}`} />
+        <div style={{ width: `${pWarn}%`, background: "var(--warn)" }} title={`Warnings: ${warn}`} />
+        <div style={{ width: `${pInfo}%`, background: "var(--info)" }} title={`Notices: ${info}`} />
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-muted)", marginTop: 8, flexWrap: "wrap", gap: 6 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981" }} /> Healthy ({ok})
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--ok)" }} /> Healthy ({ok})
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ef4444" }} /> Errors ({error})
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--bad)" }} /> Errors ({error})
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#f59e0b" }} /> Warnings ({warn})
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--warn)" }} /> Warnings ({warn})
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#0ea5e9" }} /> Notices ({info})
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--info)" }} /> Notices ({info})
         </span>
       </div>
     </div>

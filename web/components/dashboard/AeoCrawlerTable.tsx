@@ -32,7 +32,7 @@ export function AeoCrawlerTable({ aeoRows }: { aeoRows: AeoRowish[] | null | und
       {ORDER.map((klass) => (
         <div key={klass}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: "#334155" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: "var(--ink-body)" }}>
               {CLASS_LABEL[klass]}
             </span>
             <span style={{ fontSize: 11.5, color: "var(--ink-muted)" }}>{NOTE[klass]}</span>
@@ -43,14 +43,14 @@ export function AeoCrawlerTable({ aeoRows }: { aeoRows: AeoRowish[] | null | und
               return (
                 <div
                   key={c.ua}
-                  style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px" }}
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px" }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-                    <div style={{ fontWeight: 700, color: "#1e293b", fontSize: 13 }}>{c.ua}</div>
+                    <div style={{ fontWeight: 700, color: "var(--ink-body)", fontSize: 13 }}>{c.ua}</div>
                     <span
                       style={{
                         fontSize: 12, fontWeight: 700, color: statusColor(s, c.klass),
-                        background: "#ffffff", border: "1px solid #cbd5e1",
+                        background: "var(--color-white)", border: "1px solid var(--border-strong)",
                         padding: "1px 6px", borderRadius: 4, whiteSpace: "nowrap",
                       }}
                     >

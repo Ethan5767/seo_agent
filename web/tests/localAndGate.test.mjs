@@ -42,7 +42,7 @@ test("the reason they are gone survives in the source", () => {
 test("nothing unmeasured is ever coloured as a pass", () => {
   for (const d of deriveDirectories([])) {
     if (d.state === "ok") continue;
-    assert.notEqual(directoryColor(d.state), "#047857", `${d.name} is green without a measurement`);
+    assert.notEqual(directoryColor(d.state), "var(--ok)", `${d.name} is green without a measurement`);
   }
 });
 

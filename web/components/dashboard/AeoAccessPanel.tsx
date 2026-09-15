@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Icon } from "@/components/dashboard/Icon";
 import { deriveAeoTiles, aeoVerdictColor, type AeoRow, type AeoTile } from "@/lib/aeo";
 
 /**
@@ -29,8 +30,8 @@ function Meter({ tile }: { tile: AeoTile }) {
       style={{
         padding: "10px 14px",
         borderRadius: 6,
-        background: none ? "#f8fafc" : tile.verdict === "ok" ? "#ecfdf5" : "#fef3c7",
-        border: `1px solid ${none ? "#e2e8f0" : tile.verdict === "ok" ? "#a7f3d0" : "#fde68a"}`,
+        background: none ? "var(--surface-2)" : tile.verdict === "ok" ? "var(--ok-tint)" : "var(--warn-tint)",
+        border: `1px solid ${none ? "var(--border)" : tile.verdict === "ok" ? "var(--ok-border)" : "var(--warn-border)"}`,
       }}
     >
       <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>{tile.label}</div>
@@ -42,10 +43,10 @@ function Meter({ tile }: { tile: AeoTile }) {
 }
 
 const ENGINES = [
-  { engine: "ChatGPT / OpenAI", icon: "🤖" },
+  { engine: "ChatGPT / OpenAI", icon: "bot" },
   { engine: "Google AI Overviews", icon: "✨" },
-  { engine: "Perplexity AI", icon: "⚡" },
-  { engine: "Claude / Anthropic", icon: "💎" },
+  { engine: "Perplexity AI", icon: "bolt" },
+  { engine: "Claude / Anthropic", icon: "globe" },
 ];
 
 export function AeoAccessPanel({ aeoRows }: { aeoRows: AeoRow[] | null | undefined }) {
@@ -63,14 +64,14 @@ export function AeoAccessPanel({ aeoRows }: { aeoRows: AeoRow[] | null | undefin
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1e293b" }}>AI Crawler Access</h4>
+        <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>AI Crawler Access</h4>
         <span
           style={{
             fontSize: 12,
             fontWeight: 700,
-            color: measured.length ? "#4f46e5" : "#64748b",
-            background: measured.length ? "#eef2ff" : "#f1f5f9",
-            border: `1px solid ${measured.length ? "#c7d2fe" : "#e2e8f0"}`,
+            color: measured.length ? "var(--accent)" : "var(--ink-muted)",
+            background: measured.length ? "var(--accent-tint)" : "var(--surface-3)",
+            border: `1px solid ${measured.length ? "var(--accent-border)" : "var(--border)"}`,
             padding: "2px 8px",
             borderRadius: 4,
           }}
@@ -85,17 +86,17 @@ export function AeoAccessPanel({ aeoRows }: { aeoRows: AeoRow[] | null | undefin
             key={item.engine}
             style={{
               display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "9px 12px", borderRadius: 6, background: "#f8fafc", border: "1px solid #edf0f4",
+              padding: "9px 12px", borderRadius: 6, background: "var(--surface-2)", border: "1px solid var(--border)",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 14 }}>{item.icon}</span>
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1e293b" }}>{item.engine}</span>
+              <Icon name={item.icon} size={16} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-body)" }}>{item.engine}</span>
             </div>
             <span
               style={{
                 fontSize: 12, fontWeight: 700, color: aeoVerdictColor(crawler.verdict),
-                background: "#ffffff", border: "1px solid #e2e8f0", padding: "2px 7px", borderRadius: 4,
+                background: "var(--color-white)", border: "1px solid var(--border)", padding: "2px 7px", borderRadius: 4,
               }}
             >
               {status}
@@ -104,7 +105,7 @@ export function AeoAccessPanel({ aeoRows }: { aeoRows: AeoRow[] | null | undefin
         ))}
       </div>
 
-      <div style={{ borderTop: "1px solid #f1f4f8", paddingTop: 12 }}>
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <Meter tile={crawler} />
           <Meter tile={schema} />

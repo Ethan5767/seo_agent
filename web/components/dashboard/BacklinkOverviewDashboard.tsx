@@ -11,8 +11,8 @@ import { backlinkOverview } from "@/lib/backlinkOverview";
  */
 
 const fmt = (v: number | null | undefined) => (typeof v === "number" ? v.toLocaleString() : "—");
-const PALETTE = ["var(--accent)", "var(--ok)", "var(--warn)", "var(--bad)", "#0ea5e9", "var(--ink-faint)"];
-const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-5)" };
+const PALETTE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
+const grid: React.CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: "var(--space-4)", marginBottom: "var(--space-5)" };
 const th: React.CSSProperties = { padding: "4px 0", fontWeight: 600, color: "var(--ink-muted)" };
 const td: React.CSSProperties = { padding: "6px 0", borderTop: "1px solid var(--border)", fontVariantNumeric: "tabular-nums" };
 
@@ -49,21 +49,21 @@ export function BacklinkOverviewDashboard({ rows }: { rows: any[] }) {
 
       <ChartCard title="Follow vs nofollow" subtitle="referring domains">
         {o.follow.length ? (
-          <Donut segments={o.follow.map((s, i) => ({ ...s, color: i ? "var(--ink-faint)" : "var(--ok)" }))} center={<b style={{ color: "var(--ink)" }}>{fmt(o.referringDomains)}</b>} />
+          <Donut segments={o.follow.map((s, i) => ({ ...s, color: i ? "var(--chart-1-soft)" : "var(--chart-1)" }))} center={<b style={{ color: "var(--ink)" }}>{fmt(o.referringDomains)}</b>} />
         ) : <Empty>Not reported for this scan. Run Look up again.</Empty>}
       </ChartCard>
 
       <ChartCard title="New vs lost referring domains" subtitle="per month" span={2}>
         <StackedBars
           bars={hist.map((p) => ({ label: p.date, gained: p.new_referring_domains, lost: p.lost_referring_domains }))}
-          keys={[{ key: "gained", label: "New", color: "var(--ok)" }, { key: "lost", label: "Lost", color: "var(--bad)" }]}
+          keys={[{ key: "gained", label: "New", color: "var(--ok-fill)" }, { key: "lost", label: "Lost", color: "var(--bad-fill)" }]}
           height={120}
           empty="No monthly history reported."
         />
       </ChartCard>
 
       <ChartCard title="Backlinks over time">
-        <TrendChart points={hist.map((p) => ({ label: p.date, value: p.backlinks }))} height={150} color="var(--ok)" empty="No monthly history reported." />
+        <TrendChart points={hist.map((p) => ({ label: p.date, value: p.backlinks }))} height={150} color="var(--chart-1)" empty="No monthly history reported." />
       </ChartCard>
 
       <ChartCard title="Link types">
@@ -73,7 +73,7 @@ export function BacklinkOverviewDashboard({ rows }: { rows: any[] }) {
         <DistributionBars items={o.tld} empty="Not reported for this scan." />
       </ChartCard>
       <ChartCard title="Top countries" subtitle="links by referring site country">
-        <DistributionBars items={o.countries} color="var(--ok)" empty="Not reported for this scan." />
+        <DistributionBars items={o.countries} color="var(--chart-1)" empty="Not reported for this scan." />
       </ChartCard>
 
       <ChartCard title="Top referring domains" span={2}>
@@ -84,7 +84,7 @@ export function BacklinkOverviewDashboard({ rows }: { rows: any[] }) {
               <tbody>
                 {o.referringDomains10.map((d) => (
                   <tr key={d.domain}>
-                    <td style={{ ...td, color: "var(--accent)", wordBreak: "break-all" }}>{d.domain}</td>
+                    <td style={{ ...td, color: "var(--ink-body)", wordBreak: "break-all" }}>{d.domain}</td>
                     <td style={{ ...td, textAlign: "right" }}>{fmt(d.rank)}</td>
                     <td style={{ ...td, textAlign: "right" }}>{fmt(d.backlinks)}</td>
                     <td style={{ ...td, textAlign: "right", color: typeof d.spam === "number" && d.spam >= 60 ? "var(--bad)" : undefined }}>{fmt(d.spam)}</td>

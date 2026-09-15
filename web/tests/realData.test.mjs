@@ -165,10 +165,14 @@ test("Compare Domains runs the comparison tool, and Domain Overview carries no c
 test("Crawl Issues is part of Site Audit, not a second page", () => {
   const d = DASH();
   assert.doesNotMatch(d, /label: "Crawl Issues", view: "site-crawl"/);
-  assert.match(d, /crawlControls: scanControlsFor\(crawlView as ScannableView, "Site Audit"\)/);
+  // 2026-09-15: Site Audit's crawl findings are its Issues and Pages tabs, run
+  // by the one on-page audit bar. The separate Crawl Issues tab, with its own
+  // Data source dropdown and charts, was a third summary on the same page.
   const m = code("components/dashboard/MeasureScreen.tsx");
-  assert.match(m, /\{ id: "crawl", label: "Crawl Issues" \}/);
-  assert.match(m, /auditSubTab === "crawl" && crawlIssues/);
+  assert.match(m, /\{ id: "issues", label: "Issues"/);
+  assert.match(m, /\{ id: "pages", label: "Pages"/);
+  assert.doesNotMatch(m, /crawlControls|crawlIssues/);
+  assert.doesNotMatch(d, /crawlControls:/);
 });
 
 test("competitors start as one row, and + adds the next up to the tool's limit", () => {

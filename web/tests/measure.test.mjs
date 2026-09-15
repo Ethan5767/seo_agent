@@ -275,18 +275,10 @@ test("the project form is not duplicated between create and edit", () => {
    ────────────────────────────────────────────────────────────────────────── */
 
 /** The pillar-card region, bounded by markers rather than a byte count. */
-function pillarBlock() {
-  const start = MEASURE.indexOf("Pillar cards.");
-  assert.notEqual(start, -1, "the pillar-card region is missing");
-  const end = MEASURE.indexOf("Audited Findings.", start);
-  assert.notEqual(end, -1, "the marker that bounds the pillar region is missing");
-  return MEASURE.slice(start, end);
-}
-
 test("the comment stripper keeps code and drops only comments", () => {
   // Without this, every absence assertion below could pass by stripping too
   // much. A stripper that ate the markup would make them all vacuous.
-  for (const sentinel of ["derivePillars(report)", "severityMark(it.severity)"]) {
+  for (const sentinel of ["rankedIssues(report)", "<ScoreWhy report={report}"]) {
     assert.ok(MEASURE_CODE.includes(sentinel), `stripComments removed live code: ${sentinel}`);
   }
   for (const sentinel of ["buildExecutiveReport({", "No Audit Data to Report"]) {
@@ -349,45 +341,29 @@ test("no healthcare schema is claimed for every client", () => {
   );
 });
 
-test("the pillar cards are derived, with no inline items literal", () => {
-  const block = pillarBlock();
-  assert.ok(
-    /derivePillars\(report\)/.test(block),
-    "the pillar cards must be built from derivePillars(report)",
-  );
-  // The literal shape of the fabrication: an `items:` array of strings next to
-  // a hardcoded `status:`/`score:`.
-  assert.equal(
-    /items:\s*\[\s*[`"']/.test(block),
-    false,
-    "an inline bullet-list literal is present; bullets must come from report rows",
-  );
-  assert.equal(
-    /status:\s*"(?!Not measured")/.test(block) || /score:\s*\d/.test(block),
-    false,
-    "a card must not carry a hardcoded status or score",
-  );
+// The pillar cards were replaced on 2026-09-15 by the category table in
+// AuditResults.tsx ("where the points went"). The same rules hold for it.
+const RESULTS = readFileSync(
+  path.resolve(__dirname, "..", "components", "dashboard", "AuditResults.tsx"), "utf8");
+
+test("the category table is derived, with no inline items literal", () => {
+  assert.ok(/scoreBreakdown\(report\)/.test(RESULTS), "the categories must come from scoreBreakdown(report)");
+  assert.equal(/items:\s*\[\s*[`"']/.test(RESULTS), false, "an inline bullet-list literal is present");
+  assert.equal(/score:\s*\d/.test(RESULTS), false, "a hardcoded score is present");
 });
 
-test("no pillar is styled as a pass over an unmeasured score", () => {
-  const block = pillarBlock();
-  // Colour comes from the pillar's own tone, never a fixed token per card.
-  assert.ok(/tone\(m\.tone\)/.test(block), "pillar colour must follow the derived tone");
+test("no category is styled as a pass over an unmeasured score", () => {
+  // Colour follows the category's own pass rate, never a fixed pass token.
+  assert.ok(/fillFor\(c\.passRate\)/.test(RESULTS), "category colour must follow its pass rate");
   assert.equal(
-    /(bg|background|color|border):\s*"(var\(--ok\)|var\(--ok-tint\)|var\(--ok-border\))"/.test(block),
+    /(background|color|border):\s*"(var\(--ok\)|var\(--ok-tint\)|var\(--ok-border\))"/.test(RESULTS),
     false,
-    "a pillar card must not hardcode the pass colour",
+    "a category row must not hardcode the pass colour",
   );
-  // A score that does not exist renders an em dash, never 0% in green.
-  assert.ok(
-    /m\.score === null \? "—"/.test(block),
-    "an unmeasured pillar must render an em dash rather than a 0% bar",
-  );
-  assert.equal(
-    /"AI Ready"/.test(BOTH_CODE),
-    false,
-    "'AI Ready' was a hardcoded pass badge over a pillar nothing measured",
-  );
+  // A category nothing graded is left out rather than drawn as 0%.
+  assert.match(readFileSync(path.resolve(__dirname, "..", "lib", "auditBreakdown.ts"), "utf8"), /\.filter\(\(c\) => c\.graded > 0\)/);
+  assert.equal(/"AI Ready"/.test(BOTH_CODE), false,
+    "'AI Ready' was a hardcoded pass badge over a pillar nothing measured");
 });
 
 test("derivePillars reports nothing measured for an unscanned report", () => {
@@ -639,26 +615,18 @@ test("the findings table shows how many pages each finding affects", () => {
   assert.ok(/\{anyAffected &&/.test(src), "header/cell not gated on anyAffected");
 });
 
-test("a pillar card shows the distribution, not the average twice", () => {
+test("a category row shows what failed, not the pass rate twice", () => {
   /*
-   * The bar used to be filled to the score, which restates the number beside it
-   * and hides the shape: 60% passing looks identical whether the other 40% is
-   * all notices or all server errors. Sitebulb never shows an average without
-   * its spread, and that is the right rule - the average is what you report,
-   * the spread is what you act on.
+   * The average is what you report, the spread is what you act on: 60% passing
+   * looks the same whether the rest is notices or errors. Each category names
+   * its errors and warnings in words, so colour never carries it alone
+   * (WCAG 1.4.1, and it survives greyscale printing).
    */
-  const src = readFileSync(
-    path.resolve(__dirname, "..", "components", "dashboard", "MeasureScreen.tsx"), "utf8");
-
-  assert.ok(!/width: `\$\{m\.score \?\? 0\}%`/.test(src),
-    "the bar is filled to the score again, which just repeats the number above it");
-  for (const sev of ["m.error", "m.warn", "m.info", "m.ok"]) {
-    assert.ok(src.includes(sev), `the distribution must include ${sev}`);
+  for (const s of ["c.errors", "c.warnings", "c.pointsLost"]) {
+    assert.ok(RESULTS.includes(s), `the category row must show ${s}`);
   }
-  // Colour alone must not carry it: WCAG 1.4.1, and it has to survive
-  // greyscale printing in a client report.
-  assert.ok(/error, \$\{m\.warn\} warning/.test(src),
-    "segments must be labelled in text, not only coloured");
+  assert.ok(/"error" : "errors"/.test(RESULTS) && /"warning" : "warnings"/.test(RESULTS),
+    "failures must be labelled in text, not only coloured");
 });
 
 

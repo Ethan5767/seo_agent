@@ -249,12 +249,12 @@ export function Ga4Panel({ domain, onConnect }: Ga4PanelProps) {
 
       {report && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
             <ChartCard title="Sessions per day" span={2}>
               <TrendChart points={report.daily.map((d) => ({ label: String(d.date).slice(5), value: Number(d.sessions) || 0 }))} height={140} empty="Not enough days recorded." />
             </ChartCard>
             <ChartCard title="Sessions by channel">
-              <Donut segments={report.channels.slice(0, 6).map((c, i) => ({ label: String(c.sessionDefaultChannelGroup), value: Number(c.sessions) || 0, color: ["var(--accent)", "var(--ok)", "var(--warn)", "var(--bad)", "#0ea5e9", "var(--ink-faint)"][i] }))} />
+              <Donut segments={report.channels.slice(0, 6).map((c, i) => ({ label: String(c.sessionDefaultChannelGroup), value: Number(c.sessions) || 0, color: ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"][i] }))} />
             </ChartCard>
             <ChartCard title="Top organic landing pages" subtitle="sessions">
               <DistributionBars items={report.organicLandingPages.slice(0, 8).map((r) => ({ label: String(r.landingPagePlusQueryString), value: Number(r.sessions) || 0 }))} empty="No organic search sessions recorded." />

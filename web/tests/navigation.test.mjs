@@ -141,13 +141,11 @@ test("Navigation & UX: Fixes sub-items are present", () => {
     );
   }
 
-  // Priority actions lost its duplicate nav entry, not its home: the component
-  // still renders on the Overview screen, which is what made the nav entry a
-  // duplicate in the first place.
-  assert.ok(
-    /<PriorityActions/.test(content),
-    "PriorityActions must still render on the Overview screen"
-  );
+  // Priority actions lost its duplicate nav entry, not its home: the ranked
+  // findings still lead the Overview. Since 2026-09-15 that is the Dashboard's
+  // Top Issues table, which replaced PriorityActions listing them a second time.
+  const seo = fs.readFileSync(path.join(webDir, "components", "dashboard", "SeoDashboard.tsx"), "utf-8");
+  assert.ok(/<IssuesTable/.test(seo), "the ranked issues must still render on the Overview screen");
 });
 
 test("Navigation & UX: account links live on the rail, not in a drawer group", () => {
@@ -179,13 +177,15 @@ test("Navigation & UX: account links live on the rail, not in a drawer group", (
   );
 });
 
-test("Navigation & UX: Overview communicates product principle clearly", () => {
+test("Navigation & UX: AI Search communicates product principle clearly", () => {
   const dashboardPath = path.join(webDir, "app", "ReaiDashboard.tsx");
   const content = fs.readFileSync(dashboardPath, "utf-8");
 
+  // The principle lives on the AI Search screen, where it qualifies the AEO
+  // numbers. It was a banner under the Dashboard until 2026-09-15.
   assert.ok(
-    content.includes("SEO is the foundation. AI Search Visibility builds on good SEO."),
-    "Product principle callout missing in Overview"
+    content.includes("AI Search Visibility builds on SEO to help AI answer tools understand and cite it."),
+    "Product principle missing from the AI Search screen"
   );
   assert.ok(
     content.includes("does not guarantee citations, rankings, or traffic"),
@@ -434,7 +434,7 @@ test("Local SEO API Routes: All backend endpoints exist and export valid route h
   }
 });
 
-test("Audit Hero Bar: Prominent website audit input and clear results flow exist", () => {
+test("Audit Hero Bar: one run bar for the on-page audit, and no results inside it", () => {
   const compPath = path.join(webDir, "components", "dashboard", "AuditHeroBar.tsx");
   assert.ok(fs.existsSync(compPath), "AuditHeroBar.tsx must exist");
   const content = fs.readFileSync(compPath, "utf-8");
@@ -445,8 +445,12 @@ test("Audit Hero Bar: Prominent website audit input and clear results flow exist
   assert.ok(!content.includes("Audit Any Website") && !/<input[^>]*inputUrl/.test(content), "no typed-URL audit box");
   assert.ok(content.includes("Run Audit"), "Run audit button must exist");
   assert.ok(content.includes("Auditing"), "Scanning progress state must exist");
-  assert.ok(content.includes("All Checks"), "Issues filter buttons must exist");
-  assert.ok(content.includes("Review Fix"), "Direct fix review action must exist");
+  // It runs the on-page audit's tools at a chosen depth, not every free tool.
+  assert.ok(/onRunAudit\(domain, \[\.\.\.ONPAGE_AUDIT_TOOLS\], depth\)/.test(content), "the bar must run ONPAGE_AUDIT_TOOLS");
+  assert.ok(content.includes("AUDIT_CRAWL_OPTIONS"), "pages to crawl must be chosen");
+  // Results are the AuditResults blocks. The bar drew its own score and check
+  // list, which made three health summaries on Site Audit.
+  assert.ok(!/report\?\.score|allRows|All Checks \(/.test(content), "the run bar must not render results");
 });
 
 test("AI Search Visibility (AEO): Dedicated sub-views exist and switch dynamically for all 5 sub-topics", () => {

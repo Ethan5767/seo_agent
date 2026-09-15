@@ -55,10 +55,9 @@ test("compare and backlink gap read their own rows", () => {
   assert.deepEqual(g.spam.map((b) => b.value), [1, 0, 0]);
 });
 
-test("every tool page, Site Audit's crawl tab, Search Console and GA4 draw charts", () => {
+test("every tool page, Search Console and GA4 draw charts", () => {
   const dash = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
   assert.match(dash, /<ViewCharts viewId=\{view\.id\} label=\{view\.label\} rows=\{rows as any\} report=\{report\} \/>/);
-  assert.match(dash, /<ViewCharts viewId="site-crawl"/);
   const gsc = readFileSync(new URL("../components/dashboard/GscPanel.tsx", import.meta.url), "utf8");
   assert.match(gsc, /<TrendChart/);
   assert.match(gsc, /<DistributionBars/);

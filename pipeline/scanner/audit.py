@@ -98,6 +98,25 @@ SEO_CHECKS = [
 ]
 
 
+#: What a failing SEO check is called. Without a name, `_row` fell back to the
+#: code ("title length", "h1 count"), which is what an issue list showed the
+#: operator. A pass keeps the check's label; a failure names the problem.
+FAILURE_NAMES = {
+    "health.title_missing": "Page title missing",
+    "health.title_length": "Page title too long or too short",
+    "health.desc_missing": "Meta description missing",
+    "health.desc_length": "Meta description too long or too short",
+    "health.h1_count": "Page does not have exactly one H1",
+    "health.canonical_mismatch": "Canonical tag missing or pointing elsewhere",
+    "health.noindex_present": "Page is set to noindex",
+    "health.og_image_missing": "Social preview image missing",
+    "health.schema_business_missing": "LocalBusiness schema missing",
+    "health.schema_breadcrumb_missing": "Breadcrumb schema missing",
+    "health.img_alt_missing": "Images missing alt text",
+    "health.thin_content": "Thin content",
+}
+
+
 def _check(code: str, label: str, failures: list[str], pass_why: str) -> list[dict]:
     """One check's rows: a finding per failure, or a single pass row.
 
@@ -147,7 +166,7 @@ def seo_rows(url: str, html: str, status: int, cfg: dict) -> list[dict]:
     for label, codes, pass_why in SEO_CHECKS:
         hit = [c for c in codes if c in by_code]
         if hit:
-            rows.extend(_row(c, by_code[c]) for c in hit)
+            rows.extend(_row(c, by_code[c], FAILURE_NAMES.get(c, label)) for c in hit)
         else:
             rows.append(_pass_row(codes[0], label, pass_why))
     return rows
@@ -322,7 +341,15 @@ def perf_rows(crux) -> list[dict]:
 #: silently rewrites every client's history and the ratchet cannot tell the
 #: difference. Lighthouse has revised its weights five times; unversioned, that
 #: would look like every site on earth improving or degrading on the same day.
-HEALTH_SCORE_VERSION = 2
+HEALTH_SCORE_VERSION = 3
+
+#: The groups Site Health is computed over: the on-page audit's tools
+#: (`server.ONPAGE_AUDIT_TOOLS`) plus `site`, where the crawl files its
+#: site-wide rows. Version 3 (2026-09-15). Until then every group counted, so
+#: fifteen top-10 keyword rows from Rankings, or a Lighthouse category row,
+#: raised "Site Health" with no change to a single page. Those rows still ship
+#: and still have their own panels; they are just not a verdict on the pages.
+SCORED_GROUPS = frozenset({"seo", "onpage", "tech", "schema", "validate", "internal", "site"})
 
 
 def health_score(counts: dict) -> int | None:
@@ -410,9 +437,12 @@ def assemble(groups: dict, reachable: bool = True, page_independent=frozenset())
                   for name, rows in groups.items()}
 
     counts = {"error": 0, "warn": 0, "info": 0, "ok": 0}
-    for rows in groups.values():
+    counts_all = {"error": 0, "warn": 0, "info": 0, "ok": 0}
+    for name, rows in groups.items():
         for r in rows:
-            counts[r["severity"]] = counts.get(r["severity"], 0) + 1
+            counts_all[r["severity"]] = counts_all.get(r["severity"], 0) + 1
+            if name in SCORED_GROUPS:
+                counts[r["severity"]] = counts.get(r["severity"], 0) + 1
     # `graded` is the score's denominator, shipped beside it because the score
     # is only comparable between scans that graded the same checks. Enabling a
     # tool raises the score with no change to the site: adding `onpage` (28
@@ -421,5 +451,9 @@ def assemble(groups: dict, reachable: bool = True, page_independent=frozenset())
     # question - and a client shown two numbers from two tool sets is being
     # misled unless the denominator travels with them.
     graded = counts["ok"] + counts["warn"] + counts["error"]
+    #
+    # `counts` and `graded` are the score's own inputs (scored groups only);
+    # `counts_all` is every row, for screens that summarise the whole report.
     return {**groups, "score": health_score(counts), "counts": counts,
-            "graded": graded, "score_version": HEALTH_SCORE_VERSION}
+            "counts_all": counts_all, "graded": graded,
+            "score_version": HEALTH_SCORE_VERSION}

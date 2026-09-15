@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { auditScore, SCORE_VERSION } from "@/lib/auditBreakdown";
 import { AuthGate } from "./auth";
 import { ReaiDashboard } from "./ReaiDashboard";
 import { saveClient, updateClient, saveScan, lastTwoScansFindings,
@@ -41,24 +42,24 @@ type ApplyItem = { id: string; code: string; url: string; status: string; note: 
 type ApplyResult = { ok: boolean; error?: string; note?: string; applied?: number; exit_code?: number;
   cycle?: string; diffstat?: string; summary?: { attempted?: number; stopped?: string | null; cost_usd?: number; items: ApplyItem[] } };
 const APPLY_STATUS: Record<string, { fg: string; bg: string; label: string }> = {
-  fixed: { fg: "#1e8a4c", bg: "#eaf6ef", label: "Fixed" },
-  no_change: { fg: "#a86710", bg: "#fbf3e4", label: "No change" },
-  error: { fg: "#c0392b", bg: "#fdeceb", label: "Error" },
-  stopped: { fg: "#5b6570", bg: "#eef1f4", label: "Stopped" },
+  fixed: { fg: "var(--ok)", bg: "var(--ok-tint)", label: "Fixed" },
+  no_change: { fg: "var(--warn)", bg: "var(--warn-tint)", label: "No change" },
+  error: { fg: "var(--bad)", bg: "var(--bad-tint)", label: "Error" },
+  stopped: { fg: "var(--ink-muted)", bg: "var(--border)", label: "Stopped" },
 };
-const STATUS_COLOR: Record<string, string> = { NEW: "#b00", REGRESSION: "#7a1fa2", PERSISTING: "#a86710" };
+const STATUS_COLOR: Record<string, string> = { NEW: "var(--bad)", REGRESSION: "#7a1fa2", PERSISTING: "var(--warn)" };
 
 // ── Design tokens (product register: restrained, one accent, semantic states) ─
 const T = {
-  ink: "#161a1d", muted: "#5b6570", faint: "#6e7883", line: "#e5e8ec",
-  bg: "#ffffff", panel: "#f6f8fa", accent: "#0e8a4c", accentInk: "#0a6d3c",
+  ink: "var(--color-ink-900)", muted: "var(--ink-muted)", faint: "var(--ink-muted)", line: "var(--border)",
+  bg: "var(--color-white)", panel: "var(--surface-2)", accent: "var(--ok)", accentInk: "var(--ok)",
 };
 // Severity: leading-icon + tinted row (no side-stripe borders — banned).
 const SEV: Record<string, { fg: string; bg: string; icon: string; label: string }> = {
-  error: { fg: "#c0392b", bg: "#fdeceb", icon: "✕", label: "Error" },
-  warn: { fg: "#a86710", bg: "#fbf3e4", icon: "!", label: "Warning" },
-  info: { fg: "#2e6fb0", bg: "#eaf1f9", icon: "i", label: "Info" },
-  ok: { fg: "#1e8a4c", bg: "#eaf6ef", icon: "✓", label: "Pass" },
+  error: { fg: "var(--bad)", bg: "var(--bad-tint)", icon: "✕", label: "Error" },
+  warn: { fg: "var(--warn)", bg: "var(--warn-tint)", icon: "!", label: "Warning" },
+  info: { fg: "var(--accent)", bg: "var(--surface-3)", icon: "i", label: "Info" },
+  ok: { fg: "var(--ok)", bg: "var(--ok-tint)", icon: "✓", label: "Pass" },
 };
 const font = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const linkBtn = (color: string) => ({ background: "none", border: 0, color, cursor: "pointer", font, fontSize: 13, padding: 0, fontWeight: 600 });
@@ -97,7 +98,7 @@ function Rows({ list }: { list?: Row[] }) {
           <div key={i} style={{ display: "flex", gap: ".6rem", padding: ".55rem .7rem", borderRadius: 8,
             background: s.bg, marginBottom: ".35rem", alignItems: "flex-start" }}>
             <span aria-hidden style={{ flexShrink: 0, width: 20, height: 20, borderRadius: "50%", background: s.fg,
-              color: "#fff", fontSize: 12, fontWeight: 700, display: "grid", placeItems: "center", marginTop: 1 }}>{s.icon}</span>
+              color: "var(--color-white)", fontSize: 12, fontWeight: 700, display: "grid", placeItems: "center", marginTop: 1 }}>{s.icon}</span>
             <div style={{ minWidth: 0 }}>
               <div style={{ color: T.ink }}>
                 <b>{r.what}</b>{r.detail ? <span style={{ color: T.muted }}> · {r.detail}</span> : null}
@@ -602,21 +603,21 @@ function Scanner({ initialTab, initialNav }: { initialTab?: any; initialNav?: In
                 page: (finalAudit as any).page || baseReport.page,
                 site_url: activeUrl,
               };
-              const NON_GROUP = new Set(["score", "counts", "cost", "log", "cycle", "url", "site_url", "page", "graded", "score_version"]);
-              const counts: Record<string, number> = { error: 0, warn: 0, info: 0, ok: 0 };
-              for (const [k, v] of Object.entries(merged)) {
-                if (NON_GROUP.has(k) || !Array.isArray(v)) continue;
-                for (const r of v as any[]) {
-                  if (r?.severity && counts[r.severity] !== undefined) {
-                    counts[r.severity]++;
-                  }
-                }
+              // Re-scored the scanner's way (lib/auditBreakdown, score version 3):
+              // only the on-page audit's groups count, so merging a Rankings or
+              // Backlinks run over the open report cannot move Site Health. This
+              // counted every group, and fell back to 0 when nothing was graded.
+              const s = auditScore(merged);
+              const all: Record<string, number> = { error: 0, warn: 0, info: 0, ok: 0 };
+              for (const v of Object.values(merged)) {
+                if (!Array.isArray(v)) continue;
+                for (const r of v as any[]) if (r?.severity && all[r.severity] !== undefined) all[r.severity]++;
               }
-              const graded = counts.ok + counts.warn + counts.error;
-              const score = graded > 0 ? Math.round((100 * counts.ok) / graded) : (finalAudit.score ?? (baseReport.score as number | undefined) ?? 0);
-              merged.counts = counts;
-              merged.score = score;
-              merged.graded = graded;
+              merged.counts = { error: s.error, warn: s.warn, info: s.info, ok: s.ok };
+              merged.counts_all = all;
+              merged.score = s.score;
+              merged.graded = s.graded;
+              merged.score_version = SCORE_VERSION;
               finalAudit = merged as unknown as Audit;
             }
 

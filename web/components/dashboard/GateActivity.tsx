@@ -51,15 +51,15 @@ function gateFor(stepName: string) {
 function dot(step: Step): { color: string; label: string; pulse: boolean } {
   if (step.status !== "completed") {
     return step.status === "in_progress"
-      ? { color: "#2563eb", label: "Running", pulse: true }
-      : { color: "#94a3b8", label: "Queued", pulse: false };
+      ? { color: "var(--accent)", label: "Running", pulse: true }
+      : { color: "var(--ink-muted)", label: "Queued", pulse: false };
   }
   switch (step.conclusion) {
-    case "success": return { color: "#047857", label: "Passed", pulse: false };
-    case "skipped": return { color: "#94a3b8", label: "Skipped", pulse: false };
-    case "neutral": return { color: "#64748b", label: "Neutral", pulse: false };
-    case "cancelled": return { color: "#64748b", label: "Cancelled", pulse: false };
-    default: return { color: "#dc2626", label: "Failed", pulse: false };
+    case "success": return { color: "var(--ok)", label: "Passed", pulse: false };
+    case "skipped": return { color: "var(--ink-muted)", label: "Skipped", pulse: false };
+    case "neutral": return { color: "var(--ink-muted)", label: "Neutral", pulse: false };
+    case "cancelled": return { color: "var(--ink-muted)", label: "Cancelled", pulse: false };
+    default: return { color: "var(--bad)", label: "Failed", pulse: false };
   }
 }
 
@@ -120,7 +120,7 @@ export function GateActivity({
   if (jobs === null) {
     return (
       <div style={box}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-muted)" }}>
           {busy ? "Asking GitHub what is running..." : "No workflow run for this commit"}
         </div>
         <div style={{ ...muted, marginTop: 4 }}>
@@ -138,14 +138,14 @@ export function GateActivity({
   const done = allSteps.filter((s) => s.status === "completed").length;
 
   return (
-    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", overflow: "hidden" }}>
+    <div style={{ border: "1px solid var(--border)", borderRadius: 8, background: "var(--color-white)", overflow: "hidden" }}>
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "11px 14px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc", gap: 10, flexWrap: "wrap",
+        padding: "11px 14px", borderBottom: "1px solid var(--surface-3)", background: "var(--surface-2)", gap: 10, flexWrap: "wrap",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {running && <span style={pulseDot} />}
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-body)" }}>
             {running ? "Gates running" : "Gate run finished"}
           </span>
           <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
@@ -153,7 +153,7 @@ export function GateActivity({
           </span>
         </div>
         {runUrl && (
-          <a href={runUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11.5, color: "#4f46e5", fontWeight: 600 }}>
+          <a href={runUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11.5, color: "var(--accent)", fontWeight: 600 }}>
             Raw log on GitHub →
           </a>
         )}
@@ -161,8 +161,8 @@ export function GateActivity({
 
       {jobs.map((job) => (
         <div key={job.id}>
-          <div style={{ padding: "9px 14px", background: "#fbfcfe", borderBottom: "1px solid #f1f5f9" }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#334155" }}>{job.name}</span>
+          <div style={{ padding: "9px 14px", background: "var(--surface-2)", borderBottom: "1px solid var(--surface-3)" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-body)" }}>{job.name}</span>
             {job.runnerName && (
               <span style={{ fontSize: 11.5, color: "var(--ink-muted)", marginLeft: 8 }}>
                 on {job.runnerName}
@@ -173,14 +173,14 @@ export function GateActivity({
             const d = dot(step);
             const gate = gateFor(step.name);
             return (
-              <div key={`${job.id}-${step.number}`} style={{ display: "flex", gap: 10, padding: "9px 14px", borderBottom: "1px solid #f8fafc" }}>
+              <div key={`${job.id}-${step.number}`} style={{ display: "flex", gap: 10, padding: "9px 14px", borderBottom: "1px solid var(--surface-2)" }}>
                 <span style={{
                   width: 8, height: 8, borderRadius: "50%", background: d.color, marginTop: 5, flexShrink: 0,
                   animation: d.pulse ? "gatePulse 1.1s ease-in-out infinite" : undefined,
                 }} />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1e293b" }}>{step.name}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-body)" }}>{step.name}</span>
                     <span style={{ fontSize: 11.5, fontWeight: 700, color: d.color, whiteSpace: "nowrap" }}>
                       {d.label}{step.seconds !== null ? ` · ${step.seconds}s` : ""}
                     </span>
@@ -204,14 +204,14 @@ export function GateActivity({
 }
 
 const box: React.CSSProperties = {
-  border: "1px dashed #cbd5e1", borderRadius: 8, padding: "20px 18px", background: "#f8fafc",
+  border: "1px dashed var(--border-strong)", borderRadius: 8, padding: "20px 18px", background: "var(--surface-2)",
 };
 const muted: React.CSSProperties = { fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.55 };
 const linkBtn: React.CSSProperties = {
   background: "none", border: "none", padding: 0, marginTop: 8,
-  fontSize: 11.5, color: "#4f46e5", cursor: "pointer", fontWeight: 600,
+  fontSize: 11.5, color: "var(--accent)", cursor: "pointer", fontWeight: 600,
 };
 const pulseDot: React.CSSProperties = {
-  width: 8, height: 8, borderRadius: "50%", background: "#2563eb",
+  width: 8, height: 8, borderRadius: "50%", background: "var(--accent)",
   animation: "gatePulse 1.1s ease-in-out infinite", display: "inline-block",
 };

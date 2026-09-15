@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useRef, useState } from "react";
+import { Icon } from "@/components/dashboard/Icon";
 import { authedFetch } from "@/lib/authedFetch";
 import { actionable, type FixFinding } from "@/lib/fixAdvisor";
 
@@ -87,14 +88,14 @@ export function FixWithClaude({
           title={none ? "Nothing is failing, so there is nothing to fix" : "Send these findings to Claude"}
           style={{
             background: none ? "var(--border)" : "var(--accent)",
-            color: none ? "var(--ink-muted)" : "#fff",
+            color: none ? "var(--ink-muted)" : "var(--color-white)",
             border: 0, borderRadius: 6, padding: "8px 14px",
             fontSize: 12.5, fontWeight: 700,
             cursor: busy || none ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", gap: 6,
           }}
         >
-          <span>⚡</span>
+          <Icon name="bolt" />
           {busy ? "Claude is writing the fixes…" : none ? "Nothing to fix" : `${label} (${todo.length})`}
         </button>
 
@@ -115,7 +116,7 @@ export function FixWithClaude({
       </div>
 
       {err && (
-        <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 6, border: "1px solid #fecaca", background: "var(--bad-tint)", fontSize: 12, color: "#991b1b" }}>
+        <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 6, border: "1px solid var(--bad-border)", background: "var(--bad-tint)", fontSize: 12, color: "var(--bad)" }}>
           {err}
         </div>
       )}
@@ -123,7 +124,7 @@ export function FixWithClaude({
       {(out || busy) && (
         <pre style={{
           marginTop: 10, padding: "14px 16px", borderRadius: 8,
-          border: "1px solid #e2e8f0", background: "var(--ink)", color: "var(--border)",
+          border: "1px solid var(--border)", background: "var(--ink)", color: "var(--border)",
           fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
           maxHeight: 460, overflowY: "auto", fontFamily: "ui-monospace, SFMono-Regular, monospace",
         }}>

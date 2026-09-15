@@ -139,9 +139,9 @@ export function statusLabel(s: CrawlerStatus): string {
  * toward leaving training scrapers on.
  */
 export function statusColor(s: CrawlerStatus, klass: CrawlerClass): string {
-  if (s === null) return "#64748b";
-  if (klass === "training") return s === "blocked" ? "#0369a1" : "#64748b";
-  return s === "allowed" ? "#047857" : "#dc2626";
+  if (s === null) return "var(--ink-muted)";
+  if (klass === "training") return s === "blocked" ? "var(--info)" : "var(--ink-muted)";
+  return s === "allowed" ? "var(--ok)" : "var(--bad)";
 }
 
 /**

@@ -2,6 +2,8 @@
 
 import React from "react";
 import type { ReportRow } from "@/lib/priorities";
+import { Panel, StatStrip } from "@/components/dashboard/Panel";
+import { TrendChart, DistributionBars } from "@/components/dashboard/Charts";
 
 /**
  * Domain Overview, rendered as a dashboard rather than a single audit row.
@@ -33,181 +35,89 @@ export function DomainOverviewDashboard({ rows }: { rows: ReportRow[] }) {
   // still shows its cards; the richer panels simply wait for a re-scan.
   const m = withTextFallback((overview?.metrics as DomainMetrics | undefined) ?? {}, overview);
   const keywords = rows.filter((r) => r.code === "dfs.ranked_keyword");
+  const moved = m.movement && (m.movement.new + m.movement.up + m.movement.down + m.movement.lost > 0) ? m.movement : null;
+  const dist = m.distribution && m.distribution.some((d) => d.value > 0) ? m.distribution : null;
 
-  const cards = [
-    { label: "Keywords", value: fmt(m.keywords), sub: "ranking on Google" },
-    { label: "Est. traffic value", value: m.etv != null ? `$${fmt(m.etv)}` : "—", sub: "per month" },
-    { label: "Top positions", value: fmt(m.pos_1), sub: "keywords at #1" },
-    { label: "Paid keywords", value: fmt(m.paid?.keywords), sub: m.paid?.etv ? `$${fmt(m.paid.etv)}/mo ads` : "no paid presence" },
-  ];
+  if (!overview && keywords.length === 0) {
+    return (
+      <div className="audit-empty">
+        <p>No overview yet. Look up this domain above to see its organic keywords, traffic value, positions and trend.</p>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
-      {/* Headline figures. */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(11rem, 1fr))", gap: "var(--space-3)" }}>
-        {cards.map((c) => (
-          <div key={c.label} style={card}>
-            <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", fontWeight: 600 }}>{c.label}</div>
-            <div style={{ fontSize: "var(--text-2xl)", fontWeight: 750, color: "var(--ink)", lineHeight: 1.1, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{c.value}</div>
-            <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-faint)", marginTop: 2 }}>{c.sub}</div>
-          </div>
-        ))}
-      </div>
+    <div className="tool-sections">
+      <StatStrip
+        label="Headline figures"
+        stats={[
+          { label: "Organic keywords", value: fmt(m.keywords), sub: "ranking on Google" },
+          { label: "Est. traffic value", value: m.etv != null ? `$${fmt(m.etv)}` : "—", sub: "per month, DataForSEO estimate" },
+          { label: "Keywords at #1", value: fmt(m.pos_1), sub: "top position" },
+          { label: "Paid keywords", value: fmt(m.paid?.keywords), sub: m.paid?.etv ? `$${fmt(m.paid.etv)}/mo in ads` : "no paid presence" },
+        ]}
+      />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(20rem, 1fr))", gap: "var(--space-4)" }}>
-        {/* Position distribution. */}
-        {m.distribution && m.distribution.some((d) => d.value > 0) && (
-          <section style={panel}>
-            <h2 style={panelTitle}>Position Distribution</h2>
-            <DistributionBars buckets={m.distribution} />
-          </section>
+      <div className="tool-grid">
+        {m.trend && m.trend.length >= 2 ? (
+          <Panel className="span-8" title="Traffic Value Trend" subtitle={`Estimated monthly organic traffic value, ${m.trend[0].month} to ${m.trend[m.trend.length - 1].month}`}>
+            <TrendChart points={m.trend.map((p) => ({ label: p.month, value: p.etv }))} unit="" height={150} empty="" />
+          </Panel>
+        ) : null}
+        {dist && (
+          <Panel className={m.trend && m.trend.length >= 2 ? "span-4" : "span-6"} title="Position Distribution" subtitle={`${fmt(m.keywords)} keywords by Google position`}>
+            <DistributionBars items={dist} empty="No positions reported." />
+          </Panel>
         )}
-
-        {/* Keyword movement since last measure. */}
-        {m.movement && (m.movement.new + m.movement.up + m.movement.down + m.movement.lost > 0) && (
-          <section style={panel}>
-            <h2 style={panelTitle}>Keyword Movement</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
-              <MoveChip label="New" value={m.movement.new} tone="var(--ok)" />
-              <MoveChip label="Up" value={m.movement.up} tone="var(--info)" />
-              <MoveChip label="Down" value={m.movement.down} tone="var(--warn)" />
-              <MoveChip label="Lost" value={m.movement.lost} tone="var(--bad)" />
-            </div>
-          </section>
+        {moved && (
+          <Panel className={m.trend && m.trend.length >= 2 ? "span-4" : "span-6"} title="Keyword Movement" subtitle="Since DataForSEO last measured this domain">
+            <ul className="movement">
+              <MoveCell glyph="+" label="New" value={moved.new} />
+              <MoveCell glyph="▲" label="Moved up" value={moved.up} />
+              <MoveCell glyph="▼" label="Moved down" value={moved.down} />
+              <MoveCell glyph="−" label="Lost" value={moved.lost} />
+            </ul>
+          </Panel>
         )}
-      </div>
-
-      {/* Organic trend, when the historical endpoint returned one. */}
-      {m.trend && m.trend.length >= 2 && (
-        <section style={panel}>
-          <h2 style={panelTitle}>Estimated Traffic Value Trend</h2>
-          <TrendChart points={m.trend} />
-        </section>
-      )}
-
-      {/* Top ranked terms. */}
-      {keywords.length > 0 && (
-        <section style={panel}>
-          <h2 style={panelTitle}>Top Keywords <span style={{ color: "var(--ink-faint)", fontWeight: 500 }}>({keywords.length})</span></h2>
-          <div style={{ overflowX: "auto", marginTop: "var(--space-3)" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)" }}>
-              <thead>
-                <tr>
-                  <th style={th}>Keyword</th>
-                  <th style={{ ...th, textAlign: "right", width: "7rem" }}>Position</th>
-                  <th style={{ ...th, textAlign: "right", width: "9rem" }}>Volume</th>
-                </tr>
-              </thead>
-              <tbody>
-                {keywords.slice(0, 25).map((k, i) => (
-                  <tr key={i}>
-                    <td style={td}>{cleanKw(k.what)}</td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{rankOf(k.detail)}</td>
-                    <td style={{ ...td, textAlign: "right", color: "var(--ink-muted)", fontVariantNumeric: "tabular-nums" }}>{volOf(k.detail)}</td>
+        {keywords.length > 0 && (
+          <Panel className={moved ? "span-8" : "span-12"} title="Top Keywords" subtitle={`Best ${Math.min(25, keywords.length)} of ${keywords.length}, by position`}>
+            <div className="table-scroll">
+              <table className="data-table data-table--rows">
+                <thead>
+                  <tr>
+                    <th scope="col">Keyword</th>
+                    <th scope="col" className="num">Position</th>
+                    <th scope="col" className="num">Volume / mo</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {!overview && (
-        <p style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)" }}>
-          No overview yet. Run Domain Overview above to populate this.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** Horizontal bars, each bucket relative to the largest, so the shape reads at a glance. */
-function DistributionBars({ buckets }: { buckets: DistBucket[] }) {
-  const max = Math.max(1, ...buckets.map((b) => b.value));
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
-      {buckets.map((b) => (
-        <div key={b.label} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-          <span style={{ width: "3.5rem", fontSize: "var(--text-xs)", color: "var(--ink-muted)", fontWeight: 600, textAlign: "right", flexShrink: 0 }}>{b.label}</span>
-          <div style={{ flex: 1, height: 10, background: "var(--surface-3)", borderRadius: "var(--radius-full)", overflow: "hidden" }}>
-            <div style={{ width: `${(b.value / max) * 100}%`, height: "100%", background: "var(--accent)", borderRadius: "var(--radius-full)", transition: "width var(--dur) var(--ease)" }} />
-          </div>
-          <span style={{ width: "2.5rem", fontSize: "var(--text-sm)", color: "var(--ink)", fontWeight: 600, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{b.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MoveChip({ label, value, tone }: { label: string; value: number; tone: string }) {
-  return (
-    <div style={{ textAlign: "center", padding: "var(--space-3) var(--space-2)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)" }}>
-      <div style={{ fontSize: "var(--text-xl)", fontWeight: 700, color: tone, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-      <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 2 }}>{label}</div>
-    </div>
-  );
-}
-
-/** A small inline SVG line of estimated traffic value over time. */
-function TrendChart({ points }: { points: TrendPoint[] }) {
-  const W = 640, H = 120, pad = 6;
-  const vals = points.map((p) => p.etv);
-  const max = Math.max(1, ...vals), min = Math.min(...vals);
-  const span = max - min || 1;
-  const x = (i: number) => pad + (i * (W - pad * 2)) / Math.max(1, points.length - 1);
-  const y = (v: number) => H - pad - ((v - min) / span) * (H - pad * 2);
-  const line = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.etv).toFixed(1)}`).join(" ");
-  const area = `${line} L ${x(points.length - 1).toFixed(1)} ${H - pad} L ${x(0).toFixed(1)} ${H - pad} Z`;
-  return (
-    <div style={{ marginTop: "var(--space-3)" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="Estimated traffic value over time" preserveAspectRatio="none">
-        <path d={area} fill="var(--accent-tint)" />
-        <path d={line} fill="none" stroke="var(--accent)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-      </svg>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: "var(--text-xs)", color: "var(--ink-faint)" }}>
-        <span>{points[0].month}</span>
-        <span>${fmt(max)}/mo peak</span>
-        <span>{points[points.length - 1].month}</span>
+                </thead>
+                <tbody>
+                  {keywords.slice(0, 25).map((k, i) => (
+                    <tr key={i}>
+                      <td>{cleanKw(k.what)}</td>
+                      <td className="num"><span className="rank-pill">{rankOf(k.detail)}</span></td>
+                      <td className="num muted">{volOf(k.detail)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        )}
       </div>
     </div>
   );
 }
 
-const card: React.CSSProperties = {
-  padding: "var(--space-4)",
-  background: "var(--surface)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-md)",
-};
-
-const panel: React.CSSProperties = {
-  padding: "var(--space-4) var(--space-5)",
-  background: "var(--surface)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-md)",
-};
-
-const panelTitle: React.CSSProperties = {
-  fontSize: "var(--text-base)",
-  fontWeight: 700,
-  color: "var(--ink)",
-  margin: 0,
-};
-
-const th: React.CSSProperties = {
-  textAlign: "left",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--text-xs)",
-  fontWeight: 600,
-  color: "var(--ink-muted)",
-  borderBottom: "1px solid var(--border)",
-};
-
-const td: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
-  borderBottom: "1px solid var(--surface-3)",
-  color: "var(--ink)",
-};
+/** One movement figure: a neutral number with a glyph and a word, never a colour alone. */
+function MoveCell({ glyph, label, value }: { glyph: string; label: string; value: number }) {
+  return (
+    <li className="movement__cell">
+      <span className="movement__glyph" aria-hidden="true">{glyph}</span>
+      <span className="movement__value">{value.toLocaleString()}</span>
+      <span className="movement__label">{label}</span>
+    </li>
+  );
+}
 
 /** Fill the three headline figures from the row's text when a pre-enrichment
  *  scan left no metrics object, so a cached Domain Overview still reads. */
@@ -243,5 +153,5 @@ function rankOf(detail: string | undefined): string {
 }
 function volOf(detail: string | undefined): string {
   const m = (detail || "").match(/~([\d,]+)\s*\/mo/i);
-  return m ? `${m[1]}/mo` : "—";
+  return m ? Number(m[1].replace(/,/g, "")).toLocaleString() : "—";
 }

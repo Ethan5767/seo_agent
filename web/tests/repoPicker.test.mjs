@@ -73,7 +73,7 @@ test("read-only access is shown at selection time", () => {
   // A client adds the operator as a collaborator and may grant read only. That
   // is a normal outcome, and finding out at merge time - three screens and one
   // saved client row later - is the bad version.
-  assert.match(PICKER, /!r\.canPush && <span style=\{tag\("#b91c1c"\)\}>Read only/);
+  assert.match(PICKER, /!r\.canPush && <span style=\{tag\("var\(--bad\)"\)\}>Read only/);
   assert.match(SERVER, /canPush: Boolean\(r\.permissions\?\.push\)/);
 });
 

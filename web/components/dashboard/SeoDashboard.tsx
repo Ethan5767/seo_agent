@@ -2,36 +2,83 @@
 
 import React from "react";
 import {
-  ChartCard, Metric, TrendChart, StackedBars, Gauge, Donut, DistributionBars, SegmentBar, Empty, toneFor,
+  Metric, TrendChart, StackedBars, Gauge, Donut, DistributionBars, Empty, toneFor,
 } from "@/components/dashboard/Charts";
 import {
-  healthTrend, issueHistory, siteAudit, rankedKeywords, positionDistribution, organic, backlinks, lighthouse, aiSearch,
+  healthTrend, issueHistory, rankedKeywords, positionDistribution, organic, backlinks, lighthouse, aiSearch,
   type Report, type ScanLike,
 } from "@/lib/dashboardMetrics";
+import { ScoreWhy, IssuesTable, PagesTable } from "@/components/dashboard/AuditResults";
+import { crawledPages, rankedIssues } from "@/lib/auditBreakdown";
 
 /**
- * The SEO dashboard: one monitoring card per area, each drawn from the project's
- * saved scans and the open report. A card with nothing measured says which tool
- * fills it; nothing is estimated to fill the space.
+ * The SEO dashboard. Two sections:
+ *
+ *   1. The on-page audit: Site Health and where its points went, the health
+ *      trend, the top issues and the worst pages (components/dashboard/
+ *      AuditResults.tsx). Site Audit shows the same blocks in full.
+ *   2. Search and links: organic, keywords, backlinks, speed and AI search,
+ *      each from the tool that measured it.
+ *
+ * A panel with nothing measured says which tool fills it; nothing is estimated
+ * to fill the space. Layout is the `.audit-dash` and `.seo-dash` grids in
+ * app/tokens.css: named areas whose rows always sum to the full width.
  */
-export type DashboardTarget = "site-audit" | "domain-overview" | "organic-rankings" | "backlinks" | "core-web-vitals" | "ai";
+export type DashboardTarget =
+  | "site-audit" | "issues" | "pages"
+  | "domain-overview" | "organic-rankings" | "backlinks" | "core-web-vitals" | "ai";
 
+// Chart marks take the brand fills; text keeps the AA shades (DESIGN.md §2.4).
 const COLORS = {
-  error: "var(--bad)",
-  warn: "var(--warn)",
-  ok: "var(--ok)",
+  error: "var(--bad-fill)",
+  warn: "var(--warn-fill)",
+  ok: "var(--ok-fill)",
   info: "var(--ink-faint)",
 };
 
+const INK = "var(--ink)";
+
 const fmt = (n: number | null | undefined) => (typeof n === "number" ? n.toLocaleString() : "—");
 
+/** Panel chrome: title, provenance, and the one link into the full tool. */
+function Panel({
+  area, title, subtitle, action, children,
+}: {
+  area: "score" | "trend" | "issues" | "pages" | "org" | "kw" | "link" | "perf" | "ai";
+  title: string;
+  subtitle?: React.ReactNode;
+  action?: { label: string; onClick: () => void };
+  children: React.ReactNode;
+}) {
+  const id = `seo-panel-${area}`;
+  return (
+    <section className="seo-panel" style={{ gridArea: area }} aria-labelledby={id}>
+      <header className="seo-panel__head">
+        <div style={{ minWidth: 0 }}>
+          <h3 id={id} className="seo-panel__title">{title}</h3>
+          {subtitle && <div className="seo-panel__sub">{subtitle}</div>}
+        </div>
+        {action && (
+          <button type="button" className="seo-panel__link" onClick={action.onClick}>
+            {action.label}
+            <span aria-hidden="true">→</span>
+          </button>
+        )}
+      </header>
+      <div className="seo-panel__body">{children}</div>
+    </section>
+  );
+}
+
 export function SeoDashboard({
-  report, scans, domain, onOpen,
+  report, scans, domain, onOpen, onRun,
 }: {
   report: Report;
   scans: ScanLike[] | null | undefined;
   domain: string;
   onOpen: (target: DashboardTarget) => void;
+  /** Runs the on-page audit, for the empty states. */
+  onRun?: () => void;
 }) {
   const keywords = rankedKeywords(report);
   const dist = positionDistribution(keywords);
@@ -41,188 +88,186 @@ export function SeoDashboard({
   const ai = aiSearch(report);
   const top3 = dist[0].value;
   const top10 = dist[0].value + dist[1].value;
+  const shown = Math.min(8, keywords.length);
+  const issues = rankedIssues(report);
+  const pages = crawledPages(report);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-5)" }}>
-      <SiteAuditCards report={report} scans={scans} domain={domain} onOpen={onOpen} />
+    <div className="seo-dash-wrap dash-sections">
+      <section aria-labelledby="dash-audit-heading">
+        <h2 id="dash-audit-heading" className="dash-section-title">On-page audit</h2>
+        <div className="audit-dash">
+          <Panel area="score" title="Site Health" subtitle="Scored on the on-page audit only" action={{ label: "Site Audit", onClick: () => onOpen("site-audit") }}>
+            <ScoreWhy report={report} onRun={onRun} />
+          </Panel>
+          <HealthTrendPanel scans={scans} domain={domain} />
+          <Panel
+            area="issues" title="Top Issues"
+            subtitle={issues.length ? `Ranked by severity, then pages affected. ${issues.length} in total.` : undefined}
+            action={issues.length ? { label: "All issues", onClick: () => onOpen("issues") } : undefined}
+          >
+            <IssuesTable report={report} limit={8} onSeeAll={() => onOpen("issues")} onRun={onRun} />
+          </Panel>
+          <Panel
+            area="pages" title="Crawled Pages"
+            subtitle={pages ? `Worst first. ${pages.length} ${pages.length === 1 ? "page" : "pages"} read.` : undefined}
+            action={pages?.length ? { label: "All pages", onClick: () => onOpen("pages") } : undefined}
+          >
+            <PagesTable report={report} limit={8} onSeeAll={() => onOpen("pages")} onRun={onRun} />
+          </Panel>
+        </div>
+      </section>
 
-      {/* Organic search: DataForSEO figures and the ranked keywords' spread. */}
-      <ChartCard title="Organic Search" subtitle="DataForSEO" span={2} action={{ label: "View Domain Overview", onClick: () => onOpen("domain-overview") }}>
-        {org || keywords.length ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-5)" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
-                <Metric label="Organic keywords" value={fmt(org?.keywordsTotal ?? keywords.length)} />
-                <Metric label="Est. traffic / mo" value={fmt(org?.traffic)} sub={org?.traffic === null ? "not reported" : undefined} />
-                <Metric label="Top 3" value={fmt(top3)} tone="var(--ink)" />
-                <Metric label="Top 10" value={fmt(top10)} tone="var(--ink)" />
+      <section aria-labelledby="dash-search-heading">
+        <h2 id="dash-search-heading" className="dash-section-title">Search and links</h2>
+      <div className="seo-dash">
+        {/* Organic search: DataForSEO figures and the ranked keywords' spread. */}
+        <Panel area="org" title="Organic Search" subtitle="DataForSEO" action={{ label: "Domain overview", onClick: () => onOpen("domain-overview") }}>
+          {org || keywords.length ? (
+            <>
+              <div className="seo-stats seo-stats--pairs">
+                <Metric label="Organic keywords" value={fmt(org?.keywordsTotal ?? keywords.length)} tone={INK} />
+                <Metric label="Est. traffic / mo" value={fmt(org?.traffic)} tone={INK} sub={org?.traffic == null ? "Not reported" : "Estimate"} />
+                <Metric label="Top 3" value={fmt(top3)} tone={INK} />
+                <Metric label="Top 10" value={fmt(top10)} tone={INK} />
               </div>
               {org?.trend && org.trend.length > 1 && (
                 <TrendChart points={org.trend} height={90} empty="" />
               )}
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, marginBottom: 8 }}>Positions ({keywords.length} tracked keywords)</div>
-              <DistributionBars items={dist} empty="No ranked keywords in the last scan." />
-            </div>
-          </div>
-        ) : (
-          <Empty height={180}>Run Domain Overview to see organic keywords, traffic and positions.</Empty>
-        )}
-      </ChartCard>
+              <div>
+                <p className="seo-label">Positions, {keywords.length} tracked keywords</p>
+                <DistributionBars items={dist} empty="No ranked keywords in the last scan." />
+              </div>
+            </>
+          ) : (
+            <Empty height={180}>Run Domain Overview to see organic keywords, traffic and positions.</Empty>
+          )}
+        </Panel>
 
-      {/* Top keywords, best position first. */}
-      <ChartCard title="Top Keywords" subtitle={keywords.length ? `${Math.min(8, keywords.length)} of ${keywords.length}` : undefined} action={keywords.length ? { label: "View all", onClick: () => onOpen("organic-rankings") } : undefined}>
-        {keywords.length ? (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ color: "var(--ink-muted)", textAlign: "left" }}>
-                <th style={{ padding: "4px 0", fontWeight: 600 }}>Keyword</th>
-                <th style={{ padding: "4px 0", fontWeight: 600, textAlign: "right" }}>Pos.</th>
-                <th style={{ padding: "4px 0", fontWeight: 600, textAlign: "right" }}>Volume</th>
-              </tr>
-            </thead>
-            <tbody>
-              {keywords.slice(0, 8).map((k) => (
-                <tr key={k.keyword} style={{ borderTop: "1px solid var(--border)" }}>
-                  <td style={{ padding: "6px 8px 6px 0", color: "var(--accent)", maxWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "60%" }} title={k.keyword}>{k.keyword}</td>
-                  <td style={{ padding: "6px 0", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{k.position}</td>
-                  <td style={{ padding: "6px 0", textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--ink-muted)" }}>{fmt(k.volume)}</td>
+        {/* Top keywords, best position first. */}
+        <Panel
+          area="kw" title="Top Keywords"
+          subtitle={keywords.length ? `Best ${shown} of ${keywords.length}, by position` : undefined}
+          action={keywords.length ? { label: "All rankings", onClick: () => onOpen("organic-rankings") } : undefined}
+        >
+          {keywords.length ? (
+            <table className="seo-table">
+              <thead>
+                <tr>
+                  <th scope="col">Keyword</th>
+                  <th scope="col" className="num">Position</th>
+                  <th scope="col" className="num">Volume</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <Empty height={180}>Run Organic Rankings to list the keywords this site ranks for.</Empty>
-        )}
-      </ChartCard>
+              </thead>
+              <tbody>
+                {keywords.slice(0, shown).map((k) => (
+                  <tr key={k.keyword}>
+                    <td title={k.keyword} style={{ maxWidth: 0, width: "62%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink-body)" }}>
+                      {k.keyword}
+                    </td>
+                    <td className="num" style={{ fontWeight: 600, color: INK }}>{k.position}</td>
+                    <td className="num" style={{ color: "var(--ink-muted)" }}>{fmt(k.volume)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <Empty height={180}>Run Organic Rankings to list the keywords this site ranks for.</Empty>
+          )}
+        </Panel>
 
-      {/* Backlinks. */}
-      <ChartCard title="Backlinks" subtitle="DataForSEO" action={{ label: "View Backlinks", onClick: () => onOpen("backlinks") }}>
-        {links ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
-              <Metric label="Referring domains" value={fmt(links.referringDomains)} />
-              <Metric label="Backlinks" value={fmt(links.backlinks)} />
+        {/* Backlinks. */}
+        <Panel area="link" title="Backlinks" subtitle="DataForSEO" action={{ label: "Details", onClick: () => onOpen("backlinks") }}>
+          {links ? (
+            <>
+              <div className="seo-stats">
+                <Metric label="Referring domains" value={fmt(links.referringDomains)} tone={INK} />
+                <Metric label="Backlinks" value={fmt(links.backlinks)} tone={INK} />
+              </div>
+              {typeof links.backlinks === "number" && typeof links.broken === "number" ? (
+                <div>
+                  <p className="seo-label">Link status</p>
+                  <Donut
+                    size={96}
+                    center={<span><b style={{ color: INK, fontSize: 14 }}>{links.broken}</b><br />broken</span>}
+                    segments={[
+                      { label: "Working", value: Math.max(0, links.backlinks - links.broken), color: COLORS.ok },
+                      { label: "Broken", value: links.broken, color: COLORS.error },
+                    ]}
+                  />
+                </div>
+              ) : null}
+              {links.rank !== null && (
+                <div style={{ marginTop: "auto", fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
+                  DataForSEO domain rank <b style={{ color: "var(--ink-body)", fontVariantNumeric: "tabular-nums" }}>{fmt(links.rank)}</b>
+                </div>
+              )}
+            </>
+          ) : (
+            <Empty height={180}>Run Backlinks to count referring domains and broken links.</Empty>
+          )}
+        </Panel>
+
+        {/* Lighthouse. */}
+        <Panel area="perf" title="Page Performance" subtitle="Google Lighthouse, homepage" action={{ label: "Core Web Vitals", onClick: () => onOpen("core-web-vitals") }}>
+          {lh.some((c) => c.score !== null) ? (
+            <div style={{ display: "flex", justifyContent: "space-around", alignItems: "flex-start", flexWrap: "wrap", gap: "var(--space-4)" }}>
+              {lh.map((c) => <Gauge key={c.label} value={c.score} label={c.label} size={128} caption={c.score === null ? "Not run" : undefined} />)}
             </div>
-            {typeof links.backlinks === "number" && typeof links.broken === "number" ? (
+          ) : (
+            <Empty height={140}>Run Core Web Vitals to score performance, SEO, accessibility and best practices.</Empty>
+          )}
+        </Panel>
+
+        {/* AI search. */}
+        <Panel area="ai" title="AI Search" subtitle="Answer readiness and AI citations" action={{ label: "Details", onClick: () => onOpen("ai") }}>
+          {ai ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "var(--space-5)" }}>
               <Donut
-                size={104}
-                center={<span><b style={{ color: "var(--ink)", fontSize: 14 }}>{links.broken}</b><br />broken</span>}
+                size={96}
+                center={<span><b style={{ color: INK, fontSize: 14 }}>{ai.passed}</b><br />passed</span>}
                 segments={[
-                  { label: "Working", value: Math.max(0, links.backlinks - links.broken), color: COLORS.ok },
-                  { label: "Broken", value: links.broken, color: COLORS.error },
+                  { label: "Passed", value: ai.passed, color: COLORS.ok },
+                  { label: "Needs work", value: ai.failing, color: COLORS.warn },
                 ]}
               />
-            ) : null}
-            {links.rank !== null && <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>DataForSEO rank {fmt(links.rank)}</div>}
-          </div>
-        ) : (
-          <Empty height={180}>Run Backlinks to count referring domains and broken links.</Empty>
-        )}
-      </ChartCard>
-
-      {/* Lighthouse. */}
-      <ChartCard title="Page Performance" subtitle="Google Lighthouse, homepage" span={2} action={{ label: "View Core Web Vitals", onClick: () => onOpen("core-web-vitals") }}>
-        {lh.some((c) => c.score !== null) ? (
-          <div style={{ display: "flex", justifyContent: "space-around", flexWrap: "wrap", gap: "var(--space-3)" }}>
-            {lh.map((c) => <Gauge key={c.label} value={c.score} label={c.label} size={130} />)}
-          </div>
-        ) : (
-          <Empty height={140}>Run Core Web Vitals to score performance, SEO, accessibility and best practices.</Empty>
-        )}
-      </ChartCard>
-
-      {/* AI search. */}
-      <ChartCard title="AI Search" subtitle="Answer readiness and AI citations" action={{ label: "View AI Search", onClick: () => onOpen("ai") }}>
-        {ai ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-            <Donut
-              size={104}
-              center={<span><b style={{ color: "var(--ink)", fontSize: 14 }}>{ai.passed}</b><br />passed</span>}
-              segments={[
-                { label: "Passed", value: ai.passed, color: COLORS.ok },
-                { label: "Needs work", value: ai.failing, color: COLORS.warn },
-              ]}
-            />
-            <Metric label="AI engine mentions" value={fmt(ai.mentions)} tone={ai.mentions ? toneFor(90) : "var(--ink)"} sub={ai.mentions === null ? "not checked" : undefined} />
-          </div>
-        ) : (
-          <Empty height={180}>Run the AI Search checks to see answer readiness and citations.</Empty>
-        )}
-      </ChartCard>
+              <Metric label="AI engine mentions" value={fmt(ai.mentions)} tone={ai.mentions ? toneFor(90) : INK} sub={ai.mentions === null ? "Not checked" : undefined} />
+            </div>
+          ) : (
+            <Empty height={140}>Run the AI Search checks to see answer readiness and citations.</Empty>
+          )}
+        </Panel>
+      </div>
+      </section>
     </div>
   );
 }
 
-/** The Site Audit and Site Health Trend cards, shared by the Dashboard and the Site Audit page. */
-function SiteAuditCards({
-  report, scans, domain, onOpen,
-}: {
-  report: Report;
-  scans: ScanLike[] | null | undefined;
-  domain: string;
-  onOpen?: (target: DashboardTarget) => void;
-}) {
-  const audit = siteAudit(report);
+/** Health over time, from every graded scan of this domain. Shared with Site Audit. */
+export function HealthTrendPanel({ scans, domain }: { scans: ScanLike[] | null | undefined; domain: string }) {
   const trend = healthTrend(scans, domain);
   const issues = issueHistory(scans, domain);
   return (
-    <>
-      {/* Site Audit: the latest health, its issues, the crawl. */}
-      <ChartCard title="Site Audit" subtitle={audit ? "Latest scan" : "Not scanned yet"} action={onOpen ? { label: "View full report", onClick: () => onOpen("site-audit") } : undefined}>
-        {audit ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)", flexWrap: "wrap" }}>
-              <Gauge value={audit.score} label="Site Health" caption={audit.score === null ? "no graded checks" : undefined} />
-              <div style={{ display: "grid", gap: "var(--space-3)" }}>
-                <Metric label="Errors" value={fmt(audit.errors)} tone={COLORS.error} />
-                <Metric label="Warnings" value={fmt(audit.warnings)} tone={COLORS.warn} />
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, marginBottom: 4 }}>
-                Checks {audit.pagesCrawled !== null ? `· ${audit.pagesCrawled} pages crawled` : ""}
-              </div>
-              <SegmentBar segments={[
-                { label: "Passed", value: audit.passed, color: COLORS.ok },
-                { label: "Warnings", value: audit.warnings, color: COLORS.warn },
-                { label: "Errors", value: audit.errors, color: COLORS.error },
-                { label: "Notices", value: audit.notices, color: COLORS.info },
-              ]} />
-            </div>
-          </div>
-        ) : (
-          <Empty height={180}>Run Site Audit to measure this site&apos;s health.</Empty>
-        )}
-      </ChartCard>
-
-      {/* Health over time, from every graded scan of this domain. */}
-      <ChartCard title="Site Health Trend" subtitle={trend.length ? `${trend.length} scan${trend.length === 1 ? "" : "s"} of ${domain}` : undefined} span={2}>
-        <TrendChart points={trend} yMax={100} unit="%" color="var(--accent)" height={150} empty="Each Site Audit adds a point here." />
-        <div style={{ marginTop: "var(--space-4)" }}>
-          <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, marginBottom: 4 }}>Issues per scan</div>
-          <StackedBars
-            bars={issues}
-            height={90}
-            keys={[
-              { key: "errors", label: "Errors", color: COLORS.error },
-              { key: "warnings", label: "Warnings", color: COLORS.warn },
-            ]}
-            empty="No graded scans yet."
-          />
-        </div>
-      </ChartCard>
-
-    </>
-  );
-}
-
-/** Site Audit page: health gauge, issue mix and the trend across scans, above the report. */
-export function SiteAuditCharts({ report, scans, domain }: { report: Report; scans: ScanLike[] | null | undefined; domain: string }) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-5)" }}>
-      <SiteAuditCards report={report} scans={scans} domain={domain} />
-    </div>
+    <Panel
+      area="trend" title="Health Trend"
+      subtitle={trend.length ? `${trend.length} graded scan${trend.length === 1 ? "" : "s"}. Scans before Sep 15, 2026 also counted rankings and Lighthouse.` : undefined}
+    >
+      <div>
+        <p className="seo-label">Site Health</p>
+        <TrendChart points={trend} yMax={100} color="var(--accent-fill)" height={110} empty="Each audit adds a point here." />
+      </div>
+      <div>
+        <p className="seo-label">Errors and warnings per scan</p>
+        <StackedBars
+          bars={issues}
+          height={110}
+          keys={[
+            { key: "errors", label: "Errors", color: COLORS.error },
+            { key: "warnings", label: "Warnings", color: COLORS.warn },
+          ]}
+          empty="No graded scans yet."
+        />
+      </div>
+    </Panel>
   );
 }

@@ -335,9 +335,10 @@ def test_the_score_ships_its_own_denominator():
     on-page checks moved a real scan from 33 to 51 - so the denominator has to
     travel with the number or two scores get compared that never should be."""
     from pipeline.scanner.audit import assemble
-    few = assemble({"a": [{"code": "x", "severity": "ok"},
-                          {"code": "y", "severity": "error"}]})
-    many = assemble({"a": [{"code": "x", "severity": "ok"},
+    # "seo": since score version 3 only the on-page audit's groups are graded.
+    few = assemble({"seo": [{"code": "x", "severity": "ok"},
+                            {"code": "y", "severity": "error"}]})
+    many = assemble({"seo": [{"code": "x", "severity": "ok"},
                            {"code": "y", "severity": "error"}]
                           + [{"code": f"z{i}", "severity": "ok"} for i in range(8)]})
     assert few["score"] == 50 and few["graded"] == 2

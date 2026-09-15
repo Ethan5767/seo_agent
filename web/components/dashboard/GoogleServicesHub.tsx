@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { authedFetch, purgeGoogleConnection } from "@/lib/authedFetch";
+import { Panel } from "./Panel";
+import styles from "./LocalPresence.module.css";
 
 interface GoogleServiceStatus {
   connected: boolean;
@@ -22,8 +24,35 @@ interface GoogleServiceStatus {
 }
 
 type CardState = "ok" | "failed" | "unchecked";
-const BADGE_TEXT: Record<CardState, string> = { ok: "✓ Working", failed: "✕ Not working", unchecked: "Not checked" };
-const BADGE_COLOR: Record<CardState, string> = { ok: "#166534", failed: "#b91c1c", unchecked: "#64748b" };
+// A word, never a glyph alone: StatusMark draws the icon beside it.
+const BADGE_TEXT: Record<CardState, string> = { ok: "Working", failed: "Not working", unchecked: "Not checked" };
+
+/** Status as an icon plus a word, on the shared `.sev` classes (DESIGN.md §2.5). */
+function StatusMark({ state, word }: { state: "ok" | "bad" | "none"; word: string }) {
+  const cls = state === "ok" ? "sev sev--ok" : state === "bad" ? "sev sev--error" : "sev";
+  return (
+    <span className={cls} style={{ whiteSpace: "normal" }}>
+      <span className="sev__glyph" aria-hidden="true">
+        <svg className={styles.glyphIcon} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {state === "ok" ? <polyline points="20 6 9 17 4 12" />
+            : state === "bad" ? <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>
+            : <line x1="6" y1="12" x2="18" y2="12" />}
+        </svg>
+      </span>
+      {word}
+    </span>
+  );
+}
+
+/** The panel title with Google's "G" mark (a third-party mark keeps its colour). */
+function GoogleTitle() {
+  return (
+    <span className={styles.titleWithMark}>
+      <span className={styles.gMark} aria-hidden="true">G</span>
+      Google Services
+    </span>
+  );
+}
 
 /** What each Google service actually answered, from `/api/auth/google/status`. */
 export function serviceCards(status: GoogleServiceStatus, isGbpSecondary: boolean, gbpAccount: string | null | undefined) {
@@ -57,17 +86,19 @@ export function serviceCards(status: GoogleServiceStatus, isGbpSecondary: boolea
 }
 
 interface GoogleServicesHubProps {
+  /** Accepted for existing callers. The panel is compact at every size now. */
   compact?: boolean;
   onStatusChange?: (status: GoogleServiceStatus) => void;
 }
 
-export function GoogleServicesHub({ compact = false, onStatusChange }: GoogleServicesHubProps) {
+export function GoogleServicesHub({ onStatusChange }: GoogleServicesHubProps) {
   const [status, setStatus] = useState<GoogleServiceStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSecondaryConfig, setShowSecondaryConfig] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [justConnectedMsg, setJustConnectedMsg] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState("/profile");
+  const secondaryId = `gbp-secondary-${React.useId().replace(/:/g, "")}`;
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -130,9 +161,9 @@ export function GoogleServicesHub({ compact = false, onStatusChange }: GoogleSer
 
   if (loading) {
     return (
-      <div style={{ padding: "16px 18px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, color: "var(--ink-muted)" }}>
-        Checking Google services status...
-      </div>
+      <Panel title={<GoogleTitle />}>
+        <p className={styles.serviceDetail} role="status">Checking Google services status...</p>
+      </Panel>
     );
   }
 
@@ -142,211 +173,118 @@ export function GoogleServicesHub({ compact = false, onStatusChange }: GoogleSer
   const isGbpSecondary = status?.secondaryGbp?.connected;
 
   return (
-    <div
-      style={{
-        background: "#ffffff",
-        borderRadius: 10,
-        border: "1px solid #e2e8f0",
-        padding: compact ? "16px" : "20px 24px",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-      }}
+    <Panel
+      title={<GoogleTitle />}
+      subtitle="Search Console, Google Analytics and Google Business Profile (Maps) through one sign-in"
     >
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 8,
-              background: "#4285f4",
-              color: "#ffffff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 800,
-              fontSize: 16,
-            }}
-          >
-            G
-          </div>
-          <div>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
-              Google Services Hub
-            </h3>
-            <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: "2px 0 0" }}>
-              Unified Google Search Console, Google Analytics & Google Business Profile (Maps)
-            </p>
-          </div>
-        </div>
-
-        <span
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            padding: "3px 8px",
-            borderRadius: 12,
-            background: isConnected ? "#dcfce7" : "#f1f5f9",
-            color: isConnected ? "#166534" : "var(--ink-muted)",
-            border: `1px solid ${isConnected ? "#bbf7d0" : "#e2e8f0"}`,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-          }}
-        >
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: isConnected ? "#22c55e" : "#94a3b8" }} />
-          {isConnected ? "Connected" : "Disconnected"}
-        </span>
-      </div>
-
       {/* Connection Success Banner */}
       {justConnectedMsg && (
-        <div style={{ background: "#dcfce7", border: "1px solid #bbf7d0", padding: "10px 14px", borderRadius: 6, color: "#166534", fontSize: 12.5, fontWeight: 600, marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>
-          <span>🎉</span>
-          <span>{justConnectedMsg}</span>
-        </div>
+        <p role="status" className={`${styles.notice} ${styles.noticeOk}`}>
+          {justConnectedMsg}
+        </p>
       )}
 
       {/* Case 1: NOT CONNECTED (Single Master Button) */}
       {!isConnected ? (
-        <div style={{ background: "#f8fafc", padding: "16px 18px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
-          <p style={{ fontSize: 13, color: "#475569", margin: "0 0 14px", lineHeight: 1.5 }}>
-            Connect your Google account to automatically sync verified organic search traffic, rankings, Google Maps local reviews, and analytics in one step.
+        <div className={styles.actionRow}>
+          <StatusMark state="none" word="Not connected" />
+          <p className={styles.serviceDetail} style={{ flex: "1 1 260px" }}>
+            Connect your Google account to sync verified organic search traffic, rankings, Google Maps reviews and analytics in one step.
           </p>
-
           <a
             href={`/api/auth/google?return_to=${encodeURIComponent(currentPath)}`}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              background: "#0f172a",
-              color: "#ffffff",
-              borderRadius: 6,
-              padding: "9px 18px",
-              fontSize: 13,
-              fontWeight: 600,
-              textDecoration: "none",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
-            }}
+            className={`btn btn--primary ${styles.wrapBtn} ${styles.blockNarrow}`}
           >
-            <span>🚀</span>
-            <span>Connect Google Services</span>
+            Connect Google Services
           </a>
         </div>
       ) : (
         /* Case 2: CONNECTED (Unified Status Breakdown) */
-        <div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#f8fafc", padding: "10px 14px", borderRadius: 6, border: "1px solid #e2e8f0", marginBottom: 14 }}>
-            <div style={{ fontSize: 12.5, color: "#334155" }}>
-              Primary Account: <strong style={{ color: "#0f172a" }}>{primaryEmail}</strong>
+        <>
+          <div className={styles.actionRow}>
+            <StatusMark state="ok" word="Connected" />
+            <span className={styles.serviceDetail}>
+              Primary account: <strong className={styles.email} style={{ color: "var(--ink)" }}>{primaryEmail}</strong>
+            </span>
+            <div className={styles.actionEnd}>
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                onClick={() => handleDisconnect("primary")}
+                disabled={isDisconnecting}
+                style={{ color: "var(--bad)" }}
+              >
+                {isDisconnecting ? "Disconnecting..." : "Disconnect"}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => handleDisconnect("primary")}
-              disabled={isDisconnecting}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#dc2626",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: isDisconnecting ? "wait" : "pointer",
-                padding: 0,
-                textDecoration: "underline",
-              }}
-            >
-              Disconnect
-            </button>
           </div>
 
           {/* Connected Services Grid. Each badge is the result of asking Google
               just now, never a constant: these three read a fixed Active badge for any
               connection, including one whose token Google no longer accepts. */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 16 }}>
-            {serviceCards(status, Boolean(isGbpSecondary), gbpAccount).map((card) => (
-              <div key={card.name} style={{ background: "#ffffff", padding: "12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>{card.name}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: BADGE_COLOR[card.state] }}>{BADGE_TEXT[card.state]}</span>
+          <ul className={styles.serviceGrid} style={{ margin: 0, padding: 0, listStyle: "none" }}>
+            {serviceCards(status!, Boolean(isGbpSecondary), gbpAccount).map((card) => (
+              <li key={card.name} className={styles.serviceCard}>
+                <div className={styles.serviceHead}>
+                  <span>{card.name}</span>
+                  <StatusMark state={card.state === "ok" ? "ok" : card.state === "failed" ? "bad" : "none"} word={BADGE_TEXT[card.state]} />
                 </div>
-                <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>{card.detail}</div>
-              </div>
+                <p className={styles.serviceDetail}>{card.detail}</p>
+              </li>
             ))}
-          </div>
+          </ul>
 
           {/* Subtle Secondary Account Override (For Agencies / Multi-account Owners) */}
-          <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 12 }}>
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "var(--space-2)" }}>
             <button
               type="button"
+              className={styles.disclosure}
+              aria-expanded={showSecondaryConfig}
+              aria-controls={secondaryId}
               onClick={() => setShowSecondaryConfig((v) => !v)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--ink-muted)",
-                fontSize: 12,
-                cursor: "pointer",
-                padding: 0,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-              }}
             >
-              <span>{showSecondaryConfig ? "▲" : "▼"}</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
               <span>Need a separate Google account for Local Business Profile (Google Maps)?</span>
             </button>
 
             {showSecondaryConfig && (
-              <div style={{ marginTop: 10, padding: 12, background: "#f8fafc", borderRadius: 6, border: "1px solid #e2e8f0", fontSize: 12 }}>
-                <div style={{ fontWeight: 600, color: "#1e293b", marginBottom: 4 }}>
-                  Secondary Account for Google Business Profile
-                </div>
-                <p style={{ color: "var(--ink-muted)", margin: "0 0 10px", lineHeight: 1.4 }}>
+              <div id={secondaryId} className={styles.card} style={{ marginTop: "var(--space-2)" }}>
+                <h4 className={styles.cardTitle}>Secondary Account for Google Business Profile</h4>
+                <p className={styles.serviceDetail}>
                   If the store owner manages Google Maps reviews and business hours under their personal email, link their account here without affecting your Search Console connection.
                 </p>
 
                 {isGbpSecondary ? (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ color: "#166534", fontWeight: 600 }}>
-                      ✓ Connected as {status.secondaryGbp.email}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleDisconnect("gbp_secondary")}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#dc2626",
-                        fontSize: 12,
-                        cursor: "pointer",
-                        textDecoration: "underline",
-                      }}
-                    >
-                      Disconnect Secondary
-                    </button>
+                  <div className={styles.actionRow}>
+                    <StatusMark state="ok" word={`Connected as ${status!.secondaryGbp.email}`} />
+                    <div className={styles.actionEnd}>
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        onClick={() => handleDisconnect("gbp_secondary")}
+                        style={{ color: "var(--bad)" }}
+                      >
+                        Disconnect Secondary
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <a
-                    href={`/api/auth/google?service=gbp_secondary&return_to=${encodeURIComponent(currentPath)}`}
-                    style={{
-                      display: "inline-block",
-                      background: "#2563eb",
-                      color: "#ffffff",
-                      padding: "6px 12px",
-                      borderRadius: 4,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      textDecoration: "none",
-                    }}
-                  >
-                    Link Store Owner's Google Account →
-                  </a>
+                  <div>
+                    <a
+                      href={`/api/auth/google?service=gbp_secondary&return_to=${encodeURIComponent(currentPath)}`}
+                      className={`btn btn--secondary btn--sm ${styles.wrapBtn}`}
+                    >
+                      Link Store Owner&apos;s Google Account
+                    </a>
+                  </div>
                 )}
               </div>
             )}
           </div>
-        </div>
+        </>
       )}
-    </div>
+    </Panel>
   );
 }

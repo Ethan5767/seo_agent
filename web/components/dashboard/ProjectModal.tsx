@@ -2,6 +2,7 @@
 
 import React from "react";
 import { RepoPicker } from "./RepoPicker";
+import { Modal } from "./Modal";
 
 /**
  * Create a project, or correct one that already exists.
@@ -41,66 +42,123 @@ export function ProjectModal({
   kwList: string[]; setKwList: (v: string[]) => void;
   githubToken: () => Promise<string>;
 }) {
+  const ids = React.useId();
+  const fid = (name: string) => `${ids}-${name}`;
+  const [urlTouched, setUrlTouched] = React.useState(false);
+  React.useEffect(() => { if (open) setUrlTouched(false); }, [open]);
+  const urlError = urlTouched ? websiteProblem(url) : null;
+  const addKeyword = () => {
+    if (kw.trim() && !kwList.includes(kw.trim())) {
+      setKwList([...kwList, kw.trim()]);
+      setKw("");
+    }
+  };
+
   if (!open) return null;
   return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.5)", backdropFilter: "blur(4px)",
-      display: "grid", placeItems: "center", zIndex: 1000, padding: 24,
-    }}>
-        <div style={{
-          background: "#ffffff", borderRadius: 14, border: "1px solid #e9edf2",
-          width: "100%", maxWidth: 560, padding: "32px 36px", boxShadow: "0 20px 25px -5px rgba(15, 23, 42, 0.12)",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
-            <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: "#1e293b" }}>
-              {editing ? "Edit Project" : "Create SEO Project"}
-            </h2>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{ background: "none", border: 0, fontSize: 20, color: "var(--ink-muted)", cursor: "pointer", padding: 4 }}
-            >
-              ✕
-            </button>
-          </div>
+    <Modal onClose={onClose} labelledBy={fid("title")} card width={560}>
+      <div className="modal-card__head">
+        <h2 id={fid("title")} className="modal-card__title">
+          {editing ? "Edit Project" : "Create SEO Project"}
+        </h2>
+        <button type="button" onClick={onClose} className="modal-card__close" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </div>
+      {!editing && (
+        <p className="modal-card__lede">
+          Add the website to audit. Keywords, goals and the code repository for fixes can be set later.
+        </p>
+      )}
 
-          <form onSubmit={onSubmit}>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                Business Name
-              </label>
+      <form noValidate
+        onSubmit={(e) => {
+          if (websiteProblem(url)) { e.preventDefault(); setUrlTouched(true); return; }
+          onSubmit(e);
+        }}
+      >
+        {/* Create asks for the site and a name only (UX audit #29). Everything
+            else is project settings, reached through Edit when it is needed. */}
+        <div className="form-field">
+          <label htmlFor={fid("url")} className="form-field__label">Website URL <span aria-hidden="true">*</span></label>
+          <input
+            id={fid("url")}
+            type="url"
+            inputMode="url"
+            autoComplete="url"
+            required
+            aria-required="true"
+            aria-invalid={urlError ? true : undefined}
+            aria-describedby={urlError ? fid("url-error") : undefined}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onBlur={() => setUrlTouched(true)}
+            placeholder="https://example.com"
+            className="form-field__input"
+          />
+          {urlError && <p id={fid("url-error")} className="form-field__error" role="alert">{urlError}</p>}
+        </div>
+
+        <div className="form-field">
+          <label htmlFor={fid("biz")} className="form-field__label">Business name <span className="muted">(optional)</span></label>
+          <input
+            id={fid("biz")}
+            type="text"
+            value={biz}
+            onChange={(e) => setBiz(e.target.value)}
+            placeholder="e.g. Acme Studio"
+            className="form-field__input"
+          />
+        </div>
+
+        {editing && (
+          <>
+            <div className="form-field">
+              <label htmlFor={fid("kw")} className="form-field__label">Target keywords</label>
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <input
+                  id={fid("kw")}
+                  type="text"
+                  value={kw}
+                  onChange={(e) => setKw(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); addKeyword(); }
+                  }}
+                  aria-describedby={fid("kw-hint")}
+                  placeholder="keyword phrase"
+                  className="form-field__input"
+                  style={{ flex: 1 }}
+                />
+                <button type="button" onClick={addKeyword} className="btn btn--secondary btn--sm">Add</button>
+              </div>
+              <p id={fid("kw-hint")} className="form-field__hint">Press Enter or Add after each phrase.</p>
+              {kwList.length > 0 && (
+                <ul className="chip-list" aria-label="Keywords added">
+                  {kwList.map((k) => (
+                    <li key={k} className="chip">
+                      {k}
+                      <button type="button" className="chip__remove" aria-label={`Remove ${k}`} onClick={() => setKwList(kwList.filter((x) => x !== k))}>×</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="form-field">
+              <label htmlFor={fid("goal")} className="form-field__label">Growth goal</label>
               <input
+                id={fid("goal")}
                 type="text"
-                value={biz}
-                onChange={(e) => setBiz(e.target.value)}
-                placeholder="e.g. Acme Studio"
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                placeholder="e.g. Increase organic signups"
+                className="form-field__input"
               />
             </div>
 
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                Website URL *
-              </label>
-              <input
-                type="text"
-                required
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://example.com"
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                Remediation Model
-              </label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-              >
+            <div className="form-field">
+              <label htmlFor={fid("model")} className="form-field__label">How fixes are made</label>
+              <select id={fid("model")} value={model} onChange={(e) => setModel(e.target.value)} className="form-field__input">
                 <option value="B">Model B — Claude Code fixes code directly</option>
                 <option value="A">Model A — Read-only brief</option>
               </select>
@@ -109,11 +167,9 @@ export function ProjectModal({
             {/* Tools check the live domain only. The repository is used by Fix
                 (Model B) and nothing else, so it is tucked away, not asked up front. */}
             {model === "B" && (
-              <details style={{ marginBottom: 16 }} open={Boolean(repo)}>
-                <summary style={{ fontSize: 12.5, fontWeight: 600, color: "#334155", cursor: "pointer" }}>
-                  Advanced: source code repository (optional, used only by Fix)
-                </summary>
-                <div style={{ marginTop: 10 }}>
+              <details className="form-field" open={Boolean(repo)}>
+                <summary className="form-field__label" style={{ cursor: "pointer" }}>Advanced: source code repository (optional, used only by Fix)</summary>
+                <div style={{ marginTop: "var(--space-2)" }}>
                   <RepoPicker
                     value={repo}
                     onChange={setRepo}
@@ -123,111 +179,45 @@ export function ProjectModal({
                 </div>
               </details>
             )}
+          </>
+        )}
 
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                Target Keywords (press Enter to add)
-              </label>
-              <div style={{ display: "flex", gap: 10 }}>
-                <input
-                  type="text"
-                  value={kw}
-                  onChange={(e) => setKw(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (kw.trim() && !kwList.includes(kw.trim())) {
-                        setKwList([...kwList, kw.trim()]);
-                        setKw("");
-                      }
-                    }
-                  }}
-                  placeholder="keyword phrase"
-                  style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (kw.trim() && !kwList.includes(kw.trim())) {
-                      setKwList([...kwList, kw.trim()]);
-                      setKw("");
-                    }
-                  }}
-                  style={{ padding: "10px 18px", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#334155", cursor: "pointer" }}
-                >
-                  Add
-                </button>
-              </div>
-              {kwList.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-                  {kwList.map((k) => (
-                    <span key={k} style={{ background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 12, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                      {k}
-                      <span style={{ cursor: "pointer", color: "#b91c1c", marginLeft: 3 }} onClick={() => setKwList(kwList.filter((x) => x !== k))}>×</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+        {editing && url.trim() && url.trim() !== (editing.website || "") && (
+          <div className="form-note form-note--warn">
+            <b>This changes the site that gets measured.</b> Scans already on this project
+            measured <code>{editing.domain}</code>. They keep the URL they ran against
+            and are not rewritten, so past scores stay attached to the old site. The next
+            scan is the first one that measures the new one.
+          </div>
+        )}
 
-            <div style={{ marginBottom: 22 }}>
-              <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#334155", marginBottom: 6 }}>
-                Growth Goal
-              </label>
-              <input
-                type="text"
-                value={goal}
-                onChange={(e) => setGoal(e.target.value)}
-                placeholder="e.g. Increase organic signups"
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13.5, background: "#f8fafc", color: "#1e293b" }}
-              />
-            </div>
+        {error && (
+          <div role="alert" className="form-note form-note--bad">
+            <b>Not saved.</b> {error}
+          </div>
+        )}
 
-            {editing && url.trim() && url.trim() !== (editing.website || "") && (
-              <div style={{
-                marginBottom: 16, padding: "10px 12px", borderRadius: 8,
-                background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e",
-                fontSize: 12, lineHeight: 1.5,
-              }}>
-                <b>This changes the site that gets measured.</b> Scans already on this project
-                measured <code>{editing.domain}</code>. They keep the URL they ran against
-                and are not rewritten, so past scores stay attached to the old site — the next
-                scan is the first one that measures the new one.
-              </div>
-            )}
-
-            {error && (
-              <div role="alert" style={{
-                marginBottom: 16, padding: "10px 12px", borderRadius: 8,
-                background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b",
-                fontSize: 12, lineHeight: 1.5,
-              }}>
-                <b>Not saved.</b> {error}
-              </div>
-            )}
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{ background: "#f1f5f9", color: "#475569", border: 0, borderRadius: 8, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving || !url.trim()}
-                style={{
-                  background: "#4f46e5", color: "#ffffff", border: 0, borderRadius: 8,
-                  padding: "10px 22px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  boxShadow: "0 1px 2px rgba(79, 70, 229, 0.2)",
-                }}
-              >
-                {saving ? (editing ? "Saving..." : "Creating...") : (editing ? "Save Changes" : "Save Project")}
-              </button>
-            </div>
-          </form>
+        <div className="modal-card__actions">
+          <button type="button" onClick={onClose} className="btn btn--secondary">Cancel</button>
+          <button type="submit" disabled={saving || !url.trim()} className="btn btn--primary">
+            {saving ? (editing ? "Saving..." : "Creating...") : (editing ? "Save Changes" : "Create Project")}
+          </button>
         </div>
-      </div>
+      </form>
+    </Modal>
   );
+}
+
+/** Why a website value cannot be audited, in plain words; null when it can. */
+export function websiteProblem(value: string): string | null {
+  const v = value.trim();
+  if (!v) return "Enter the website address, for example https://example.com.";
+  try {
+    const u = new URL(/^[a-z]+:\/\//i.test(v) ? v : `https://${v}`);
+    if (!/^https?:$/.test(u.protocol)) return "Use an http or https address.";
+    if (!u.hostname.includes(".") || /\s/.test(v)) return "That does not look like a website address. Try https://example.com.";
+    return null;
+  } catch {
+    return "That does not look like a website address. Try https://example.com.";
+  }
 }

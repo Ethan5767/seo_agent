@@ -72,3 +72,62 @@ test("Business Profile tile draws no gauge from a made-up score, and the connect
   assert.doesNotMatch(code("components/dashboard/GbpMatrix.tsx"), /score=\{ok \? 100 : 50\}/);
   assert.doesNotMatch(code("components/dashboard/GoogleServicesHub.tsx"), /are active\./);
 });
+
+/* ── the dashboard (ReaiDashboard.tsx) ──────────────────────────────────── */
+
+const DASH = () => code("app/ReaiDashboard.tsx");
+
+test("Auto-Fix shows what the remediation rail returned, never a success it did not get", () => {
+  const d = DASH();
+  for (const lit of [
+    "Diff generated (0 risk)", "Committed & Verified", "Dry-Run Verified (0 disk writes)",
+    "3 fixes committed", "Ready for PR Merge", "All Files (+42 -1)", "42 insertions(+)",
+    "reai/seo-remediation-auto", "MedicalBusinessSchema.tsx", "Claude Code Ready", "local/client-web",
+  ]) assert.ok(!d.includes(lit), `Auto-Fix still renders ${lit}`);
+  assert.doesNotMatch(d, /setDryRunActive\(true\)|setApplyConfirmed\(true\)/, "a click must not mark a run done");
+  assert.match(d, /const hasDryRun = dry\?\.ok === true;/);
+  assert.match(d, /const hasApplied = apply\?\.ok === true && !apply\?\.error;/);
+  const applyBtn = d.slice(d.indexOf("planState.runDryRun();"), d.indexOf("Apply All via Claude Code"));
+  assert.match(applyBtn, /window\.confirm\(/, "apply sends confirm:true, so the button must ask first");
+});
+
+test("the old tool screens with computed figures open the report views instead", () => {
+  const d = DASH();
+  const map = {
+    "Organic Research": "organic-rankings", "Keyword Gap": "keyword-gap", "Keyword Magic Tool": "keyword-ideas",
+    "Keyword Data Lab": "keyword-overview", "Data Lab & Backlinks": "backlinks", "Backlink Audit": "backlink-audit",
+  };
+  const views = src("lib/reportViews.ts");
+  for (const [tab, view] of Object.entries(map)) {
+    assert.ok(d.includes(`"${tab}": "${view}"`), `${tab} is not redirected`);
+    assert.ok(views.includes(`id: "${view}"`), `${view} is not a report view`);
+  }
+  assert.match(d, /useState<string \| null>\(\(\) => LEGACY_TAB_VIEWS\[activeTab\] \?\? null\)/, "a direct URL must land on the view");
+  const setTab = d.slice(d.indexOf("const setActiveTab = useCallback"), d.indexOf("setIsTabTransitioning(true);", d.indexOf("const setActiveTab = useCallback")));
+  assert.match(setTab, /LEGACY_TAB_VIEWS\[tab\]/, "an in-page button must land on the view too");
+});
+
+test("project figures carry no arithmetic stand-ins", () => {
+  const d = DASH();
+  const fn = d.slice(d.indexOf("function resolveProjectData("), d.indexOf("// ── Types ──"));
+  for (const pat of [
+    /commonKeywords: 8 \+ idx/, /1800 \+ idx/, /comp1Rank: k\.position === 1/, /kd: k\.position <= 3/,
+    /0\.85 \+ \(i % 4\)/, /suspiciousDomains: 2/, /Math\.max\(5, Math\.round\(toxicityRatio/, /refDelta: "\+4/,
+    /backlinkDelta: "\+18/, /trafficDelta: "\+12\.4%/, /visibilityPct: 0\.67/, /"Mar 3"/, /: "240"/, /: "8,200"/,
+    /\["Site links", "Knowledge card", "Map pack"\]/, /qLow\.includes\("clinic"\)/,
+  ]) assert.doesNotMatch(fn, pat);
+});
+
+test("Traffic, header and modals claim nothing they did not check", () => {
+  const d = DASH();
+  for (const lit of [
+    '"K visits"', "impressions || 0) / 10", "● Verified Scan", "100% Real Google First-Party Data", "30s (Realtime)",
+    "Live Verified", "(Verified Domain)", "156 SPECIALIZED", "webmasters.readonly, analytics.readonly", "Repo: both/seo_agent",
+    "● Active", "Scan Complete", "verified and connected live", "re-synced for",
+    "24/7 Emergency", "Maternity & Delivery", "Official Healthcare Portal", "Call Clinic", '"opens": "00:00"',
+    "clinical resource center", "accredited medical citations", "High-Conversion Angle", "hospital phnom penh",
+    "Tier 1 Foundation ", ">Authority Score</span>",
+  ]) assert.ok(!d.includes(lit), `dashboard still renders ${lit}`);
+  assert.match(d, /function cwvBadgeStyle\(/);
+  assert.doesNotMatch(d, /<span style=\{\{ fontSize: 12, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "var\(--bad-tint\)"[^\n]*\n\s*\{projectMetrics\.onPageSeoData\.coreWebVitals/);
+});

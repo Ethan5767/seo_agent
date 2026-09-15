@@ -79,6 +79,22 @@ import {
 /** The GA4 screen rides the Search Console view slot; it is not a GSC dimension. */
 const GA4_VIEW_ID = "ga4-overview";
 
+/**
+ * Old tool screens, still reachable by URL (/keyword-gap, /backlink-audit, ...)
+ * and by in-page buttons, whose figures were computed from nothing: competitor
+ * ranks from row indexes, KD and CPC from arithmetic, toxicity with a floor,
+ * "82% DoFollow", "+22% conversion value". Each one opens the report view built
+ * from the scan's own rows instead.
+ */
+export const LEGACY_TAB_VIEWS: Record<string, string> = {
+  "Organic Research": "organic-rankings",
+  "Keyword Gap": "keyword-gap",
+  "Keyword Magic Tool": "keyword-ideas",
+  "Keyword Data Lab": "keyword-overview",
+  "Data Lab & Backlinks": "backlinks",
+  "Backlink Audit": "backlink-audit",
+};
+
 // ── Icons ──
 function IconHome({ size = 18 }: { size?: number }) {
   return (
@@ -435,6 +451,18 @@ export {
   PageSkeletonLayout,
 };
 
+/** A Core Web Vitals status badge coloured by the status it shows. These were fixed red or green. */
+function cwvBadgeStyle(status: string): React.CSSProperties {
+  const l = String(status || "").toLowerCase();
+  const tone = l.includes("good") ? "ok" : l.includes("needs") ? "warn" : l.includes("poor") ? "bad" : null;
+  return {
+    fontSize: 12, fontWeight: 700, padding: "1px 5px", borderRadius: 3,
+    background: tone ? `var(--${tone}-tint)` : "var(--surface-3)",
+    color: tone ? `var(--${tone})` : "var(--ink-muted)",
+    border: `1px solid ${tone ? `var(--${tone}-border)` : "var(--border)"}`,
+  };
+}
+
 export function LighthouseGaugeBar({
   val,
   status,
@@ -444,8 +472,13 @@ export function LighthouseGaugeBar({
   status: string;
   color: string;
 }) {
-  let markerPos = 55;
   const lower = status.toLowerCase();
+  // Nothing measured, nothing placed. The dot used to fall into the red "Poor"
+  // zone for "Not measured".
+  if (lower.includes("not measured") || val === "—" || val === "\u2014") {
+    return <div style={{ marginTop: 5, width: "100%", height: 5, borderRadius: 3, background: "var(--surface-3)" }} />;
+  }
+  let markerPos = 55;
   if (lower.includes("good") || color === "#10b981") markerPos = 20;
   else if (lower.includes("needs") || color === "#f59e0b") markerPos = 55;
   else markerPos = 85;
@@ -600,7 +633,9 @@ export function ExecutiveTrafficChart({
       ? kwData 
       : visData;
 
-  const unit = metric === "traffic" ? "K visits" : metric === "keywords" ? " ranked terms" : "% visibility";
+  // The traffic series is Search Console clicks per day. It was labelled "K
+  // visits", so 12 clicks read as "12K visits".
+  const unit = metric === "traffic" ? " clicks" : metric === "keywords" ? " ranked terms" : "% visibility";
 
   // B-069. Removing the fixture series was right; leaving the geometry that
   // assumed they existed was not. With no data `pts` is [], and the area path
@@ -1073,19 +1108,13 @@ function resolveProjectData(
       const rankMatch = r.what.match(/rank #?(\d+)/i) || (r.detail || "").match(/position (\d+)/i);
       const rank = rankMatch ? parseInt(rankMatch[1], 10) : i + 1;
       const volMatch = (r.detail || "").match(/~?([\d,]+)\/mo/);
-      const volume = volMatch ? volMatch[1] : "240";
-      
-      const qLow = query.toLowerCase();
-      let intent = "Commercial";
-      if (qLow.includes("how") || qLow.includes("what") || qLow.includes("best") || qLow.includes("guide")) {
-        intent = "Informational";
-      } else if (qLow.includes("price") || qLow.includes("cost") || qLow.includes("buy") || qLow.includes("clinic") || qLow.includes("emergency")) {
-        intent = "Transactional";
-      } else if (qLow.includes(business.toLowerCase()) || qLow.includes(dClean.split(".")[0])) {
-        intent = "Navigational";
-      }
-
-      const features = rank <= 3 ? ["Site links", "Knowledge card", "Map pack"] : ["Snippet", "Reviews"];
+      // Volume only when DataForSEO reported one. It fell back to "240" per keyword.
+      const volume = volMatch ? volMatch[1] : "—";
+      // Intent and SERP features are not in the rankings rows. They were guessed
+      // from words in the query ("clinic" -> Transactional) and from the rank
+      // (top 3 -> Site links, Knowledge card, Map pack).
+      const intent = "—";
+      const features: string[] = [];
       return {
         keyword: query,
         position: rank,
@@ -1156,7 +1185,11 @@ function resolveProjectData(
   const monthlyCalculatedVisits = Math.round(directSerpTraffic * footprintMultiplier);
 
   const trafficAnalytics = {
-    visits: monthlyCalculatedVisits >= 1000 ? `${(monthlyCalculatedVisits / 1000).toFixed(1)}K` : `${monthlyCalculatedVisits}`,
+    // An estimate from reported volumes x a CTR curve. With no reported volume
+    // there is nothing to estimate from, which is "—", not 0 visits.
+    visits: !keywords.some((k) => /\d/.test(k.volume))
+      ? "—"
+      : monthlyCalculatedVisits >= 1000 ? `${(monthlyCalculatedVisits / 1000).toFixed(1)}K` : `${monthlyCalculatedVisits}`,
     // Was `visits * 0.72` - a unique-visitor ratio nobody measured, read by nothing. (B-105)
     // Constants: "3.4", "3m 48s", "41.2%". These are analytics measures - the
     // scan cannot produce any of them, and Search Console does not report them
@@ -1222,11 +1255,14 @@ function resolveProjectData(
     intentSplit: [
       // Removed hardcoded search-intent split.
     ],
-    competitorMap: competitors.map((comp, idx) => ({
+    // Overlap, visibility and traffic per competitor need DataForSEO's
+    // competitors data; they were `8 + idx * 4`, `1.4 + idx * 0.7`% and
+    // `1800 + idx * 1100`, named against real businesses.
+    competitorMap: competitors.map((comp) => ({
       domain: comp,
-      commonKeywords: 8 + idx * 4,
-      searchVisibility: (1.4 + idx * 0.7).toFixed(1) + "%",
-      organicTraffic: `${(1800 + idx * 1100).toLocaleString()}`,
+      commonKeywords: null as number | null,
+      searchVisibility: "—",
+      organicTraffic: "—",
     })),
   };
 
@@ -1236,16 +1272,14 @@ function resolveProjectData(
   const c1 = competitors[0] || "";
   const c2 = competitors[1] || "";
   
-  const keywordGapData = keywords.map((k, idx) => ({
-    keyword: k.keyword,
-    intent: k.intent,
-    myRank: k.position,
-    comp1Rank: k.position === 1 ? idx + 3 : Math.max(1, k.position - 1),
-    comp2Rank: idx % 2 === 0 ? idx + 5 : (idx % 3 === 0 ? 2 : null),
-    volume: k.volume,
-    kd: k.position <= 3 ? 15 + (idx % 4) * 5 : 30 + (idx % 5) * 6,
-    type: k.position === 1 ? ("shared" as const) : ("weak" as const),
-  }));
+  // Competitor ranks are not measured (no keyword intersection is fetched), so
+  // there is no gap to show. They were computed from the client's own rank and
+  // row index, with KD from the same arithmetic.
+  const keywordGapData: Array<{
+    keyword: string; intent: string; myRank: number; comp1Rank: number | null; comp2Rank: number | null;
+    volume: string; kd: number | null; type: "shared" | "weak" | "missing" | "untapped";
+  }> = [];
+  void c1; void c2;
 
   // 7. Dynamic Backlink Gap (Real Competitor Linking Domains)
   const backlinkGapData: any[] = [
@@ -1255,32 +1289,32 @@ function resolveProjectData(
   ];
 
   // 8. Keyword Magic Tool (100% Sourced from DataForSEO Live Search Rankings)
-  const magicToolKeywords = keywords.map((k, i) => ({
+  // KD, CPC and match type are not in the rankings rows; they were index
+  // arithmetic. Only what was measured is passed on.
+  const magicToolKeywords = keywords.map((k) => ({
     keyword: k.keyword,
     volume: k.volume,
-    kd: k.position <= 3 ? 15 + (i % 3) * 6 : 28 + (i % 4) * 7,
-    cpc: k.intent === "Commercial" || k.intent === "Transactional"
-      ? `$${(0.85 + (i % 4) * 0.35).toFixed(2)}`
-      : `$${(0.35 + (i % 3) * 0.15).toFixed(2)}`,
+    kd: null as number | null,
+    cpc: "—",
     intent: k.intent,
-    type: k.position <= 2 ? "exact" : k.position <= 5 ? "phrase" : "broad",
+    type: "—",
     features: k.features,
   }));
 
   // 9. Backlink Audit & Toxicity Data (100% Sourced from DataForSEO Backlinks Scan)
-  const toxicityRatio = refDomains > 0 ? (brokenBacklinks / Math.max(1, backlinks)) * 100 : 0;
-  const toxicityScore = Math.min(100, Math.max(5, Math.round(toxicityRatio * 15 + 4)));
-  const cleanDomainsCount = Math.max(1, refDomains - 4);
+  // No spam or toxicity score is fetched. The score was broken links scaled
+  // with a floor of 5, "clean" was referring domains minus 4, and "suspicious"
+  // was the constant 2.
 
   const topKeyword = keywords.length > 0 ? keywords[0].keyword : business.toLowerCase();
-  const secondKeyword = keywords.length > 1 ? keywords[1].keyword : `${business.toLowerCase()} clinic`;
+  const secondKeyword = keywords.length > 1 ? keywords[1].keyword : "";
 
   const backlinkAuditData = {
-    toxicityScore,
-    toxicityLevel: toxicityScore < 25 ? "Low Toxicity (Clean Profile)" : "Moderate Toxicity",
-    toxicDomains: Math.min(2, Math.round(brokenBacklinks / 40)),
-    suspiciousDomains: 2,
-    cleanDomains: cleanDomainsCount,
+    toxicityScore: null as number | null,
+    toxicityLevel: "Not measured",
+    toxicDomains: null as number | null,
+    suspiciousDomains: null as number | null,
+    cleanDomains: null as number | null,
     anchors: [
   // Removed hardcoded anchor-text distribution. No scan data for this yet.
 ],
@@ -1351,28 +1385,22 @@ function resolveProjectData(
     authorityScore,
     authorityRank,
     refDomains,
-    refDelta: "+4 ▲",
+    // Deltas need two scans; none is compared here. These were "+4 ▲",
+    // "+18 ▲", "+12.4% ▲", "+0.15% ▲" and a March visibility series.
+    refDelta,
     backlinks,
-    backlinkDelta: "+18 ▲",
+    backlinkDelta: "",
     brokenBacklinks,
     organicTraffic: trafficAnalytics.visits,
-    trafficDelta: "+12.4% ▲",
+    trafficDelta: "",
     organicKeywordsCount: totalRankedKeywordsCount,
-    visibilityPct: 0.67,
-    visibilityDelta: "+0.15% ▲",
-    visibilityPoints: [
-      { d: "Mar 3", v: 0.58 },
-      { d: "Mar 4", v: 0.60 },
-      { d: "Mar 5", v: 0.62 },
-      { d: "Mar 6", v: 0.64 },
-      { d: "Mar 7", v: 0.65 },
-      { d: "Mar 8", v: 0.66 },
-      { d: "Mar 9", v: 0.67 },
-    ],
+    visibilityPct: null as number | null,
+    visibilityDelta: "",
+    visibilityPoints: [] as Array<{ d: string; v: number }>,
     market: isKh ? "🇰🇭 Cambodia" : "🌐 Global / US",
     keywords,
     competitors,
-    totalVolume: totalVolume > 0 ? totalVolume.toLocaleString() : "8,200",
+    totalVolume: totalVolume > 0 ? totalVolume.toLocaleString() : "—",
     trafficAnalytics,
     organicResearch,
     keywordGapData,
@@ -1897,6 +1925,12 @@ export function ReaiDashboard({
   }, []);
 
   const setActiveTab = useCallback((tab: ReaiTab) => {
+    const legacyView = LEGACY_TAB_VIEWS[tab];
+    if (legacyView) {
+      setActiveView(legacyView);
+      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+      return () => {};
+    }
     setIsTabTransitioning(true);
     setActiveTabState(tab);
     if (typeof window !== "undefined") {
@@ -1963,9 +1997,6 @@ export function ReaiDashboard({
   const [auditProjectList, setAuditProjectList] = useState(initialTab === "Site Health & Audit");
   const [auditCategoryFilter, setAuditCategoryFilter] = useState<string>("all");
   const [auditSeverityFilter, setAuditSeverityFilter] = useState<"all" | "error" | "warn" | "ok">("all");
-  const [dryRunActive, setDryRunActive] = useState<boolean>(false);
-  const [applyConfirmed, setApplyConfirmed] = useState<boolean>(false);
-  const [selectedDiffFile, setSelectedDiffFile] = useState<string>("all");
   const [domainDropdown, setDomainDropdown] = useState(false);
   const [quickInput, setQuickInput] = useState("");
   const [posDays, setPosDays] = useState<7 | 30>(7);
@@ -2074,7 +2105,7 @@ export function ReaiDashboard({
 
   // A report view is a named slice of the scan report (lib/reportViews.ts).
   // When one is open it replaces the tab content; picking any tab clears it.
-  const [activeView, setActiveView] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<string | null>(() => LEGACY_TAB_VIEWS[activeTab] ?? null);
   // The Data source chosen on each tool page (lib/toolSources.ts). Kept in this
   // browser only: a per-viewer preference, not project state, and absent it
   // every page opens on DataForSEO where DataForSEO can serve it.
@@ -2259,7 +2290,7 @@ export function ReaiDashboard({
   const [verifiedGscProperties, setVerifiedGscProperties] = useState<string[]>([]);
   const [liveGscRows, setLiveGscRows] = useState<any[]>([]);
   const [isGscLoading, setIsGscLoading] = useState<boolean>(false);
-  const [gscDateTrend, setGscDateTrend] = useState<Array<{ m: string; v: number }>>([]);
+  const [gscDateTrend, setGscDateTrend] = useState<Array<{ m: string; v: number; i?: number }>>([]);
   const [gscCountrySplit, setGscCountrySplit] = useState<Array<{ code: string; country: string; share: number; visits: string }>>([]);
   // null, not `{ mobile: 68, desktop: 32 }`. The setter only fires inside
   // `if (sum > 0)`, so a failed or empty device query left the fabricated
@@ -2384,14 +2415,16 @@ export function ReaiDashboard({
       if (dData && Array.isArray(dData.rows) && dData.rows.length > 0) {
         const rows = dData.rows;
         const step = Math.max(1, Math.floor(rows.length / 6));
-        const trendPts: Array<{ m: string; v: number }> = [];
+        const trendPts: Array<{ m: string; v: number; i: number }> = [];
         for (let i = 0; i < rows.length; i += step) {
           const r = rows[i];
           const rawDate = (r.keys || [""])[0];
           const dateLabel = rawDate ? rawDate.slice(5) : `D${i}`;
           trendPts.push({
             m: dateLabel,
-            v: r.clicks > 0 ? r.clicks : Number(((r.impressions || 0) / 10).toFixed(1)),
+            // Clicks are clicks. A zero-click day plotted impressions / 10 as clicks.
+            v: Number(r.clicks) || 0,
+            i: Number(r.impressions) || 0,
           });
         }
         if (trendPts.length > 0) setGscDateTrend(trendPts);
@@ -2559,7 +2592,7 @@ export function ReaiDashboard({
       setTrafficDataSource("gsc");
       localStorage.setItem("reai_google_connected", "true");
       localStorage.setItem("reai_traffic_source", "gsc");
-      setSyncToast("🟢 Real Google Search Console account verified and connected live!");
+      setSyncToast("Google sign-in finished. Checking Search Console…");
       setTimeout(() => setSyncToast(null), 5000);
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
@@ -3440,7 +3473,7 @@ export function ReaiDashboard({
                         background: st.connected ? "#e4efe9" : "#f1f5f9",
                         border: `1px solid ${st.connected ? "#c7e0d3" : "#e2e8f0"}`,
                       }}>
-                        {st.connected ? "Live" : "Result not connected"}
+                        {st.connected ? "Reads real results" : "Result not connected"}
                       </span>
                     </div>
                     <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: "var(--space-1) 0 0", maxWidth: "70ch" }}>
@@ -4046,12 +4079,15 @@ export function ReaiDashboard({
                   </span>
                 </>
               )}
-              <span style={{
-                marginLeft: 8, fontSize: 12, fontWeight: 600, color: "#047857", background: "#ecfdf5",
-                border: "1px solid #a7f3d0", padding: "1px 6px", borderRadius: 4,
-              }}>
-                ● Verified Scan
-              </span>
+              {/* Was "● Verified Scan" on every screen, with or without a report. */}
+              {openReport?.scan?.created_at && (
+                <span style={{
+                  marginLeft: 8, fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", background: "var(--surface-3)",
+                  border: "1px solid var(--border)", padding: "1px 6px", borderRadius: 4,
+                }}>
+                  Last scan {new Date(openReport.scan.created_at).toLocaleDateString()}
+                </span>
+              )}
             </div>
 
             {/* Project Title Bar with Real Domain Switcher */}
@@ -4216,7 +4252,7 @@ export function ReaiDashboard({
                 {/* KPI 1 */}
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Organic Visits</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Organic Visits (est.)</span>
                     {/* A trend needs two scans. This badge was a constant growth
                         figure, shown to every client on every run, in the green
                         that means real growth. */}
@@ -4236,17 +4272,18 @@ export function ReaiDashboard({
                 {/* KPI 2 */}
                 <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Authority Score</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Backlinks</span>
                     {/* "Top 35%" was a constant in success-green. The real
                         figure DataForSEO reports is a rank, carried below. */}
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>{projectMetrics.authorityRank}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
                     <div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>{projectMetrics.authorityScore}</div>
-                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>{projectMetrics.backlinks.toLocaleString()} links · {projectMetrics.refDomains} domains</div>
+                      {/* DataForSEO reports a rank, not a 0-100 score; this rendered a
+                          constant 0 with a gauge. The measured counts lead instead. */}
+                      <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>{projectMetrics.backlinks > 0 ? projectMetrics.backlinks.toLocaleString() : "—"}</div>
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>{projectMetrics.backlinks > 0 ? `backlinks · ${projectMetrics.refDomains} referring domains` : "backlinks not measured"}</div>
                     </div>
-                    <MiniRadialGauge score={projectMetrics.authorityScore} size={38} strokeWidth={4} color="var(--ok)" />
                   </div>
                 </div>
 
@@ -4333,7 +4370,7 @@ export function ReaiDashboard({
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1e293b" }}>Technical Health & Web Vitals</h4>
                       <span style={{ fontSize: 12, fontWeight: 700, color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 8px", borderRadius: 4 }}>
-                        {dynamicHealth}% Score
+                        {dynamicHealth == null ? "Not measured" : `${dynamicHealth}% Score`}
                       </span>
                     </div>
 
@@ -4370,7 +4407,7 @@ export function ReaiDashboard({
                         <div style={{ padding: "10px 12px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>LCP</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>
+                            <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.lcp.status)}>
                               {projectMetrics.onPageSeoData.coreWebVitals.lcp.status}
                             </span>
                           </div>
@@ -4386,7 +4423,7 @@ export function ReaiDashboard({
                         <div style={{ padding: "10px 12px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>INP</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>
+                            <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.inp.status)}>
                               {projectMetrics.onPageSeoData.coreWebVitals.inp.status}
                             </span>
                           </div>
@@ -4402,7 +4439,7 @@ export function ReaiDashboard({
                         <div style={{ padding: "10px 12px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>CLS</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#fffbeb", color: "#b45309", border: "1px solid #fde68a" }}>
+                            <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.cls.status)}>
                               {projectMetrics.onPageSeoData.coreWebVitals.cls.status}
                             </span>
                           </div>
@@ -4771,7 +4808,7 @@ export function ReaiDashboard({
                           ))
                         ) : (
                           <>
-                            <option value={`sc-domain:${currentDomain}`}>sc-domain:{currentDomain} (Verified Domain)</option>
+                            <option value={`sc-domain:${currentDomain}`}>sc-domain:{currentDomain} (not in this Google account)</option>
                             <option value={`https://${currentDomain}/`}>https://{currentDomain}/ (URL Prefix)</option>
                           </>
                         )}
@@ -4785,7 +4822,7 @@ export function ReaiDashboard({
                       fontSize: 12, fontWeight: 700, color: "#047857", background: "#ecfdf5",
                       border: "1px solid #a7f3d0", padding: "3px 9px", borderRadius: 6,
                     }}>
-                      ● 100% Real Google First-Party Data
+                      Source: Google Search Console
                     </span>
 
                     {/* Live Auto-Refresh Controller */}
@@ -4802,7 +4839,7 @@ export function ReaiDashboard({
                           boxShadow: autoRefreshInterval !== "off" ? "0 0 5px #10b981" : "none",
                         }} />
                         <span style={{ color: autoRefreshInterval !== "off" ? "#166534" : "var(--ink-muted)", fontWeight: 700 }}>
-                          {autoRefreshInterval !== "off" ? `Live (${syncCountdown}s)` : "Paused"}
+                          {autoRefreshInterval !== "off" ? `Auto-refresh (${syncCountdown}s)` : "Paused"}
                         </span>
                         <select
                           value={autoRefreshInterval}
@@ -4816,7 +4853,7 @@ export function ReaiDashboard({
                             padding: "1px 4px", fontSize: 12, fontWeight: 700, color: "#1e293b", cursor: "pointer",
                           }}
                         >
-                          <option value="30s">30s (Realtime)</option>
+                          <option value="30s">30s</option>
                           <option value="60s">60s</option>
                           <option value="5m">5m</option>
                           <option value="off">Off</option>
@@ -5037,7 +5074,7 @@ export function ReaiDashboard({
                           </div>
                         </div>
                         {gscDateTrend.length > 0 && (
-                          <MiniSparkline data={gscDateTrend.map((p) => p.v)} color="#0284c7" width={58} height={24} />
+                          <MiniSparkline data={gscDateTrend.map((p) => p.i ?? 0)} color="#0284c7" width={58} height={24} />
                         )}
                       </div>
                     </div>
@@ -5095,8 +5132,8 @@ export function ReaiDashboard({
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           Ranked Queries
                         </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)" }}>
-                          Live Verified
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)" }}>
+                          Search Console
                         </span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
@@ -6878,15 +6915,9 @@ export function ReaiDashboard({
                     fix: i.fix,
                     detail: i.detail,
                     severity: i.severity,
-                    targetFile: i.code?.includes("robots")
-                      ? "public/robots.txt"
-                      : i.code?.includes("schema")
-                      ? "src/components/MedicalBusinessSchema.tsx"
-                      : i.code?.includes("canonical") || i.code?.includes("meta")
-                      ? "components/SEOHead.tsx"
-                      : i.code?.includes("crux") || i.code?.includes("perf")
-                      ? "src/app/layout.tsx"
-                      : "components/SEOHead.tsx",
+                    // No targetFile. It was guessed from the finding code (one
+                    // guess named a hospital file for every client); the file is
+                    // found by Claude Code in the repo, and the apply result names it.
                     priority: i.severity === "error" ? "P1 (Critical)" : "P2 (Medium)",
                   }));
 
@@ -6894,8 +6925,17 @@ export function ReaiDashboard({
                   ? planState.plan.worklist
                   : derivedWorklist;
 
-                const hasDryRun = dryRunActive || !!planState?.dry;
-                const hasApplied = applyConfirmed || !!planState?.apply;
+                // What the remediation rail actually returned. These were set true
+                // on click, so "Diff generated" and "Committed & Verified" showed
+                // even when the backend refused (the dry-run route answers 200
+                // with ok:false).
+                const dry = planState?.dry;
+                const apply = planState?.apply;
+                const hasDryRun = dry?.ok === true;
+                const dryFailed = !!dry && dry.ok !== true;
+                const hasApplied = apply?.ok === true && !apply?.error;
+                const applyFailed = !!apply && !hasApplied;
+                const planReady = Boolean(planState?.plan?.worklist?.length);
 
                 // Real staged diffs come from the remediation rail
                 // (/api/remediate/dryrun -> wf-site-remediate --dry-run), which
@@ -6928,10 +6968,10 @@ export function ReaiDashboard({
                           display: "flex", flexDirection: "column", justifyContent: "space-between",
                         }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                            <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#16a34a", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>✓</span>
+                            <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#16a34a", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>{okChecks + errChecks > 0 ? "✓" : "1"}</span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: "#166534" }}>Flow 1: Audit</span>
                           </div>
-                          <div style={{ fontSize: 12, color: "#15803d" }}>Thematic Measure Graded</div>
+                          <div style={{ fontSize: 12, color: "#15803d" }}>Findings from the last scan</div>
                           <div style={{ fontSize: 12, color: "#166534", marginTop: 4, fontWeight: 600 }}>{okChecks} passed · {errChecks} errors</div>
                         </div>
 
@@ -6955,7 +6995,7 @@ export function ReaiDashboard({
                             </span>
                           </div>
                           <div style={{ fontSize: 12, color: activeWorklist.length > 0 ? "#4338ca" : "var(--ink-muted)" }}>
-                            Repo AST Worklist
+                            {planReady ? "Planned worklist" : "From audit findings (not planned yet)"}
                           </div>
                           <div style={{ fontSize: 12, color: activeWorklist.length > 0 ? "#3730a3" : "var(--ink-muted)", marginTop: 4, fontWeight: 600 }}>
                             {activeWorklist.length} fixes targeted
@@ -6985,7 +7025,9 @@ export function ReaiDashboard({
                             Unified Git Simulation
                           </div>
                           <div style={{ fontSize: 12, color: hasDryRun ? "#075985" : "var(--ink-muted)", marginTop: 4, fontWeight: 600 }}>
-                            {hasDryRun ? "Diff generated (0 risk)" : "Pending simulation"}
+                            {hasDryRun
+                              ? `${(dry?.prompts || []).length} fix prompt(s) prepared, nothing written`
+                              : dryFailed ? "Dry-run failed" : "Not run"}
                           </div>
                         </div>
 
@@ -7009,10 +7051,12 @@ export function ReaiDashboard({
                             </span>
                           </div>
                           <div style={{ fontSize: 12, color: hasApplied ? "#047857" : "var(--ink-muted)" }}>
-                            Commit to Repository
+                            Edits the repository (no commit)
                           </div>
                           <div style={{ fontSize: 12, color: hasApplied ? "#065f46" : "var(--ink-muted)", marginTop: 4, fontWeight: 600 }}>
-                            {hasApplied ? "Committed & Verified" : "Ready to execute"}
+                            {hasApplied
+                              ? `${apply?.applied ?? 0} of ${apply?.summary?.attempted ?? 0} fixed`
+                              : applyFailed ? "Apply failed" : planReady ? "Not run" : "Plan first"}
                           </div>
                         </div>
                       </div>
@@ -7041,10 +7085,10 @@ export function ReaiDashboard({
                         <button
                           type="button"
                           onClick={() => {
-                            setDryRunActive(true);
                             if (planState?.runDryRun) planState.runDryRun();
                           }}
-                          disabled={planState?.dryBusy}
+                          disabled={planState?.dryBusy || !planReady}
+                          title={planReady ? undefined : "Run Plan first: the dry-run works on the planned worklist."}
                           style={{
                             background: "#334155", color: "#ffffff", border: "1px solid #475569",
                             borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 600,
@@ -7056,10 +7100,13 @@ export function ReaiDashboard({
                         <button
                           type="button"
                           onClick={() => {
-                            setApplyConfirmed(true);
+                            // Irreversible: Claude Code edits the client's repo. Never on one click.
+                            const repoName = selectedClient?.repo || "the project's repository";
+                            if (!window.confirm(`Claude Code will edit ${repoName} for up to 3 worklist items. This changes files in the repository. Continue?`)) return;
                             if (planState?.runApply) planState.runApply();
                           }}
-                          disabled={planState?.applyBusy}
+                          disabled={planState?.applyBusy || !planReady}
+                          title={planReady ? undefined : "Run Plan first: apply works on the planned worklist."}
                           style={{
                             background: "linear-gradient(135deg, #059669 0%, #047857 100%)", color: "#ffffff",
                             border: 0, borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700,
@@ -7085,7 +7132,7 @@ export function ReaiDashboard({
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                            Target Repo: <code style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, color: "#0f172a" }}>{selectedClient?.repo || "local/client-web"}</code>
+                            Target Repo: <code style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, color: "#0f172a" }}>{selectedClient?.repo || "no repository set on this project"}</code>
                           </span>
                           {planState && (
                             <button
@@ -7105,7 +7152,7 @@ export function ReaiDashboard({
 
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {activeWorklist.map((item: any, idx: number) => {
-                          const targetFile = item.targetFile || (item.code?.includes("robots") ? "public/robots.txt" : item.code?.includes("schema") ? "src/components/MedicalBusinessSchema.tsx" : "components/SEOHead.tsx");
+                          const targetFile: string | undefined = item.targetFile;
                           const priority = item.priority || (item.severity === "error" ? "P1 (Critical)" : "P2 (Medium)");
                           const isP1 = priority.includes("P1") || item.severity === "error";
                           return (
@@ -7126,129 +7173,57 @@ export function ReaiDashboard({
                                     {priority}
                                   </span>
                                   <code style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>{item.code}</code>
-                                  <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>📁 {targetFile}</span>
+                                  {targetFile && <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>📁 {targetFile}</span>}
                                 </div>
                                 <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{item.what}</div>
                                 <div style={{ fontSize: 12, color: "#047857", marginTop: 4 }}>
                                   <b>Claude Code Action:</b> {item.fix}
                                 </div>
                               </div>
-                              <span style={{
-                                fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: 4,
-                                background: "#e0e7ff", color: "#4338ca", border: "1px solid #c7d2fe",
-                                flexShrink: 0,
-                              }}>
-                                ⚡ Claude Code Ready
-                              </span>
                             </div>
                           );
                         })}
                       </div>
                     </div>
 
-                    {/* Safe Dry-Run Unified Git Diff Viewer */}
-                    <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                        <div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "#1e293b" }}>
-                              Safe Unified Git Diff Preview (Dry-Run Simulation)
-                            </h4>
-                            <span style={{
-                              fontSize: 12, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
-                              background: hasDryRun ? "#ecfdf5" : "#f1f5f9",
-                              color: hasDryRun ? "var(--ok)" : "var(--ink-muted)",
-                              border: "1px solid",
-                              borderColor: hasDryRun ? "#a7f3d0" : "#e2e8f0",
-                            }}>
-                              {hasDryRun ? "Dry-Run Verified (0 disk writes)" : "Simulation Ready"}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
-                            Inspect the AST-verified patches generated by Model A before permitting Claude Code write-access
-                          </div>
+                    {/* Dry-run result. This was a diff viewer over an always-empty file
+                        list with "All Files (+42 -1)" and "3 files changed, 42
+                        insertions(+)" written in. The dry-run returns fix prompts,
+                        not a diff; this shows exactly that. */}
+                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
+                      <h4 style={{ margin: "0 0 4px", fontSize: 13.5, fontWeight: 700, color: "var(--ink-body)" }}>
+                        Dry-Run Result
+                      </h4>
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 12 }}>
+                        The exact prompts Claude Code would receive for each worklist item. A dry-run writes nothing.
+                      </div>
+                      {!dry && (
+                        <div style={{ fontSize: 12.5, color: "var(--ink-muted)" }}>
+                          {planReady ? "Not run yet. Press Run Safe Dry-Run." : "Run Plan first, then the dry-run."}
                         </div>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          {diffFiles.map((df) => (
-                            <button
-                              key={df.id}
-                              type="button"
-                              onClick={() => setSelectedDiffFile(df.id)}
-                              style={{
-                                background: selectedDiffFile === df.id ? "#1e293b" : "#f8fafc",
-                                color: selectedDiffFile === df.id ? "#ffffff" : "#475569",
-                                border: "1px solid", borderColor: selectedDiffFile === df.id ? "#1e293b" : "#e2e8f0",
-                                borderRadius: 4, padding: "4px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                              }}
-                            >
-                              {df.filename.split("/").pop()} ({df.diffstat})
-                            </button>
+                      )}
+                      {dryFailed && (
+                        <div role="alert" style={{ padding: "10px 14px", borderRadius: 6, background: "var(--bad-tint)", border: "1px solid var(--bad-border)", color: "var(--bad)", fontSize: 12, whiteSpace: "pre-wrap" }}>
+                          <b>Dry-run failed:</b> {dry?.error || "no reason returned"}
+                        </div>
+                      )}
+                      {hasDryRun && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {dry?.note && <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>{dry.note}</div>}
+                          {(dry?.prompts || []).map((pr: any, i: number) => (
+                            <details key={i} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", background: "var(--surface-2)" }}>
+                              <summary style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-body)", cursor: "pointer" }}>{pr.header}</summary>
+                              <pre style={{ margin: "8px 0 0", whiteSpace: "pre-wrap", fontSize: 12, color: "var(--ink-body)" }}>{pr.prompt}</pre>
+                            </details>
                           ))}
-                          <button
-                            key="all"
-                            type="button"
-                            onClick={() => setSelectedDiffFile("all")}
-                            style={{
-                              background: selectedDiffFile === "all" ? "#1e293b" : "#f8fafc",
-                              color: selectedDiffFile === "all" ? "#ffffff" : "#475569",
-                              border: "1px solid", borderColor: selectedDiffFile === "all" ? "#1e293b" : "#e2e8f0",
-                              borderRadius: 4, padding: "4px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                            }}
-                          >
-                            All Files (+42 -1)
-                          </button>
+                          {(dry?.unbridged || []).length > 0 && (
+                            <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                              <b>Not sent to Claude Code ({dry.unbridged.length}):</b>{" "}
+                              {dry.unbridged.map((u: any) => `${u.code} (${u.reason})`).join("; ")}
+                            </div>
+                          )}
                         </div>
-                      </div>
-
-                      {/* Monospace Unified Diff Code Container */}
-                      <div style={{
-                        background: "#0d1117", borderRadius: 8, border: "1px solid #30363d",
-                        overflow: "hidden", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                        fontSize: 12, lineHeight: 1.5,
-                      }}>
-                        <div style={{
-                          background: "#161b22", padding: "8px 14px", borderBottom: "1px solid #30363d",
-                          display: "flex", justifyContent: "space-between", alignItems: "center", color: "#8b949e", fontSize: 12,
-                        }}>
-                          <span>git diff --staged (reai-autonomous-patch)</span>
-                          <span style={{ color: "#7ee787" }}>3 files changed, 42 insertions(+), 1 deletion(-)</span>
-                        </div>
-
-                        <div style={{ padding: "10px 0", maxHeight: 320, overflowY: "auto" }}>
-                          {diffFiles
-                            .filter((df) => selectedDiffFile === "all" || selectedDiffFile === df.id)
-                            .map((df, dfIdx) => (
-                              <div key={df.id} style={{ marginBottom: dfIdx < diffFiles.length - 1 ? 16 : 0 }}>
-                                <div style={{
-                                  background: "#21262d", padding: "4px 14px", color: "#c9d1d9",
-                                  fontSize: 12, fontWeight: 700, borderLeft: "3px solid #58a6ff",
-                                }}>
-                                  📄 {df.filename} ({df.diffstat})
-                                </div>
-                                <div>
-                                  {df.diffContent.split("\n").map((line, lIdx) => {
-                                    const isAdd = line.startsWith("+") && !line.startsWith("+++");
-                                    const isDel = line.startsWith("-") && !line.startsWith("---");
-                                    const isHunk = line.startsWith("@@");
-                                    return (
-                                      <div
-                                        key={lIdx}
-                                        style={{
-                                          padding: "1px 14px",
-                                          background: isAdd ? "rgba(46, 160, 67, 0.15)" : isDel ? "rgba(248, 81, 73, 0.15)" : "transparent",
-                                          color: isAdd ? "#7ee787" : isDel ? "#ffa198" : isHunk ? "#79c0ff" : "#8b949e",
-                                          whiteSpace: "pre",
-                                        }}
-                                      >
-                                        {line}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
+                      )}
                     </div>
 
                     {/* Applied Execution Log & History */}
@@ -7256,25 +7231,34 @@ export function ReaiDashboard({
                       <div style={{ background: "#ffffff", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                           <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "#1e293b" }}>
-                            Claude Code Commit Ledger & Verified Changes
+                            Claude Code Runs (edits, not commits)
                           </h4>
-                          <span style={{ fontSize: 12, color: "var(--ok)", fontWeight: 700 }}>
-                            ✓ Branch: reai/seo-remediation-auto
-                          </span>
                         </div>
 
+                        {/* The apply's own result. This said "Success: 3 fixes committed
+                            to repository by Claude Code CLI. Zero build syntax errors
+                            detected. Ready for PR Merge" whenever the button was clicked. */}
+                        {applyFailed && (
+                          <div role="alert" style={{ padding: "10px 14px", borderRadius: 6, background: "var(--bad-tint)", border: "1px solid var(--bad-border)", marginBottom: 12, fontSize: 12, color: "var(--bad)", whiteSpace: "pre-wrap" }}>
+                            <b>Apply failed:</b> {apply?.error || "no reason returned"}
+                          </div>
+                        )}
                         {hasApplied && (
-                          <div style={{
-                            padding: "10px 14px", borderRadius: 6, background: "#ecfdf5",
-                            border: "1px solid #a7f3d0", marginBottom: 12, fontSize: 12, color: "#065f46",
-                            display: "flex", justifyContent: "space-between", alignItems: "center",
-                          }}>
+                          <div style={{ padding: "10px 14px", borderRadius: 6, background: "var(--ok-tint)", border: "1px solid var(--ok-border)", marginBottom: 12, fontSize: 12, color: "var(--ink-body)" }}>
                             <div>
-                              <b>Success:</b> 3 fixes committed to repository by Claude Code CLI. Zero build syntax errors detected.
+                              <b>{apply?.applied ?? 0} of {apply?.summary?.attempted ?? 0} item(s) fixed</b>
+                              {apply?.summary?.stopped ? ` · stopped: ${apply.summary.stopped}` : ""}
+                              {typeof apply?.summary?.cost_usd === "number" ? ` · $${apply.summary.cost_usd.toFixed(4)}` : ""}
                             </div>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#047857" }}>
-                              Ready for PR Merge
-                            </span>
+                            {(apply?.summary?.items || []).map((it: any) => (
+                              <div key={it.id || it.code} style={{ marginTop: 4 }}>
+                                <code>{it.code}</code> · {it.status}{it.files?.length ? ` · ${it.files.join(", ")}` : ""}{it.note ? ` · ${it.note}` : ""}
+                              </div>
+                            ))}
+                            {apply?.diffstat && (
+                              <pre style={{ margin: "8px 0 0", padding: "8px 10px", background: "#161b26", color: "var(--ok-border)", borderRadius: 4, fontSize: 12 }}>{apply.diffstat}</pre>
+                            )}
+                            <div style={{ marginTop: 6, color: "var(--ink-muted)" }}>The changes are in the repository's working tree, uncommitted. Review them before committing.</div>
                           </div>
                         )}
 
@@ -8710,7 +8694,7 @@ export function ReaiDashboard({
               {/* Toxicity Header & KPI Cards */}
               <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 12 }}>
                 <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                  <MiniRadialGauge score={projectMetrics.backlinkAuditData.toxicityScore} size={68} strokeWidth={5.5} color="#10b981" />
+                  <MiniRadialGauge score={projectMetrics.backlinkAuditData.toxicityScore ?? undefined} size={68} strokeWidth={5.5} color="#10b981" />
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ok)", marginTop: 10 }}>{projectMetrics.backlinkAuditData.toxicityLevel} Toxicity</div>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", textAlign: "center", marginTop: 3 }}>
                     Safe profile · Low penalty risk
@@ -9154,7 +9138,7 @@ export function ReaiDashboard({
                     <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>LCP (Loading)</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", padding: "1px 6px", borderRadius: 3 }}>
+                        <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.lcp.status)}>
                           {projectMetrics.onPageSeoData.coreWebVitals.lcp.status}
                         </span>
                       </div>
@@ -9171,7 +9155,7 @@ export function ReaiDashboard({
                     <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>INP (Interactivity)</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", padding: "1px 6px", borderRadius: 3 }}>
+                        <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.inp.status)}>
                           {projectMetrics.onPageSeoData.coreWebVitals.inp.status}
                         </span>
                       </div>
@@ -9188,7 +9172,7 @@ export function ReaiDashboard({
                     <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 14px", background: "#ffffff", minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase" }}>CLS (Stability)</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", padding: "1px 6px", borderRadius: 3 }}>
+                        <span style={cwvBadgeStyle(projectMetrics.onPageSeoData.coreWebVitals.cls.status)}>
                           {projectMetrics.onPageSeoData.coreWebVitals.cls.status}
                         </span>
                       </div>
@@ -9804,7 +9788,7 @@ export function ReaiDashboard({
                             <input
                               type="text"
                               value={activeSerpMeta.targetKw}
-                              placeholder="e.g. hospital phnom penh"
+                              placeholder="Target keyword"
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setSerpCustomMeta((prev) => ({
@@ -10015,41 +9999,12 @@ export function ReaiDashboard({
                                 )}
                               </div>
 
-                              {/* Sitelinks Extension */}
+                              {/* Sitelinks. Four hospital sitelinks (Emergency & ICU, Maternity,
+                                  Physicians, Insurance billing) were drawn here for every client.
+                                  Google picks sitelinks itself; a preview cannot know them. */}
                               {serpShowSitelinks && (
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 18px", marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9" }}>
-                                  <div>
-                                    <div style={{ fontSize: 13.5, color: "#1a0dab", fontWeight: 500, cursor: "pointer" }}>
-                                      Specialist Physicians Directory
-                                    </div>
-                                    <div style={{ fontSize: 12, color: "#5f6368", marginTop: 2 }}>
-                                      Meet our international consultant physicians & surgeons.
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div style={{ fontSize: 13.5, color: "#1a0dab", fontWeight: 500, cursor: "pointer" }}>
-                                      24/7 Emergency & ICU Hotline
-                                    </div>
-                                    <div style={{ fontSize: 12, color: "#5f6368", marginTop: 2 }}>
-                                      Immediate trauma resuscitation and ICU ambulance dispatch.
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div style={{ fontSize: 13.5, color: "#1a0dab", fontWeight: 500, cursor: "pointer" }}>
-                                      Maternity & Delivery Suites
-                                    </div>
-                                    <div style={{ fontSize: 12, color: "#5f6368", marginTop: 2 }}>
-                                      Private labor rooms and Level III newborn care.
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div style={{ fontSize: 13.5, color: "#1a0dab", fontWeight: 500, cursor: "pointer" }}>
-                                      Direct Insurance Billing
-                                    </div>
-                                    <div style={{ fontSize: 12, color: "#5f6368", marginTop: 2 }}>
-                                      Direct billing with global health insurance providers.
-                                    </div>
-                                  </div>
+                                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9", fontSize: 12, color: "#5f6368" }}>
+                                  Sitelinks are chosen by Google from the site&apos;s own pages and are not previewed here.
                                 </div>
                               )}
                             </div>
@@ -10088,7 +10043,7 @@ export function ReaiDashboard({
                               {/* Mobile Action Buttons */}
                               <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid #f1f5f9" }}>
                                 <div style={{ flex: 1, textAlign: "center", padding: "6px 0", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 20, fontSize: 12, fontWeight: 600, color: "#1e293b" }}>
-                                  📞 Call Clinic
+                                  📞 Call
                                 </div>
                                 <div style={{ flex: 1, textAlign: "center", padding: "6px 0", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 20, fontSize: 12, fontWeight: 600, color: "#1e293b" }}>
                                   📍 Directions
@@ -10118,7 +10073,7 @@ export function ReaiDashboard({
                                     {activeSerpMeta.title}
                                   </div>
                                   <div style={{ fontSize: 12, color: "#cbd5e1", marginTop: 4 }}>
-                                    {currentBusiness} · Official Healthcare Portal
+                                    {currentBusiness} · {cleanDomainDisplay}
                                   </div>
                                 </div>
                               </div>
@@ -10155,7 +10110,7 @@ export function ReaiDashboard({
               }}>
                 <div>
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(99, 102, 241, 0.2)", border: "1px solid rgba(99, 102, 241, 0.4)", padding: "2px 8px", borderRadius: 12, fontSize: 12, fontWeight: 700, color: "#a5b4fc", marginBottom: 6 }}>
-                    <span>⚡ 156 SPECIALIZED AUDIT & CRAWL ENGINES</span>
+                    <span>⚡ {catalogSummary.tools} TOOLS</span>
                   </div>
                   <h2 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 800 }}>
                     REAI Complete Tools & Engines Directory
@@ -10459,8 +10414,8 @@ export function ReaiDashboard({
                         <div style={{ fontWeight: 600, color: "#1e293b", marginTop: 2 }}>{googleAccount}</div>
                       </div>
                       <div>
-                        <span style={{ color: "var(--ink-muted)" }}>Permissions Granted:</span>
-                        <div style={{ fontWeight: 600, color: "#047857", marginTop: 2 }}>webmasters.readonly, analytics.readonly</div>
+                        <span style={{ color: "var(--ink-muted)" }}>Permissions requested at sign-in:</span>
+                        <div style={{ fontWeight: 600, color: "var(--ink-body)", marginTop: 2 }}>Search Console, Analytics, Business Profile (read)</div>
                       </div>
                     </div>
 
@@ -10502,7 +10457,7 @@ export function ReaiDashboard({
                           type="button"
                           onClick={() => {
                             fetchGscAnalytics(selectedGscProperty);
-                            setSyncToast(`Google Search Console data re-synced for ${selectedGscProperty}!`);
+                            setSyncToast(`Re-reading Search Console for ${selectedGscProperty}…`);
                             setTimeout(() => setSyncToast(null), 3000);
                           }}
                           style={{
@@ -10531,18 +10486,18 @@ export function ReaiDashboard({
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 15, fontWeight: 700, color: "#1e293b" }}>GitHub Auto-Fix Remediation</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "#d1fae5", padding: "1px 7px", borderRadius: 10 }}>
-                          ● Active
+                        <span style={{ fontSize: 12, fontWeight: 700, color: selectedClient?.repo ? "var(--ink-body)" : "var(--ink-muted)", background: "var(--surface-3)", padding: "1px 7px", borderRadius: 10 }}>
+                          {selectedClient?.repo ? "Repository set" : "No repository"}
                         </span>
                       </div>
                       <div style={{ fontSize: 12.5, color: "var(--ink-muted)", marginTop: 3 }}>
-                        Enables 1-click automated PR creation and repository code patch generation for SEO errors.
+                        After you confirm, Claude Code edits the project&apos;s repository. It does not commit or open a pull request.
                       </div>
                     </div>
                   </div>
 
                   <span style={{ fontSize: 12, fontWeight: 600, color: "#4f46e5", background: "#eef2ff", padding: "4px 10px", borderRadius: 6 }}>
-                    Repo: both/seo_agent
+                    Repo: {selectedClient?.repo || "not set"}
                   </span>
                 </div>
 
@@ -10689,7 +10644,7 @@ export function ReaiDashboard({
                   boxShadow: scanState?.busy ? "0 0 10px #3b82f6" : "0 0 10px #10b981",
                 }} />
                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#1e293b" }}>
-                  {scanState?.busy ? "Running Live Engine Scan..." : "Scan Complete"}
+                  {scanState?.busy ? "Scanning…" : scanState?.error ? "Scan Failed" : "Scan"}
                 </h3>
               </div>
               <button
@@ -10812,7 +10767,7 @@ export function ReaiDashboard({
             </div>
 
             <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-muted)", lineHeight: 1.5 }}>
-              Generated schema for <b>{currentBusiness}</b> ({currentDomain}). Validates physical presence, geo-coordinates, and telephone to qualify for Google Local 3-Pack and ChatGPT citations.
+              A LocalBusiness schema template for <b>{currentBusiness}</b> ({currentDomain}). Replace every [confirm: …] with the business&apos;s real details before publishing.
             </p>
 
             <div style={{ background: "#0f172a", borderRadius: 8, padding: "14px 16px", maxHeight: 260, overflowY: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#a5b4fc", lineHeight: 1.5 }}>
@@ -10835,14 +10790,7 @@ export function ReaiDashboard({
     "latitude": "[confirm: latitude]",
     "longitude": "[confirm: longitude]"
   },
-  "openingHoursSpecification": [
-    {
-      "@type": "OpeningHoursSpecification",
-      "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-      "opens": "00:00",
-      "closes": "23:59"
-    }
-  ]
+  "openingHoursSpecification": "[confirm: opening hours from the Business Profile]"
 }
 </script>`}</pre>
             </div>
@@ -11062,7 +11010,7 @@ certifications, awards or memberships without a source.]
                 Target Category: <b>{selectedOutreachCategory || "Industry Resource"}</b>
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "2px 8px", borderRadius: 4 }}>
-                High-Conversion Angle
+                Draft: fill every [confirm]
               </div>
             </div>
 
@@ -11071,7 +11019,7 @@ certifications, awards or memberships without a source.]
                 Subject Line
               </div>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: "#1e293b", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 6, padding: "7px 12px" }}>
-                Resource Feature & Expert Clinical Citation: {currentBusiness}
+                Resource for your readers: {currentBusiness}
               </div>
             </div>
 
@@ -11082,13 +11030,11 @@ certifications, awards or memberships without a source.]
               <div style={{ background: "#0f172a", borderRadius: 8, padding: "14px 16px", maxHeight: 220, overflowY: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#e2e8f0", lineHeight: 1.6 }}>
                 <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{`Hi Editorial Team at ${selectedOutreachDomain},
 
-I've been following your coverage on ${selectedOutreachCategory.toLowerCase() || "industry healthcare trends"} and really appreciate your practical, well-researched guides.
+I read your coverage of ${selectedOutreachCategory.toLowerCase() || "[confirm: their topic]"}.
 
-I'm reaching out from ${currentBusiness} (https://${currentDomain}). We recently updated our clinical resource center covering emergency protocols, maternity care guidelines, and pediatric medicine.
+I'm reaching out from ${currentBusiness} (https://${currentDomain}). We publish [confirm: the specific page or resource, and what it covers].
 
-Given that your readers frequently seek reliable, accredited medical citations, would you be open to referencing our clinical guides as an authoritative resource in your upcoming feature?
-
-We'd also be delighted to provide expert commentary or medical review quotes from our senior specialists at any time.
+Would it be useful to your readers as a reference in [confirm: the article or section]?
 
 Best regards,
 Partnerships Team
@@ -11101,7 +11047,7 @@ https://${currentDomain}`}</pre>
               <button
                 type="button"
                 onClick={() => {
-                  const pitch = `Subject: Resource Feature & Expert Clinical Citation: ${currentBusiness}\n\nHi Editorial Team at ${selectedOutreachDomain},\n\nI've been following your coverage on ${selectedOutreachCategory.toLowerCase() || "industry healthcare trends"} and really appreciate your practical, well-researched guides.\n\nI'm reaching out from ${currentBusiness} (https://${currentDomain}). We recently updated our clinical resource center covering emergency protocols, maternity care guidelines, and pediatric medicine.\n\nGiven that your readers frequently seek reliable, accredited medical citations, would you be open to referencing our clinical guides as an authoritative resource in your upcoming feature?\n\nWe'd also be delighted to provide expert commentary or medical review quotes from our senior specialists at any time.\n\nBest regards,\nPartnerships Team\n${currentBusiness}\nhttps://${currentDomain}`;
+                  const pitch = `Subject: Resource for your readers: ${currentBusiness}\n\nHi Editorial Team at ${selectedOutreachDomain},\n\nI read your coverage of ${selectedOutreachCategory.toLowerCase() || "[confirm: their topic]"}.\n\nI'm reaching out from ${currentBusiness} (https://${currentDomain}). We publish [confirm: the specific page or resource, and what it covers].\n\nWould it be useful to your readers as a reference in [confirm: the article or section]?\n\nBest regards,\nPartnerships Team\n${currentBusiness}\nhttps://${currentDomain}`;
                   navigator.clipboard.writeText(pitch);
                   setOutreachCopied(true);
                   setTimeout(() => setOutreachCopied(false), 2000);

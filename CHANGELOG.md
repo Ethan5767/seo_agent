@@ -6,13 +6,23 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed (fake-data sweep, part 2)
+
+- **The dashboard shows only measured results (B-142).** Auto-Fix renders the
+  remediation rail's real dry-run and apply results and asks before applying;
+  the keyword, competitor and backlink-audit screens that computed figures from
+  row indexes open the scan-based report views; Traffic Analytics shows clicks
+  as clicks; hospital sitelinks, 24/7 schema hours, medical outreach claims and
+  unconditional "Verified"/"Active"/"Live" badges are gone. Checked on the
+  commit's own tree: `npm test` → 516 passed, 0 failed; `tsc` clean.
+
 ### Fixed (fake-data sweep, part 1)
 
 - **Local and Profile show only what Google and GitHub answered (B-141).** Removed
   the fixture geo-grid, verification ticks, roofer schema, default hours, example
   links and claims; reviews, posts and insights now read the routes' real shapes;
   failed writes say why. Profile's GitHub card asks GitHub. The rest of the sweep
-  (Auto-Fix, Backlinks, keyword tools, Traffic, SERP preview) is B-142, open.
+  (Auto-Fix, Backlinks, keyword tools, Traffic, SERP preview) is B-142.
   `npm test` → 512 tests, 509 pass: the 3 failures are the other sessions'
   uncommitted edits (`ScannerApp.tsx` project gate and in-flight guard, the
   budget badge), not these files.

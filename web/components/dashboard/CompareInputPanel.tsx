@@ -99,7 +99,7 @@ export function CompareInputPanel({
       <section aria-label={label} style={wrap}>
         <div style={card}>
           <h1 style={title}>{label}</h1>
-          <p style={{ ...sub, marginTop: "var(--space-3)" }}>
+          <p style={{ ...sub, margin: "var(--space-3) auto 0" }}>
             {hasProjects ? "Select a project first: a tool checks the project's own domain." : "Create a project first: a tool checks the project's own domain."}
           </p>
           {!hasProjects && onCreateProject && (

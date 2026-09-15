@@ -83,3 +83,11 @@ test("the Overview opens on the chart dashboard, fed the project's scans", () =>
   const charts = readFileSync(new URL("../components/dashboard/Charts.tsx", import.meta.url), "utf8");
   assert.match(charts, /if \(points\.length < 2\) return <Empty/, "one point is not a trend");
 });
+
+test("Site Audit shows the same health charts above its report", () => {
+  const dash = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
+  const i = dash.indexOf("<SiteAuditCharts report={report} scans={scans} domain={currentDomain} />");
+  assert.ok(i > 0 && i < dash.indexOf("<MeasureScreen"), "charts sit above the Site Audit report");
+  const panel = readFileSync(new URL("../components/dashboard/CompareInputPanel.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(panel, /\.\.\.sub, marginTop/, "React warns when margin and marginTop are mixed");
+});

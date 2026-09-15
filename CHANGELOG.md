@@ -21,6 +21,10 @@ see `CLAUDE.md` (the sync contract).
   `SeoDashboard.tsx`; `web/tests/dashboardMetrics.test.mjs` (5), fixtures in the
   saved row formats. `npm test` → 527 passed.
 
+- **Site Audit shows the health charts too** (gauge, issue mix, trend across scans)
+  above its report. Fixed a React console error on tool pages: `margin` and
+  `marginTop` were mixed on the no-project message. `npm test` → 528 passed.
+
 ### Changed (tool pages)
 
 - **Every tool page takes only the inputs its tool reads (B-143).** The domain is

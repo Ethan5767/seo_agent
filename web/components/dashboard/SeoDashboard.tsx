@@ -33,9 +33,6 @@ export function SeoDashboard({
   domain: string;
   onOpen: (target: DashboardTarget) => void;
 }) {
-  const audit = siteAudit(report);
-  const trend = healthTrend(scans, domain);
-  const issues = issueHistory(scans, domain);
   const keywords = rankedKeywords(report);
   const dist = positionDistribution(keywords);
   const org = organic(report);
@@ -47,50 +44,7 @@ export function SeoDashboard({
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-5)" }}>
-      {/* Site Audit: the latest health, its issues, the crawl. */}
-      <ChartCard title="Site Audit" subtitle={audit ? "Latest scan" : "Not scanned yet"} action={{ label: "View full report", onClick: () => onOpen("site-audit") }}>
-        {audit ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)", flexWrap: "wrap" }}>
-              <Gauge value={audit.score} label="Site Health" caption={audit.score === null ? "no graded checks" : undefined} />
-              <div style={{ display: "grid", gap: "var(--space-3)" }}>
-                <Metric label="Errors" value={fmt(audit.errors)} tone={COLORS.error} />
-                <Metric label="Warnings" value={fmt(audit.warnings)} tone={COLORS.warn} />
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, marginBottom: 4 }}>
-                Checks {audit.pagesCrawled !== null ? `· ${audit.pagesCrawled} pages crawled` : ""}
-              </div>
-              <SegmentBar segments={[
-                { label: "Passed", value: audit.passed, color: COLORS.ok },
-                { label: "Warnings", value: audit.warnings, color: COLORS.warn },
-                { label: "Errors", value: audit.errors, color: COLORS.error },
-                { label: "Notices", value: audit.notices, color: COLORS.info },
-              ]} />
-            </div>
-          </div>
-        ) : (
-          <Empty height={180}>Run Site Audit to measure this site&apos;s health.</Empty>
-        )}
-      </ChartCard>
-
-      {/* Health over time, from every graded scan of this domain. */}
-      <ChartCard title="Site Health Trend" subtitle={trend.length ? `${trend.length} scan${trend.length === 1 ? "" : "s"} of ${domain}` : undefined} span={2}>
-        <TrendChart points={trend} yMax={100} unit="%" color="var(--accent)" height={150} empty="Each Site Audit adds a point here." />
-        <div style={{ marginTop: "var(--space-4)" }}>
-          <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, marginBottom: 4 }}>Issues per scan</div>
-          <StackedBars
-            bars={issues}
-            height={90}
-            keys={[
-              { key: "errors", label: "Errors", color: COLORS.error },
-              { key: "warnings", label: "Warnings", color: COLORS.warn },
-            ]}
-            empty="No graded scans yet."
-          />
-        </div>
-      </ChartCard>
+      <SiteAuditCards report={report} scans={scans} domain={domain} onOpen={onOpen} />
 
       {/* Organic search: DataForSEO figures and the ranked keywords' spread. */}
       <ChartCard title="Organic Search" subtitle="DataForSEO" span={2} action={{ label: "View Domain Overview", onClick: () => onOpen("domain-overview") }}>
@@ -197,6 +151,78 @@ export function SeoDashboard({
           <Empty height={180}>Run the AI Search checks to see answer readiness and citations.</Empty>
         )}
       </ChartCard>
+    </div>
+  );
+}
+
+/** The Site Audit and Site Health Trend cards, shared by the Dashboard and the Site Audit page. */
+function SiteAuditCards({
+  report, scans, domain, onOpen,
+}: {
+  report: Report;
+  scans: ScanLike[] | null | undefined;
+  domain: string;
+  onOpen?: (target: DashboardTarget) => void;
+}) {
+  const audit = siteAudit(report);
+  const trend = healthTrend(scans, domain);
+  const issues = issueHistory(scans, domain);
+  return (
+    <>
+      {/* Site Audit: the latest health, its issues, the crawl. */}
+      <ChartCard title="Site Audit" subtitle={audit ? "Latest scan" : "Not scanned yet"} action={onOpen ? { label: "View full report", onClick: () => onOpen("site-audit") } : undefined}>
+        {audit ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)", flexWrap: "wrap" }}>
+              <Gauge value={audit.score} label="Site Health" caption={audit.score === null ? "no graded checks" : undefined} />
+              <div style={{ display: "grid", gap: "var(--space-3)" }}>
+                <Metric label="Errors" value={fmt(audit.errors)} tone={COLORS.error} />
+                <Metric label="Warnings" value={fmt(audit.warnings)} tone={COLORS.warn} />
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, marginBottom: 4 }}>
+                Checks {audit.pagesCrawled !== null ? `· ${audit.pagesCrawled} pages crawled` : ""}
+              </div>
+              <SegmentBar segments={[
+                { label: "Passed", value: audit.passed, color: COLORS.ok },
+                { label: "Warnings", value: audit.warnings, color: COLORS.warn },
+                { label: "Errors", value: audit.errors, color: COLORS.error },
+                { label: "Notices", value: audit.notices, color: COLORS.info },
+              ]} />
+            </div>
+          </div>
+        ) : (
+          <Empty height={180}>Run Site Audit to measure this site&apos;s health.</Empty>
+        )}
+      </ChartCard>
+
+      {/* Health over time, from every graded scan of this domain. */}
+      <ChartCard title="Site Health Trend" subtitle={trend.length ? `${trend.length} scan${trend.length === 1 ? "" : "s"} of ${domain}` : undefined} span={2}>
+        <TrendChart points={trend} yMax={100} unit="%" color="var(--accent)" height={150} empty="Each Site Audit adds a point here." />
+        <div style={{ marginTop: "var(--space-4)" }}>
+          <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600, marginBottom: 4 }}>Issues per scan</div>
+          <StackedBars
+            bars={issues}
+            height={90}
+            keys={[
+              { key: "errors", label: "Errors", color: COLORS.error },
+              { key: "warnings", label: "Warnings", color: COLORS.warn },
+            ]}
+            empty="No graded scans yet."
+          />
+        </div>
+      </ChartCard>
+
+    </>
+  );
+}
+
+/** Site Audit page: health gauge, issue mix and the trend across scans, above the report. */
+export function SiteAuditCharts({ report, scans, domain }: { report: Report; scans: ScanLike[] | null | undefined; domain: string }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-5)" }}>
+      <SiteAuditCards report={report} scans={scans} domain={domain} />
     </div>
   );
 }

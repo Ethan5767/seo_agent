@@ -31,7 +31,7 @@ import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
 import { GscPanel } from "@/components/dashboard/GscPanel";
-import { SeoDashboard } from "@/components/dashboard/SeoDashboard";
+import { SeoDashboard, SiteAuditCharts } from "@/components/dashboard/SeoDashboard";
 import { Ga4Panel } from "@/components/dashboard/Ga4Panel";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
@@ -6662,6 +6662,9 @@ export function ReaiDashboard({
             >
               ← All projects
             </button>
+          )}
+          {activeTab === "Site Health & Audit" && auditProjectList === false && (
+            <SiteAuditCharts report={report} scans={scans} domain={currentDomain} />
           )}
           {activeTab === "Site Health & Audit" && auditProjectList === false && (
             <MeasureScreen

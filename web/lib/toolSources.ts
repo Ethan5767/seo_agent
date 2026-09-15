@@ -89,7 +89,7 @@ export const TOOL_SOURCES: Record<string, ToolSources> = {
   // ── Competitive ──
   "domain-overview": { dataforseo: dfs("domain-overview", ["rankings"]), ours: { disabled: GSC_NOT_YET } },
   "organic-rankings": { dataforseo: dfs("organic-rankings", ["rankings"]), ours: { disabled: GSC_NOT_YET } },
-  "compare-domains": { dataforseo: dfs("compare-domains", ["keywords"]), ours: { disabled: NO_OTHER_SITES } },
+  "compare-domains": { dataforseo: dfs("compare-domains", ["compare"]), ours: { disabled: NO_OTHER_SITES } },
   "keyword-gap": { dataforseo: dfs("keyword-gap", ["keywords"]), ours: { disabled: NO_OTHER_SITES } },
   // ── Keywords ──
   "keyword-overview": { dataforseo: dfs("keyword-overview", ["keywords"]), ours: { disabled: GSC_NOT_YET } },

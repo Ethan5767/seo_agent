@@ -42,7 +42,7 @@ export function Overview({
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
+    <div style={{ maxWidth: "100%", paddingBottom: 40 }}>
       {/* 1. PROJECT JOURNEY PROGRESS BAR */}
       <ProjectJourney
         client={client}
@@ -104,7 +104,7 @@ export function Overview({
         {/* Card 1: SEO Foundations */}
         <div
           style={{
-            background: "#ffffff",
+            background: "var(--surface)",
             border: "1px solid #e2e8f0",
             borderRadius: 8,
             padding: "18px 20px",
@@ -116,7 +116,7 @@ export function Overview({
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
               <div>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)", margin: 0 }}>
                   SEO Foundations
                 </h3>
                 <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
@@ -129,8 +129,8 @@ export function Overview({
                   fontWeight: 600,
                   padding: "2px 6px",
                   borderRadius: 4,
-                  background: "#f1f5f9",
-                  color: "#475569",
+                  background: "var(--surface-3)",
+                  color: "var(--ink-muted)",
                   border: "1px solid #e2e8f0",
                 }}
               >
@@ -148,13 +148,13 @@ export function Overview({
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
-              <div style={{ background: "#f8fafc", padding: "8px 10px", borderRadius: 6 }}>
+              <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Critical Issues: </span>
                 <strong style={{ color: "#dc2626" }}>2</strong>
               </div>
-              <div style={{ background: "#f8fafc", padding: "8px 10px", borderRadius: 6 }}>
+              <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Ranked Keywords: </span>
-                <strong style={{ color: "#0f172a" }}>428</strong>
+                <strong style={{ color: "var(--ink)" }}>428</strong>
               </div>
             </div>
           </div>
@@ -166,8 +166,8 @@ export function Overview({
               style={{
                 width: "100%",
                 padding: "8px 12px",
-                background: "#f8fafc",
-                color: "#1e293b",
+                background: "var(--surface-2)",
+                color: "var(--ink-body)",
                 border: "1px solid #cbd5e1",
                 borderRadius: 6,
                 fontSize: 12.5,
@@ -183,7 +183,7 @@ export function Overview({
         {/* Card 2: AI Search Visibility (AEO) */}
         <div
           style={{
-            background: "#ffffff",
+            background: "var(--surface)",
             border: "1px solid #e2e8f0",
             borderRadius: 8,
             padding: "18px 20px",
@@ -195,7 +195,7 @@ export function Overview({
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
               <div>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)", margin: 0 }}>
                   AI Search Visibility (AEO)
                 </h3>
                 <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
@@ -227,11 +227,11 @@ export function Overview({
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
-              <div style={{ background: "#f8fafc", padding: "8px 10px", borderRadius: 6 }}>
+              <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>AI Crawlers: </span>
                 <strong style={{ color: "#166534" }}>Allowed</strong>
               </div>
-              <div style={{ background: "#f8fafc", padding: "8px 10px", borderRadius: 6 }}>
+              <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Schema Clarity: </span>
                 <strong style={{ color: "#d97706" }}>Needs Review</strong>
               </div>
@@ -278,13 +278,13 @@ export function Overview({
           type="button"
           onClick={() => setShowAdvanced((v) => !v)}
           style={{
-            background: "#ffffff",
+            background: "var(--surface)",
             border: "1px solid #cbd5e1",
             borderRadius: 20,
             padding: "8px 18px",
             fontSize: 12.5,
             fontWeight: 600,
-            color: "#475569",
+            color: "var(--ink-muted)",
             cursor: "pointer",
             boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
           }}
@@ -299,13 +299,13 @@ export function Overview({
           style={{
             marginTop: 20,
             padding: 20,
-            background: "#ffffff",
+            background: "var(--surface)",
             border: "1px solid #e2e8f0",
             borderRadius: 8,
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", margin: 0 }}>
               Advanced Technical Diagnostics & Traffic Distributions
             </h4>
             <span
@@ -323,22 +323,22 @@ export function Overview({
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, fontSize: 12.5 }}>
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6 }}>
-              <div style={{ fontWeight: 600, color: "#1e293b", marginBottom: 6 }}>Core Web Vitals (CrUX)</div>
+            <div style={{ background: "var(--surface-2)", padding: 14, borderRadius: 6 }}>
+              <div style={{ fontWeight: 600, color: "var(--ink-body)", marginBottom: 6 }}>Core Web Vitals (CrUX)</div>
               <div style={{ color: "var(--ink-muted)" }}>Largest Contentful Paint (LCP): <strong style={{ color: "#d97706" }}>2.9s (Needs Work)</strong></div>
               <div style={{ color: "var(--ink-muted)" }}>Interaction to Next Paint (INP): <strong style={{ color: "var(--ok)" }}>140ms (Good)</strong></div>
               <div style={{ color: "var(--ink-muted)" }}>Cumulative Layout Shift (CLS): <strong style={{ color: "var(--ok)" }}>0.04 (Good)</strong></div>
             </div>
 
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6 }}>
-              <div style={{ fontWeight: 600, color: "#1e293b", marginBottom: 6 }}>Crawl Diagnostic Summary</div>
+            <div style={{ background: "var(--surface-2)", padding: 14, borderRadius: 6 }}>
+              <div style={{ fontWeight: 600, color: "var(--ink-body)", marginBottom: 6 }}>Crawl Diagnostic Summary</div>
               <div style={{ color: "var(--ink-muted)" }}>Robots.txt: <strong style={{ color: "var(--ok)" }}>Valid & Crawlable</strong></div>
               <div style={{ color: "var(--ink-muted)" }}>XML Sitemap: <strong style={{ color: "var(--ok)" }}>Indexed (142 URLs)</strong></div>
               <div style={{ color: "var(--ink-muted)" }}>Canonical Tags: <strong style={{ color: "var(--ok)" }}>98% Consistent</strong></div>
             </div>
 
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6 }}>
-              <div style={{ fontWeight: 600, color: "#1e293b", marginBottom: 6 }}>AI Crawler Status</div>
+            <div style={{ background: "var(--surface-2)", padding: 14, borderRadius: 6 }}>
+              <div style={{ fontWeight: 600, color: "var(--ink-body)", marginBottom: 6 }}>AI Crawler Status</div>
               <div style={{ color: "var(--ink-muted)" }}>GPTBot: <strong style={{ color: "var(--ok)" }}>Allowed</strong></div>
               <div style={{ color: "var(--ink-muted)" }}>ClaudeBot: <strong style={{ color: "var(--ok)" }}>Allowed</strong></div>
               <div style={{ color: "var(--ink-muted)" }}>PerplexityBot: <strong style={{ color: "var(--ok)" }}>Allowed</strong></div>

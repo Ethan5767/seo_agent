@@ -55,7 +55,7 @@ export function MiniRadialGauge({
           style={{ transition: "stroke-dasharray 0.4s ease" }}
         />
       </svg>
-      <span style={{ position: "absolute", fontSize, fontWeight: 700, color: "#1e293b", letterSpacing: "-0.02em" }}>{score}</span>
+      <span style={{ position: "absolute", fontSize, fontWeight: 700, color: "var(--ink-body)", letterSpacing: "-0.02em" }}>{score}</span>
     </div>
   );
 }
@@ -90,7 +90,7 @@ export function SiteHealthDonut({ score = 82, size = 110 }: { score?: number; si
         position: "absolute", inset: 0, display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center", pointerEvents: "none",
       }}>
-        <span style={{ fontSize: valFontSize, fontWeight: 800, color: "#0f172a", lineHeight: 1 }}>
+        <span style={{ fontSize: valFontSize, fontWeight: 800, color: "var(--ink)", lineHeight: 1 }}>
           {score}%
         </span>
         <span style={{ fontSize: labelFontSize, color: "var(--ink-muted)", marginTop: 2, fontWeight: 600 }}>

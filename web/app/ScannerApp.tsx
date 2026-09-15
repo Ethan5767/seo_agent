@@ -535,7 +535,12 @@ function Scanner({ initialTab }: { initialTab?: any }) {
    */
   async function run(overrideUrl?: string, overrideTools?: string[]): Promise<void>;
   async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number): Promise<void>;
-  async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number) {
+  // `overrideCompetitors` lets a comparison tool page name the competitor to
+  // scan against (its own "you vs them" input), instead of relying on whatever
+  // competitors the project was created with. A comma-separated string, same
+  // shape as the `competitors` state, so the scan body takes it unchanged.
+  async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number, overrideCompetitors?: string, overrideKeywords?: string[]): Promise<void>;
+  async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number, overrideCompetitors?: string, overrideKeywords?: string[]) {
     // One scan at a time. Several triggers ignore `busy`, and a second press
     // during a paid scan starts a second paid scan that /api/scan admits against
     // the same not-yet-saved spend. A ref, not state: two clicks in one tick
@@ -552,7 +557,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       const res = await authedFetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: activeUrl, model, tools: (overrideTools ?? [...selected]).filter((k) => k !== "source"), business, keywords: kwList, competitors, goal, max_pages: 25, crawl_pages: overrideCrawlPages ?? crawlPages, location_code: marketFor(activeUrl).location_code, language_code: marketFor(activeUrl).language_code }),
+        body: JSON.stringify({ url: activeUrl, model, tools: (overrideTools ?? [...selected]).filter((k) => k !== "source"), business, keywords: overrideKeywords ?? kwList, competitors: overrideCompetitors ?? competitors, goal, max_pages: 25, crawl_pages: overrideCrawlPages ?? crawlPages, location_code: marketFor(activeUrl).location_code, language_code: marketFor(activeUrl).language_code }),
       });
       const lines: string[] = [];
       let resultEv: any = null;
@@ -731,16 +736,20 @@ function Scanner({ initialTab }: { initialTab?: any }) {
 
   async function handleTriggerScan(targetUrl: string, toolKeys?: string[]): Promise<void>;
   async function handleTriggerScan(targetUrl: string, toolKeys?: string[], customCrawlPages?: number): Promise<void>;
-  async function handleTriggerScan(targetUrl: string, toolKeys?: string[], customCrawlPages?: number) {
+  async function handleTriggerScan(targetUrl: string, toolKeys?: string[], customCrawlPages?: number, competitorsOverride?: string, keywordsOverride?: string[]): Promise<void>;
+  async function handleTriggerScan(targetUrl: string, toolKeys?: string[], customCrawlPages?: number, competitorsOverride?: string, keywordsOverride?: string[]) {
     const cleanUrl = targetUrl.trim();
     setUrl(cleanUrl);
+    // Competitors and keywords typed on a tool page apply to that run only. They
+    // were written into the session's state, so every later scan (Domain
+    // Overview, keyword tools) silently sent a competitor typed on another page.
     // Remember a page count the operator chose (the dropdown offers 2-25). A 1
     // is a per-scan "no free crawl" for DataForSEO-only Tests, and must not
     // become the default for the next scan.
     if (typeof customCrawlPages === "number" && customCrawlPages > 1) {
       setCrawlPages(customCrawlPages);
     }
-    await run(cleanUrl, toolKeys, customCrawlPages);
+    await run(cleanUrl, toolKeys, customCrawlPages, competitorsOverride, keywordsOverride);
     await refreshBudget();
   }
 

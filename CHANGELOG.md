@@ -6,6 +6,18 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Changed (tool pages)
+
+- **Every tool page takes only the inputs its tool reads (B-143).** The domain is
+  the project's, read-only; competitor boxes only on Compare Domains (3), Backlink
+  Gap (3) and Keyword Gap (1); a keyword box on the keyword tools; competitors and
+  keywords apply to one run; paid runs name their price. **Crawl Issues is merged
+  into Site Audit** as a tab. **Compare Domains** has its own tool (`compare`,
+  ~$0.05) showing your overview next to competitors', and Domain Overview no longer
+  mixes in competitor rows (B-144). Includes the previously uncommitted search-page
+  work found in this worktree (DomainOverviewDashboard, SearchCharts, costReport,
+  toolVerbs). `npm test` → 521 passed; `pytest -q` → 1350 passed, 2 skipped.
+
 ### Fixed (fake-data sweep, part 2)
 
 - **The dashboard shows only measured results (B-142).** Auto-Fix renders the

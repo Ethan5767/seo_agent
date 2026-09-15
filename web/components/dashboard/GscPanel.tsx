@@ -215,7 +215,7 @@ export function GscPanel({ view, siteUrl, onConnect }: GscPanelProps) {
                   borderRadius: "var(--radius-sm)",
                   border: 0,
                   background: "var(--accent)",
-                  color: "#ffffff",
+                  color: "var(--surface)",
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",

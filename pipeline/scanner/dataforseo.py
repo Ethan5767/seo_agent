@@ -356,21 +356,86 @@ def ranked_keywords(domain: str, call=call, top: int = TOP_ROWS) -> tuple:
 # ── Rankings (tools 8-11): domain overview + SERP position ───────────────────
 
 def parse_domain_overview(doc: dict) -> list[dict]:
-    """One visibility row from domain_rank_overview: how many keywords the
-    domain ranks for, its estimated traffic value, and #1 positions."""
+    """One visibility row from domain_rank_overview, carrying the full metrics the
+    endpoint returns — not just the headline three. The row stays readable as
+    text (`what`/`fix`) for any list view, and its `metrics` block feeds the
+    Domain Overview dashboard: position distribution, keyword movement, and paid
+    figures the old parser discarded."""
     items = result_items(doc)
     if not items:
         return []
-    org = (items[0].get("metrics") or {}).get("organic") or {}
+    m = items[0].get("metrics") or {}
+    org = m.get("organic") or {}
+    paid = m.get("paid") or {}
     count = org.get("count")
     if count is None:
         return []
+
+    def n(d: dict, k: str) -> int:
+        try:
+            return int(d.get(k) or 0)
+        except (TypeError, ValueError):
+            return 0
+
     etv = round(float(org.get("etv") or 0))
-    pos1 = org.get("pos_1") or 0
+    pos1 = n(org, "pos_1")
+    # The SERP position buckets DataForSEO reports, folded to the six a reader
+    # scans at a glance. The fine buckets (21-30 … 91-100) collapse into two.
+    distribution = [
+        {"label": "#1", "value": pos1},
+        {"label": "2-3", "value": n(org, "pos_2_3")},
+        {"label": "4-10", "value": n(org, "pos_4_10")},
+        {"label": "11-20", "value": n(org, "pos_11_20")},
+        {"label": "21-50", "value": n(org, "pos_21_30") + n(org, "pos_31_40") + n(org, "pos_41_50")},
+        {"label": "51-100", "value": (n(org, "pos_51_60") + n(org, "pos_61_70") + n(org, "pos_71_80")
+                                      + n(org, "pos_81_90") + n(org, "pos_91_100"))},
+    ]
+    metrics = {
+        "keywords": int(count),
+        "etv": etv,
+        "pos_1": pos1,
+        "distribution": distribution,
+        "movement": {
+            "new": n(org, "is_new"), "up": n(org, "is_up"),
+            "down": n(org, "is_down"), "lost": n(org, "is_lost"),
+        },
+        "paid": {"keywords": n(paid, "count"), "etv": round(float(paid.get("etv") or 0))},
+    }
     return [{"code": "dfs.domain_overview", "what": f"Ranks for {count} keywords on Google",
              "why": "The domain's total organic footprint — how many searches it shows up for.",
              "fix": f"est. traffic value ${etv}/mo · {pos1} keyword(s) at position #1",
-             "severity": "ok" if count else "info", "detail": f"{count} keywords"}]
+             "severity": "ok" if count else "info", "detail": f"{count} keywords",
+             "metrics": metrics}]
+
+
+def parse_historical_overview(doc: dict) -> list[dict]:
+    """A month-by-month organic trend from historical_rank_overview: one point
+    per month with its keyword count and estimated traffic value. Pure."""
+    trend = []
+    for it in result_items(doc):
+        org = (it.get("metrics") or {}).get("organic") or {}
+        year, month = it.get("year"), it.get("month")
+        if year and month and org:
+            try:
+                trend.append({"month": f"{int(year):04d}-{int(month):02d}",
+                              "keywords": int(org.get("count") or 0),
+                              "etv": round(float(org.get("etv") or 0))})
+            except (TypeError, ValueError):
+                continue
+    trend.sort(key=lambda p: p["month"])
+    return trend
+
+
+def historical_overview(domain: str, call=call) -> tuple:
+    """(trend, status, cost) — the monthly organic trend for the domain. Returns
+    an empty trend on any failure rather than inventing a line."""
+    doc, err = call("/v3/dataforseo_labs/google/historical_rank_overview/live",
+                    [{"target": domain, "location_code": location_code(),
+                      "language_code": language_code()}])
+    if err:
+        return [], err, 0.0
+    trend = parse_historical_overview(doc)
+    return trend, f"ok: {len(trend)} month(s)", cost_of(doc)
 
 
 def domain_overview(domain: str, call=call) -> tuple:
@@ -404,21 +469,88 @@ def serp_rank(keyword: str, domain: str, call=call) -> tuple:
                  lambda d: parse_serp_rank(d, domain, keyword), call=call)
 
 
-def rankings(domain: str, keywords=None, call=call, max_serp: int = 5) -> tuple:
+def _tag_competitor(rows: list[dict], domain: str) -> list[dict]:
+    """Mark rows as a competitor's, not yours, so one table reads you-vs-them.
+    Prefixes the label with the domain and carries it in `competitor` for the
+    UI to group on. Pure; never mutates the input rows."""
+    out = []
+    for r in rows:
+        r = dict(r)
+        r["what"] = f"{domain}: {r.get('what', '')}"
+        r["competitor"] = domain
+        out.append(r)
+    return out
+
+
+def rankings(domain: str, keywords=None, call=call, max_serp: int = 5,
+             competitors=None) -> tuple:
     """(rows, status, cost) — the Rankings card: ranked keywords + domain
     overview + a SERP position check for up to `max_serp` of the client's
-    target keywords. Cost is the exact sum of every call's reported cost."""
+    target keywords. Cost is the exact sum of every call's reported cost.
+
+    When `competitors` are named, each one's overview and top keywords are
+    fetched too and tagged with its domain, so Domain Overview and Organic
+    Rankings read as a you-vs-them comparison. No competitors means the exact
+    single-domain behaviour as before — the competitor side is purely additive."""
     keywords = keywords or []
     rows: list[dict] = []
     cost = 0.0
     problems: list[str] = []
     r, s, c = ranked_keywords(domain, call=call); rows += r; cost += c; problems += _problem(s)
-    r, s, c = domain_overview(domain, call=call); rows += r; cost += c; problems += _problem(s)
+    ov, s, c = domain_overview(domain, call=call); cost += c; problems += _problem(s)
+    # Fold the monthly trend into the overview row's metrics, so the dashboard
+    # reads one object. A failed or empty trend simply leaves the chart out.
+    if ov:
+        trend, ts, tc = historical_overview(domain, call=call); cost += tc; problems += _problem(ts)
+        if trend:
+            ov[0].setdefault("metrics", {})["trend"] = trend
+    rows += ov
     for kw in keywords[:max_serp]:
         r, s, c = serp_rank(kw, domain, call=call); rows += r; cost += c; problems += _problem(s)
+    # The competitor side: one overview row plus a shortlist of their ranked
+    # keywords, per named competitor. Capped at three domains and a short
+    # keyword list so a comparison never balloons the table or the bill.
+    for comp in (competitors or [])[:3]:
+        if not comp:
+            continue
+        r, s, c = domain_overview(comp, call=call); rows += _tag_competitor(r, comp); cost += c; problems += _problem(s)
+        r, s, c = ranked_keywords(comp, call=call, top=25); rows += _tag_competitor(r, comp); cost += c; problems += _problem(s)
     cost = round(cost, 4)
     rows += _unavailable_rows("rankings", "Rankings", problems)
     return rows, _card_status("rankings", rows, cost, problems), cost
+
+
+def compare_domains(domain: str, competitor_list=None, call=call, max_competitors: int = 3) -> tuple:
+    """(rows, status, cost) — Compare Domains: the domain's overview next to up
+    to `max_competitors` competitors' overviews, one `dfs.compare_domain` row per
+    domain. The competitors the operator names are the ones compared; with none
+    named, the top domains DataForSEO finds competing for the same terms are used.
+
+    This is the only tool that reads the competitor input as a comparison. The
+    Compare Domains page used to run the whole Keywords card and show the
+    discovered competitor list, ignoring the competitors it made the operator type."""
+    you = bare_domain(domain)
+    rows: list[dict] = []
+    cost = 0.0
+    problems: list[str] = []
+    named = [d for d in dict.fromkeys(bare_domain(c) for c in (competitor_list or [])) if d and d != you]
+    others = named[:max_competitors]
+    if not others:
+        found, s, c = competitors(domain, call=call); cost += c; problems += _problem(s)
+        others = [d for d in dict.fromkeys(bare_domain(r.get("what", "")) for r in found) if d and d != you][:max_competitors]
+        if not others and not problems:
+            problems.append("no competitors named, and DataForSEO found none for this domain")
+    for target, is_you in [(you, True)] + [(d, False) for d in others]:
+        r, s, c = domain_overview(target, call=call); cost += c; problems += _problem(s)
+        for row in r:
+            row = {**row, "code": "dfs.compare_domain", "domain": target}
+            if not is_you:
+                row["competitor"] = target
+            row["what"] = f"{target}{' (you)' if is_you else ''}: {row.get('what', '')}"
+            rows.append(row)
+    cost = round(cost, 4)
+    rows += _unavailable_rows("compare", "Compare Domains", problems)
+    return rows, _card_status("compare", rows, cost, problems), cost
 
 
 # ── Keywords (tools 12-16): volume, ideas, gap, competitors ──────────────────

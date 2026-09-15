@@ -169,6 +169,10 @@ const REPORT = {
     { code: "dfs.keyword_gap", what: "roof repair austin", detail: "pos 4", why: "competitor ranks", severity: "info" },
     { code: "dfs.keyword_gap", what: "metal roofing", detail: "pos 7", why: "competitor ranks", severity: "info" },
     { code: "dfs.competitor", what: "rival.com", detail: "62 shared terms", why: "same SERP", severity: "info" },
+  ],
+  compare: [
+    { code: "dfs.compare_domain", domain: "acme.com", what: "acme.com (you): 120 keywords", severity: "info" },
+    { code: "dfs.compare_domain", domain: "rival.com", competitor: "rival.com", what: "rival.com: 300 keywords", severity: "info" },
     { code: "dfs.keyword_idea", what: "gutter replacement", detail: "vol 190", why: "related", severity: "info" },
   ],
   backlinks: [
@@ -187,8 +191,20 @@ test("a view returns only its own rows", () => {
   assert.equal(gap.length, 2);
   assert.ok(gap.every((r) => r.code === "dfs.keyword_gap"));
 
-  const competitors = rowsForView(REPORT, viewById("compare-domains"));
-  assert.deepEqual(competitors.map((r) => r.what), ["rival.com"]);
+  const compared = rowsForView(REPORT, viewById("compare-domains"));
+  assert.deepEqual(compared.map((r) => r.domain ?? r.what), ["rival.com", "acme.com", "rival.com"]);
+});
+
+test("a competitor's rows show only on comparison pages", () => {
+  const withRival = {
+    rankings: [
+      { code: "dfs.domain_overview", what: "120 keywords", severity: "info" },
+      { code: "dfs.domain_overview", competitor: "rival.com", what: "rival.com: 300 keywords", severity: "info" },
+      { code: "dfs.ranked_keyword", competitor: "rival.com", what: "rival.com: \"x\" — rank #1", severity: "info" },
+    ],
+  };
+  assert.deepEqual(rowsForView(withRival, viewById("domain-overview")).map((r) => r.what), ["120 keywords"]);
+  assert.deepEqual(rowsForView(withRival, viewById("organic-rankings")), []);
 });
 
 test("a prefix view matches the whole family", () => {
@@ -224,7 +240,7 @@ test("viewCounts reports a number for every view", () => {
   const counts = viewCounts(REPORT);
   assert.equal(Object.keys(counts).length, REPORT_VIEWS.length);
   assert.equal(counts["keyword-gap"], 2);
-  assert.equal(counts["compare-domains"], 1);
+  assert.equal(counts["compare-domains"], 3);
   assert.equal(counts["position-tracking"], 0);
 });
 

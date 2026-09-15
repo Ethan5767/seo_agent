@@ -98,6 +98,7 @@ DYNAMIC_CHECKS: dict[str, list[str]] = {
     "backlink_gap": ["Domains linking to competitors, not you", "Rank", "Spam score"],
     "keywords": ["Ranked keywords", "Search volume", "Keyword gaps"],
     "rankings": ["Position tracking", "SERP features"],
+    "compare": ["Organic keywords per domain", "Estimated traffic", "Position spread"],
     "rank_trend": ["Rank movement", "Trend direction"],
     "gbp": ["GBP profile", "Reviews", "Categories", "NAP consistency"],
     "mentions": ["Web mentions", "Sentiment", "Unlinked mentions"],

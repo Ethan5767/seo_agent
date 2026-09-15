@@ -117,7 +117,7 @@ export const VIEW_TOOLS: Record<string, string[]> = {
   // keywords card; this button used to spend $0.18 on the wrong tool (D9).
   "domain-overview": ["rankings"],
   "organic-rankings": ["rankings"],
-  "compare-domains": ["keywords"],
+  "compare-domains": ["compare"],
   "keyword-gap": ["keywords"],
   "keyword-overview": ["keywords"],
   "keyword-clusters": ["keywords"],

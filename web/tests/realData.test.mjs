@@ -131,3 +131,42 @@ test("Traffic, header and modals claim nothing they did not check", () => {
   assert.match(d, /function cwvBadgeStyle\(/);
   assert.doesNotMatch(d, /<span style=\{\{ fontSize: 12, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "var\(--bad-tint\)"[^\n]*\n\s*\{projectMetrics\.onPageSeoData\.coreWebVitals/);
 });
+
+/* ── tool page inputs (operator, 2026-09-15) ────────────────────────────── */
+
+test("a tool page takes the project's domain read-only, and only the inputs its tool reads", () => {
+  const panel = code("components/dashboard/CompareInputPanel.tsx");
+  assert.match(panel, /aria-label="Project domain"/);
+  assert.doesNotMatch(panel, /aria-label="Domain"|type any domain/, "no editable domain box");
+  const d = DASH();
+  assert.match(d, /COMPETITOR_SLOTS: Record<string, 1 \| 3> = \{ "compare-domains": 3, "backlink-gap": 3, "keyword-gap": 1 \}/);
+  for (const v of ["keyword-overview", "keyword-ideas", "keyword-clusters", "search-intent", "serp-positions"]) {
+    assert.ok(new RegExp(`"${v}": (undefined|\\d)`).test(d), `${v} has no keyword input`);
+  }
+  // Keyword Gap's slot count matches keywords_card, which reads the first competitor.
+  const dfs = readFileSync(new URL("../../pipeline/scanner/dataforseo.py", import.meta.url), "utf8");
+  assert.match(dfs, /competitor = bare_domain\(\(competitor_list or \[""\]\)\[0\]\)/);
+});
+
+test("competitors and keywords typed on a page apply to that run only", () => {
+  const app = code("app/ScannerApp.tsx");
+  const trigger = app.slice(app.indexOf("async function handleTriggerScan(targetUrl: string, toolKeys?: string[], customCrawlPages?: number, competitorsOverride?: string, keywordsOverride?: string[]) {"));
+  assert.doesNotMatch(trigger.slice(0, trigger.indexOf("await run(")), /setCompetitors\(/);
+  assert.match(app, /keywords: overrideKeywords \?\? kwList/);
+});
+
+test("Compare Domains runs the comparison tool, and Domain Overview carries no competitor rows", async () => {
+  const { VIEW_TOOLS } = await import("../lib/sectionScans.ts");
+  assert.deepEqual(VIEW_TOOLS["compare-domains"], ["compare"]);
+  const server = readFileSync(new URL("../../pipeline/scanner/server.py", import.meta.url), "utf8");
+  assert.match(server, /dataforseo\.rankings\(c\.domain, c\.keywords\)\)/);
+});
+
+test("Crawl Issues is part of Site Audit, not a second page", () => {
+  const d = DASH();
+  assert.doesNotMatch(d, /label: "Crawl Issues", view: "site-crawl"/);
+  assert.match(d, /crawlControls: scanControlsFor\(crawlView as ScannableView, "Site Audit"\)/);
+  const m = code("components/dashboard/MeasureScreen.tsx");
+  assert.match(m, /\{ id: "crawl", label: "Crawl Issues" \}/);
+  assert.match(m, /auditSubTab === "crawl" && crawlIssues/);
+});

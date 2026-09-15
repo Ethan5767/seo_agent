@@ -272,7 +272,7 @@ test("exactly one nav item can be highlighted, in every mode", () => {
     { label: "Gate & Merge", stage: "gate" },
     { label: "Content Brief", content: "brief" },
     { label: "Search Queries", gsc: "queries" },
-    { label: "Crawl Issues", view: "site-crawl" },
+    { label: "Technical Checks", view: "technical" },
     { label: "Dashboard", tab: "Overview" },
   ];
   const selected = (s, item) =>

@@ -11,6 +11,11 @@ interface AuditHeroBarProps {
   liveLogs?: string[];
   report?: any;
   onSelectFix?: (issueCode: string) => void;
+  /**
+   * The run controls (Data source, pages, price) rendered in place of the plain
+   * Run button. Site Audit passes the crawl controls; the Dashboard passes none.
+   */
+  controls?: React.ReactNode;
 }
 
 export function AuditHeroBar({
@@ -22,9 +27,11 @@ export function AuditHeroBar({
   liveLogs = [],
   report,
   onSelectFix,
+  controls,
 }: AuditHeroBarProps) {
-  const [inputUrl, setInputUrl] = useState(currentDomain || "");
-  const [crawlDepth, setCrawlDepth] = useState<"single" | "site">("single");
+  // The project's domain, never a typed one: a typed site created or switched
+  // projects behind the page (operator, 2026-09-15: one project, one domain).
+  const inputUrl = currentDomain || "";
   const [showLogs, setShowLogs] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<"all" | "error" | "warn" | "ok">("all");
 
@@ -85,75 +92,43 @@ export function AuditHeroBar({
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 20 }}>🔍</span>
             <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.01em" }}>
-              Audit Any Website
+              Site Audit{inputUrl ? `: ${inputUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}` : ""}
             </h2>
           </div>
           <p style={{ margin: 0, fontSize: 13, color: "var(--ink-muted)", lineHeight: 1.5 }}>
-            Enter your website to immediately check technical SEO, Google speed, broken tags, and AI search engine visibility (AEO).
+            {inputUrl
+              ? "Crawls this project's site for technical SEO, speed, broken links, duplicates and AI search readiness. To audit another site, create a project for it."
+              : "Select or create a project to audit its site."}
           </p>
         </div>
 
-        {/* Input Form */}
-        <form onSubmit={handleSubmit} style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ position: "relative", flex: "1 1 340px" }}>
-            <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16, color: "var(--ink-muted)" }}>
-              🌐
-            </span>
-            <input
-              type="text"
-              value={inputUrl}
-              onChange={(e) => setInputUrl(e.target.value)}
-              placeholder="e.g. example.com or https://mysite.com"
-              disabled={isScanning}
+        {/* The project's domain (read-only) and how to run the audit. */}
+        {controls ? (
+          controls
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <div
+              aria-label="Project domain"
               style={{
-                width: "100%",
-                padding: "12px 14px 12px 42px",
-                fontSize: 14,
-                border: "2px solid #cbd5e1",
-                borderRadius: 8,
-                outline: "none",
-                color: "#0f172a",
-                fontWeight: 500,
-                boxSizing: "border-box",
-                background: isScanning ? "#f8fafc" : "#ffffff",
+                flex: "1 1 340px", padding: "12px 14px", fontSize: 14, border: "1px solid #cbd5e1", borderRadius: 8,
+                color: "#0f172a", fontWeight: 600, background: "#f8fafc", boxSizing: "border-box",
               }}
-            />
-          </div>
-
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            >
+              🌐 {inputUrl || "No project selected"}
+            </div>
             <button
               type="submit"
               disabled={isScanning || !inputUrl.trim()}
               style={{
-                background: isScanning ? "#94a3b8" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: 8,
-                padding: "12px 26px",
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: isScanning ? "wait" : "pointer",
-                boxShadow: isScanning ? "none" : "0 2px 6px rgba(37, 99, 235, 0.3)",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                whiteSpace: "nowrap",
+                background: isScanning || !inputUrl.trim() ? "#94a3b8" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                color: "#ffffff", border: "none", borderRadius: 8, padding: "12px 26px", fontSize: 14, fontWeight: 700,
+                cursor: isScanning ? "wait" : "pointer", whiteSpace: "nowrap",
               }}
             >
-              {isScanning ? (
-                <>
-                  <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>🔄</span>
-                  <span>Scanning Website...</span>
-                </>
-              ) : (
-                <>
-                  <span>🚀</span>
-                  <span>Run Audit</span>
-                </>
-              )}
+              {isScanning ? "Scanning…" : "Run Audit (free checks)"}
             </button>
-          </div>
-        </form>
+          </form>
+        )}
 
       </div>
 

@@ -439,7 +439,10 @@ test("Audit Hero Bar: Prominent website audit input and clear results flow exist
   assert.ok(fs.existsSync(compPath), "AuditHeroBar.tsx must exist");
   const content = fs.readFileSync(compPath, "utf-8");
 
-  assert.ok(content.includes("Audit Any Website"), "Hero audit header must exist");
+  // The audit runs on the open project's domain, shown read-only (operator,
+  // 2026-09-15): a typed "Audit Any Website" box created or switched projects.
+  assert.ok(content.includes('aria-label="Project domain"'), "the project's domain must be shown");
+  assert.ok(!content.includes("Audit Any Website") && !/<input[^>]*inputUrl/.test(content), "no typed-URL audit box");
   assert.ok(content.includes("Run Audit"), "Run audit button must exist");
   assert.ok(content.includes("Auditing"), "Scanning progress state must exist");
   assert.ok(content.includes("All Checks"), "Issues filter buttons must exist");

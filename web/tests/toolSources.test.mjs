@@ -118,7 +118,11 @@ test("the tool page wires the dropdown to both the table and the Test button", (
   const renderer = dash.slice(dash.indexOf("const view = viewById(activeView);"), dash.indexOf("<FixWithClaude", dash.indexOf("const view = viewById(activeView);")));
   assert.match(renderer, /effectiveSource\(/);
   assert.match(renderer, /rowsForView\(report, view, /);
-  assert.match(renderer, /sourceTools=/);
+  // The controls are built by shared helpers the renderer calls with its source.
+  assert.match(renderer, /scanControlsFor\(view as ScannableView\)/);
+  assert.match(renderer, /inputPanelFor\(view, source, sourceSel\?\.tools\)/);
+  const helper = dash.slice(dash.indexOf("const scanControlsFor = "), dash.indexOf("const inputPanelFor = "));
+  assert.match(helper, /sourceTools=\{sel\?\.tools\}/);
   const btn = read("web", "components", "dashboard", "SectionScanButton.tsx");
   assert.match(btn, /<select[^>]*aria-label="Data source"/);
 });

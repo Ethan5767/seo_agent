@@ -17,7 +17,8 @@ test("the generic scan selection is free tools only", () => {
 });
 
 test("run() refuses to start while a scan is in flight, and always releases", () => {
-  const start = app.indexOf("async function run(overrideUrl?: string, overrideTools?: string[], overrideCrawlPages?: number) {");
+  // The implementation signature (the overloads above it end in ";").
+  const start = app.search(/async function run\([^)]*\) \{/);
   const body = app.slice(start, app.indexOf("\n  }\n", start));
   const guard = body.indexOf("if (scanInFlight.current) return;");
   assert.ok(guard > 0, "no in-flight guard");
@@ -43,6 +44,8 @@ test("the budget badge shows sub-cent spend instead of rounding it to $0.00", as
   assert.equal(formatUsd(5), "$5.00");
   assert.equal(formatUsd(0), "$0.00");
   const dash = readFileSync(new URL("../app/ReaiDashboard.tsx", import.meta.url), "utf8");
-  assert.match(dash, /DAILY BUDGET: \{formatUsd\(spentToday\)\}/);
+  // The top-bar badge was removed at the operator's request (2026-09-15); the
+  // budget still shows in the scan drawer and settings, through formatUsd.
+  assert.match(dash, /\{formatUsd\(spent\)\} \/ \{formatUsd\(dailyCap\)\}/);
   assert.doesNotMatch(dash, /spentToday\.toFixed\(2\)/);
 });

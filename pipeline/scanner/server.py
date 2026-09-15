@@ -166,7 +166,11 @@ TOOLS = [
     Tool("Keywords (DataForSEO)", "keywords", "Keywords & Rankings", "dataforseo", "~$0.18", 0.18, None,
          lambda c: dataforseo.keywords_card(c.domain, c.keywords, c.competitors)),
     Tool("Rankings (DataForSEO)", "rankings", "Keywords & Rankings", "dataforseo", "~$0.045", 0.045, None,
+         # Your domain only. Passing competitors here mixed their overview and
+         # keywords into Domain Overview and Organic Rankings, which show one domain.
          lambda c: dataforseo.rankings(c.domain, c.keywords)),
+    Tool("Compare Domains (DataForSEO)", "compare", "Keywords & Rankings", "dataforseo", "~$0.05", 0.05, None,
+         lambda c: dataforseo.compare_domains(c.domain, c.competitors)),
     Tool("Rankings trend (DataForSEO)", "rank_trend", "Keywords & Rankings", "dataforseo", "~$0.13", 0.13, None,
          lambda c: dataforseo.historical_rank(c.domain)),
     Tool("Local / GBP (DataForSEO)", "gbp", "Local SEO", "dataforseo", "~$0.006", 0.006, None,

@@ -23,6 +23,12 @@ export interface ReportRow {
   detail?: string;
   severity?: Severity;
   pages?: string[];
+  /** Structured figures a data view renders as a dashboard rather than a row of
+   *  text — e.g. the Domain Overview position distribution, movement and trend.
+   *  Optional and free-form: only the search views that build a dashboard read it. */
+  metrics?: Record<string, unknown>;
+  /** The competitor domain a row belongs to, when a comparison tagged it. */
+  competitor?: string;
 }
 
 export interface ScanReport {

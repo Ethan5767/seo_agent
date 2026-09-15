@@ -3,6 +3,7 @@
 import React from "react";
 import { sectionById, toolsForSection, sectionCost, toolsForView, viewCost, type ToolLike } from "@/lib/sectionScans";
 import { SOURCE_LABEL, type SourceId } from "@/lib/toolSources";
+import { toolVerb } from "@/lib/toolVerbs";
 
 /**
  * "Scan this section" or "Test this tool" specifically.
@@ -79,6 +80,9 @@ export function SectionScanButton({
 
   // If this specific view has dedicated tools, scope to them; otherwise use section tools.
   const isViewScoped = Boolean(viewKeys && viewKeys.length);
+  // The word on the button and in the caption fits the tool's real action
+  // (look up / compare / find / track / measure), never a blanket "Test".
+  const action = toolVerb(viewId, viewLabel);
   const keys = isViewScoped ? viewKeys : sectionKeys;
   const cost = isViewScoped ? viewPrice : sectionPrice;
   if (!section) return null;
@@ -96,7 +100,7 @@ export function SectionScanButton({
           Create a project before auditing
         </div>
         <div style={{ fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.5, maxWidth: "68ch" }}>
-          An audit runs against a specific site, and a project is what carries the domain, the
+          A scan runs against a specific site, and a project is what carries the domain, the
           business name and the repository. {section.scope}
         </div>
         {onCreateProject && (
@@ -175,7 +179,7 @@ export function SectionScanButton({
           cursor: ready && !busy ? "pointer" : "not-allowed",
         }}
       >
-        {busy ? "Scanning…" : isViewScoped ? `Test ${viewLabel || "Tool"}` : `Scan ${section.label} only`}
+        {busy ? "Scanning…" : isViewScoped ? `${action.verb} ${action.object}` : `Scan ${section.label} only`}
       </button>
 
       {viewId === "site-crawl" && !paidOnly && (
@@ -221,21 +225,15 @@ export function SectionScanButton({
         </button>
       )}
 
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 12, color: "var(--ink-body)", lineHeight: 1.45 }}>
-          {viewId === "site-crawl"
-            ? `Audits Crawl Issues across ${selectedPages} pages: internal links, duplicate titles & descriptions, orphan pages.`
-            : isViewScoped ? `Audits ${viewLabel || "this tool"}: ${keys?.join(", ")}.` : section.scope}
-        </div>
-        <div style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 2 }}>
-          {!keys
-            ? "Tool list not loaded, so this cannot be scoped yet."
-            : paid.length === 0
-              ? `${cost?.free ?? keys.length} checks, all free.`
-              /* Each paid tool named, not a total. A total hides which one is
-                 expensive, and that is the decision the operator is making. */
-              : `${cost?.free ?? 0} free · ${paid.length} paid: ${paid.map((t) => `${t.label}${t.cost ? ` ${t.cost}` : ""}`).join(", ")}`}
-        </div>
+      {/* The price before the click (operator, 2026-09-15: "price on paid
+          buttons"). Each paid tool named, not a total: a total hides which one
+          is expensive, and that is the decision being made. */}
+      <div style={{ minWidth: 0, flex: 1, fontSize: 11.5, color: "var(--ink-muted)" }}>
+        {!keys
+          ? "Tool list not loaded, so this cannot be scoped yet."
+          : paid.length === 0
+            ? `${cost?.free ?? keys.length} checks, all free.`
+            : `${cost?.free ?? 0} free · ${paid.length} paid: ${paid.map((t) => `${t.label}${t.cost ? ` ${t.cost}` : ""}`).join(", ")}`}
       </div>
 
       {sourceBlocked && (

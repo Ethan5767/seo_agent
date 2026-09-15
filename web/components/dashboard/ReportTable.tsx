@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import type { ReportRow } from "@/lib/priorities";
-import { tallyRows, type ReportView } from "@/lib/reportViews";
+import { tallyRows, isSearchView, type ReportView } from "@/lib/reportViews";
 
 /**
  * The table every report view renders through.
@@ -51,15 +51,19 @@ const SEVERITY_TONE: Record<string, { fg: string; bg: string; border: string; la
  * rather than nothing, so the screen reads as measured-at-zero instead of
  * broken. The figures are counts of the rows themselves, never estimates.
  */
-export function ReportStats({ rows }: { rows: ReportRow[] }) {
+export function ReportStats({ rows, search }: { rows: ReportRow[]; search?: boolean }) {
   const tally = tallyRows(rows);
 
-  const cells: Array<{ label: string; value: number; tone?: string }> = [
-    { label: "Rows", value: tally.total },
-    { label: "Errors", value: tally.error, tone: "var(--bad)" },
-    { label: "Warnings", value: tally.warn, tone: "var(--warn)" },
-    { label: "Passing", value: tally.ok, tone: "var(--ok)" },
-  ];
+  // A search tool returns data, not verdicts, so it gets a single count instead
+  // of the pass/fail buckets that only make sense for an audit.
+  const cells: Array<{ label: string; value: number; tone?: string }> = search
+    ? [{ label: "Results", value: tally.total }]
+    : [
+        { label: "Rows", value: tally.total },
+        { label: "Errors", value: tally.error, tone: "var(--bad)" },
+        { label: "Warnings", value: tally.warn, tone: "var(--warn)" },
+        { label: "Passing", value: tally.ok, tone: "var(--ok)" },
+      ];
 
   return (
     <dl
@@ -120,6 +124,10 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
   const [sortKey, setSortKey] = useState<string>("severity");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(0);
+
+  // A search tool returns data, so it drops the audit "Status / Pass" column and
+  // reads as a plain data table — the way the category presents a lookup.
+  const search = isSearchView(view);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -322,18 +330,20 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
           <caption style={{ position: "absolute", left: -9999 }}>{view.blurb}</caption>
           <thead>
             <tr>
-              <th
-                scope="col"
-                style={{ ...headStyle, width: "6.5rem" }}
-                aria-sort={sortKey === "severity" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-              >
-                <SortButton
-                  label="Status"
-                  active={sortKey === "severity"}
-                  dir={sortDir}
-                  onClick={() => toggleSort("severity")}
-                />
-              </th>
+              {!search && (
+                <th
+                  scope="col"
+                  style={{ ...headStyle, width: "6.5rem" }}
+                  aria-sort={sortKey === "severity" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <SortButton
+                    label="Status"
+                    active={sortKey === "severity"}
+                    dir={sortDir}
+                    onClick={() => toggleSort("severity")}
+                  />
+                </th>
+              )}
               {anyAffected && (
                 <th
                   scope="col"
@@ -375,23 +385,25 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
               const tone = SEVERITY_TONE[row.severity || "info"] ?? SEVERITY_TONE.info;
               return (
                 <tr key={`${row.code}-${row.what}-${i}`}>
-                  <td style={cellStyle}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        padding: "1px 7px",
-                        borderRadius: "var(--radius-xs)",
-                        color: tone.fg,
-                        background: tone.bg,
-                        border: `1px solid ${tone.border}`,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {tone.label}
-                    </span>
-                  </td>
+                  {!search && (
+                    <td style={cellStyle}>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          padding: "1px 7px",
+                          borderRadius: "var(--radius-xs)",
+                          color: tone.fg,
+                          background: tone.bg,
+                          border: `1px solid ${tone.border}`,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {tone.label}
+                      </span>
+                    </td>
+                  )}
                   {anyAffected && (
                     <td style={{ ...cellStyle, textAlign: "right", fontVariantNumeric: "tabular-nums",
                                  color: "var(--ink-muted)", whiteSpace: "nowrap" }}>

@@ -86,7 +86,7 @@ export function FixWithClaude({
           disabled={busy || none}
           title={none ? "Nothing is failing, so there is nothing to fix" : "Send these findings to Claude"}
           style={{
-            background: none ? "#e2e8f0" : "#4f46e5",
+            background: none ? "var(--border)" : "var(--accent)",
             color: none ? "var(--ink-muted)" : "#fff",
             border: 0, borderRadius: 6, padding: "8px 14px",
             fontSize: 12.5, fontWeight: 700,
@@ -115,7 +115,7 @@ export function FixWithClaude({
       </div>
 
       {err && (
-        <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 6, border: "1px solid #fecaca", background: "#fef2f2", fontSize: 12, color: "#991b1b" }}>
+        <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 6, border: "1px solid #fecaca", background: "var(--bad-tint)", fontSize: 12, color: "#991b1b" }}>
           {err}
         </div>
       )}
@@ -123,7 +123,7 @@ export function FixWithClaude({
       {(out || busy) && (
         <pre style={{
           marginTop: 10, padding: "14px 16px", borderRadius: 8,
-          border: "1px solid #e2e8f0", background: "#0f172a", color: "#e2e8f0",
+          border: "1px solid #e2e8f0", background: "var(--ink)", color: "var(--border)",
           fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
           maxHeight: 460, overflowY: "auto", fontFamily: "ui-monospace, SFMono-Regular, monospace",
         }}>
@@ -136,5 +136,5 @@ export function FixWithClaude({
 
 const linkBtn: React.CSSProperties = {
   background: "none", border: "none", padding: 0,
-  fontSize: 11.5, color: "#4f46e5", cursor: "pointer", fontWeight: 600,
+  fontSize: 11.5, color: "var(--accent)", cursor: "pointer", fontWeight: 600,
 };

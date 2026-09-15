@@ -85,10 +85,14 @@ export const REPORT_VIEWS: ReportView[] = [
     id: "domain-overview",
     section: "SEO",
     label: "Domain Overview",
+    // Ranked keywords come along so the dashboard can list the domain's top
+    // terms under the headline figures, the way the category presents it.
+    // The top-keywords list under the figures reads Organic Rankings' rows
+    // (ReaiDashboard passes them in); a code belongs to one view.
     codes: ["dfs.domain_overview"],
     blurb: "Headline organic figures for the domain, as reported by DataForSEO.",
     columns: FINDING_COLUMNS,
-    emptyHint: "Run a scan with the Keywords tool enabled; the domain overview comes with it.",
+    emptyHint: "Press Look up to fetch this domain's overview.",
   },
   {
     id: "organic-rankings",
@@ -103,10 +107,14 @@ export const REPORT_VIEWS: ReportView[] = [
     id: "compare-domains",
     section: "SEO",
     label: "Compare Domains",
-    codes: ["dfs.competitor"],
-    blurb: "Domains competing for the same organic terms, discovered from the SERP.",
-    columns: KEYWORD_COLUMNS,
-    emptyHint: "Run a scan with the Keywords tool enabled; competitors come with it.",
+    // One overview row per domain from the Compare Domains tool: yours, then up to
+    // three competitors (the ones you name, or the top ones DataForSEO finds).
+    // Plus the domains DataForSEO lists as competing for your terms, when the
+    // Keywords card ran.
+    codes: ["dfs.compare_domain", "dfs.competitor"],
+    blurb: "Your domain's organic figures next to up to three competitors'.",
+    columns: FINDING_COLUMNS,
+    emptyHint: "Press Compare. Name up to three competitors, or leave them empty to compare against the top ones DataForSEO finds.",
   },
   {
     id: "keyword-gap",
@@ -185,7 +193,7 @@ export const REPORT_VIEWS: ReportView[] = [
     blurb:
       "Sites that link to your competitors but not to you, highest rank first. They already link in your space, so they are the likeliest to link to you.",
     columns: FINDING_COLUMNS,
-    emptyHint: "Press Test. It uses the project's competitors, or finds them when the project has none.",
+    emptyHint: "Press Find. It uses the competitors you name, or finds them when you name none.",
   },
   {
     id: "site-crawl",
@@ -370,6 +378,31 @@ export const REPORT_VIEWS: ReportView[] = [
   },
 ];
 
+/**
+ * Search tools vs audit tools.
+ *
+ * An audit tool measures the site against a standard and its rows pass or fail:
+ * "Errors / Warnings / Passing" is the honest summary. A search tool returns
+ * data — keywords, competitors, rankings, referring domains — where no row is a
+ * defect, so that same strip reads as nonsense ("Passing 1" for a domain that
+ * simply ranks for 128 terms). Classified by what the tool DOES, not by which
+ * columns it happens to reuse: Domain Overview, Backlinks and Backlink Gap wear
+ * the finding columns but are lookups, so they belong here.
+ */
+/** Views whose rows compare the project with competitors. */
+export const COMPARISON_VIEW_IDS = new Set<string>(["compare-domains", "keyword-gap", "backlink-gap"]);
+
+export const SEARCH_VIEW_IDS = new Set<string>([
+  "position-tracking", "domain-overview", "organic-rankings", "compare-domains",
+  "keyword-gap", "keyword-overview", "keyword-clusters", "keyword-ideas",
+  "search-intent", "serp-positions", "ai-mentions", "backlinks", "backlink-gap",
+]);
+
+/** True when a view returns data to read, not findings to fix. */
+export function isSearchView(view: ReportView | null | undefined): boolean {
+  return Boolean(view && SEARCH_VIEW_IDS.has(view.id));
+}
+
 export interface RowTally {
   total: number;
   error: number;
@@ -493,10 +526,16 @@ export function rowsForView(
   // did not run" as a tracked keyword, twice.
   const unavailable = new Set((source?.tools ?? []).map((k) => `unavailable.${k}`));
 
+  // A competitor's row belongs on a comparison page only. Rows tagged with a
+  // `competitor` (a competitor's overview or keywords) were listed as the
+  // project's own on Domain Overview and Organic Rankings.
+  const allowCompetitorRows = COMPARISON_VIEW_IDS.has(view.id);
+
   for (const [key, value] of Object.entries(report)) {
     if (NON_GROUP_KEYS.has(key) || !Array.isArray(value)) continue;
     for (const row of value as ReportRow[]) {
       if (!row || typeof row !== "object") continue;
+      if (!allowCompetitorRows && (row as any).competitor) continue;
       const code = typeof row.code === "string" ? row.code : "";
       if (!code || !(unavailable.has(code) || codes.some((p) => matchesCode(code, p)))) continue;
       // A card can file several reasons under one code and label; key on the

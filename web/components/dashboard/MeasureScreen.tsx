@@ -24,7 +24,7 @@ import {
   CrawledPagesBar,
 } from "@/components/dashboard/primitives";
 
-type AuditSubTab = "summary" | "all_checks" | "progress" | "remediation";
+type AuditSubTab = "summary" | "all_checks" | "crawl" | "progress" | "remediation";
 
 export interface MeasureScreenProps {
   report: any;
@@ -61,6 +61,11 @@ export interface MeasureScreenProps {
    * it measures and displays, and the caller decides what to offer next.
    */
   footer?: React.ReactNode;
+  /** Crawl controls (Data source, pages, price) for the audit bar. Site Audit
+   *  and Crawl Issues were two pages crawling the same site; they are one now. */
+  crawlControls?: React.ReactNode;
+  /** The crawl issues table, shown under the "Crawl Issues" tab. */
+  crawlIssues?: React.ReactNode;
   setAuditSeverityFilter: (sev: CheckSeverityFilter) => void;
   setActiveTab: (tab: ReaiTab) => void;
   planState?: {
@@ -177,6 +182,8 @@ export function MeasureScreen({
   setAuditCategoryFilter,
   auditSeverityFilter,
   footer,
+  crawlControls,
+  crawlIssues,
   setAuditSeverityFilter,
   setActiveTab,
   planState,
@@ -187,6 +194,7 @@ export function MeasureScreen({
       {/* ── UNIFIED WEBSITE AUDIT INPUT BAR & PROGRESS ── */}
       <AuditHeroBar
         currentDomain={currentDomain}
+        controls={crawlControls}
         onRunAudit={(url) => {
           if (onRunAudit) onRunAudit(url);
         }}
@@ -207,6 +215,7 @@ export function MeasureScreen({
           {[
             { id: "summary", label: "Executive Summary & Issues" },
             { id: "all_checks", label: "All Technical Checks (Full Report)" },
+            ...(crawlIssues ? [{ id: "crawl", label: "Crawl Issues" }] : []),
             { id: "progress", label: "Crawl History & Timeline" },
           ].map((st) => (
             <button
@@ -215,7 +224,7 @@ export function MeasureScreen({
               onClick={() => onSubTabChange(st.id as any)}
               style={{
                 background: auditSubTab === st.id ? "var(--ink-body)" : "var(--surface)",
-                color: auditSubTab === st.id ? "var(--surface)" : "#475569",
+                color: auditSubTab === st.id ? "var(--surface)" : "var(--ink-muted)",
                 border: "1px solid",
                 borderColor: auditSubTab === st.id ? "var(--ink-body)" : "var(--border)",
                 borderRadius: 6, padding: "7px 16px",
@@ -296,7 +305,7 @@ export function MeasureScreen({
                   <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
                     Thematic Measure Checking Tool
                   </h4>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 4 }}>
                     Technical SEO + AEO
                   </span>
                 </div>
@@ -579,6 +588,8 @@ export function MeasureScreen({
       })()}
 
       {/* Sub-tab: Crawl History & Progress Timeline */}
+      {auditSubTab === "crawl" && crawlIssues}
+
       {auditSubTab === "progress" && (() => {
         const historicalSnapshots: any[] = [
           // Was a hardcoded fixture: past crawl scores. Real values come from
@@ -622,7 +633,7 @@ export function MeasureScreen({
                   type="button"
                   onClick={() => setShowExecutiveReportModal(true)}
                   style={{
-                    background: "var(--info-tint)", border: "1px solid var(--info-border)", color: "#1d4ed8",
+                    background: "var(--info-tint)", border: "1px solid var(--info-border)", color: "var(--info)",
                     borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600,
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
                   }}
@@ -657,7 +668,7 @@ export function MeasureScreen({
                   {i === 2 && (
                     <span style={{
                       position: "absolute", top: 12, right: 14, fontSize: 12, fontWeight: 800,
-                      color: "#047857", background: "#d1fae5", padding: "2px 7px", borderRadius: 4,
+                      color: "var(--ok)", background: "#d1fae5", padding: "2px 7px", borderRadius: 4,
                     }}>
                       ACTIVE TODAY
                     </span>
@@ -682,11 +693,11 @@ export function MeasureScreen({
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, textAlign: "center", marginBottom: 10 }}>
                     <div style={{ background: "var(--bad-tint)", borderRadius: 6, padding: "6px 4px" }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: snap.errors > 0 ? "#b91c1c" : "var(--ok)" }}>{snap.errors}</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: snap.errors > 0 ? "var(--bad)" : "var(--ok)" }}>{snap.errors}</div>
                       <div style={{ fontSize: 12, color: "#991b1b", fontWeight: 600 }}>Errors</div>
                     </div>
                     <div style={{ background: "var(--warn-tint)", borderRadius: 6, padding: "6px 4px" }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: "#b45309" }}>{snap.warns}</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "var(--warn)" }}>{snap.warns}</div>
                       <div style={{ fontSize: 12, color: "#92400e", fontWeight: 600 }}>Warnings</div>
                     </div>
                     <div style={{ background: "var(--surface-3)", borderRadius: 6, padding: "6px 4px" }}>
@@ -695,7 +706,7 @@ export function MeasureScreen({
                     </div>
                   </div>
 
-                  <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.4, marginTop: "auto" }}>
+                  <div style={{ fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.4, marginTop: "auto" }}>
                     {snap.summary}
                   </div>
                 </div>
@@ -784,12 +795,12 @@ export function MeasureScreen({
                               <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>{diff.category}</div>
                             </td>
                             <td style={{ padding: "11px 14px" }}>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: "#b91c1c", background: "var(--bad-tint)", padding: "2px 7px", borderRadius: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--bad)", background: "var(--bad-tint)", padding: "2px 7px", borderRadius: 4 }}>
                                 {diff.baseline}
                               </span>
                             </td>
                             <td style={{ padding: "11px 14px" }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "var(--ok-tint)", padding: "2px 7px", borderRadius: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", padding: "2px 7px", borderRadius: 4 }}>
                                 {diff.current}
                               </span>
                             </td>

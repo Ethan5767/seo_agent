@@ -8,6 +8,12 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **A DataForSEO-only Test no longer runs our free crawl first.** Crawl Issues on
+  DataForSEO used to fetch 25 pages itself (1.5-2 min) before Site Health started,
+  for rows the page hides. Such Tests send `crawl_pages: 1`, the Pages dropdown is
+  hidden, and the operator's saved page count is untouched. Measured earlier the
+  same day: Site Health alone on 10 pages took 38 s end to end.
+
 - **The daily budget counts spend the browser never saved (B-120).** Scans are
   reserved at admission, metered from the stream, and an abandoned scan keeps its
   full estimate; concurrent scans see each other. In-process, so a web server

@@ -215,3 +215,12 @@ test("Backlink Gap is a real tool page on DataForSEO, not the old empty tab (B-1
 test("Backlink Audit only waits for rows a scan can produce (B-115)", () => {
   assert.deepEqual(viewById("backlink-audit").codes, ["dfs.broken_backlinks"]);
 });
+
+
+test("a DataForSEO-only Test skips our free crawl and does not change the page default", () => {
+  const btn = read("web", "components", "dashboard", "SectionScanButton.tsx");
+  assert.match(btn, /if \(paidOnly && onCrawlScan\) \{[\s\S]{0,300}onCrawlScan\(domain, keys, 1\)/);
+  assert.match(btn, /viewId === "site-crawl" && !paidOnly/);
+  const app = read("web", "app", "ScannerApp.tsx");
+  assert.match(app, /customCrawlPages === "number" && customCrawlPages > 1/);
+});

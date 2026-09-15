@@ -119,6 +119,8 @@ export function SectionScanButton({
   }
 
   const ready = Boolean(keys && keys.length) && !sourceBlocked;
+  const paidOnly = Boolean(keys && keys.length) &&
+    keys!.every((k) => (tools ?? []).find((t) => t.key === k)?.group === "dataforseo");
   const paid = cost?.paid ?? [];
 
   return (
@@ -153,7 +155,12 @@ export function SectionScanButton({
         disabled={!ready || busy}
         onClick={() => {
           if (ready && keys) {
-            if (viewId === "site-crawl" && onCrawlScan) {
+            if (paidOnly && onCrawlScan) {
+              // Every tool this Test runs is DataForSEO, which crawls on its own
+              // servers. Our free multi-page crawl would add 1.5-2 minutes (25
+              // pages) for rows this page does not show.
+              onCrawlScan(domain, keys, 1);
+            } else if (viewId === "site-crawl" && onCrawlScan) {
               onCrawlScan(domain, keys, selectedPages);
             } else {
               onScan(domain, keys);
@@ -171,7 +178,7 @@ export function SectionScanButton({
         {busy ? "Scanning…" : isViewScoped ? `Test ${viewLabel || "Tool"}` : `Scan ${section.label} only`}
       </button>
 
-      {viewId === "site-crawl" && (
+      {viewId === "site-crawl" && !paidOnly && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <label htmlFor="crawl-depth-select" style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>
             Pages:

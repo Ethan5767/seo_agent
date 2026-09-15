@@ -745,7 +745,10 @@ function Scanner({ initialTab }: { initialTab?: any }) {
   async function handleTriggerScan(targetUrl: string, toolKeys?: string[], customCrawlPages?: number) {
     const cleanUrl = targetUrl.trim();
     setUrl(cleanUrl);
-    if (typeof customCrawlPages === "number") {
+    // Remember a page count the operator chose (the dropdown offers 2-25). A 1
+    // is a per-scan "no free crawl" for DataForSEO-only Tests, and must not
+    // become the default for the next scan.
+    if (typeof customCrawlPages === "number" && customCrawlPages > 1) {
       setCrawlPages(customCrawlPages);
     }
     await run(cleanUrl, toolKeys, customCrawlPages);

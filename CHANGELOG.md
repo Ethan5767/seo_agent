@@ -8,6 +8,20 @@ see `CLAUDE.md` (the sync contract).
 
 ### Added
 
+- **Charts on every tool page, not only the Dashboard.** Each report view opens
+  on charts of its own rows (`lib/viewCharts.ts`, `components/dashboard/ViewCharts.tsx`):
+  keyword pages get position distribution, top search volume, difficulty bands and
+  intent; Compare Domains gets keywords and traffic per domain; Backlinks and
+  Backlink Audit get the link profile and working vs broken; Backlink Gap gets link
+  counts and spam scores; Core Web Vitals gets the four Lighthouse gauges; every
+  findings page (Technical, On-Page, Content, Video, Local, Trust, AI checks) gets
+  the check-result donut and the most frequent issues. Site Audit's Crawl Issues
+  tab, Domain Overview, the Search Console pages (clicks/impressions trend, top by
+  clicks and impressions, device donuts) and GA4 (sessions trend, channel donut,
+  top organic landing pages) too. A page with no rows says so; nothing is
+  estimated. Replaces the search-only `SearchCharts`. `web/tests/viewCharts.test.mjs`
+  (5). `npm test` → 533 passed.
+
 - **SEO Dashboard charts on the Overview page.** Monitoring cards drawn from the
   project's saved scans and the open report, no chart library: Site Audit (health
   gauge, errors/warnings, checks bar, pages crawled), Site Health Trend (line over

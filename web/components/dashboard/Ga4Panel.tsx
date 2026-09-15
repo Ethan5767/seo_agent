@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { authedFetch } from "@/lib/authedFetch";
 import type { Ga4Property, Ga4Report, Ga4Row } from "@/lib/ga4";
+import { ChartCard, TrendChart, Donut, DistributionBars } from "@/components/dashboard/Charts";
 
 /**
  * Google Analytics 4 for the project's own property.
@@ -103,33 +104,6 @@ function RowsTable({ title, rows, dimension, dimensionLabel }: { title: string; 
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function DailyBars({ daily }: { daily: Ga4Row[] }) {
-  const max = Math.max(1, ...daily.map((d) => Number(d.sessions) || 0));
-  return (
-    <section style={{ ...box, marginBottom: "var(--space-4)", padding: "var(--space-3) var(--space-4)" }}>
-      <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", margin: "0 0 var(--space-3)" }}>Sessions per day</h2>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 96 }} aria-label="Sessions per day">
-        {daily.map((d) => {
-          const v = Number(d.sessions) || 0;
-          return (
-            <div
-              key={String(d.date)}
-              title={`${d.date}: ${v.toLocaleString()} sessions, ${num(d.activeUsers)} users`}
-              style={{ flex: 1, minWidth: 2, height: `${Math.max(2, (v / max) * 100)}%`, background: "var(--accent)", borderRadius: 2, opacity: 0.85 }}
-            />
-          );
-        })}
-      </div>
-      {daily.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-muted)", marginTop: "var(--space-1)" }}>
-          <span>{String(daily[0].date)}</span>
-          <span>{String(daily[daily.length - 1].date)}</span>
         </div>
       )}
     </section>
@@ -275,7 +249,17 @@ export function Ga4Panel({ domain, onConnect }: Ga4PanelProps) {
 
       {report && (
         <>
-          <DailyBars daily={report.daily} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
+            <ChartCard title="Sessions per day" span={2}>
+              <TrendChart points={report.daily.map((d) => ({ label: String(d.date).slice(5), value: Number(d.sessions) || 0 }))} height={140} empty="Not enough days recorded." />
+            </ChartCard>
+            <ChartCard title="Sessions by channel">
+              <Donut segments={report.channels.slice(0, 6).map((c, i) => ({ label: String(c.sessionDefaultChannelGroup), value: Number(c.sessions) || 0, color: ["var(--accent)", "var(--ok)", "var(--warn)", "var(--bad)", "#0ea5e9", "var(--ink-faint)"][i] }))} />
+            </ChartCard>
+            <ChartCard title="Top organic landing pages" subtitle="sessions">
+              <DistributionBars items={report.organicLandingPages.slice(0, 8).map((r) => ({ label: String(r.landingPagePlusQueryString), value: Number(r.sessions) || 0 }))} empty="No organic search sessions recorded." />
+            </ChartCard>
+          </div>
           <RowsTable title="Traffic channels" rows={report.channels} dimension="sessionDefaultChannelGroup" dimensionLabel="Channel" />
           <RowsTable title="Organic search landing pages" rows={report.organicLandingPages} dimension="landingPagePlusQueryString" dimensionLabel="Landing page" />
           <RowsTable title="All landing pages" rows={report.landingPages} dimension="landingPagePlusQueryString" dimensionLabel="Landing page" />

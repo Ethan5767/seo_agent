@@ -32,6 +32,7 @@ import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
 import { GscPanel } from "@/components/dashboard/GscPanel";
 import { SeoDashboard, SiteAuditCharts } from "@/components/dashboard/SeoDashboard";
+import { ViewCharts } from "@/components/dashboard/ViewCharts";
 import { Ga4Panel } from "@/components/dashboard/Ga4Panel";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
@@ -46,7 +47,6 @@ import { GbpMatrix } from "@/components/dashboard/GbpMatrix";
 import { SectionScanButton } from "@/components/dashboard/SectionScanButton";
 import { CompareInputPanel } from "@/components/dashboard/CompareInputPanel";
 import { DomainOverviewDashboard } from "@/components/dashboard/DomainOverviewDashboard";
-import { SearchCharts } from "@/components/dashboard/SearchCharts";
 import { toolVerb } from "@/lib/toolVerbs";
 import { toolsForView } from "@/lib/sectionScans";
 import { formatUsd } from "@/lib/budget";
@@ -3940,14 +3940,21 @@ export function ReaiDashboard({
                     // The one search tool built out as a full dashboard: cards,
                     // position distribution, movement, trend and top keywords,
                     // from the metrics the scanner now attaches to the row.
-                    <DomainOverviewDashboard rows={[...rows, ...rowsForView(report, viewById("organic-rankings")!)]} />
+                    <>
+                      {/* Charts of the domain's ranked keywords, which older scans
+                          have even without the detailed overview metrics. */}
+                      <ViewCharts viewId="organic-rankings" label="Domain Overview" rows={rowsForView(report, viewById("organic-rankings")!) as any} report={report} />
+                      <DomainOverviewDashboard rows={[...rows, ...rowsForView(report, viewById("organic-rankings")!)]} />
+                    </>
                   ) : (
                     <>
                       <ReportStats rows={rows} search={isSearchView(view)} />
                       {/* Every search view gets charts above its table when its
                           rows carry rank/volume — a picture first, then the data.
                           Renders nothing when there is nothing to plot. */}
-                      {isSearchView(view) && <SearchCharts rows={rows} />}
+                      {/* Every tool page opens on charts of its own rows (operator,
+                          2026-09-15: "every overview"), then the table. */}
+                      <ViewCharts viewId={view.id} label={view.label} rows={rows as any} report={report} />
                       {/* No empty-state "Run an audit" button here: it navigated
                           to the Site Health screen instead of running this tool,
                           and every view already carries its own correctly-worded
@@ -6687,6 +6694,7 @@ export function ReaiDashboard({
                   crawlControls: scanControlsFor(crawlView as ScannableView, "Site Audit"),
                   crawlIssues: (
                     <div>
+                      <ViewCharts viewId="site-crawl" label="Crawl Issues" rows={crawlRows as any} report={report} />
                       <ReportStats rows={crawlRows} />
                       <ReportTable view={crawlView} rows={crawlRows} />
                     </div>

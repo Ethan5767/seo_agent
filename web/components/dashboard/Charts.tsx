@@ -269,8 +269,8 @@ export function DistributionBars({ items, color = "var(--accent)", empty }: { it
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {items.map((it) => (
-        <div key={it.label} style={{ display: "grid", gridTemplateColumns: "56px 1fr 34px", alignItems: "center", gap: 8, fontSize: 12.5 }}>
-          <span style={{ color: "var(--ink-muted)" }}>{it.label}</span>
+        <div key={it.label} style={{ display: "grid", gridTemplateColumns: "minmax(56px, 38%) 1fr auto", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+          <span title={it.label} style={{ color: "var(--ink-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
           <span style={{ height: 10, background: "var(--surface-3)", borderRadius: 5, overflow: "hidden" }}>
             <span style={{ display: "block", height: "100%", width: `${(it.value / max) * 100}%`, background: color, borderRadius: 5 }} />
           </span>

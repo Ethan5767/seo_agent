@@ -170,3 +170,10 @@ test("Crawl Issues is part of Site Audit, not a second page", () => {
   assert.match(m, /\{ id: "crawl", label: "Crawl Issues" \}/);
   assert.match(m, /auditSubTab === "crawl" && crawlIssues/);
 });
+
+test("competitors start as one row, and + adds the next up to the tool's limit", () => {
+  const panel = code("components/dashboard/CompareInputPanel.tsx");
+  assert.match(panel, /setCompetitors\(competitorSlots \? \[defaultCompetitors\[0\] \?\? ""\] : \[\]\)/, "one row to start");
+  assert.match(panel, /competitorSlots > 1 && competitors\.length < competitorSlots/, "+ only while under the limit");
+  assert.match(panel, /\+ Add competitor/);
+});

@@ -18,6 +18,10 @@ see `CLAUDE.md` (the sync contract).
   work found in this worktree (DomainOverviewDashboard, SearchCharts, costReport,
   toolVerbs). `npm test` → 521 passed; `pytest -q` → 1350 passed, 2 skipped.
 
+- **Competitor inputs start as one row** with "+ Add competitor" revealing the next,
+  up to the tool's limit (3 on Compare Domains and Backlink Gap; Keyword Gap stays
+  at one, no + button). `npm test` → 522 passed.
+
 ### Fixed (fake-data sweep, part 2)
 
 - **The dashboard shows only measured results (B-142).** Auto-Fix renders the

@@ -67,9 +67,14 @@ export function CompareInputPanel({
   // Prefill from the project, and again when the project changes.
   const compKey = defaultCompetitors.join("|");
   const kwKey = defaultKeywords.join("|");
+  // One competitor row to start; "+ Add competitor" reveals the next, up to
+  // what the tool reads (operator, 2026-09-15: not all at once).
   React.useEffect(() => {
-    setCompetitors(Array.from({ length: competitorSlots }, (_, i) => defaultCompetitors[i] ?? ""));
+    setCompetitors(competitorSlots ? [defaultCompetitors[0] ?? ""] : []);
   }, [compKey, competitorSlots, domain]); // eslint-disable-line react-hooks/exhaustive-deps
+  const addCompetitor = () =>
+    setCompetitors((prev) => (prev.length < competitorSlots ? [...prev, defaultCompetitors[prev.length] ?? ""] : prev));
+  const removeCompetitor = (i: number) => setCompetitors((prev) => prev.filter((_, j) => j !== i));
   React.useEffect(() => {
     setKeywords(defaultKeywords.join(", "));
   }, [kwKey, domain]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -129,16 +134,24 @@ export function CompareInputPanel({
 
           {competitors.map((c, i) => (
             <div key={i} style={fieldRow}>
-              <span style={{ ...tag, background: "var(--surface-3)", color: "var(--ink-muted)" }}>{competitorSlots === 1 ? "vs" : `vs ${i + 1}`}</span>
+              <span style={{ ...tag, background: "var(--surface-3)", color: "var(--ink-muted)" }}>{competitors.length === 1 ? "vs" : `vs ${i + 1}`}</span>
               <input
                 type="text" inputMode="url" value={c} disabled={busy}
-                placeholder={competitorSlots === 1 ? "Competitor domain (optional)" : `Competitor ${i + 1} (optional)`}
+                placeholder="Competitor domain (optional)"
                 aria-label={`Competitor domain ${i + 1}`}
                 onChange={(e) => setCompetitors((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
                 onKeyDown={onEnter} style={input}
               />
+              {i > 0 && (
+                <button type="button" onClick={() => removeCompetitor(i)} disabled={busy} aria-label={`Remove competitor ${i + 1}`} style={removeBtn}>×</button>
+              )}
             </div>
           ))}
+          {competitorSlots > 1 && competitors.length < competitorSlots && (
+            <button type="button" onClick={addCompetitor} disabled={busy} style={{ ...linkBtn, alignSelf: "flex-start", marginLeft: 56 }}>
+              + Add competitor
+            </button>
+          )}
 
           {keywordInput && (
             <div style={{ ...fieldRow, alignItems: "flex-start" }}>
@@ -164,7 +177,7 @@ export function CompareInputPanel({
         <p style={hint}>
           {price ? `Paid: ${price}.` : "Free."}
           {competitorSlots === 1 && " Leave the competitor empty to use the top one DataForSEO finds."}
-          {competitorSlots === 3 && " Leave competitors empty to use the top ones DataForSEO finds."}
+          {competitorSlots === 3 && " Add up to 3 competitors, or leave them empty to use the top ones DataForSEO finds."}
           {keywordInput && ` Prefilled from the project's keywords${keywordLimit ? `; the first ${keywordLimit} are checked` : ""}.`}
         </p>
 
@@ -207,6 +220,11 @@ const input: React.CSSProperties = {
 };
 const linkBtn: React.CSSProperties = {
   flexShrink: 0, border: 0, background: "transparent", color: "var(--accent)", fontSize: "var(--text-sm)", fontWeight: 600, cursor: "pointer", padding: 0,
+};
+const removeBtn: React.CSSProperties = {
+  flexShrink: 0, width: 30, height: 30, display: "inline-flex", alignItems: "center", justifyContent: "center",
+  border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)",
+  color: "var(--ink-muted)", fontSize: 18, lineHeight: 1, cursor: "pointer",
 };
 const hint: React.CSSProperties = {
   textAlign: "center", fontSize: "var(--text-xs)", color: "var(--ink-faint)",

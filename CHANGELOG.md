@@ -8,6 +8,12 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **The daily budget counts spend the browser never saved (B-120).** Scans are
+  reserved at admission, metered from the stream, and an abandoned scan keeps its
+  full estimate; concurrent scans see each other. In-process, so a web server
+  restart falls back to saved scans. `npm test` → 492 tests, 491 pass (other
+  session's top-bar edit is the one failure).
+
 - **Plan no longer calls a finding fixed when its tool did not run (B-121).** It
   stays on the worklist, marked "not re-checked in this scan". `pytest -q` → 1342
   passed; `npm test` → 486 tests, 485 pass (the remaining failure is another

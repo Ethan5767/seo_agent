@@ -12,6 +12,7 @@ import {
 } from "@/lib/server-security";
 import { applyBudget, dailyBudgetUsd } from "@/lib/budget";
 import { scannerPost, PYTHON_API, ScannerUnconfigured } from "@/lib/scannerFetch";
+import { effectiveSpent, meterStream, reserve, settle } from "@/lib/spendLedger";
 
 
 /**
@@ -55,7 +56,8 @@ export async function GET(req: NextRequest) {
   }
   const budget = dailyBudgetUsd();
   const db = getScopedDb(auth.user, auth.token);
-  const { spent, degraded } = await spentTodayUsd(db, budget);
+  const { spent: saved, degraded } = await spentTodayUsd(db, budget);
+  const spent = effectiveSpent(auth.user.id, saved);
   return NextResponse.json({
     budget,
     spentToday: spent,
@@ -109,7 +111,9 @@ export async function POST(req: NextRequest) {
   // and keyword screen. A full paid run is about $0.52; the cap is a daily
   // ceiling, not a ban.
   const budget = dailyBudgetUsd();
-  const { spent, degraded } = await spentTodayUsd(getScopedDb(auth.user, auth.token), budget);
+  const { spent: saved, degraded } = await spentTodayUsd(getScopedDb(auth.user, auth.token), budget);
+  // B-120: saved scans alone missed abandoned, failed and concurrent scans.
+  const spent = effectiveSpent(auth.user.id, saved);
   const decision = applyBudget(
     Array.isArray(parsed.tools) ? parsed.tools : undefined,
     spent,
@@ -141,11 +145,16 @@ export async function POST(req: NextRequest) {
   }
 
   const bodyToSend = JSON.stringify(parsed);
+  // Held from this moment, so a concurrent scan is admitted against it.
+  const ledgerId = reserve(auth.user.id, decision.estimatedCost);
 
   try {
     const res = await scannerPost("/scan", bodyToSend);
-    // Pass the ndjson stream straight through so the browser gets live events.
-    return new NextResponse(res.body, {
+    // Pass the ndjson stream through, counting the cost each finished tool
+    // reports. The stream's end settles the real cost; a client that leaves
+    // early keeps the full estimate held, because the scanner keeps spending.
+    const body = meterStream(res.body, ledgerId);
+    return new NextResponse(body, {
       status: res.status,
       headers: {
         "Content-Type": "application/x-ndjson",
@@ -160,6 +169,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (e) {
+    settle(ledgerId, 0, true); // nothing reached the scanner, nothing was spent
     return NextResponse.json(
       { error: e instanceof ScannerUnconfigured ? e.message : `backend unreachable at ${PYTHON_API} — is wf-scan-web running? (${e})` },
       // 503, not 200: a success status on a failed scan is what let the browser

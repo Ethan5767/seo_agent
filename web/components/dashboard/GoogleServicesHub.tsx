@@ -74,10 +74,10 @@ export function GoogleServicesHub({ compact = false, onStatusChange }: GoogleSer
       setCurrentPath(window.location.pathname);
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get("connected") === "google_unified") {
-        setJustConnectedMsg("Google Services connected successfully! Search Console, Analytics & Business Profile are active.");
+        setJustConnectedMsg("Google sign-in finished. Each card below shows what Google answered.");
         setTimeout(() => setJustConnectedMsg(null), 6000);
       } else if (urlParams.get("connected") === "gbp_secondary") {
-        setJustConnectedMsg("Secondary Google Account for Local Business Profile connected successfully!");
+        setJustConnectedMsg("Secondary Google sign-in finished. Open Local to see what Business Profile answered.");
         setTimeout(() => setJustConnectedMsg(null), 6000);
       }
     }

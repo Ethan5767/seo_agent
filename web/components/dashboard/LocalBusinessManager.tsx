@@ -19,29 +19,51 @@ interface SpecialHour {
   closeTime?: string;
 }
 
+/** As `/api/local-seo/reviews` sends it. The UI read authorName/rating/replyText, none of which exist. */
 interface Review {
   id: string;
-  authorName: string;
-  rating: number;
-  createTime: string;
-  comment: string;
-  replyText?: string;
-  replyTime?: string;
-  sentiment: "positive" | "neutral" | "negative";
+  reviewer: string | null;
+  /** Google's enum ("ONE".."FIVE"). */
+  starRating: string | null;
+  createTime: string | null;
+  comment: string | null;
+  reply: string | null;
+  replyTime: string | null;
 }
 
+/** As `/api/local-seo/posts` sends it. Google's list call returns no view or click counts. */
 interface GooglePost {
-  id: string;
-  topicType: "STANDARD" | "OFFER" | "EVENT";
-  summary: string;
-  callToAction?: {
-    actionType: "LEARN_MORE" | "CALL" | "BOOK" | "ORDER";
-    url?: string;
-  };
-  createTime: string;
-  state: "LIVE" | "PROCESSING" | "EXPIRED";
-  viewsCount: number;
-  clicksCount: number;
+  name: string | null;
+  topicType: string | null;
+  summary: string | null;
+  createTime: string | null;
+  state: string | null;
+  searchUrl: string | null;
+}
+
+const STAR_WORDS: Record<string, number> = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
+/** 1-5 from Google's enum, or null when Google gave none. */
+export function starsOf(rating: string | number | null | undefined): number | null {
+  if (typeof rating === "number") return rating >= 1 && rating <= 5 ? rating : null;
+  return rating ? STAR_WORDS[rating] ?? null : null;
+}
+
+const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const hhmm = (t: any) => `${String(t?.hours ?? 0).padStart(2, "0")}:${String(t?.minutes ?? 0).padStart(2, "0")}`;
+
+/**
+ * Google's `regularHours.periods` as one entry per day it lists. A day Google
+ * does not list is absent (shown as "not listed on Google"), never a default.
+ */
+export function hoursFromGoogle(periods: any): Record<string, BusinessHours> {
+  const out: Record<string, BusinessHours> = {};
+  if (!Array.isArray(periods)) return out;
+  for (const p of periods) {
+    const day = String(p?.openDay || "").toLowerCase();
+    if (!DAY_KEYS.includes(day)) continue;
+    out[day] = { open: hhmm(p.openTime), close: hhmm(p.closeTime), isClosed: false };
+  }
+  return out;
 }
 
 type SubTab = "info" | "hours" | "reviews" | "review_boost" | "posts" | "local_grid" | "nap_audit" | "insights";
@@ -69,6 +91,7 @@ export function LocalBusinessManager({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Business state
   const [connected, setConnected] = useState(false);
@@ -85,18 +108,14 @@ export function LocalBusinessManager({
   const [city, setCity] = useState("");
   const [stateCode, setStateCode] = useState("");
   const [postalCode, setPostalCode] = useState("");
+  const [country, setCountry] = useState("");
   const [serviceAreas, setServiceAreas] = useState<string[]>([]);
   const [serviceAreaInput, setServiceAreaInput] = useState("");
 
-  const [regularHours, setRegularHours] = useState<Record<string, BusinessHours>>({
-    monday: { open: "08:00", close: "18:00", isClosed: false },
-    tuesday: { open: "08:00", close: "18:00", isClosed: false },
-    wednesday: { open: "08:00", close: "18:00", isClosed: false },
-    thursday: { open: "08:00", close: "18:00", isClosed: false },
-    friday: { open: "08:00", close: "18:00", isClosed: false },
-    saturday: { open: "09:00", close: "15:00", isClosed: false },
-    sunday: { open: "00:00", close: "00:00", isClosed: true },
-  });
+  // Empty until Google returns the listing's hours. These defaulted to
+  // 08:00-18:00 weekdays, shown as the business's hours whether or not Google
+  // had any.
+  const [regularHours, setRegularHours] = useState<Record<string, BusinessHours>>({});
 
   const [specialHours, setSpecialHours] = useState<SpecialHour[]>([]);
   const [newHolidayDate, setNewHolidayDate] = useState("");
@@ -114,7 +133,7 @@ export function LocalBusinessManager({
   const [newPostSummary, setNewPostSummary] = useState("");
   const [newPostType, setNewPostType] = useState<"STANDARD" | "OFFER" | "EVENT">("STANDARD");
   const [newPostAction, setNewPostAction] = useState<"LEARN_MORE" | "CALL" | "BOOK">("LEARN_MORE");
-  const [newPostUrl, setNewPostUrl] = useState("https://example.com");
+  const [newPostUrl, setNewPostUrl] = useState("");
   const [publishingPost, setPublishingPost] = useState(false);
 
   // Review Boost state
@@ -125,10 +144,6 @@ export function LocalBusinessManager({
   const [placeId, setPlaceId] = useState("");
   const [reviewCopied, setReviewCopied] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState<"sms" | "email" | "receipt">("sms");
-
-  // Geo-Grid Local Rank Tracker state
-  const [gridKeyword, setGridKeyword] = useState("roof repair near me");
-  const [gridRadius, setGridRadius] = useState<"1mi" | "3mi" | "5mi" | "10mi">("3mi");
 
   // Insights state
   const [insights, setInsights] = useState<any>(null);
@@ -162,14 +177,18 @@ export function LocalBusinessManager({
         setCity(bizRes.business.address?.city || "");
         setStateCode(bizRes.business.address?.state || "");
         setPostalCode(bizRes.business.address?.postalCode || "");
+        setCountry(bizRes.business.address?.country || "");
         setServiceAreas(bizRes.business.serviceAreas || []);
-        if (bizRes.business.regularHours) setRegularHours(bizRes.business.regularHours);
+        setRegularHours(hoursFromGoogle(bizRes.business.regularHours));
         if (bizRes.business.specialHours) setSpecialHours(bizRes.business.specialHours);
       }
 
       if (revRes.reviews) setReviews(revRes.reviews);
       if (postRes.posts) setPosts(postRes.posts);
-      if (insRes.metrics) setInsights(insRes.metrics);
+      // The whole response: the tab reads `insights.metrics` and `insights.dataStatus`.
+      // Storing only `metrics` made that `insights.metrics.metrics`, so real
+      // Business Profile numbers never showed.
+      setInsights(insRes);
     } catch (err: any) {
       // No fixture to fall back to: state starts empty and stays empty.
       setDataStatus(`Could not reach the Business Profile API: ${err?.message || "network error"}`);
@@ -186,8 +205,9 @@ export function LocalBusinessManager({
     try {
       setSaving(true);
       setSaveSuccess(null);
+      setActionError(null);
       const res = await authedFetch("/api/local-seo/business", {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           business: {
@@ -196,18 +216,22 @@ export function LocalBusinessManager({
             phone,
             websiteUrl,
             appointmentUrl,
-            address: { street, city, state: stateCode, postalCode, country: "US" },
+            address: { street, city, state: stateCode, postalCode, country },
             serviceAreas,
           },
           regularHours,
           specialHours,
         }),
       });
-      const data = await res.json();
-      if (data.success) {
-        setSaveSuccess("Changes saved and synced to Google Business Profile!");
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setSaveSuccess("Changes saved to Google Business Profile.");
         setTimeout(() => setSaveSuccess(null), 4000);
+      } else {
+        setActionError(data?.error || `Saving failed: HTTP ${res.status}.`);
       }
+    } catch (err: any) {
+      setActionError(err?.message || "Saving failed.");
     } finally {
       setSaving(false);
     }
@@ -221,9 +245,11 @@ export function LocalBusinessManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate_ai_reply", reviewId, tone }),
       });
-      const data = await res.json();
-      if (data.generatedReply) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.generatedReply) {
         setReplyDrafts((prev) => ({ ...prev, [reviewId]: data.generatedReply }));
+      } else {
+        setActionError(data?.error || `Drafting a reply failed: HTTP ${res.status}.`);
       }
     } finally {
       setGeneratingAi(null);
@@ -240,8 +266,9 @@ export function LocalBusinessManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "submit_reply", reviewId, replyText: text }),
       });
-      const data = await res.json();
-      if (data.success && data.review) {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) setActionError(data?.error || `Posting the reply failed: HTTP ${res.status}.`);
+      if (res.ok && data.success && data.review) {
         setReviews((prev) => prev.map((r) => (r.id === reviewId ? data.review : r)));
         setReplyDrafts((prev) => {
           const next = { ...prev };
@@ -270,12 +297,14 @@ export function LocalBusinessManager({
           },
         }),
       });
-      const data = await res.json();
-      if (data.success && data.post) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success && data.post) {
         setPosts((prev) => [data.post, ...prev]);
         setNewPostSummary("");
-        setSaveSuccess("Google Post published to Google Maps!");
+        setSaveSuccess("Google Post published.");
         setTimeout(() => setSaveSuccess(null), 4000);
+      } else {
+        setActionError(data?.error || `Publishing failed: HTTP ${res.status}.`);
       }
     } finally {
       setPublishingPost(false);
@@ -303,9 +332,10 @@ export function LocalBusinessManager({
 
   // Filter reviews
   const filteredReviews = reviews.filter((r) => {
-    if (reviewFilter === "unreplied") return !r.replyText;
-    if (reviewFilter === "5star") return r.rating === 5;
-    if (reviewFilter === "negative") return r.rating <= 2;
+    const stars = starsOf(r.starRating);
+    if (reviewFilter === "unreplied") return !r.reply;
+    if (reviewFilter === "5star") return stars === 5;
+    if (reviewFilter === "negative") return stars !== null && stars <= 2;
     return true;
   });
 
@@ -341,17 +371,22 @@ export function LocalBusinessManager({
                 border: `1px solid ${connected ? "#bbf7d0" : "#fde68a"}`,
               }}
             >
-              {connected ? "✓ Google Connected" : "Demo Data (Needs Google Connection)"}
+              {connected ? "✓ Google Connected" : "Not connected"}
             </span>
           </div>
           <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
             {connected
-              ? `Live connected via ${activeAccount || "Google Account"} (${accountType === "secondary_gbp" ? "Store Owner Account" : "Primary Google Services"})`
-              : "Showing demo preview. Connect your Google account to sync live Google Maps reviews, posts, and hours."}
+              ? `Connected via ${activeAccount || "Google Account"} (${accountType === "secondary_gbp" ? "Store Owner Account" : "Primary Google Services"}). ${dataStatus}`
+              : dataStatus}
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {actionError && (
+            <span role="alert" style={{ fontSize: 12, color: "#991b1b", fontWeight: 600, background: "#fef2f2", padding: "4px 10px", borderRadius: 4, maxWidth: 420 }}>
+              {actionError}
+            </span>
+          )}
           {saveSuccess && (
             <span style={{ fontSize: 12, color: "#166534", fontWeight: 600, background: "#dcfce7", padding: "4px 10px", borderRadius: 4 }}>
               ✓ {saveSuccess}
@@ -451,7 +486,7 @@ export function LocalBusinessManager({
                 type="text"
                 value={primaryCategory}
                 onChange={(e) => setPrimaryCategory(e.target.value)}
-                placeholder="e.g. Roofing Contractor, Dental Clinic, Restaurant"
+                placeholder="As listed on Google, e.g. Hospital"
                 style={{ width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #cbd5e1", borderRadius: 6, boxSizing: "border-box" }}
               />
             </div>
@@ -488,7 +523,7 @@ export function LocalBusinessManager({
                 type="url"
                 value={appointmentUrl}
                 onChange={(e) => setAppointmentUrl(e.target.value)}
-                placeholder="https://example.com/schedule"
+                placeholder="https://"
                 style={{ width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #cbd5e1", borderRadius: 6, boxSizing: "border-box" }}
               />
             </div>
@@ -569,7 +604,7 @@ export function LocalBusinessManager({
             <div style={{ display: "flex", gap: 8, maxWidth: 400 }}>
               <input
                 type="text"
-                placeholder="Add city/region (e.g. West Lake Hills, TX)"
+                placeholder="Add a city or region"
                 value={serviceAreaInput}
                 onChange={(e) => setServiceAreaInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -610,7 +645,15 @@ export function LocalBusinessManager({
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 540 }}>
             {daysOfWeek.map((day) => {
-              const h = regularHours[day] || { open: "09:00", close: "17:00", isClosed: false };
+              const h = regularHours[day];
+              if (!h) {
+                return (
+                  <div key={day} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, textTransform: "capitalize", width: 100, color: "#1e293b" }}>{day}</span>
+                    <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>Not listed on Google</span>
+                  </div>
+                );
+              }
               return (
                 <div
                   key={day}
@@ -762,7 +805,7 @@ export function LocalBusinessManager({
             <div style={{ display: "flex", gap: 6 }}>
               {[
                 { id: "all", label: `All (${reviews.length})` },
-                { id: "unreplied", label: `Needs Reply (${reviews.filter((r) => !r.replyText).length})` },
+                { id: "unreplied", label: `Needs Reply (${reviews.filter((r) => !r.reply).length})` },
                 { id: "5star", label: "5-Star" },
                 { id: "negative", label: "Critical" },
               ].map((f) => (
@@ -810,27 +853,30 @@ export function LocalBusinessManager({
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                       <div>
-                        <span style={{ fontWeight: 700, color: "#0f172a", fontSize: 13 }}>{rev.authorName}</span>
+                        <span style={{ fontWeight: 700, color: "#0f172a", fontSize: 13 }}>{rev.reviewer || "Google user"}</span>
                         <span style={{ color: "#d97706", marginLeft: 8, fontSize: 12 }}>
-                          {"★".repeat(rev.rating)}{"☆".repeat(5 - rev.rating)}
+                          {(() => {
+                            const n = starsOf(rev.starRating);
+                            return n === null ? "no rating" : `${"★".repeat(n)}${"☆".repeat(5 - n)}`;
+                          })()}
                         </span>
                       </div>
                       <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                        {new Date(rev.createTime).toLocaleDateString()}
+                        {rev.createTime ? new Date(rev.createTime).toLocaleDateString() : ""}
                       </span>
                     </div>
 
                     <p style={{ fontSize: 12.5, color: "#334155", margin: "0 0 10px", lineHeight: 1.45 }}>
-                      "{rev.comment}"
+                      {rev.comment ? `"${rev.comment}"` : "(rating only, no comment)"}
                     </p>
 
                     {/* Existing Reply */}
-                    {rev.replyText ? (
+                    {rev.reply ? (
                       <div style={{ background: "#ffffff", padding: "10px 12px", borderRadius: 6, borderLeft: "3px solid #16a34a", fontSize: 12 }}>
                         <div style={{ fontWeight: 600, color: "#166534", marginBottom: 2 }}>
                           ✓ Replied as Business Owner:
                         </div>
-                        <div style={{ color: "#475569" }}>{rev.replyText}</div>
+                        <div style={{ color: "#475569" }}>{rev.reply}</div>
                       </div>
                     ) : (
                       /* Unreplied: Show AI generator buttons */
@@ -901,9 +947,6 @@ export function LocalBusinessManager({
                 Make it effortless for happy customers to leave 5-star Google reviews from their smartphone.
               </p>
             </div>
-            <span style={{ fontSize: 12, background: "#dcfce7", color: "#166534", padding: "3px 8px", borderRadius: 4, fontWeight: 600 }}>
-              🚀 Proven to increase reviews by +40%
-            </span>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16, marginBottom: 20 }}>
@@ -978,7 +1021,7 @@ export function LocalBusinessManager({
                 Pre-Written Review Request Templates
               </div>
               <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: "0 0 12px" }}>
-                Send these to clients immediately after job completion for highest conversion rates.
+                Send these to customers after a visit. Edit them to fit the business before sending.
               </p>
 
               <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
@@ -1010,16 +1053,16 @@ export function LocalBusinessManager({
               <div style={{ background: "#f8fafc", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0", fontSize: 12, color: "#334155", lineHeight: 1.5, marginBottom: 12 }}>
                 {activeTemplate === "sms" && (
                   <div>
-                    "Hi [Client Name], thank you for trusting {businessName || "our team"} with your home! If you have 30 seconds, could you share a quick review of our work on Google? It means the world to our local crew: https://search.google.com/local/writereview?placeid={placeId}"
+                    "Hi [Customer Name], thank you for choosing {businessName || "us"}. If you have 30 seconds, could you share a quick review on Google? https://search.google.com/local/writereview?placeid={placeId}"
                   </div>
                 )}
                 {activeTemplate === "email" && (
                   <div>
-                    <strong>Subject: How did our team do on your project?</strong>
+                    <strong>Subject: How was your visit?</strong>
                     <br /><br />
-                    Dear [Client Name],<br />
-                    Thank you for choosing {businessName || "our team"}. We strive for 100% customer satisfaction on every project.<br /><br />
-                    If you enjoyed working with us, would you mind taking 30 seconds to leave an honest review on Google? Your feedback helps other local homeowners find trusted contractors.<br /><br />
+                    Dear [Customer Name],<br />
+                    Thank you for choosing {businessName || "us"}.<br /><br />
+                    Would you take 30 seconds to leave an honest review on Google? Your feedback helps other people decide.<br /><br />
                     👉 Leave a Google Review: https://search.google.com/local/writereview?placeid={placeId}<br /><br />
                     Thank you again for your business!
                   </div>
@@ -1036,9 +1079,9 @@ export function LocalBusinessManager({
                 onClick={() => {
                   let text = "";
                   if (activeTemplate === "sms") {
-                    text = `Hi [Client Name], thank you for trusting ${businessName || "our team"} with your home! If you have 30 seconds, could you share a quick review of our work on Google? It means the world to our local crew: https://search.google.com/local/writereview?placeid=${placeId}`;
+                    text = `Hi [Customer Name], thank you for choosing ${businessName || "us"}. If you have 30 seconds, could you share a quick review on Google? https://search.google.com/local/writereview?placeid=${placeId}`;
                   } else if (activeTemplate === "email") {
-                    text = `Subject: How did our team do on your project?\n\nDear [Client Name],\nThank you for choosing ${businessName || "our team"}. We strive for 100% customer satisfaction on every project.\n\nIf you enjoyed working with us, would you mind taking 30 seconds to leave an honest review on Google?\n\n👉 Leave a Google Review: https://search.google.com/local/writereview?placeid=${placeId}\n\nThank you again for your business!`;
+                    text = `Subject: How was your visit?\n\nDear [Customer Name],\nThank you for choosing ${businessName || "us"}.\n\nWould you take 30 seconds to leave an honest review on Google?\n\n👉 Leave a Google Review: https://search.google.com/local/writereview?placeid=${placeId}\n\nThank you again for your business!`;
                   } else {
                     text = `Thank you for your business! We value your feedback. Please visit https://search.google.com/local/writereview?placeid=${placeId} or scan the QR code to review us on Google.`;
                   }
@@ -1097,7 +1140,7 @@ export function LocalBusinessManager({
               rows={3}
               value={newPostSummary}
               onChange={(e) => setNewPostSummary(e.target.value)}
-              placeholder="What's happening with your business? (e.g. 10% off spring roof tune-ups, new services, emergency storm availability...)"
+              placeholder="What's new at the business?"
               style={{ width: "100%", padding: "8px 10px", fontSize: 12.5, border: "1px solid #cbd5e1", borderRadius: 6, boxSizing: "border-box", marginBottom: 10 }}
             />
 
@@ -1148,25 +1191,24 @@ export function LocalBusinessManager({
           {/* Active Posts Feed */}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>Published Posts</div>
-            {posts.map((post) => (
-              <div key={post.id} style={{ padding: 12, background: "#ffffff", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+            {posts.length === 0 && (
+              <div style={{ fontSize: 12.5, color: "var(--ink-muted)" }}>No posts returned by Google.</div>
+            )}
+            {posts.map((post, i) => (
+              <div key={post.name || i} style={{ padding: 12, background: "#ffffff", borderRadius: 6, border: "1px solid #e2e8f0" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, background: "#e0e7ff", color: "#3730a3", padding: "1px 6px", borderRadius: 4 }}>
-                    {post.topicType}
+                    {post.topicType || "POST"}{post.state ? ` · ${post.state}` : ""}
                   </span>
-                  <div style={{ fontSize: 12, color: "var(--ink-muted)", display: "flex", gap: 10 }}>
-                    <span>👁️ {post.viewsCount} views</span>
-                    <span>👆 {post.clicksCount} clicks</span>
-                    <span>{new Date(post.createTime).toLocaleDateString()}</span>
-                  </div>
+                  <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                    {post.createTime ? new Date(post.createTime).toLocaleDateString() : ""}
+                  </span>
                 </div>
-                <p style={{ margin: "0 0 6px", fontSize: 12.5, color: "#334155" }}>
-                  {post.summary}
-                </p>
-                {post.callToAction && (
-                  <span style={{ fontSize: 12, color: "#2563eb", fontWeight: 600 }}>
-                    [{post.callToAction.actionType}] → {post.callToAction.url}
-                  </span>
+                <p style={{ margin: "0 0 6px", fontSize: 12.5, color: "#334155" }}>{post.summary}</p>
+                {post.searchUrl && (
+                  <a href={post.searchUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2563eb", fontWeight: 600 }}>
+                    View on Google
+                  </a>
                 )}
               </div>
             ))}
@@ -1174,169 +1216,19 @@ export function LocalBusinessManager({
         </div>
       )}
 
-      {/* Tab: Geo-Grid Local Map Pack Rank Tracker */}
+      {/* Tab: Geo-Grid. The 3x3 grid, "78% Map Pack Dominance", "Average Local
+          Rank #2.6" and three Austin roofing actions were literals shown to every
+          client as "Real-Time". Nothing measures a map grid yet, so none is shown. */}
       {subTab === "local_grid" && (
         <div style={{ background: "#ffffff", padding: 20, borderRadius: "0 0 8px 8px", border: "1px solid #e2e8f0", borderTop: "none" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-            <div>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", margin: 0 }}>
-                Google Maps 3-Pack Geo-Grid Rank Heatmap
-              </h3>
-              <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: "2px 0 0" }}>
-                Tracks where your business ranks on Google Maps when customers search from different neighborhoods.
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 12, background: "#dcfce7", color: "#166534", padding: "3px 8px", borderRadius: 4, fontWeight: 700 }}>
-                78% Map Pack Dominance (7 / 9 in Top 3)
-              </span>
-            </div>
-          </div>
-
-          {/* Grid Controls */}
-          <div style={{ background: "#f8fafc", padding: 14, borderRadius: 8, border: "1px solid #e2e8f0", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 20 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 240 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>Target Search Keyword:</span>
-              <select
-                value={gridKeyword}
-                onChange={(e) => setGridKeyword(e.target.value)}
-                style={{ flex: 1, padding: "5px 8px", fontSize: 12, border: "1px solid #cbd5e1", borderRadius: 4, background: "#ffffff" }}
-              >
-                <option value="roof repair near me">roof repair near me</option>
-                <option value="emergency roofer austin">emergency roofer austin</option>
-                <option value="gutter replacement">gutter replacement</option>
-                <option value="commercial roofing contractors">commercial roofing contractors</option>
-              </select>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>Radius:</span>
-              {(["1mi", "3mi", "5mi", "10mi"] as const).map((rad) => (
-                <button
-                  key={rad}
-                  type="button"
-                  onClick={() => setGridRadius(rad)}
-                  style={{
-                    background: gridRadius === rad ? "#0f172a" : "#ffffff",
-                    color: gridRadius === rad ? "#ffffff" : "#475569",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: 4,
-                    padding: "4px 8px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  {rad.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 20 }}>
-            {/* 3x3 Geo-Grid Visualization */}
-            <div style={{ background: "#0f172a", borderRadius: 8, padding: 20, display: "flex", flexDirection: "column", alignItems: "center" }}>
-              <div style={{ color: "var(--ink-muted)", fontSize: 12, fontWeight: 600, marginBottom: 14, letterSpacing: 0.5, textTransform: "uppercase" }}>
-                📍 Real-Time Google Maps Geo-Rank Matrix ({gridRadius})
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", maxWidth: 320 }}>
-                {[
-                  { pos: "NW", rank: 3, distance: `~${gridRadius} NW` },
-                  { pos: "N", rank: 2, distance: `~${gridRadius} N` },
-                  { pos: "NE", rank: 4, distance: `~${gridRadius} NE` },
-                  { pos: "W", rank: 2, distance: `~${gridRadius} W` },
-                  { pos: "Center", rank: 1, distance: "Your Shop" },
-                  { pos: "E", rank: 2, distance: `~${gridRadius} E` },
-                  { pos: "SW", rank: 3, distance: `~${gridRadius} SW` },
-                  { pos: "S", rank: 1, distance: `~${gridRadius} S` },
-                  { pos: "SE", rank: 5, distance: `~${gridRadius} SE` },
-                ].map((node, i) => {
-                  const isTop3 = node.rank <= 3;
-                  const isCenter = node.pos === "Center";
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        background: isTop3 ? (node.rank === 1 ? "#15803d" : "#166534") : "#b45309",
-                        borderRadius: 8,
-                        padding: "12px 8px",
-                        textAlign: "center",
-                        border: isCenter ? "2px solid #60a5fa" : "1px solid rgba(255,255,255,0.1)",
-                        boxShadow: isCenter ? "0 0 12px rgba(96,165,250,0.4)" : "none",
-                      }}
-                    >
-                      <div style={{ fontSize: 18, fontWeight: 900, color: "#ffffff" }}>
-                        #{node.rank}
-                      </div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: isTop3 ? "#bbf7d0" : "#fef08a", marginTop: 2 }}>
-                        {isTop3 ? "Map Pack" : "Page 1"}
-                      </div>
-                      <div style={{ fontSize: 12, color: "#e2e8f0", marginTop: 4, opacity: 0.85 }}>
-                        {node.distance}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div style={{ display: "flex", gap: 14, marginTop: 16, fontSize: 12, color: "#cbd5e1" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e" }} /> #1 - #3 (Map Pack)
-                </span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#eab308" }} /> #4 - #7 (Near Pack)
-                </span>
-              </div>
-            </div>
-
-            {/* Geo-Optimization Strategy */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ background: "#f8fafc", padding: 14, borderRadius: 8, border: "1px solid #e2e8f0" }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", marginBottom: 6 }}>
-                  Average Local Rank: <span style={{ color: "#166534" }}>#2.6</span>
-                </div>
-                <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: 0, lineHeight: 1.45 }}>
-                  Your business dominates the central and southern corridors of Austin. To claim the #1 spot in Northeast and Southeast quadrants, execute the recommendations below.
-                </p>
-              </div>
-
-              <div style={{ background: "#ffffff", padding: 14, borderRadius: 8, border: "1px solid #e2e8f0" }}>
-                <div style={{ fontWeight: 700, fontSize: 12.5, color: "#1e293b", marginBottom: 8 }}>
-                  Recommended Geo-Rank Boost Actions
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                    <span style={{ background: "#eff6ff", color: "#1d4ed8", padding: "1px 6px", borderRadius: 4, fontWeight: 700, fontSize: 12 }}>
-                      Action 1
-                    </span>
-                    <span style={{ color: "#334155" }}>
-                      Add a targeted city landing page for <b>Round Rock & North Austin</b> with project case studies.
-                    </span>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                    <span style={{ background: "#eff6ff", color: "#1d4ed8", padding: "1px 6px", borderRadius: 4, fontWeight: 700, fontSize: 12 }}>
-                      Action 2
-                    </span>
-                    <span style={{ color: "#334155" }}>
-                      Publish a Google Post showcasing roof repairs completed in Southeast zip codes (78744 / 78747).
-                    </span>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                    <span style={{ background: "#eff6ff", color: "#1d4ed8", padding: "1px 6px", borderRadius: 4, fontWeight: 700, fontSize: 12 }}>
-                      Action 3
-                    </span>
-                    <span style={{ color: "#334155" }}>
-                      Upload 3 geotagged project photos of recent roof installations to your Google Business Profile.
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", margin: "0 0 6px" }}>
+            Google Maps Geo-Grid Rank
+          </h3>
+          <p style={{ fontSize: 12.5, color: "var(--ink-muted)", margin: 0, lineHeight: 1.6 }}>
+            Not measured. A geo-grid needs a Google Maps ranking check from each grid point around the
+            business&apos;s location (DataForSEO Maps, a paid call per point) and the listing&apos;s coordinates
+            from Google Business Profile. Neither is connected yet, so no ranks are shown.
+          </p>
         </div>
       )}
 
@@ -1350,112 +1242,86 @@ export function LocalBusinessManager({
             Search engines compare website schema data with your Google Maps listing. Any mismatch in Name, Address, or Phone lowers local ranking confidence.
           </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 20 }}>
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>Name (N)</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginTop: 4 }}>{businessName}</div>
-              <div style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>✓ Matches Google Maps 100%</div>
-            </div>
-
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>Address (A)</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginTop: 4 }}>
-                {street}, {city}, {stateCode} {postalCode}
-              </div>
-              <div style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>✓ Lat/Long coordinates synced</div>
-            </div>
-
-            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>Phone (P)</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginTop: 4 }}>{phone}</div>
-              <div style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>✓ Click-to-call schema verified</div>
-            </div>
-          </div>
-
-          <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: "#1e293b" }}>
-                Auto-Generated LocalBusiness Schema (JSON-LD)
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const schemaCode = JSON.stringify(
-                    {
-                      "@context": "https://schema.org",
-                      "@type": "RoofingContractor",
-                      name: businessName,
-                      telephone: phone,
-                      url: websiteUrl,
-                      address: {
-                        "@type": "PostalAddress",
-                        streetAddress: street,
-                        addressLocality: city,
-                        addressRegion: stateCode,
-                        postalCode: postalCode,
-                        addressCountry: "US",
-                      },
-                      // No geo block. It was hardcoded to 30.2523/-97.7495 —
-                      // downtown Austin — for every client, and "Copy Script"
-                      // copied it while the on-screen <pre> omitted it, so what
-                      // the client pasted onto their site differed from what
-                      // they had just reviewed. Nothing here measures a
-                      // latitude, so emitting one is inventing a location.
-                      areaServed: serviceAreas,
+          {(() => {
+            const address = [street, city, stateCode, postalCode, country].filter(Boolean).join(", ");
+            const nap: Array<[string, string]> = [
+              ["Name (N)", businessName],
+              ["Address (A)", address],
+              ["Phone (P)", phone],
+            ];
+            // One object is both shown and copied, so what is pasted is what was reviewed.
+            // "@type" is the generic LocalBusiness: this was "RoofingContractor" with
+            // addressCountry "US" for every client. Pick the specific schema.org type
+            // for the business's category before publishing.
+            const schema: Record<string, any> = {
+              "@context": "https://schema.org",
+              "@type": "LocalBusiness",
+              ...(businessName ? { name: businessName } : {}),
+              ...(phone ? { telephone: phone } : {}),
+              ...(websiteUrl ? { url: websiteUrl } : {}),
+              ...(address
+                ? {
+                    address: {
+                      "@type": "PostalAddress",
+                      ...(street ? { streetAddress: street } : {}),
+                      ...(city ? { addressLocality: city } : {}),
+                      ...(stateCode ? { addressRegion: stateCode } : {}),
+                      ...(postalCode ? { postalCode } : {}),
+                      ...(country ? { addressCountry: country } : {}),
                     },
-                    null,
-                    2
-                  );
-                  navigator.clipboard.writeText(`<script type="application/ld+json">\n${schemaCode}\n</script>`);
-                  setSaveSuccess("Schema copied to clipboard!");
-                  setTimeout(() => setSaveSuccess(null), 3000);
-                }}
-                style={{
-                  background: "#2563eb",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: 4,
-                  padding: "4px 10px",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                📋 Copy Script
-              </button>
-            </div>
+                  }
+                : {}),
+              ...(serviceAreas.length ? { areaServed: serviceAreas } : {}),
+            };
+            const script = `<script type="application/ld+json">\n${JSON.stringify(schema, null, 2)}\n</script>`;
+            return (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 12 }}>
+                  {nap.map(([label, value]) => (
+                    <div key={label} style={{ background: "#f8fafc", padding: 14, borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase" }}>{label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: value ? "#0f172a" : "var(--ink-muted)", marginTop: 4 }}>
+                        {value || "Not listed on Google"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>As listed on Google Business Profile</div>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: "0 0 20px" }}>
+                  Whether the website shows the same name, address and phone is checked by the Local scan (Local Presence → Run scan).
+                </p>
 
-            <pre
-              style={{
-                background: "#0f172a",
-                color: "#e2e8f0",
-                padding: 14,
-                borderRadius: 6,
-                fontSize: 12,
-                overflowX: "auto",
-                lineHeight: 1.5,
-              }}
-            >
-{`<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "RoofingContractor",
-  "name": "${businessName}",
-  "telephone": "${phone}",
-  "url": "${websiteUrl}",
-  "address": {
-    "@type": "PostalAddress",
-    "streetAddress": "${street}",
-    "addressLocality": "${city}",
-    "addressRegion": "${stateCode}",
-    "postalCode": "${postalCode}",
-    "addressCountry": "US"
-  },
-  "areaServed": ${JSON.stringify(serviceAreas)}
-}
-</script>`}
-            </pre>
-          </div>
+                <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: "#1e293b" }}>
+                      LocalBusiness Schema (JSON-LD) from the Google listing
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!businessName}
+                      onClick={() => {
+                        navigator.clipboard.writeText(script);
+                        setSaveSuccess("Schema copied to clipboard!");
+                        setTimeout(() => setSaveSuccess(null), 3000);
+                      }}
+                      style={{ background: "#2563eb", color: "#ffffff", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: businessName ? "pointer" : "not-allowed", opacity: businessName ? 1 : 0.5 }}
+                    >
+                      📋 Copy Script
+                    </button>
+                  </div>
+                  {businessName ? (
+                    <pre style={{ background: "#0f172a", color: "#e2e8f0", padding: 14, borderRadius: 6, fontSize: 12, overflowX: "auto", lineHeight: 1.5 }}>
+                      {script}
+                    </pre>
+                  ) : (
+                    <p style={{ fontSize: 12.5, color: "var(--ink-muted)", margin: 0 }}>
+                      No listing loaded from Google, so there is nothing to build the schema from.
+                    </p>
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -1531,6 +1397,9 @@ export function LocalBusinessManager({
               Top Queries Showing Your Google Maps Listing
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {!(insights?.topSearchKeywords || []).length && (
+                <div style={{ fontSize: 12.5, color: "var(--ink-muted)" }}>Not returned by the Business Profile API.</div>
+              )}
               {(insights?.topSearchKeywords || []).map((k: any, i: number) => (
                 <div
                   key={i}

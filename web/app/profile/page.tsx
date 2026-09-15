@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { GoogleServicesHub } from "@/components/dashboard/GoogleServicesHub";
+import { authedFetch } from "@/lib/authedFetch";
 
 function ProfilePageContent() {
   const searchParams = useSearchParams();
@@ -20,9 +21,8 @@ function ProfilePageContent() {
   const [successMsg, setSuccessMsg] = useState("");
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
-  // Preference toggles
-  const [emailAlerts, setEmailAlerts] = useState(true);
-  const [autoFixPrs, setAutoFixPrs] = useState(true);
+  // GitHub, as GitHub answered. This card read "✓ Connected" for everyone.
+  const [github, setGithub] = useState<{ state: "checking" | "ok" | "failed"; detail: string }>({ state: "checking", detail: "" });
 
   // Fetch session on load
   useEffect(() => {
@@ -121,6 +121,25 @@ function ProfilePageContent() {
     }
   };
 
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    authedFetch("/api/github/repos", {
+      cache: "no-store",
+      headers: session.provider_token ? { "x-github-token": session.provider_token } : {},
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!active) return;
+        if (d?.connected) setGithub({ state: "ok", detail: `${(d.repos || []).length} repositories readable` });
+        else setGithub({ state: "failed", detail: d?.reason || d?.error || "GitHub did not answer." });
+      })
+      .catch((e) => active && setGithub({ state: "failed", detail: e?.message || "Could not reach GitHub." }));
+    return () => {
+      active = false;
+    };
+  }, [session]);
+
   if (loading) {
     return (
       <div
@@ -154,6 +173,8 @@ function ProfilePageContent() {
 
   const user: User | null = session?.user || null;
   const metadata = user?.user_metadata || {};
+  const provider = String(user?.app_metadata?.provider || "");
+  const providerLabel = provider === "github" ? "GitHub" : provider === "google" ? "Google" : provider === "email" ? "Email" : provider || "Unknown";
   const displayName = metadata.full_name || metadata.name || metadata.user_name || user?.email?.split("@")[0] || "User";
   const email = user?.email || "No email available";
   const avatarUrl = metadata.avatar_url;
@@ -320,25 +341,12 @@ function ProfilePageContent() {
                         fontWeight: 600,
                         padding: "2px 8px",
                         borderRadius: 4,
-                        background: "#eff6ff",
-                        color: "#1d4ed8",
-                        border: "1px solid #bfdbfe",
-                      }}
-                    >
-                      Workspace Admin
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        padding: "2px 8px",
-                        borderRadius: 4,
                         background: "#f1f5f9",
                         color: "#475569",
                         border: "1px solid #e2e8f0",
                       }}
                     >
-                      GitHub Verified
+                      Signed in with {providerLabel}
                     </span>
                   </div>
                 </div>
@@ -433,14 +441,14 @@ function ProfilePageContent() {
                 <div style={{ background: "#f8fafc", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>Primary Authentication</div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginTop: 4 }}>
-                    GitHub OAuth 2.0
+                    {providerLabel}
                   </div>
                 </div>
 
                 <div style={{ background: "#f8fafc", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
                   <div style={{ fontSize: 12, color: "var(--ink-muted)", fontWeight: 600 }}>GitHub Handle</div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginTop: 4 }}>
-                    @{metadata.user_name || metadata.preferred_username || displayName.toLowerCase().replace(/\s+/g, "")}
+                    {metadata.user_name || metadata.preferred_username ? `@${metadata.user_name || metadata.preferred_username}` : "Not signed in with GitHub"}
                   </div>
                 </div>
 
@@ -491,12 +499,18 @@ function ProfilePageContent() {
                         GitHub Integration
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                        Connected as @{metadata.user_name || "user"} • Enables automated PR staging for code fixes
+                        {github.state === "checking" ? "Checking GitHub…" : github.detail}
                       </div>
                     </div>
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#166534", background: "#dcfce7", padding: "3px 8px", borderRadius: 4 }}>
-                    ✓ Connected
+                  <span
+                    style={{
+                      fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: 4,
+                      color: github.state === "ok" ? "#166534" : github.state === "failed" ? "#991b1b" : "#475569",
+                      background: github.state === "ok" ? "#dcfce7" : github.state === "failed" ? "#fef2f2" : "#f1f5f9",
+                    }}
+                  >
+                    {github.state === "ok" ? "✓ Working" : github.state === "failed" ? "✕ Not working" : "Checking"}
                   </span>
                 </div>
 
@@ -505,50 +519,8 @@ function ProfilePageContent() {
               </div>
             </div>
 
-            {/* Workspace & Notification Preferences */}
-            <div
-              style={{
-                background: "#ffffff",
-                borderRadius: 12,
-                border: "1px solid #e2e8f0",
-                padding: "24px 28px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-              }}
-            >
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", margin: "0 0 16px" }}>
-                Workspace Preferences
-              </h2>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
-                  <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, color: "#1e293b" }}>Email Audit Summaries</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Receive weekly health reports and critical technical alerts</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={emailAlerts}
-                    onChange={(e) => setEmailAlerts(e.target.checked)}
-                    style={{ width: 18, height: 18, cursor: "pointer" }}
-                  />
-                </label>
-
-                <div style={{ height: 1, background: "#f1f5f9" }} />
-
-                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
-                  <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, color: "#1e293b" }}>Auto-Fix PR Staging</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>Prepare pull requests for review on GitHub when fixes are approved</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={autoFixPrs}
-                    onChange={(e) => setAutoFixPrs(e.target.checked)}
-                    style={{ width: 18, height: 18, cursor: "pointer" }}
-                  />
-                </label>
-              </div>
-            </div>
+            {/* "Email Audit Summaries" and "Auto-Fix PR Staging" toggles were here:
+                defaulted on, never saved, and wired to no feature. */}
           </div>
         ) : (
           /* ── CASE 2: SIGNED OUT ── */

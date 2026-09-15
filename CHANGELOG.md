@@ -6,6 +6,17 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed (fake-data sweep, part 1)
+
+- **Local and Profile show only what Google and GitHub answered (B-141).** Removed
+  the fixture geo-grid, verification ticks, roofer schema, default hours, example
+  links and claims; reviews, posts and insights now read the routes' real shapes;
+  failed writes say why. Profile's GitHub card asks GitHub. The rest of the sweep
+  (Auto-Fix, Backlinks, keyword tools, Traffic, SERP preview) is B-142, open.
+  `npm test` → 512 tests, 509 pass: the 3 failures are the other sessions'
+  uncommitted edits (`ScannerApp.tsx` project gate and in-flight guard, the
+  budget badge), not these files.
+
 ### Added
 
 - **GA4 Overview (Traffic → Google Analytics).** Reads the project's own GA4

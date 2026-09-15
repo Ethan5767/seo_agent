@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { MiniRadialGauge } from "@/components/dashboard/primitives";
 
 /**
  * The four Google Business Profile tiles.
@@ -92,7 +91,6 @@ export function GbpMatrix({ gbpRows, mentionsRows }: { gbpRows: Row[]; mentionsR
         value={status}
         valueColor={statusColor}
         note={measured ? "From the live profile" : "Run the Local tool to read the profile"}
-        right={measured ? <MiniRadialGauge score={ok ? 100 : 50} size={30} color={statusColor} /> : undefined}
       />
       <Tile
         label="Rating & reviews"

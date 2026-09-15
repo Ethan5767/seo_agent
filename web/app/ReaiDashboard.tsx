@@ -31,6 +31,7 @@ import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
 import { GscPanel } from "@/components/dashboard/GscPanel";
+import { SeoDashboard } from "@/components/dashboard/SeoDashboard";
 import { Ga4Panel } from "@/components/dashboard/Ga4Panel";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
@@ -1443,6 +1444,8 @@ export interface ReaiDashboardProps {
   selectedClient: ClientWithStats | null;
   onSelectClient: (c: ClientWithStats) => void;
   openReport: { report: any; scan: ScanRow } | null;
+  /** The selected project's saved scans, newest first: the dashboard's trends. */
+  scans?: ScanRow[];
   onSaveNewClient?: (profile: any) => Promise<void>;
   /**
    * Correct a project that already exists. Returns the outcome rather than
@@ -1893,6 +1896,7 @@ export function ReaiDashboard({
   selectedClient,
   onSelectClient,
   openReport,
+  scans,
   onSaveNewClient,
   onUpdateClient,
   onTriggerScan,
@@ -4209,103 +4213,24 @@ export function ReaiDashboard({
             <>
               {activeTab === "Overview" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* ── 1. FOUR APEX KPI CARDS ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-                {/* KPI 1 */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Organic Visits (est.)</span>
-                    {/* A trend needs two scans. This badge was a constant growth
-                        figure, shown to every client on every run, in the green
-                        that means real growth. */}
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
-                    <div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>{projectMetrics.trafficAnalytics.visits}</div>
-                      {/* "$2,439/mo est. value" was a constant. Nothing in the
-                          scan prices traffic, so there is no figure to show. */}
-                    </div>
-                    {projectMetrics.trafficAnalytics.monthlyTrend?.length > 1 ? (
-                      <MiniSparkline data={projectMetrics.trafficAnalytics.monthlyTrend.map((t: any) => t.v)} color="#10b981" width={68} height={26} />
-                    ) : null}
-                  </div>
-                </div>
-
-                {/* KPI 2 */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Backlinks</span>
-                    {/* "Top 35%" was a constant in success-green. The real
-                        figure DataForSEO reports is a rank, carried below. */}
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)" }}>{projectMetrics.authorityRank}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
-                    <div>
-                      {/* DataForSEO reports a rank, not a 0-100 score; this rendered a
-                          constant 0 with a gauge. The measured counts lead instead. */}
-                      <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>{projectMetrics.backlinks > 0 ? projectMetrics.backlinks.toLocaleString() : "—"}</div>
-                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>{projectMetrics.backlinks > 0 ? `backlinks · ${projectMetrics.refDomains} referring domains` : "backlinks not measured"}</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* KPI 3 */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Site Health</span>
-                    {/* null is "nothing gradeable ran", which is not 0%. A scan
-                        that measured nothing must not report a health at all. */}
-                    <span style={{ fontSize: 12, fontWeight: 600, color: dynamicHealth === null ? "var(--ink-muted)" : dynamicHealth >= 80 ? "var(--ok)" : "#d97706", background: dynamicHealth === null ? "var(--surface-2)" : dynamicHealth >= 80 ? "var(--ok-tint)" : "var(--warn-tint)", border: `1px solid ${dynamicHealth === null ? "var(--border)" : dynamicHealth >= 80 ? "var(--ok-border)" : "var(--warn-border)"}`, padding: "2px 7px", borderRadius: 12 }}>{dynamicHealth === null ? "Not measured" : `Grade ${gradeFor(dynamicHealth)}`}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
-                    <div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>{dynamicHealth === null ? "\u2014" : `${dynamicHealth}%`}</div>
-                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
-                        {/* "609 pages checked" was a constant, and it outlived
-                            every crawl cap the scanner has ever had. */}
-                        {pagesChecked > 0 ? `${pagesChecked} page(s) checked` : "No pages checked yet"}
-                      </div>
-                    </div>
-                    {dynamicHealth !== null && (
-                      <MiniRadialGauge score={dynamicHealth} size={38} strokeWidth={4} color={dynamicHealth >= 80 ? "var(--ok)" : "#d97706"} />
-                    )}
-                  </div>
-                </div>
-
-                {/* KPI 4 */}
-                <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>AI Readiness</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid #c7d2fe", padding: "2px 7px", borderRadius: 12 }}>
-                      {aeoPillar?.measured ? `${aeoPillar.ok}/${aeoPillar.total} Passing` : "Not measured"}
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 8 }}>
-                    <div>
-                      {/* "85%", "~342 brand mentions" and four per-engine
-                          percentages in the bar tooltips (OpenAI 96, Gemini 92,
-                          Perplexity 98, Claude 88) were all constants. The scan
-                          measures AEO rows; it does not score engines. */}
-                      <div style={{ fontSize: 24, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1 }}>
-                        {aeoPillar?.score !== null && aeoPillar?.score !== undefined ? `${aeoPillar.score}%` : "\u2014"}
-                      </div>
-                      <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
-                        {aeoPillar?.measured ? `${aeoPillar.total} AI check(s)` : "Run a scan to measure"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* ── 2. EXECUTIVE PERFORMANCE & TRAFFIC CHART ── */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 22px" }}>
-                <ExecutiveTrafficChart
-                  trend={projectMetrics.trafficAnalytics.monthlyTrend}
-                  totalVisits={projectMetrics.trafficAnalytics.visits}
-                  domain={currentDomain}
-                  totalKeywords={projectMetrics.organicKeywordsCount}
-                />
-              </div>
+              {/* ── 1. SEO DASHBOARD: monitoring charts from the saved scans and the
+                  open report (components/dashboard/SeoDashboard.tsx). Replaced four
+                  KPI cards and a traffic chart with no data behind it. ── */}
+              <SeoDashboard
+                report={report}
+                scans={scans}
+                domain={currentDomain}
+                onOpen={(target) => {
+                  if (target === "site-audit") {
+                    setActiveTab("Site Health & Audit");
+                    setAuditProjectList(false);
+                  } else if (target === "ai") {
+                    selectAeoFocus("matrix");
+                  } else {
+                    openNavItem({ label: target, view: target });
+                  }
+                }}
+              />
 
               {/* ── 3. AUDIT WEBSITE HERO INPUT ── */}
               <AuditHeroBar
@@ -4459,97 +4384,6 @@ export function ReaiDashboard({
                       AEO Lab →
                     </button>
                   </div>
-                </div>
-              </div>
-
-              {/* ── 5. SECTION 3: SERP POSITION SPREAD & TOP LIVE RANKED KEYWORDS ── */}
-              <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid #e2e8f0", padding: "18px 22px 22px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
-                      Google SERP Rankings ({projectMetrics.organicKeywordsCount} Ranked Keywords)
-                    </h3>
-                    {/* Was the constant "7 AT RANK #1", rendered beside a headline
-                        that read "0 Ranked Keywords" in the same breath. */}
-                    {(() => {
-                      const atOne = (projectMetrics.keywords || []).filter((k: any) => k.position === 1).length;
-                      if (!atOne) return null;
-                      return (
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 7px", borderRadius: 4 }}>
-                          {atOne} AT RANK #1
-                        </span>
-                      );
-                    })()}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("Keyword Data Lab")}
-                    style={{ background: "var(--surface-2)", border: "1px solid #cbd5e1", color: "#334155", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                  >
-                    View All {projectMetrics.organicKeywordsCount} Keywords →
-                  </button>
-                </div>
-
-                {/* Position Spread Bar Chart */}
-                <div style={{ marginBottom: 14 }}>
-                  <ExecutivePositionSpreadChart distribution={projectMetrics.organicResearch.posDistribution} totalKeywords={projectMetrics.organicKeywordsCount} />
-                </div>
-
-                {/* Live Ranked Keywords Table */}
-                <div style={{ marginTop: 16, border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
-                    <thead>
-                      <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid #e2e8f0", color: "var(--ink-muted)", fontSize: 12, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                        <th style={{ padding: "10px 14px", fontWeight: 700 }}>Search Query</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 700 }}>Rank</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 700 }}>Volume</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 700 }}>Intent</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 700 }}>SERP Features</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 700, textAlign: "right" }}>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {projectMetrics.keywords.slice(0, 8).map((k: any, i: number) => (
-                        <tr key={i} style={{ borderBottom: i < 7 ? "1px solid #f1f5f9" : "none", background: "var(--surface)" }}>
-                          <td style={{ padding: "11px 14px", fontWeight: 600, color: "var(--ink-body)" }}>
-                            {k.keyword}
-                          </td>
-                          <td style={{ padding: "11px 14px" }}>
-                            <span style={{
-                              fontWeight: 700, fontSize: 12,
-                              color: k.position === 1 ? "var(--ok)" : k.position <= 3 ? "#0284c7" : k.position <= 10 ? "var(--accent-hover)" : "var(--ink-muted)",
-                              background: k.position === 1 ? "var(--ok-tint)" : k.position <= 3 ? "#f0f9ff" : "var(--accent-tint)",
-                              border: `1px solid ${k.position === 1 ? "var(--ok-border)" : k.position <= 3 ? "#bae6fd" : "var(--accent-border)"}`,
-                              padding: "2px 8px", borderRadius: 4,
-                            }}>
-                              #{k.position}
-                            </span>
-                          </td>
-                          <td style={{ padding: "11px 14px", color: "var(--ink-muted)", fontWeight: 500 }}>
-                            {k.volume} <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>/ mo</span>
-                          </td>
-                          <td style={{ padding: "11px 14px" }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: "var(--surface-2)", border: "1px solid #e2e8f0", color: "var(--ink-muted)" }}>
-                              {k.intent}
-                            </span>
-                          </td>
-                          <td style={{ padding: "11px 14px", color: "var(--ink-muted)", fontSize: 12 }}>
-                            {k.features.join(" · ")}
-                          </td>
-                          <td style={{ padding: "11px 14px", textAlign: "right" }}>
-                            <button
-                              type="button"
-                              onClick={() => setActiveTab("Keyword Gap")}
-                              style={{ background: "var(--info-tint)", border: "1px solid #dbeafe", color: "#2563eb", borderRadius: 5, padding: "3px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                            >
-                              Gap →
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               </div>
 

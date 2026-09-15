@@ -6,6 +6,21 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added
+
+- **SEO Dashboard charts on the Overview page.** Monitoring cards drawn from the
+  project's saved scans and the open report, no chart library: Site Audit (health
+  gauge, errors/warnings, checks bar, pages crawled), Site Health Trend (line over
+  every graded scan of the project's own domain, issues per scan), Organic Search
+  (keywords, est. traffic, top 3/10, position distribution, trend when reported),
+  Top Keywords, Backlinks (referring domains, broken share), Page Performance (four
+  Lighthouse gauges), AI Search (checks passed, AI mentions). A card with nothing
+  measured says which tool fills it; one scan is not drawn as a trend. Replaces
+  four KPI cards, a traffic chart with no data behind it, and a duplicate keyword
+  table. New `web/lib/dashboardMetrics.ts`, `components/dashboard/Charts.tsx`,
+  `SeoDashboard.tsx`; `web/tests/dashboardMetrics.test.mjs` (5), fixtures in the
+  saved row formats. `npm test` → 527 passed.
+
 ### Changed (tool pages)
 
 - **Every tool page takes only the inputs its tool reads (B-143).** The domain is

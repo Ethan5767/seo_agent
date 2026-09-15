@@ -763,6 +763,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
         openClient(c);
       }}
       openReport={openReport}
+      scans={hist}
       onSaveNewClient={handleSaveNewClient}
       onUpdateClient={handleUpdateClient}
       onTriggerScan={handleTriggerScan}

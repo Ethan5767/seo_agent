@@ -88,8 +88,9 @@ def test_a_passing_row_resolves_last_month_s_finding():
 
 
 def test_an_absent_finding_still_resolves():
-    """The weaker inference stays for the codes that have no pass row."""
-    out = build_plan([], [f("a", "error")])
+    """The weaker inference stays for the codes that have no pass row, but only
+    when the finding's tool ran this scan (B-121): here tool "t" produced "b"."""
+    out = build_plan([f("b", "ok")], [f("a", "error")])
     assert [r["code"] for r in out["resolved"]] == ["a"]
 
 
@@ -97,3 +98,47 @@ def test_a_still_failing_finding_is_not_resolved():
     out = build_plan([f("a", "error")], [f("a", "error")])
     assert out["resolved"] == []
     assert out["worklist"][0]["status"] == "PERSISTING"
+
+
+# ── B-121: a tool that did not run cannot resolve its findings ────────────────
+
+def _f(code, sev, tool, what="x"):
+    return {"code": code, "severity": sev, "tool": tool, "what": what, "fix": "f"}
+
+
+def test_a_finding_whose_tool_did_not_run_stays_open():
+    previous = [_f("dfs.broken_backlinks", "warn", "Backlinks (DataForSEO)", "89 broken backlinks")]
+    current = [_f("unavailable.backlinks", "info", "Backlinks (DataForSEO)"),
+               _f("health.title_missing", "ok", "On-page SEO")]
+    plan = build_plan(current, previous)
+    assert plan["counts"]["RESOLVED"] == 0
+    carried = [w for w in plan["worklist"] if w["code"] == "dfs.broken_backlinks"]
+    assert carried and carried[0]["status"] == "PERSISTING"
+    assert "not re-checked" in carried[0]["note"]
+
+
+def test_a_tool_left_out_of_a_section_scan_does_not_resolve_either():
+    previous = [_f("dfs.broken_backlinks", "warn", "Backlinks (DataForSEO)")]
+    current = [_f("tech.https", "ok", "Technical")]
+    plan = build_plan(current, previous)
+    assert plan["counts"]["RESOLVED"] == 0
+    assert any(w["code"] == "dfs.broken_backlinks" for w in plan["worklist"])
+
+
+def test_a_tool_that_ran_and_no_longer_finds_it_resolves():
+    previous = [_f("dfs.broken_backlinks", "warn", "Backlinks (DataForSEO)")]
+    current = [_f("dfs.backlinks", "info", "Backlinks (DataForSEO)")]
+    plan = build_plan(current, previous)
+    assert [r["code"] for r in plan["resolved"]] == ["dfs.broken_backlinks"]
+    assert not any(w["code"] == "dfs.broken_backlinks" for w in plan["worklist"])
+
+
+def test_a_pass_row_is_proof_whatever_the_tool_field_says():
+    previous = [_f("health.title_missing", "error", "On-page SEO")]
+    current = [_f("health.title_missing", "ok", "")]
+    assert build_plan(current, previous)["counts"]["RESOLVED"] == 1
+
+
+def test_rows_without_a_tool_keep_the_old_absence_rule():
+    previous = [{"code": "tech.https", "severity": "error", "what": "x", "fix": "f"}]
+    assert build_plan([], previous)["counts"]["RESOLVED"] == 1

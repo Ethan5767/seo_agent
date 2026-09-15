@@ -302,3 +302,10 @@ test("a 'did not run' row is never sent to Claude as a finding", () => {
   ];
   assert.deepEqual(actionable(rows).map((r) => r.code), ["dfs.broken_backlinks"]);
 });
+
+test("the web plan fallback keeps findings open when their tool did not run (B-121)", () => {
+  const route = readFileSync(new URL("../app/api/plan/route.ts", import.meta.url), "utf8");
+  assert.match(route, /if \(!r\.tool \|\| ran\.has\(r\.tool\)\)/);
+  assert.match(route, /not re-checked in this scan/);
+  assert.doesNotMatch(route, /ACTIONABLE\.has\(r\.severity\) && !curByCode\.has\(code\)/);
+});

@@ -70,9 +70,29 @@ def build_plan(current: list[dict], previous: list[dict]) -> dict:
     # own code with severity "ok" (`audit._pass_row`), a present-but-ok row is
     # positive proof of a fix, and absence is the weaker inference we still
     # accept for the codes that have no pass row.
-    resolved = [r for code, r in prev_by_code.items()
-                if r.get("severity") in _ACTIONABLE
-                and cur_by_code.get(code, {}).get("severity") not in _ACTIONABLE]
+    #
+    # B-121: absence only counts when the tool that produces the finding RAN in
+    # this scan. A tool that was paused, over budget, errored or simply left out
+    # of a section scan files nothing, and its findings used to be counted as
+    # fixed and dropped from the worklist. Such findings stay open, marked.
+    ran = {r.get("tool") for r in (current or [])
+           if r.get("tool") and not str(r.get("code") or "").startswith("unavailable.")}
+    resolved = []
+    for code, r in prev_by_code.items():
+        if r.get("severity") not in _ACTIONABLE:
+            continue
+        now = cur_by_code.get(code)
+        if now is not None:
+            if now.get("severity") not in _ACTIONABLE:
+                resolved.append(r)          # checked again and passing: proof
+            continue
+        tool = r.get("tool")
+        if not tool or tool in ran:
+            resolved.append(r)              # its tool ran and no longer finds it
+            continue
+        status = "PERSISTING"
+        worklist.append({**r, "status": status, "priority": _priority(status, r.get("severity")),
+                         "note": f"not re-checked in this scan: {tool} did not run"})
 
     worklist.sort(key=lambda w: (w["priority"], w.get("code", "")))
     for i, w in enumerate(worklist):

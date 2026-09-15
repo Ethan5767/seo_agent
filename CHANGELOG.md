@@ -8,6 +8,14 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **Plan no longer calls a finding fixed when its tool did not run (B-121).** It
+  stays on the worklist, marked "not re-checked in this scan". `pytest -q` → 1342
+  passed; `npm test` → 486 tests, 485 pass (the remaining failure is another
+  session's uncommitted top-bar redesign, not in this commit).
+
+
+### Fixed
+
 - **Search data now uses the project's own market (B-137).** `.kh` projects are
   measured on Google Cambodia (2116); generic domains stay United States. Live:
   `Search data market: location 2116, language en.`

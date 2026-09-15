@@ -236,13 +236,42 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Find RESOLVED items (present in prev actionable, gone from current)
+  // RESOLVED: an actionable finding last scan that is passing now, or absent
+  // while the tool that finds it RAN this scan. A tool that did not run
+  // (paused, budget, error, left out of a section scan) cannot resolve its
+  // findings; they stay open, marked (B-121, same rule as plan.py).
+  const ran = new Set(
+    (current || [])
+      .filter((r: any) => r?.tool && !String(r?.code || "").startsWith("unavailable."))
+      .map((r: any) => r.tool),
+  );
   const resolved: any[] = [];
   for (const [code, r] of prevByCode.entries()) {
-    if (ACTIONABLE.has(r.severity) && !curByCode.has(code)) {
+    if (!ACTIONABLE.has(r.severity)) continue;
+    const now = curByCode.get(code);
+    if (now) {
+      if (!ACTIONABLE.has(now.severity)) {
+        resolved.push({ ...r, status: "RESOLVED" });
+        counts.RESOLVED++;
+      }
+      continue;
+    }
+    if (!r.tool || ran.has(r.tool)) {
       resolved.push({ ...r, status: "RESOLVED" });
       counts.RESOLVED++;
+      continue;
     }
+    const tInfo = getFindingTier(code, r.what || "", r.category || "");
+    const impInfo = getFindingImpact(r.severity, code);
+    const inScope = tInfo.tier <= Number(tier);
+    if (inScope) counts.inScope++;
+    else counts.outOfScope++;
+    counts.PERSISTING++;
+    worklist.push({
+      ...r, code, status: "PERSISTING", ...tInfo, ...impInfo, inScope,
+      selectedForSprint: inScope, targetFile: null,
+      note: `not re-checked in this scan: ${r.tool} did not run`,
+    });
   }
 
   // Sort worklist: REGRESSION and high priority first

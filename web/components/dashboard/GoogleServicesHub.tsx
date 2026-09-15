@@ -13,12 +13,47 @@ interface GoogleServiceStatus {
     // status route used to answer `true` unconditionally with the comment
     // "Auto-probed" beside it.
     businessProfile: { connected: boolean; accountEmail: string | null; isSecondary: boolean; hasLocations: boolean | null };
-    analytics: { connected: boolean };
+    analytics: { connected: boolean; error?: string };
   };
   secondaryGbp: {
     connected: boolean;
     email: string | null;
   };
+}
+
+type CardState = "ok" | "failed" | "unchecked";
+const BADGE_TEXT: Record<CardState, string> = { ok: "✓ Working", failed: "✕ Not working", unchecked: "Not checked" };
+const BADGE_COLOR: Record<CardState, string> = { ok: "#166534", failed: "#b91c1c", unchecked: "#64748b" };
+
+/** What each Google service actually answered, from `/api/auth/google/status`. */
+export function serviceCards(status: GoogleServiceStatus, isGbpSecondary: boolean, gbpAccount: string | null | undefined) {
+  const gsc = status.services.searchConsole;
+  const ga = status.services.analytics;
+  const gbp = status.services.businessProfile;
+  return [
+    {
+      name: "Search Console",
+      state: (gsc.connected ? "ok" : "failed") as CardState,
+      detail: gsc.connected
+        ? `${status.sites.length} site(s) this account can read`
+        : gsc.error || "Google did not accept this connection. Disconnect, then connect again.",
+    },
+    {
+      name: "Business Profile (Local)",
+      // Nothing asks Google about locations at connect time (hasLocations stays null).
+      state: (gbp.hasLocations === true ? "ok" : gbp.hasLocations === false ? "failed" : "unchecked") as CardState,
+      detail: gbp.hasLocations === false
+        ? "This account has no Business Profile locations."
+        : `Checked when you open Local. Account: ${isGbpSecondary ? `Secondary (${gbpAccount})` : "Primary"}`,
+    },
+    {
+      name: "Analytics 4 (GA4)",
+      state: (ga.connected ? "ok" : "failed") as CardState,
+      detail: ga.connected
+        ? "Google Analytics answered. Open Traffic → GA4 Overview."
+        : ga.error || "Google did not accept this connection. Disconnect, then connect again.",
+    },
+  ];
 }
 
 interface GoogleServicesHubProps {
@@ -225,40 +260,19 @@ export function GoogleServicesHub({ compact = false, onStatusChange }: GoogleSer
             </button>
           </div>
 
-          {/* Connected Services Grid */}
+          {/* Connected Services Grid. Each badge is the result of asking Google
+              just now, never a constant: these three read a fixed Active badge for any
+              connection, including one whose token Google no longer accepts. */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 16 }}>
-            {/* Search Console */}
-            <div style={{ background: "#ffffff", padding: "12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>Search Console</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#166534" }}>✓ Active</span>
+            {serviceCards(status, Boolean(isGbpSecondary), gbpAccount).map((card) => (
+              <div key={card.name} style={{ background: "#ffffff", padding: "12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>{card.name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: BADGE_COLOR[card.state] }}>{BADGE_TEXT[card.state]}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>{card.detail}</div>
               </div>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                {status.sites.length > 0 ? `${status.sites.length} verified site(s)` : "Domain linked"}
-              </div>
-            </div>
-
-            {/* Google Business Profile */}
-            <div style={{ background: "#ffffff", padding: "12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>Business Profile (Local)</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#166534" }}>✓ Active</span>
-              </div>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                Account: {isGbpSecondary ? `Secondary (${gbpAccount})` : "Primary Account"}
-              </div>
-            </div>
-
-            {/* Google Analytics */}
-            <div style={{ background: "#ffffff", padding: "12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>Analytics 4 (GA4)</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#166534" }}>✓ Active</span>
-              </div>
-              <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                Traffic & conversions synced
-              </div>
-            </div>
+            ))}
           </div>
 
           {/* Subtle Secondary Account Override (For Agencies / Multi-account Owners) */}

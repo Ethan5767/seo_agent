@@ -168,3 +168,17 @@ test("the status route probes Analytics instead of assuming it, and GA4 is on th
   }
   assert.match(src("components/dashboard/Ga4Panel.tsx"), /authedFetch\(/);
 });
+
+test("the Google hub shows what each service answered, never a constant Active badge", () => {
+  // Operator, 2026-09-15: "it said connected but i dont even connect". All three
+  // cards read "✓ Active" for any connection cookie, including a stale one from
+  // an old OAuth client that Google no longer accepted.
+  const hub = src("components/dashboard/GoogleServicesHub.tsx");
+  assert.doesNotMatch(hub, /✓ Active/);
+  assert.doesNotMatch(hub, /Traffic & conversions synced/);
+  assert.doesNotMatch(hub, /"Domain linked"/);
+  const cards = hub.slice(hub.indexOf("export function serviceCards"));
+  assert.match(cards, /gsc\.connected \? "ok" : "failed"/);
+  assert.match(cards, /ga\.connected \? "ok" : "failed"/);
+  assert.match(cards, /hasLocations === true \? "ok"/);
+});

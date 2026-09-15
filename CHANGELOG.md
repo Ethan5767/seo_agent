@@ -23,6 +23,11 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **Profile no longer shows Google services "Active" that are not working
+  (B-140).** Each card shows what Google answered: Working, Not working (with the
+  reason), or Not checked. `npm test` → 507 tests, 506 pass (the budget badge test
+  is the other session's).
+
 - **A Google connection no longer dies after an hour (B-138).** The refresh token
   was stored and never used. The callback now records the access token's expiry
   and `googleSession` refreshes an expired token for an owned connection before

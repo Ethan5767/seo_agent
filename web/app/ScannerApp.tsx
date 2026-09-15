@@ -485,28 +485,17 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       // Claude writes it, then one {"result": {...}}. Reading it with
       // res.json() would block until the whole run finished, which is what made
       // an apply look hung for up to half an hour.
-      let r: ApplyResult = { ok: false, error: "apply produced no result" } as ApplyResult;
-      if (res.body) {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const parts = buf.split("\n");
-          buf = parts.pop() ?? "";           // keep the partial last line
-          for (const line of parts) {
-            if (!line.trim()) continue;
-            try {
-              const ev = JSON.parse(line);
-              if (ev.log) setLive((l) => [...l, ev.log]);
-              if (ev.result) r = ev.result as ApplyResult;
-            } catch {
-              // A partial or malformed line is not worth failing the run over.
-            }
-          }
-        }
+      // B-122: the same reader as scans. The hand-rolled loop here ignored
+      // res.ok and never parsed a final unterminated line, so every refusal
+      // (401, 429, scanner 403, unreachable backend) became "apply produced no
+      // result" and the real reason was lost.
+      let r: ApplyResult | null = null;
+      const outcome = await readScanStream(res, (ev) => {
+        if (ev.log) setLive((l) => [...l, ev.log]);
+        if (ev.result) r = ev.result as ApplyResult;
+      }, "apply");
+      if (!r || outcome.error) {
+        r = { ok: false, error: outcome.error || "The apply ended without a result." } as ApplyResult;
       }
       setApply(r);
       const activeId = clientId || histClient?.id;

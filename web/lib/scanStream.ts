@@ -47,6 +47,8 @@ async function refusal(res: Response): Promise<string> {
 export async function readScanStream(
   res: Response,
   onEvent: (ev: ScanEvent) => void,
+  /** What the stream is, for the no-result message ("scan", "apply"). */
+  noun = "scan",
 ): Promise<ScanStreamOutcome> {
   const blockedTools = blockedFrom(res);
 
@@ -90,7 +92,7 @@ export async function readScanStream(
   if (!sawResult) {
     return {
       error:
-        "The scan ended without a result" +
+        `The ${noun} ended without a result` +
         (malformed ? ` (${malformed} unreadable line${malformed === 1 ? "" : "s"} from the scanner)` : "") +
         ". Check that wf-scan-web is running, then scan again.",
       blockedTools,

@@ -8,6 +8,12 @@ see `CLAUDE.md` (the sync contract).
 
 ### Fixed
 
+- **Auto-Fix Apply keeps its refusal reasons (B-122, partly).** The reader is the
+  scan reader (401, 429, scanner 403, unreachable backend now arrive as the error)
+  and the route answers 503 instead of 200. The Auto-Fix screen still needs to
+  render `apply.error` in place of its hardcoded success banner; that waits for
+  the other session's `ReaiDashboard.tsx` redesign. `npm test` → 496 tests, 495 pass.
+
 - **A DataForSEO-only Test no longer runs our free crawl first.** Crawl Issues on
   DataForSEO used to fetch 25 pages itself (1.5-2 min) before Site Health started,
   for rows the page hides. Such Tests send `crawl_pages: 1`, the Pages dropdown is

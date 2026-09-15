@@ -47,7 +47,9 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof ScannerUnconfigured ? e.message : `backend unreachable at ${PYTHON_API} (${e})` },
-      { status: 200 },
+      // 503, not 200 (B-122): a success status on a failed apply is part of how
+      // its reason used to vanish.
+      { status: 503 },
     );
   }
 }

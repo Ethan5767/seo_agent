@@ -121,3 +121,18 @@ test("our free on-page rows are never labelled as DataForSEO", () => {
   assert.ok(dfsLine, "sourceOf lost its DataForSEO branch");
   assert.doesNotMatch(dfsLine, /health\./, "health.* is the free On-page SEO tool");
 });
+
+
+test("Auto-Fix Apply reads its stream through readScanStream and names refusals (B-122)", async () => {
+  const app = readFileSync(path.join(__dirname, "..", "app", "ScannerApp.tsx"), "utf8");
+  const fn = app.slice(app.indexOf("async function runApply()"), app.indexOf("function toggleTool("));
+  assert.match(fn, /readScanStream\(res, /);
+  assert.doesNotMatch(fn, /res\.body\.getReader\(\)/);
+  const route = readFileSync(path.join(__dirname, "..", "app", "api", "remediate", "apply", "route.ts"), "utf8");
+  assert.match(route, /status: 503/);
+  const res = new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/x-ndjson" } });
+  const out = await readScanStream(res, () => {}, "apply");
+  assert.equal(out.error, "Unauthorized");
+  const empty = new Response("", { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+  assert.match((await readScanStream(empty, () => {}, "apply")).error, /^The apply ended without a result/);
+});

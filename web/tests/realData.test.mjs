@@ -102,7 +102,7 @@ test("the old tool screens with computed figures open the report views instead",
     assert.ok(d.includes(`"${tab}": "${view}"`), `${tab} is not redirected`);
     assert.ok(views.includes(`id: "${view}"`), `${view} is not a report view`);
   }
-  assert.match(d, /useState<string \| null>\(\(\) => LEGACY_TAB_VIEWS\[activeTab\] \?\? null\)/, "a direct URL must land on the view");
+  assert.match(d, /useState<string \| null>\(\(\) => initialNav\?\.view \?\? LEGACY_TAB_VIEWS\[activeTab\] \?\? null\)/, "a direct URL must land on the view");
   const setTab = d.slice(d.indexOf("const setActiveTab = useCallback"), d.indexOf("setIsTabTransitioning(true);", d.indexOf("const setActiveTab = useCallback")));
   assert.match(setTab, /LEGACY_TAB_VIEWS\[tab\]/, "an in-page button must land on the view too");
 });

@@ -235,11 +235,13 @@ function BarChart({ rows }: { rows: { label: string; pct: number | null; color: 
   );
 }
 
-export function ReaiApp({ initialTab }: { initialTab?: any }) {
-  return <AuthGate><Scanner initialTab={initialTab} /></AuthGate>;
+export type InitialNav = { view?: string; gsc?: string; content?: string; stage?: string };
+
+export function ReaiApp({ initialTab, initialNav }: { initialTab?: any; initialNav?: InitialNav }) {
+  return <AuthGate><Scanner initialTab={initialTab} initialNav={initialNav} /></AuthGate>;
 }
 
-function Scanner({ initialTab }: { initialTab?: any }) {
+function Scanner({ initialTab, initialNav }: { initialTab?: any; initialNav?: InitialNav }) {
   const [stage, setStage] = useState<"onboard" | "measure" | "history">("history");
   const [clientId, setClientId] = useState<string | null>(null);
   const [repos, setRepos] = useState<string[]>([]);
@@ -792,6 +794,7 @@ function Scanner({ initialTab }: { initialTab?: any }) {
       }}
       remedHist={remedHist}
       initialTab={initialTab}
+      initialNav={initialNav as any}
       isLoading={initialLoading || histBusy}
       budget={scanBudget ?? {
         dailyBudget: 5,

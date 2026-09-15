@@ -6,6 +6,13 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Fixed (navigation)
+
+- **Every tool page has its own address (B-145).** Opening a tool from the sidebar
+  now updates the URL (`/view/<tool>`, `/gsc/<page>`, `/content/<tool>`,
+  `/stage/<stage>`), a reload or shared link opens that page, and back/forward
+  work. The address bar used to stay on the last tab (e.g. `/site-audit`).
+
 ### Added
 
 - **Charts on every tool page, not only the Dashboard.** Each report view opens

@@ -51,6 +51,7 @@ import { toolVerb } from "@/lib/toolVerbs";
 import { toolsForView } from "@/lib/sectionScans";
 import { formatUsd } from "@/lib/budget";
 import { SEARCH_VIEW_IDS, type ReportView } from "@/lib/reportViews";
+import { navPath, parseNavPath } from "@/lib/navPath";
 
 /** Every search tool opens on the centred hero (one-input, Semrush-style),
  *  never the audit toolbar. Audit tools keep the toolbar. */
@@ -1478,6 +1479,8 @@ export interface ReaiDashboardProps {
   };
   remedHist?: RemediationRow[];
   initialTab?: ReaiTab;
+  /** Opens a tool page by address (/view/:id, /gsc/:id, /content/:id, /stage/:id). */
+  initialNav?: { view?: string; gsc?: string; content?: string; stage?: StageId };
   isLoading?: boolean;
   budget?: { dailyBudget: number; spentToday: number };
   crawlPages?: number;
@@ -1905,6 +1908,7 @@ export function ReaiDashboard({
   planState,
   remedHist = [],
   initialTab,
+  initialNav,
   isLoading = false,
   budget,
   crawlPages = 5,
@@ -1957,6 +1961,7 @@ export function ReaiDashboard({
     const legacyView = LEGACY_TAB_VIEWS[tab];
     if (legacyView) {
       setActiveView(legacyView);
+      if (typeof window !== "undefined") window.history.pushState({ nav: `/view/${legacyView}` }, "", `/view/${legacyView}`);
       if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
       return () => {};
     }
@@ -2004,6 +2009,12 @@ export function ReaiDashboard({
   useEffect(() => {
     function handlePopState() {
       const p = window.location.pathname.replace(/\/$/, "");
+      // Back/forward between tool pages and tabs: restore whichever the address names.
+      const nav = parseNavPath(p);
+      setActiveView(nav.view ?? null);
+      setActiveGscView(nav.gsc ?? null);
+      setActiveContentTool(nav.content ?? null);
+      setActiveStage((nav.stage as StageId | undefined) ?? null);
       const matched = ROUTE_TO_TAB[p] || ROUTE_TO_TAB[window.location.pathname];
       if (matched) {
         setActiveTabState(matched);
@@ -2134,7 +2145,7 @@ export function ReaiDashboard({
 
   // A report view is a named slice of the scan report (lib/reportViews.ts).
   // When one is open it replaces the tab content; picking any tab clears it.
-  const [activeView, setActiveView] = useState<string | null>(() => LEGACY_TAB_VIEWS[activeTab] ?? null);
+  const [activeView, setActiveView] = useState<string | null>(() => initialNav?.view ?? LEGACY_TAB_VIEWS[activeTab] ?? null);
   // The Data source chosen on each tool page (lib/toolSources.ts). Kept in this
   // browser only: a per-viewer preference, not project state, and absent it
   // every page opens on DataForSEO where DataForSEO can serve it.
@@ -2152,10 +2163,10 @@ export function ReaiDashboard({
       return next;
     });
   };
-  const [activeGscView, setActiveGscView] = useState<string | null>(null);
-  const [activeContentTool, setActiveContentTool] = useState<string | null>(null);
+  const [activeGscView, setActiveGscView] = useState<string | null>(initialNav?.gsc ?? null);
+  const [activeContentTool, setActiveContentTool] = useState<string | null>(initialNav?.content ?? null);
   // Which engine stage screen is open (plan / gate / merge), or null for none.
-  const [activeStage, setActiveStage] = useState<StageId | null>(null);
+  const [activeStage, setActiveStage] = useState<StageId | null>(initialNav?.stage ?? null);
 
   /**
    * Pull requests for the selected client, each carrying its gate verdicts.
@@ -2278,6 +2289,13 @@ export function ReaiDashboard({
     setActiveGscView(null);
     setActiveView(null);
 
+    // A tool page gets its own address, so reload, back and a shared link land on
+    // it. Only tabs pushed a URL, so opening Keyword Overview from Site Audit left
+    // the address bar on /site-audit (operator, 2026-09-15).
+    const path = navPath(item);
+    if (path && typeof window !== "undefined" && window.location.pathname !== path) {
+      window.history.pushState({ nav: path }, "", path);
+    }
     if (item.stage) { setActiveStage(item.stage); }
     else if (item.content) { setActiveContentTool(item.content); }
     else if (item.gsc) { setActiveGscView(item.gsc); }

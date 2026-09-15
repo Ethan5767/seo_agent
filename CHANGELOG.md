@@ -6,6 +6,21 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added (Backlink Overview)
+
+- **Backlink Overview page** (`/view/backlink-overview`, SEO → Link Building). New
+  `backlink_overview` scanner tool (~$0.08, four Backlinks API calls: summary,
+  top 10 referring domains, top 10 anchors, 12-month history) and a dashboard:
+  referring domains, backlinks, rank, spam score, broken links, IPs/subnets;
+  referring domains and backlinks over time; new vs lost per month; follow vs
+  nofollow; link types; top TLDs and countries; top referring domains and anchors.
+  The summary row now carries the full link profile for every Backlinks run.
+  Response shapes verified on DataForSEO's free sandbox (fixtures
+  `tests/fixtures/dfs_backlinks_{summary,referring_domains,anchors,history}.json`);
+  not yet run live. `tests/test_backlink_overview.py` (4),
+  `web/tests/backlinkOverview.test.mjs` (4, fed the Python parsers' output).
+  `pytest -q` → 1354 passed; `npm test` → 539 passed.
+
 ### Fixed (navigation)
 
 - **Every tool page has its own address (B-145).** Opening a tool from the sidebar

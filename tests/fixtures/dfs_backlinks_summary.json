@@ -1,0 +1,111 @@
+{
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "cost": 0,
+   "result_count": 1,
+   "result": [
+    {
+     "target": "dataforseo.com",
+     "first_seen": "2019-01-15 23:54:14 +00:00",
+     "lost_date": null,
+     "rank": 51,
+     "backlinks": 332542,
+     "backlinks_spam_score": 15,
+     "crawled_pages": 37337,
+     "info": {
+      "server": "nginx",
+      "cms": "wordpress",
+      "platform_type": [
+       "cms",
+       "blogs",
+       "organization"
+      ],
+      "ip_address": "178.63.191.61",
+      "country": "US",
+      "is_ip": false,
+      "target_spam_score": 0
+     },
+     "internal_links_count": 1084739,
+     "external_links_count": 1402441,
+     "broken_backlinks": 1150,
+     "broken_pages": 125,
+     "referring_domains": 2833,
+     "referring_domains_nofollow": 0,
+     "referring_main_domains": 2688,
+     "referring_main_domains_nofollow": 0,
+     "referring_ips": 2200,
+     "referring_subnets": 1365,
+     "referring_pages": 329209,
+     "referring_pages_nofollow": 0,
+     "referring_links_tld": {
+      "jetzt": 232146,
+      "de": 83244,
+      "com": 5322,
+      "net": 1483,
+      "pl": 1129,
+      "blogspot.com": 922,
+      "io": 894,
+      "ai": 672,
+      "org": 644,
+      "github.io": 388
+     },
+     "referring_links_types": {
+      "image": 237478,
+      "anchor": 63889,
+      "redirect": 27839,
+      "canonical": 3
+     },
+     "referring_links_attributes": {
+      "noopener": 4043,
+      "noreferrer": 2104,
+      "external": 45,
+      "sponsored": 36,
+      "ugc": 5,
+      "bookmark": 3,
+      "author": 2
+     },
+     "referring_links_platform_types": {
+      "unknown": 241788,
+      "organization": 57257,
+      "blogs": 4038,
+      "cms": 3140,
+      "news": 1144,
+      "ecommerce": 367,
+      "message-boards": 81
+     },
+     "referring_links_semantic_locations": {
+      "": 321270,
+      "article": 4118,
+      "section": 2052,
+      "main": 1234,
+      "header": 207,
+      "footer": 172,
+      "aside": 77,
+      "details": 51,
+      "figure": 20,
+      "nav": 5
+     },
+     "referring_links_countries": {
+      "": 238437,
+      "DE": 83721,
+      "US": 1533,
+      "IO": 1286,
+      "PL": 1271,
+      "AI": 673,
+      "WW": 609,
+      "CC": 373,
+      "CA": 232,
+      "UA": 218
+     }
+    }
+   ]
+  }
+ ]
+}

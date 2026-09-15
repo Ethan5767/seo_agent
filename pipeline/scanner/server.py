@@ -161,6 +161,8 @@ TOOLS = [
          lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
     Tool("Backlinks (DataForSEO)", "backlinks", "Links", "dataforseo", "~$0.025", 0.025, None,
          lambda c: dataforseo.backlinks(c.domain)),
+    Tool("Backlink Overview (DataForSEO)", "backlink_overview", "Links", "dataforseo", "~$0.08", 0.08, None,
+         lambda c: dataforseo.backlink_overview(c.domain)),
     Tool("Backlink Gap (DataForSEO)", "backlink_gap", "Links", "dataforseo", "~$0.025", 0.025, None,
          lambda c: dataforseo.backlink_gap(c.domain, c.competitors)),
     Tool("Keywords (DataForSEO)", "keywords", "Keywords & Rankings", "dataforseo", "~$0.18", 0.18, None,

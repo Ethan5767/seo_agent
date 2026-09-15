@@ -98,6 +98,7 @@ export const TOOL_SOURCES: Record<string, ToolSources> = {
   "search-intent": { dataforseo: dfs("search-intent", ["keywords"]), ours: { disabled: NO_OTHER_SITES } },
   "serp-positions": { dataforseo: dfs("serp-positions", ["rankings"]), ours: { disabled: GSC_NOT_YET } },
   // ── Links ──
+  "backlink-overview": { dataforseo: dfs("backlink-overview", ["backlink_overview"]), ours: { disabled: NO_LINK_INDEX } },
   backlinks: { dataforseo: dfs("backlinks", ["backlinks"]), ours: { disabled: NO_LINK_INDEX } },
   "backlink-audit": { dataforseo: dfs("backlink-audit", ["backlinks"]), ours: { disabled: NO_LINK_INDEX } },
   "backlink-gap": { dataforseo: dfs("backlink-gap", ["backlink_gap"]), ours: { disabled: NO_LINK_INDEX } },

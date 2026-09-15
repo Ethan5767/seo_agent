@@ -305,6 +305,9 @@ TOP_ROWS = 100
 #: Competitor lists are a shortlist by nature: past the first handful they are
 #: long-tail domains nobody acts on.
 TOP_COMPETITORS = 25
+# Backlink Overview lists: the Backlinks API bills per row, so ask for the top
+# ten referring domains and anchors and keep exactly those.
+TOP_LINK_ROWS = 10
 
 
 def parse_ranked_keywords(doc: dict, top: int = TOP_ROWS) -> list[dict]:
@@ -865,7 +868,8 @@ def parse_backlinks(doc: dict) -> list[dict]:
              "why": "Backlinks are a top Google ranking factor — other sites vouching for yours.",
              "fix": "keep earning links from relevant, trusted sites" if bl else "no links yet — start earning quality backlinks",
              "severity": "ok" if bl else "warn",
-             "detail": f"authority rank {rank}" if rank is not None else ""}]
+             "detail": f"authority rank {rank}" if rank is not None else "",
+             "metrics": _link_profile(r0)}]
     broken = r0.get("broken_backlinks") or 0
     if broken:
         rows.append({"code": "dfs.broken_backlinks", "what": f"{broken} broken backlink(s)",
@@ -873,6 +877,114 @@ def parse_backlinks(doc: dict) -> list[dict]:
                      "fix": "restore or 301-redirect those target URLs so the link equity isn't lost",
                      "severity": "warn", "detail": f"{broken} broken"})
     return rows
+
+
+def _top_counts(d, n: int = 8) -> list[dict]:
+    """{"com": 5322, "": 9, ...} -> [{"label": "com", "value": 5322}, ...], largest
+    first, blank keys (unknown country / TLD) dropped rather than labelled."""
+    if not isinstance(d, dict):
+        return []
+    pairs = [(str(k), int(v)) for k, v in d.items() if k and isinstance(v, (int, float))]
+    return [{"label": k, "value": v} for k, v in sorted(pairs, key=lambda kv: -kv[1])[:n]]
+
+
+def _link_profile(r: dict) -> dict:
+    """The Backlinks Summary figures the Backlink Overview charts, as DataForSEO
+    reports them (field names verified against sandbox.dataforseo.com, 2026-09-15)."""
+    keys = ("rank", "backlinks", "backlinks_spam_score", "referring_domains", "referring_domains_nofollow",
+            "referring_main_domains", "referring_ips", "referring_subnets", "referring_pages",
+            "referring_pages_nofollow", "broken_backlinks", "broken_pages", "first_seen")
+    out = {k: r.get(k) for k in keys if r.get(k) is not None}
+    out.update({
+        "tld": _top_counts(r.get("referring_links_tld")),
+        "types": _top_counts(r.get("referring_links_types")),
+        "attributes": _top_counts(r.get("referring_links_attributes")),
+        "countries": _top_counts(r.get("referring_links_countries")),
+        "platforms": _top_counts(r.get("referring_links_platform_types")),
+    })
+    return out
+
+
+def parse_referring_domains(doc: dict, top: int = TOP_LINK_ROWS) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        dom = it.get("domain")
+        if not dom:
+            continue
+        since = str(it.get("first_seen") or "")[:10]
+        rows.append({"code": "dfs.referring_domain", "what": dom,
+                     "why": "A site linking to this domain.",
+                     "fix": "keep the relationship; ask for links to your key pages",
+                     "severity": "info",
+                     "detail": f"rank {it.get('rank')} · {it.get('backlinks') or 0} backlinks · spam {it.get('backlinks_spam_score') or 0}"
+                               + (f" · since {since}" if since else ""),
+                     "metrics": {"rank": it.get("rank"), "backlinks": it.get("backlinks"),
+                                 "spam": it.get("backlinks_spam_score"), "first_seen": since or None,
+                                 "nofollow": bool(it.get("referring_pages") and it.get("referring_pages_nofollow") == it.get("referring_pages"))}})
+    return rows
+
+
+def parse_anchors(doc: dict, top: int = TOP_LINK_ROWS) -> list[dict]:
+    rows = []
+    for it in result_items(doc)[:top]:
+        # A null or blank anchor is real: image links and bare URLs carry no text.
+        label = str(it.get("anchor") or "").strip() or "(no anchor text)"
+        rows.append({"code": "dfs.anchor", "what": f'"{label}"',
+                     "why": "Link text other sites use when they link here.",
+                     "fix": "a natural mix of brand, URL and topic anchors is healthy",
+                     "severity": "info",
+                     "detail": f"{it.get('backlinks') or 0} backlinks from {it.get('referring_domains') or 0} domains",
+                     "metrics": {"backlinks": it.get("backlinks"), "referring_domains": it.get("referring_domains")}})
+    return rows
+
+
+def parse_backlink_history(doc: dict) -> list[dict]:
+    """One row carrying the monthly series: backlinks, referring domains, new/lost."""
+    pts = []
+    for it in result_items(doc):
+        date = str(it.get("date") or "")[:7]
+        if not date:
+            continue
+        pts.append({"date": date, "backlinks": it.get("backlinks") or 0,
+                    "referring_domains": it.get("referring_domains") or 0,
+                    "new_referring_domains": it.get("new_referring_domains") or 0,
+                    "lost_referring_domains": it.get("lost_referring_domains") or 0,
+                    "new_backlinks": it.get("new_backlinks") or 0,
+                    "lost_backlinks": it.get("lost_backlinks") or 0})
+    if not pts:
+        return []
+    pts.sort(key=lambda p: p["date"])
+    first, last = pts[0], pts[-1]
+    return [{"code": "dfs.backlink_history",
+             "what": f"Referring domains {first['referring_domains']} → {last['referring_domains']} ({first['date']} to {last['date']})",
+             "why": "How the link profile has grown or shrunk month by month.",
+             "fix": "a steady gain in referring domains is the healthy shape",
+             "severity": "info", "detail": f"{len(pts)} months",
+             "metrics": {"points": pts}}]
+
+
+def backlink_overview(domain: str, call=call, months: int = 12, today=None) -> tuple:
+    """(rows, status, cost) — Backlink Overview: the summary with its full link
+    profile, the top referring domains, the top anchors, and a monthly history.
+    Four Backlinks API calls; the cost is the sum of what each reports."""
+    import datetime as _dt
+    target = bare_domain(domain) or domain
+    rows: list[dict] = []
+    cost = 0.0
+    problems: list[str] = []
+    today = today or _dt.date.today()
+    y, m = divmod(today.year * 12 + today.month - 1 - months, 12)
+    start = _dt.date(y, m + 1, 1).isoformat()  # the same month, `months` back
+    for path, payload, parser in (
+        ("/v3/backlinks/summary/live", {"target": target, "internal_list_limit": 10, "backlinks_status_type": "live"}, parse_backlinks),
+        ("/v3/backlinks/referring_domains/live", {"target": target, "limit": TOP_LINK_ROWS, "order_by": ["rank,desc"], "backlinks_status_type": "live"}, parse_referring_domains),
+        ("/v3/backlinks/anchors/live", {"target": target, "limit": TOP_LINK_ROWS, "order_by": ["backlinks,desc"], "backlinks_status_type": "live"}, parse_anchors),
+        ("/v3/backlinks/history/live", {"target": target, "date_from": start}, parse_backlink_history),
+    ):
+        r, s, c = _tool(path, [payload], parser, call=call); rows += r; cost += c; problems += _problem(s)
+    cost = round(cost, 4)
+    rows += _unavailable_rows("backlink_overview", "Backlink Overview", problems)
+    return rows, _card_status("backlink_overview", rows, cost, problems), cost
 
 
 def backlinks(domain: str, call=call) -> tuple:

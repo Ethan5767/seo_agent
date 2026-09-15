@@ -165,6 +165,17 @@ export const REPORT_VIEWS: ReportView[] = [
     emptyHint: "Run a scan with the Keywords tool enabled to populate this.",
   },
   {
+    id: "backlink-overview",
+    section: "SEO",
+    label: "Backlink Overview",
+    // The summary row (dfs.backlinks, with its link profile) belongs to the
+    // Backlinks view; the dashboard reads it from there.
+    codes: ["dfs.referring_domain", "dfs.anchor", "dfs.backlink_history"],
+    blurb: "The link profile at a glance: referring domains, backlinks, growth, link types, top referring domains and anchors.",
+    columns: FINDING_COLUMNS,
+    emptyHint: "Press Look up to fetch this domain's backlink overview.",
+  },
+  {
     id: "backlinks",
     section: "SEO",
     label: "Backlinks",
@@ -395,7 +406,7 @@ export const COMPARISON_VIEW_IDS = new Set<string>(["compare-domains", "keyword-
 export const SEARCH_VIEW_IDS = new Set<string>([
   "position-tracking", "domain-overview", "organic-rankings", "compare-domains",
   "keyword-gap", "keyword-overview", "keyword-clusters", "keyword-ideas",
-  "search-intent", "serp-positions", "ai-mentions", "backlinks", "backlink-gap",
+  "search-intent", "serp-positions", "ai-mentions", "backlink-overview", "backlinks", "backlink-gap",
 ]);
 
 /** True when a view returns data to read, not findings to fix. */

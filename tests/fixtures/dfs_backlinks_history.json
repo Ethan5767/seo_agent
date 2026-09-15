@@ -1,0 +1,1033 @@
+{
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "cost": 0,
+   "result_count": 1,
+   "result": [
+    {
+     "target": "dataforseo.com",
+     "date_from": "2000-01-01",
+     "date_to": "2021-01-01",
+     "items_count": 21,
+     "items": [
+      {
+       "type": "backlinks_history",
+       "date": "2019-01-31 00:00:00 +00:00",
+       "rank": 38,
+       "backlinks": 476,
+       "new_backlinks": 427,
+       "lost_backlinks": 6,
+       "new_referring_domains": 191,
+       "lost_referring_domains": 0,
+       "crawled_pages": 38,
+       "info": {
+        "server": null,
+        "cms": null,
+        "platform_type": null,
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 1426,
+       "external_links_count": 159,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 208,
+       "referring_domains_nofollow": 1,
+       "referring_main_domains": 207,
+       "referring_main_domains_nofollow": 1,
+       "referring_ips": 131,
+       "referring_subnets": 125,
+       "referring_pages": 444,
+       "referring_pages_nofollow": 3,
+       "referring_links_tld": {
+        "com": 341,
+        "net": 32,
+        "org": 26,
+        "info": 9,
+        "name": 9,
+        "website": 8,
+        "blog": 4,
+        "in": 4,
+        "co": 2,
+        "us": 2
+       },
+       "referring_links_types": {
+        "anchor": 444
+       },
+       "referring_links_attributes": {
+        "noopener": 16,
+        "nofollow": 11,
+        "external": 3,
+        "noreferrer": 2
+       },
+       "referring_links_platform_types": {
+        "blogs": 395,
+        "cms": 395,
+        "unknown": 49
+       },
+       "referring_links_semantic_locations": {
+        "article": 361,
+        "": 61,
+        "section": 16,
+        "main": 5,
+        "header": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-02-28 00:00:00 +00:00",
+       "rank": 42,
+       "backlinks": 978,
+       "new_backlinks": 479,
+       "lost_backlinks": 23,
+       "new_referring_domains": 104,
+       "lost_referring_domains": 7,
+       "crawled_pages": 97,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 3254,
+       "external_links_count": 315,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 322,
+       "referring_domains_nofollow": 2,
+       "referring_main_domains": 314,
+       "referring_main_domains_nofollow": 2,
+       "referring_ips": 193,
+       "referring_subnets": 181,
+       "referring_pages": 927,
+       "referring_pages_nofollow": 7,
+       "referring_links_tld": {
+        "com": 696,
+        "net": 67,
+        "org": 47,
+        "info": 28,
+        "website": 20,
+        "us": 11,
+        "us.com": 10,
+        "blog": 9,
+        "name": 9,
+        "club": 5
+       },
+       "referring_links_types": {
+        "anchor": 927
+       },
+       "referring_links_attributes": {
+        "noopener": 33,
+        "nofollow": 23,
+        "external": 4,
+        "noreferrer": 3
+       },
+       "referring_links_platform_types": {
+        "cms": 822,
+        "blogs": 821,
+        "unknown": 103,
+        "ecommerce": 1
+       },
+       "referring_links_semantic_locations": {
+        "article": 753,
+        "": 127,
+        "section": 32,
+        "main": 10,
+        "header": 3,
+        "aside": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-03-31 00:00:00 +00:00",
+       "rank": 44,
+       "backlinks": 1304,
+       "new_backlinks": 420,
+       "lost_backlinks": 98,
+       "new_referring_domains": 123,
+       "lost_referring_domains": 10,
+       "crawled_pages": 129,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 4333,
+       "external_links_count": 433,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 447,
+       "referring_domains_nofollow": 2,
+       "referring_main_domains": 436,
+       "referring_main_domains_nofollow": 2,
+       "referring_ips": 263,
+       "referring_subnets": 241,
+       "referring_pages": 1245,
+       "referring_pages_nofollow": 7,
+       "referring_links_tld": {
+        "com": 908,
+        "net": 96,
+        "org": 63,
+        "info": 40,
+        "website": 21,
+        "us": 19,
+        "us.com": 18,
+        "blog": 13,
+        "name": 11,
+        "club": 7
+       },
+       "referring_links_types": {
+        "anchor": 1245
+       },
+       "referring_links_attributes": {
+        "nofollow": 40,
+        "noopener": 38,
+        "external": 4,
+        "noreferrer": 4
+       },
+       "referring_links_platform_types": {
+        "cms": 1118,
+        "blogs": 1117,
+        "unknown": 127,
+        "ecommerce": 2
+       },
+       "referring_links_semantic_locations": {
+        "article": 1046,
+        "": 131,
+        "section": 40,
+        "main": 17,
+        "aside": 5,
+        "header": 4,
+        "figcaption": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-04-30 00:00:00 +00:00",
+       "rank": 45,
+       "backlinks": 1591,
+       "new_backlinks": 365,
+       "lost_backlinks": 94,
+       "new_referring_domains": 82,
+       "lost_referring_domains": 14,
+       "crawled_pages": 193,
+       "info": {
+        "server": null,
+        "cms": null,
+        "platform_type": null,
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 6302,
+       "external_links_count": 581,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 517,
+       "referring_domains_nofollow": 2,
+       "referring_main_domains": 509,
+       "referring_main_domains_nofollow": 2,
+       "referring_ips": 299,
+       "referring_subnets": 268,
+       "referring_pages": 1520,
+       "referring_pages_nofollow": 7,
+       "referring_links_tld": {
+        "com": 1073,
+        "net": 116,
+        "org": 97,
+        "info": 64,
+        "us": 26,
+        "website": 25,
+        "us.com": 16,
+        "blog": 15,
+        "name": 13,
+        "net.in": 13
+       },
+       "referring_links_types": {
+        "anchor": 1520
+       },
+       "referring_links_attributes": {
+        "noopener": 41,
+        "nofollow": 39,
+        "external": 5,
+        "noreferrer": 4
+       },
+       "referring_links_platform_types": {
+        "cms": 1390,
+        "blogs": 1389,
+        "unknown": 130,
+        "ecommerce": 2
+       },
+       "referring_links_semantic_locations": {
+        "article": 1285,
+        "": 155,
+        "section": 48,
+        "main": 19,
+        "aside": 6,
+        "header": 4,
+        "footer": 2,
+        "figcaption": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-05-31 00:00:00 +00:00",
+       "rank": 46,
+       "backlinks": 1970,
+       "new_backlinks": 478,
+       "lost_backlinks": 149,
+       "new_referring_domains": 109,
+       "lost_referring_domains": 15,
+       "crawled_pages": 202,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 6584,
+       "external_links_count": 678,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 624,
+       "referring_domains_nofollow": 3,
+       "referring_main_domains": 614,
+       "referring_main_domains_nofollow": 3,
+       "referring_ips": 356,
+       "referring_subnets": 311,
+       "referring_pages": 1869,
+       "referring_pages_nofollow": 8,
+       "referring_links_tld": {
+        "com": 1336,
+        "org": 148,
+        "net": 124,
+        "info": 71,
+        "us": 26,
+        "website": 24,
+        "net.in": 20,
+        "us.com": 17,
+        "name": 17,
+        "blog": 15
+       },
+       "referring_links_types": {
+        "anchor": 1869
+       },
+       "referring_links_attributes": {
+        "noopener": 43,
+        "nofollow": 37,
+        "external": 5,
+        "noreferrer": 5
+       },
+       "referring_links_platform_types": {
+        "cms": 1740,
+        "blogs": 1739,
+        "unknown": 129,
+        "ecommerce": 3
+       },
+       "referring_links_semantic_locations": {
+        "article": 1597,
+        "": 185,
+        "section": 55,
+        "main": 21,
+        "aside": 5,
+        "header": 4,
+        "footer": 2
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-06-30 00:00:00 +00:00",
+       "rank": 47,
+       "backlinks": 2180,
+       "new_backlinks": 326,
+       "lost_backlinks": 135,
+       "new_referring_domains": 54,
+       "lost_referring_domains": 9,
+       "crawled_pages": 248,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 8054,
+       "external_links_count": 773,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 675,
+       "referring_domains_nofollow": 3,
+       "referring_main_domains": 665,
+       "referring_main_domains_nofollow": 3,
+       "referring_ips": 390,
+       "referring_subnets": 335,
+       "referring_pages": 2062,
+       "referring_pages_nofollow": 8,
+       "referring_links_tld": {
+        "com": 1499,
+        "org": 163,
+        "net": 128,
+        "info": 70,
+        "net.in": 30,
+        "us": 28,
+        "website": 24,
+        "us.com": 17,
+        "name": 17,
+        "blog": 13
+       },
+       "referring_links_types": {
+        "anchor": 2062
+       },
+       "referring_links_attributes": {
+        "noopener": 45,
+        "nofollow": 40,
+        "noreferrer": 10,
+        "external": 5
+       },
+       "referring_links_platform_types": {
+        "cms": 1927,
+        "blogs": 1926,
+        "unknown": 135,
+        "ecommerce": 3
+       },
+       "referring_links_semantic_locations": {
+        "article": 1762,
+        "": 203,
+        "section": 63,
+        "main": 24,
+        "aside": 5,
+        "header": 4,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-07-31 00:00:00 +00:00",
+       "rank": 48,
+       "backlinks": 2377,
+       "new_backlinks": 379,
+       "lost_backlinks": 203,
+       "new_referring_domains": 49,
+       "lost_referring_domains": 9,
+       "crawled_pages": 246,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 8382,
+       "external_links_count": 927,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 718,
+       "referring_domains_nofollow": 3,
+       "referring_main_domains": 702,
+       "referring_main_domains_nofollow": 3,
+       "referring_ips": 416,
+       "referring_subnets": 359,
+       "referring_pages": 2242,
+       "referring_pages_nofollow": 8,
+       "referring_links_tld": {
+        "com": 1615,
+        "org": 187,
+        "net": 138,
+        "info": 81,
+        "net.in": 30,
+        "us": 28,
+        "us.com": 25,
+        "website": 22,
+        "name": 17,
+        "blog": 13
+       },
+       "referring_links_types": {
+        "anchor": 2242
+       },
+       "referring_links_attributes": {
+        "nofollow": 47,
+        "noopener": 46,
+        "noreferrer": 12,
+        "external": 5
+       },
+       "referring_links_platform_types": {
+        "cms": 2100,
+        "blogs": 2099,
+        "unknown": 142,
+        "ecommerce": 3
+       },
+       "referring_links_semantic_locations": {
+        "article": 1912,
+        "": 229,
+        "section": 65,
+        "main": 27,
+        "aside": 4,
+        "header": 4,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-08-31 00:00:00 +00:00",
+       "rank": 48,
+       "backlinks": 2546,
+       "new_backlinks": 316,
+       "lost_backlinks": 173,
+       "new_referring_domains": 48,
+       "lost_referring_domains": 9,
+       "crawled_pages": 325,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 10572,
+       "external_links_count": 1103,
+       "broken_backlinks": 0,
+       "broken_pages": 1,
+       "referring_domains": 764,
+       "referring_domains_nofollow": 5,
+       "referring_main_domains": 742,
+       "referring_main_domains_nofollow": 5,
+       "referring_ips": 437,
+       "referring_subnets": 374,
+       "referring_pages": 2391,
+       "referring_pages_nofollow": 10,
+       "referring_links_tld": {
+        "com": 1695,
+        "org": 208,
+        "net": 149,
+        "info": 92,
+        "net.in": 40,
+        "us": 32,
+        "us.com": 25,
+        "me.uk": 19,
+        "website": 18,
+        "name": 17
+       },
+       "referring_links_types": {
+        "anchor": 2391
+       },
+       "referring_links_attributes": {
+        "nofollow": 58,
+        "noopener": 51,
+        "noreferrer": 14,
+        "external": 6
+       },
+       "referring_links_platform_types": {
+        "cms": 2229,
+        "blogs": 2228,
+        "unknown": 162,
+        "ecommerce": 4
+       },
+       "referring_links_semantic_locations": {
+        "article": 2049,
+        "": 240,
+        "section": 63,
+        "main": 28,
+        "aside": 5,
+        "header": 4,
+        "figcaption": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-09-30 00:00:00 +00:00",
+       "rank": 48,
+       "backlinks": 2730,
+       "new_backlinks": 325,
+       "lost_backlinks": 155,
+       "new_referring_domains": 34,
+       "lost_referring_domains": 10,
+       "crawled_pages": 382,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 12279,
+       "external_links_count": 1503,
+       "broken_backlinks": 0,
+       "broken_pages": 2,
+       "referring_domains": 787,
+       "referring_domains_nofollow": 0,
+       "referring_main_domains": 764,
+       "referring_main_domains_nofollow": 0,
+       "referring_ips": 443,
+       "referring_subnets": 376,
+       "referring_pages": 2561,
+       "referring_pages_nofollow": 10,
+       "referring_links_tld": {
+        "com": 1800,
+        "org": 235,
+        "net": 154,
+        "info": 108,
+        "net.in": 41,
+        "us": 34,
+        "us.com": 25,
+        "me.uk": 19,
+        "website": 18,
+        "name": 17
+       },
+       "referring_links_types": {
+        "anchor": 2558,
+        "redirect": 3
+       },
+       "referring_links_attributes": {
+        "nofollow": 58,
+        "noopener": 50,
+        "noreferrer": 13,
+        "external": 6
+       },
+       "referring_links_platform_types": {
+        "cms": 2396,
+        "blogs": 2395,
+        "unknown": 162,
+        "ecommerce": 4
+       },
+       "referring_links_semantic_locations": {
+        "article": 2210,
+        "": 247,
+        "section": 65,
+        "main": 28,
+        "aside": 5,
+        "header": 4,
+        "figcaption": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-10-31 00:00:00 +00:00",
+       "rank": 49,
+       "backlinks": 2960,
+       "new_backlinks": 309,
+       "lost_backlinks": 104,
+       "new_referring_domains": 40,
+       "lost_referring_domains": 8,
+       "crawled_pages": 405,
+       "info": {
+        "server": null,
+        "cms": null,
+        "platform_type": null,
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 12872,
+       "external_links_count": 1581,
+       "broken_backlinks": 0,
+       "broken_pages": 2,
+       "referring_domains": 820,
+       "referring_domains_nofollow": 0,
+       "referring_main_domains": 795,
+       "referring_main_domains_nofollow": 0,
+       "referring_ips": 461,
+       "referring_subnets": 389,
+       "referring_pages": 2770,
+       "referring_pages_nofollow": 11,
+       "referring_links_tld": {
+        "com": 1959,
+        "org": 253,
+        "net": 154,
+        "info": 114,
+        "net.in": 47,
+        "us": 32,
+        "us.com": 31,
+        "me.uk": 22,
+        "website": 18,
+        "name": 17
+       },
+       "referring_links_types": {
+        "anchor": 2763,
+        "redirect": 7
+       },
+       "referring_links_attributes": {
+        "nofollow": 58,
+        "noopener": 52,
+        "noreferrer": 15,
+        "external": 7
+       },
+       "referring_links_platform_types": {
+        "cms": 2600,
+        "blogs": 2599,
+        "unknown": 163,
+        "ecommerce": 4
+       },
+       "referring_links_semantic_locations": {
+        "article": 2398,
+        "": 259,
+        "section": 74,
+        "main": 28,
+        "aside": 5,
+        "header": 4,
+        "figcaption": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-11-30 00:00:00 +00:00",
+       "rank": 49,
+       "backlinks": 3182,
+       "new_backlinks": 278,
+       "lost_backlinks": 111,
+       "new_referring_domains": 12,
+       "lost_referring_domains": 6,
+       "crawled_pages": 444,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 14325,
+       "external_links_count": 1923,
+       "broken_backlinks": 0,
+       "broken_pages": 2,
+       "referring_domains": 829,
+       "referring_domains_nofollow": 6,
+       "referring_main_domains": 802,
+       "referring_main_domains_nofollow": 6,
+       "referring_ips": 467,
+       "referring_subnets": 393,
+       "referring_pages": 2939,
+       "referring_pages_nofollow": 14,
+       "referring_links_tld": {
+        "com": 2057,
+        "org": 294,
+        "net": 158,
+        "info": 110,
+        "me.uk": 49,
+        "net.in": 48,
+        "us": 32,
+        "us.com": 31,
+        "website": 18,
+        "name": 17
+       },
+       "referring_links_types": {
+        "anchor": 2932,
+        "redirect": 7
+       },
+       "referring_links_attributes": {
+        "noopener": 61,
+        "nofollow": 60,
+        "noreferrer": 24,
+        "external": 7
+       },
+       "referring_links_platform_types": {
+        "cms": 2763,
+        "blogs": 2762,
+        "unknown": 169,
+        "ecommerce": 4
+       },
+       "referring_links_semantic_locations": {
+        "article": 2547,
+        "": 269,
+        "section": 80,
+        "main": 33,
+        "aside": 4,
+        "header": 4,
+        "figcaption": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2019-12-31 00:00:00 +00:00",
+       "rank": 49,
+       "backlinks": 3361,
+       "new_backlinks": 127,
+       "lost_backlinks": 89,
+       "new_referring_domains": 12,
+       "lost_referring_domains": 2,
+       "crawled_pages": 295,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 8903,
+       "external_links_count": 1338,
+       "broken_backlinks": 0,
+       "broken_pages": 2,
+       "referring_domains": 843,
+       "referring_domains_nofollow": 6,
+       "referring_main_domains": 817,
+       "referring_main_domains_nofollow": 6,
+       "referring_ips": 479,
+       "referring_subnets": 403,
+       "referring_pages": 3105,
+       "referring_pages_nofollow": 17,
+       "referring_links_tld": {
+        "com": 2157,
+        "org": 338,
+        "net": 164,
+        "info": 112,
+        "net.in": 56,
+        "me.uk": 53,
+        "us": 32,
+        "us.com": 31,
+        "website": 18,
+        "name": 17
+       },
+       "referring_links_types": {
+        "anchor": 3096,
+        "redirect": 9
+       },
+       "referring_links_attributes": {
+        "noopener": 62,
+        "nofollow": 58,
+        "noreferrer": 26,
+        "external": 6
+       },
+       "referring_links_platform_types": {
+        "cms": 2926,
+        "blogs": 2925,
+        "unknown": 170,
+        "ecommerce": 4
+       },
+       "referring_links_semantic_locations": {
+        "article": 2699,
+        "": 281,
+        "section": 81,
+        "main": 34,
+        "aside": 4,
+        "header": 4,
+        "figcaption": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2020-01-31 00:00:00 +00:00",
+       "rank": 50,
+       "backlinks": 3580,
+       "new_backlinks": 212,
+       "lost_backlinks": 220,
+       "new_referring_domains": 25,
+       "lost_referring_domains": 11,
+       "crawled_pages": 344,
+       "info": {
+        "server": null,
+        "cms": null,
+        "platform_type": null,
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 10051,
+       "external_links_count": 1583,
+       "broken_backlinks": 0,
+       "broken_pages": 2,
+       "referring_domains": 877,
+       "referring_domains_nofollow": 7,
+       "referring_main_domains": 847,
+       "referring_main_domains_nofollow": 7,
+       "referring_ips": 512,
+       "referring_subnets": 426,
+       "referring_pages": 3293,
+       "referring_pages_nofollow": 17,
+       "referring_links_tld": {
+        "com": 2274,
+        "org": 366,
+        "net": 166,
+        "info": 121,
+        "me.uk": 75,
+        "net.in": 55,
+        "us": 33,
+        "us.com": 32,
+        "website": 18,
+        "co.uk": 17
+       },
+       "referring_links_types": {
+        "anchor": 3284,
+        "redirect": 9
+       },
+       "referring_links_attributes": {
+        "noopener": 68,
+        "nofollow": 58,
+        "noreferrer": 32,
+        "external": 5
+       },
+       "referring_links_platform_types": {
+        "cms": 3106,
+        "blogs": 3105,
+        "unknown": 178,
+        "ecommerce": 4
+       },
+       "referring_links_semantic_locations": {
+        "article": 2859,
+        "": 303,
+        "section": 84,
+        "main": 37,
+        "aside": 4,
+        "header": 4,
+        "figcaption": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      },
+      {
+       "type": "backlinks_history",
+       "date": "2020-02-29 00:00:00 +00:00",
+       "rank": 50,
+       "backlinks": 3710,
+       "new_backlinks": 286,
+       "lost_backlinks": 168,
+       "new_referring_domains": 42,
+       "lost_referring_domains": 9,
+       "crawled_pages": 427,
+       "info": {
+        "server": null,
+        "cms": "wordpress",
+        "platform_type": [
+         "cms",
+         "blogs"
+        ],
+        "ip_address": "104.22.21.130",
+        "country": null,
+        "is_ip": false,
+        "target_spam_score": 0
+       },
+       "internal_links_count": 11764,
+       "external_links_count": 1798,
+       "broken_backlinks": 0,
+       "broken_pages": 2,
+       "referring_domains": 908,
+       "referring_domains_nofollow": 7,
+       "referring_main_domains": 876,
+       "referring_main_domains_nofollow": 7,
+       "referring_ips": 534,
+       "referring_subnets": 442,
+       "referring_pages": 3405,
+       "referring_pages_nofollow": 18,
+       "referring_links_tld": {
+        "com": 2339,
+        "org": 367,
+        "net": 168,
+        "info": 130,
+        "me.uk": 82,
+        "net.in": 54,
+        "ir": 31,
+        "us.com": 30,
+        "us": 30,
+        "website": 21
+       },
+       "referring_links_types": {
+        "anchor": 3373,
+        "redirect": 32
+       },
+       "referring_links_attributes": {
+        "noopener": 75,
+        "nofollow": 62,
+        "noreferrer": 38,
+        "external": 6
+       },
+       "referring_links_platform_types": {
+        "cms": 3191,
+        "blogs": 3190,
+        "unknown": 182,
+        "ecommerce": 4
+       },
+       "referring_links_semantic_locations": {
+        "article": 2929,
+        "": 335,
+        "section": 91,
+        "main": 40,
+        "header": 5,
+        "aside": 3,
+        "figcaption": 1,
+        "footer": 1
+       },
+       "referring_links_countries": null
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -27,6 +27,7 @@ const VERBS: Record<string, ToolVerb> = {
   "keyword-clusters": { verb: "Build", gerund: "Builds", object: "Keyword Clusters" },
   "keyword-ideas": { verb: "Find", gerund: "Finds", object: "Keyword Ideas" },
   "search-intent": { verb: "Analyze", gerund: "Analyzes", object: "Search Intent" },
+  "backlink-overview": { verb: "Look up", gerund: "Looks up", object: "Backlink Overview" },
   "backlinks": { verb: "Look up", gerund: "Looks up", object: "Backlinks" },
   "backlink-audit": { verb: "Audit", gerund: "Audits", object: "Backlinks" },
   "backlink-gap": { verb: "Find", gerund: "Finds", object: "Backlink Gaps" },

@@ -33,6 +33,7 @@ import { ContentPanel } from "@/components/dashboard/ContentPanel";
 import { GscPanel } from "@/components/dashboard/GscPanel";
 import { SeoDashboard, SiteAuditCharts } from "@/components/dashboard/SeoDashboard";
 import { ViewCharts } from "@/components/dashboard/ViewCharts";
+import { BacklinkOverviewDashboard } from "@/components/dashboard/BacklinkOverviewDashboard";
 import { Ga4Panel } from "@/components/dashboard/Ga4Panel";
 import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
@@ -1650,6 +1651,7 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         heading: "Link Building",
         items: [
+          { label: "Backlink Overview", view: "backlink-overview" },
           { label: "Backlinks", view: "backlinks" },
           { label: "Backlink Audit", view: "backlink-audit" },
         ],
@@ -3954,6 +3956,10 @@ export function ReaiDashboard({
                       re-scan over prior results), show the real data. */}
                   {scanState?.busy && rows.length === 0 ? (
                     <ReportViewSkeleton />
+                  ) : view.id === "backlink-overview" ? (
+                    // The summary row with the full link profile is filed under the
+                    // Backlinks view's code; the overview reads it from there.
+                    <BacklinkOverviewDashboard rows={[...rows, ...rowsForView(report, viewById("backlinks")!)]} />
                   ) : view.id === "domain-overview" ? (
                     // The one search tool built out as a full dashboard: cards,
                     // position distribution, movement, trend and top keywords,

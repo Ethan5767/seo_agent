@@ -105,6 +105,6 @@ export function chartKind(viewId: string): "keywords" | "compare" | "backlinks" 
   if (viewId === "backlinks" || viewId === "backlink-audit") return "backlinks";
   if (viewId === "backlink-gap") return "backlink-gap";
   if (viewId === "core-web-vitals") return "performance";
-  if (viewId === "domain-overview") return "none"; // DomainOverviewDashboard draws its own
+  if (viewId === "domain-overview" || viewId === "backlink-overview") return "none"; // their dashboards draw their own
   return "findings";
 }

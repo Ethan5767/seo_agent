@@ -96,6 +96,7 @@ DYNAMIC_CHECKS: dict[str, list[str]] = {
     "lh_bp": ["HTTPS", "No console errors", "Image aspect ratios", "Vulnerable libraries"],
     "backlinks": ["Referring domains", "Backlink count", "Anchor profile", "Toxic links"],
     "backlink_gap": ["Domains linking to competitors, not you", "Rank", "Spam score"],
+    "backlink_overview": ["Link profile", "Top referring domains", "Top anchors", "Monthly history"],
     "keywords": ["Ranked keywords", "Search volume", "Keyword gaps"],
     "rankings": ["Position tracking", "SERP features"],
     "compare": ["Organic keywords per domain", "Estimated traffic", "Position spread"],

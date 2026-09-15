@@ -124,6 +124,7 @@ export const VIEW_TOOLS: Record<string, string[]> = {
   "keyword-ideas": ["keywords"],
   "search-intent": ["keywords"],
   "serp-positions": ["rankings"],
+  "backlink-overview": ["backlink_overview"],
   "backlinks": ["backlinks"],
   "backlink-audit": ["backlinks"],
   "backlink-gap": ["backlink_gap"],

@@ -7,7 +7,6 @@ unmeasured cycle is not 100.
 """
 from __future__ import annotations
 
-import pytest
 
 from pipeline.audit.measure import _CONFIG_GATED, check_page
 from pipeline.lib.score import (

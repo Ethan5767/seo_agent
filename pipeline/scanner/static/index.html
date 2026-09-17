@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>SEO/AEO Pipeline — Scan</title>
+<style>
+ body{font:15px system-ui;margin:2rem auto;max-width:820px;color:#111;padding:0 1rem}
+ input,select,button{font:inherit;padding:.5rem;margin:.25rem 0}
+ input[type=text]{width:100%;box-sizing:border-box}
+ button{cursor:pointer;background:#1a5;color:#fff;border:0;border-radius:6px;padding:.6rem 1.2rem}
+ .row{padding:.5rem;border-bottom:1px solid #eee}
+ .error{border-left:4px solid #b00;padding-left:.5rem}
+ .warn{border-left:4px solid #a60;padding-left:.5rem}
+ .info{border-left:4px solid #999;padding-left:.5rem;color:#555}
+ .ok{border-left:4px solid #1a5;padding-left:.5rem}
+ .score{font-size:2rem;font-weight:700;margin:1rem 0}
+ pre{background:#f6f6f6;padding:1rem;overflow:auto;border-radius:6px}
+ .banner{background:#eef;padding:.75rem;border-radius:6px}
+ h2{margin-top:1.5rem;border-bottom:2px solid #111;padding-bottom:.25rem}
+</style></head>
+<body>
+ <h1>SEO / AEO Pipeline — Scan</h1>
+ <p class="banner"><b>Model A:</b> we never touch your code — we hand you the fix.
+   <b>Model B:</b> we fix it, gate it, and decide. Paste a URL (and a repo path to fix it).</p>
+ <input id="url" type="text" placeholder="https://yoursite.com/page/">
+ <input id="repo" type="text" placeholder="/path/to/repo  (optional — needed to fix)">
+ <select id="model">
+   <option value="B">Model B (we fix the code)</option>
+   <option value="A">Model A (brief only)</option>
+ </select>
+ <button id="run">Run</button>
+ <div id="out"></div>
+ <script src="/static/app.js"></script>
+</body></html>

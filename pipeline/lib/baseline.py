@@ -113,15 +113,17 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import glob
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
 from datetime import date
 from pathlib import Path
+
+from pipeline.lib.html import sitemap_locs
+
+from pipeline.lib.atomic import write_json_atomic
 
 SCHEMA = "meridian-gate-baseline/1"
 
@@ -142,6 +144,12 @@ NEVER_BASELINEABLE = {
     "claim_provenance_check": "legal exposure — an invented credential is a live falsehood however old the run that wrote it",
     "tier_check": "authority — accepting a past out-of-tier edit as debt is how the tier stops meaning anything",
     "acceptance_check": "proof — a fix that never landed is not fixed; baselining it would grandfather the lie",
+    # Gate #20, wired 2026-09-13. A broken findings -> worklist -> changelog chain
+    # is not a defect count that can age into acceptable debt; it is the moment
+    # the provenance every other gate assumes stops existing. There is nothing
+    # here to grandfather — a fix that traces to no measurement is not old debt,
+    # it is an unsourced change.
+    "e2e_check": "provenance — a fix that traces to no measurement has no history to grandfather",
 }
 
 BASELINEABLE = {
@@ -304,7 +312,7 @@ class Baseline:
         try:
             data = json.loads(p.read_text())
         except json.JSONDecodeError as e:
-            raise BaselineError(f"baseline file is not valid JSON: {p} ({e})")
+            raise BaselineError(f"baseline file is not valid JSON: {p} ({e})") from e
         if data.get("schema") != SCHEMA:
             raise BaselineError(
                 f"baseline schema mismatch in {p}: expected {SCHEMA!r}, got {data.get('schema')!r}")
@@ -354,7 +362,7 @@ class Baseline:
         }
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(doc, indent=2, sort_keys=False) + "\n")
+        write_json_atomic(p, doc, sort_keys=False)
 
 
 # ── comparison used by the gates ─────────────────────────────────────────────
@@ -416,7 +424,7 @@ def emit(path: str, findings: list) -> int:
     recorder and the gate can never drift apart. Returns the gate's exit code."""
     findings = sort_findings(assign_ordinals(list(findings)))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps([f.to_json() for f in findings], indent=2) + "\n")
+    write_json_atomic(path, [f.to_json() for f in findings], sort_keys=False)
     return 0
 
 
@@ -450,7 +458,7 @@ def _sitemap_urls(build: Path) -> list:
     sm = build / "sitemap.xml"
     if not sm.is_file():
         return []
-    return re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", sm.read_text(errors="replace"))
+    return sitemap_locs(sm.read_text(errors="replace"))
 
 
 def gate_argv(gate: str, project: Path) -> list:
@@ -589,7 +597,7 @@ def main() -> int:
                     print(f"    FIXED  {e['gate']}  {e['code']}  {e['location']}")
                 if len(fixed) > 40:
                     print(f"    ... and {len(fixed) - 40} more")
-                print(f"  Refresh so the count can only go down:")
+                print("  Refresh so the count can only go down:")
                 print(f"    wf-gate-baseline --project {project} --out {bl_path} --refresh")
 
             if new:
@@ -655,9 +663,9 @@ def main() -> int:
             dropped = len([fp for fp in prior.entries if fp not in current])
             print(f"  dropped (fixed): {dropped}   added (accepted): {len(added)}")
         else:
-            print(f"  NOTE: this is the INITIAL baseline — every current finding is now accepted "
-                  f"as legacy debt. From here it may only shrink.")
-        print(f"  Commit this file to the CLIENT repo (it is client state, per Model A).")
+            print("  NOTE: this is the INITIAL baseline — every current finding is now accepted "
+                  "as legacy debt. From here it may only shrink.")
+        print("  Commit this file to the CLIENT repo (it is client state, per Model A).")
         return 0
 
     except BaselineError as e:

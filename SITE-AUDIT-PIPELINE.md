@@ -430,7 +430,10 @@ against the current 16 gates means shipping unvalidated model claims to client s
 | | **≈ $6–33/mo** |
 
 Deleting the two cron pollers removed ~2,180 Actions minutes/month, which was the
-entire argument for making the engine repo public. **`seo_agent` can stay private.**
+entire argument for making the engine repo public *on cost grounds*. **It was made
+public anyway on 2026-08-11**, for a different reason: a client repo's
+`GITHUB_TOKEN` can read a public repo, so the pipeline checkout needs no shared
+`SEO_AGENT` secret and onboarding a client is one fewer manual step.
 
 Per-MTok: Opus 5 $5/$25 · Sonnet 5 $3/$15 · Haiku 4.5 $1/$5. A remediation run over
 one client's worklist is roughly 200K in / 30K out — about $1.05 on Sonnet 5, $1.75 on

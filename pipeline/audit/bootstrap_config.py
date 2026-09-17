@@ -13,9 +13,12 @@ Never overwrites an existing config.
 Usage: python3 bootstrap-config.py [PROJECT_DIR] [DOMAIN]
 """
 import argparse
-import sys, re, json
+import sys, re
 from pathlib import Path
 from pipeline.lib.common import TierRefused, curl, resolve_tier, yaml
+
+from pipeline.lib.html import sitemap_locs
+from urllib.parse import urlsplit
 
 
 def detect_deploy_platform(project_dir: Path) -> str:
@@ -39,8 +42,11 @@ def detect_framework(project_dir: Path) -> str:
 
 
 def detect_topology(sitemap_xml: str) -> str:
-    urls = re.findall(r"<loc>https?://[^/]+(/[^<]*)</loc>", sitemap_xml)
-    paths = [u for u in urls if u != "/"]
+    # The old pattern captured the path with its own `https?://[^/]+` prefix,
+    # so a sitemap of site-relative <loc> values (legal, and what several static
+    # generators emit) matched nothing and every client read as topology "TODO".
+    paths = [urlsplit(u).path or "/" for u in sitemap_locs(sitemap_xml)]
+    paths = [p for p in paths if p != "/"]
     if not paths: return "TODO"
     state_first = sum(1 for p in paths if re.match(r"^/[a-z]{2}/[a-z]", p))
     metro_first = sum(1 for p in paths if re.match(r"^/[a-z0-9-]+-[a-z]{2}/", p))
@@ -203,6 +209,10 @@ text_paths:                       # EXISTING files the agent may rewrite
                                   # must never be a way to disarm forbidden_sweep
   - docs/human-worklist.md        # the fix queue's skip list; writing it would let the
                                   # agent permanently dequeue its own work
+  - docs/gate-baseline.json       # the ratchet's memory. wf-gate-baseline ships in the
+                                  # container, so an agent that could write this could
+                                  # re-record its OWN violations as inherited debt and
+                                  # every baselineable gate would then pass them
 """
 
 

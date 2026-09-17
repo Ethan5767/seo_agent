@@ -34,7 +34,6 @@ import argparse
 import os
 import re
 import sys
-from pathlib import Path
 
 from pipeline.lib import baseline as bl
 

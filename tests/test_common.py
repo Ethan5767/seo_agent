@@ -133,3 +133,76 @@ def test_curl_status_returns_zero_on_timeout(monkeypatch):
         raise subprocess.TimeoutExpired(cmd="curl", timeout=30)
     monkeypatch.setattr(subprocess, "run", hang)
     assert curl_status("https://hung.example.com/") == 0
+
+
+# ── curl_full: body AND response headers from one fetch ──────────────────────
+#
+# `curl -sL` returned the body alone, so nothing downstream could see a response
+# header. That one gap blocked the security headers, X-Robots-Tag, cache and
+# compression checks and soft-404 detection, and hid every redirect hop behind
+# -L's silent follow.
+
+CURL_DUMP = (
+    "HTTP/2 301 \r\n"
+    "location: https://www.x.com/\r\n"
+    "server: cloudflare\r\n"
+    "\r\n"
+    "HTTP/2 200 \r\n"
+    "content-type: text/html; charset=utf-8\r\n"
+    "X-Frame-Options: DENY\r\n"
+    "cache-control: public, max-age=0\r\n"
+    "\r\n"
+    "<html><body>hi</body></html>"
+)
+
+
+def _stub(monkeypatch, stdout, code=0):
+    import types
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(stdout=stdout, stderr="", returncode=code))
+
+
+def test_curl_full_splits_headers_from_body(monkeypatch):
+    from pipeline.lib.common import curl_full
+    _stub(monkeypatch, CURL_DUMP)
+    r = curl_full("https://x.com/")
+    assert r["body"] == "<html><body>hi</body></html>"
+    assert r["status"] == 200
+    # Header names are matched by callers, so the dict is lower-cased for them.
+    assert r["headers"]["x-frame-options"] == "DENY"
+    assert r["headers"]["cache-control"] == "public, max-age=0"
+
+
+def test_curl_full_records_every_redirect_hop(monkeypatch):
+    """-L's auto-follow hid the chain: a 302 chain and a clean 301 looked the
+    same. Each hop's status and Location is what makes them different."""
+    from pipeline.lib.common import curl_full
+    _stub(monkeypatch, CURL_DUMP)
+    r = curl_full("https://x.com/")
+    assert [h["status"] for h in r["chain"]] == [301, 200]
+    assert r["chain"][0]["location"] == "https://www.x.com/"
+    assert r["chain"][1]["location"] == ""
+
+
+def test_curl_full_is_unreachable_not_a_crash_on_timeout(monkeypatch):
+    from pipeline.lib.common import curl_full
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="curl", timeout=30)
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    r = curl_full("https://hung.example.com/")
+    assert r == {"body": "", "status": 0, "headers": {}, "chain": []}
+
+
+def test_curl_full_handles_a_response_with_no_body(monkeypatch):
+    from pipeline.lib.common import curl_full
+    _stub(monkeypatch, "HTTP/1.1 404 Not Found\r\ncontent-type: text/html\r\n\r\n")
+    r = curl_full("https://x.com/nope")
+    assert r["status"] == 404 and r["body"] == ""
+
+
+def test_curl_keeps_returning_just_the_body(monkeypatch):
+    """Every existing caller takes a string. curl_full is additive."""
+    _stub(monkeypatch, CURL_DUMP)
+    assert curl("https://x.com/") == "<html><body>hi</body></html>"

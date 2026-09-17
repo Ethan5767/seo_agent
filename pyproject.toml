@@ -19,6 +19,9 @@ dependencies = [
 test = [
     "pytest>=8.0",
 ]
+render = [
+    "playwright>=1.40.0",
+]
 
 [project.scripts]
 # ── gates (build-time quality suite) ─────────────────────────────────────────
@@ -42,6 +45,9 @@ wf-client-docs-check = "pipeline.gates.client_docs_check:main"
 wf-tier-check = "pipeline.gates.tier_check:main"
 wf-claim-provenance-check = "pipeline.gates.claim_provenance_check:main"
 wf-acceptance-check = "pipeline.gates.acceptance_check:main"
+# The whole-pipeline handoff gate (#20): findings -> worklist -> changelog must
+# be an intact provenance chain. Exit 21 broken, 4 cannot-judge, 0 intact.
+wf-e2e-check = "pipeline.gates.e2e_check:main"
 wf-scaffold-client-docs = "pipeline.audit.scaffold_client_docs:main"
 
 # ── baseline / ratchet (pre-existing-debt bookkeeping for the gates above) ───
@@ -52,12 +58,33 @@ wf-indexnow-submit = "pipeline.deploy.indexnow_submit:main"
 
 # ── operator console ─────────────────────────────────────────────────────────
 wf-dashboard = "pipeline.dashboard.server:main"
+# The URL-audit web MVP backend — POST /scan returns the SEO+AEO+CrUX audit and,
+# given a repo, a Model A brief or Model B fix + auto-merge decision.
+wf-scan-web = "pipeline.scanner.server:main"
 
 # ── audit / setup ────────────────────────────────────────────────────────────
 wf-onboard = "pipeline.audit.onboard:main"
+# Brand seed engine — turns the measure agent's gaps.json into brand-mention
+# topics: green auto-post (stub in MVP), yellow drafts for approval, red skip.
+wf-seed = "pipeline.seed.run:main"
+# Backlink outreach (SOP §12): 4-point domain safety qualifier, link bank in the
+# client repo, tier-1/2 draft generation. Qualify + bank + draft only — the
+# outreach email to a site owner stays a human step, so this never sends.
+wf-outreach = "pipeline.outreach.run:main"
 wf-site-health = "pipeline.audit.measure:main"
+# Parse a client-supplied access log into crawl-budget findings (Googlebot
+# errors, per-crawler byte overhead). Also foldable into wf-site-health via
+# --with-logs so the rows join the cycle's findings.json.
+wf-logparse = "pipeline.audit.logparse:main"
 wf-site-plan = "pipeline.audit.plan:main"
 wf-site-remediate = "pipeline.audit.remediate:main"
+# Deliver a rendered report to the client over email/telegram. Outbox preview by
+# default; --send transmits. Creds by env name, recipients in the client config.
+wf-deliver = "pipeline.audit.deliver:main"
+# Auto-merge decision for a green PR (automation spine). Prints AUTO/HUMAN and
+# writes decision=<...> to $GITHUB_OUTPUT; never merges. The workflow's guarded
+# `gh pr merge` step reads that output. Off unless the caller sets automerge_enabled.
+wf-automerge-decide = "pipeline.audit.automerge_gate:main"
 # Crawls a rendered deployment into the static tree the nine OUT gates glob, so a
 # client with no static export can be gated at all (v3 sharp edge #4).
 wf-render-snapshot = "pipeline.audit.snapshot:main"
@@ -78,11 +105,53 @@ wf-client-profile = "pipeline.audit.client_profile:main"
 # sites do not silently regress. See .github/workflows/ci.yml (self-CI).
 minversion = "8.0"
 testpaths = ["tests"]
+pythonpath = ["."]
+# B-050 closed. The DataForSEO tests were excluded because they failed in-suite
+# while passing alone — the cause was the .env leak in tests/conftest.py, not
+# the tests. With the suite genuinely hermetic they pass, and 34 tests that
+# nobody could see (including the named-skip guarantee CLAUDE.md sharp edge #6
+# rests on, and a wiring test) are back in the run.
+#
+# Every test runs. An excluded test is an invisible one, and four of these were
+# red the whole time.
 addopts = "-ra --strict-markers"
 python_files = ["test_*.py"]
+markers = [
+    "integration: integration tests requiring external dependencies/network",
+]
 
 [tool.setuptools.packages.find]
 include = ["pipeline*"]
 
 [tool.setuptools.package-data]
 "pipeline.deploy" = ["*.sh"]
+
+# ── Lint ─────────────────────────────────────────────────────────────────────
+# 30k lines of Python had no linter at all. The rule set here is deliberately
+# narrow: real defects, not style. `ruff format` is NOT run and no formatting
+# rules are selected, because reflowing the whole tree would bury every future
+# diff and this repo is the sync point between two people who never see each
+# other's screens.
+#
+# What it found on its first run, none of which any test caught:
+#   * a test function DEFINED TWICE in tests/test_dashboard.py, so the first
+#     never ran - and the one that never ran was the stronger of the two (F811)
+#   * a variable read into `phone_display` in audit_built and never used: a
+#     31st check someone started and did not finish (F841)
+#   * 29 unused imports, two of them mine from an hour earlier (F401)
+#   * 10 `raise X(...)` inside `except` with no `from`, which discards the cause
+#     from the traceback (B904)
+#
+# It also caught me breaking working code MID-FIX: renaming a loop variable to
+# `_path` hit two loops instead of one and left `Path(path)` undefined in
+# noncommodity_check. F821 named it immediately; the test suite would have
+# caught it only if that branch were exercised.
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# E9  syntax and indentation errors that stop the file running at all
+# F   pyflakes: undefined names, unused imports and variables, redefinitions
+# B   bugbear: mutable defaults, except-without-from, zip without strict
+select = ["E9", "F", "B"]

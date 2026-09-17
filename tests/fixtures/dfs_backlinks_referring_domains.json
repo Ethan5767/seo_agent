@@ -1,0 +1,181 @@
+{
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "cost": 0,
+   "result_count": 1,
+   "result": [
+    {
+     "target": "dataforseo.com",
+     "total_count": 35,
+     "items_count": 10,
+     "items": [
+      {
+       "type": "backlinks_referring_domain",
+       "domain": "guetsel.de",
+       "rank": 0,
+       "backlinks": 77145,
+       "first_seen": "2019-01-18 21:55:16 +00:00",
+       "lost_date": null,
+       "backlinks_spam_score": 23,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 2,
+       "referring_domains_nofollow": 0,
+       "referring_main_domains": 1,
+       "referring_main_domains_nofollow": 0,
+       "referring_ips": 2,
+       "referring_subnets": 2,
+       "referring_pages": 77139,
+       "referring_pages_nofollow": 0,
+       "referring_links_tld": {
+        "de": 77139
+       },
+       "referring_links_types": {
+        "anchor": 52743,
+        "redirect": 24396
+       },
+       "referring_links_attributes": {
+        "noopener": 24
+       },
+       "referring_links_platform_types": {
+        "organization": 52743
+       },
+       "referring_links_semantic_locations": {
+        "": 77139
+       },
+       "referring_links_countries": {
+        "DE": 77139
+       }
+      },
+      {
+       "type": "backlinks_referring_domain",
+       "domain": "hackaday.com",
+       "rank": 0,
+       "backlinks": 1323,
+       "first_seen": "2023-11-29 09:30:22 +00:00",
+       "lost_date": null,
+       "backlinks_spam_score": 0,
+       "broken_backlinks": 1314,
+       "broken_pages": 1,
+       "referring_domains": 1,
+       "referring_domains_nofollow": 1,
+       "referring_main_domains": 1,
+       "referring_main_domains_nofollow": 1,
+       "referring_ips": 1,
+       "referring_subnets": 1,
+       "referring_pages": 1314,
+       "referring_pages_nofollow": 1314,
+       "referring_links_tld": {
+        "com": 1314
+       },
+       "referring_links_types": {
+        "anchor": 1314
+       },
+       "referring_links_attributes": {
+        "external": 1314,
+        "nofollow": 1314,
+        "ugc": 1314
+       },
+       "referring_links_platform_types": {
+        "blogs": 1314,
+        "cms": 1314
+       },
+       "referring_links_semantic_locations": {
+        "aside": 1294,
+        "footer": 20
+       },
+       "referring_links_countries": {
+        "US": 1314
+       }
+      },
+      {
+       "type": "backlinks_referring_domain",
+       "domain": "urlscan.io",
+       "rank": 8,
+       "backlinks": 930,
+       "first_seen": "2026-01-27 01:37:54 +00:00",
+       "lost_date": null,
+       "backlinks_spam_score": 30,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 1,
+       "referring_domains_nofollow": 0,
+       "referring_main_domains": 1,
+       "referring_main_domains_nofollow": 0,
+       "referring_ips": 1,
+       "referring_subnets": 1,
+       "referring_pages": 463,
+       "referring_pages_nofollow": 4,
+       "referring_links_tld": {
+        "io": 463
+       },
+       "referring_links_types": {
+        "anchor": 463
+       },
+       "referring_links_attributes": {
+        "nofollow": 4,
+        "ugc": 4
+       },
+       "referring_links_platform_types": {
+        "unknown": 463
+       },
+       "referring_links_semantic_locations": {
+        "": 463
+       },
+       "referring_links_countries": {
+        "IO": 463
+       }
+      },
+      {
+       "type": "backlinks_referring_domain",
+       "domain": "technewsinsight.com",
+       "rank": 0,
+       "backlinks": 590,
+       "first_seen": "2023-03-19 19:39:30 +00:00",
+       "lost_date": null,
+       "backlinks_spam_score": 0,
+       "broken_backlinks": 0,
+       "broken_pages": 0,
+       "referring_domains": 1,
+       "referring_domains_nofollow": 0,
+       "referring_main_domains": 1,
+       "referring_main_domains_nofollow": 0,
+       "referring_ips": 2,
+       "referring_subnets": 2,
+       "referring_pages": 589,
+       "referring_pages_nofollow": 0,
+       "referring_links_tld": {
+        "com": 589
+       },
+       "referring_links_types": {
+        "anchor": 589
+       },
+       "referring_links_attributes": {
+        "noopener": 589
+       },
+       "referring_links_platform_types": {
+        "blogs": 589,
+        "cms": 589,
+        "news": 589,
+        "organization": 545
+       },
+       "referring_links_semantic_locations": {
+        "article": 589
+       },
+       "referring_links_countries": {
+        "": 589
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

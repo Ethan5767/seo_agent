@@ -23,6 +23,7 @@ domain: <example.com>
 website: "https://<example.com>"
 industry: "<trade>"                   # roofing | hvac | plumbing | electrical | ...
 deploy_platform: cloudflare-pages
+render_verify: false                  # Opt-in headless render triage for CSR pages (requires requirements-render.txt)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -326,6 +327,35 @@ auto_decisions:
   option_full_threshold_pages: 10
   cloudflare_double_push: true
   poll_live_max_minutes: 5
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# REPORT DELIVERY (wf-deliver)
+# Where the Progress / Action-Needed reports get sent. Empty channels = the
+# pipeline renders reports but sends nothing. Credentials are NEVER here — they
+# are env vars in the operator/CI environment: SMTP_HOST, SMTP_PORT (default
+# 587), SMTP_USER, SMTP_PASS for email; TELEGRAM_BOT_TOKEN for Telegram. This
+# block carries only the client-side recipient, a contact fact, not a secret.
+# Delivery is gated: wf-deliver writes an outbox preview for review, and only
+# --send transmits (SOP §10).
+# ─────────────────────────────────────────────────────────────────────────
+delivery:
+  channels: []                         # ["email", "telegram"]; empty = send nothing
+  email: "<client@example.com>"        # recipient for the email channel
+  telegram_chat_id: "<chat-id>"        # target chat for the telegram channel
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# BACKLINK OUTREACH (wf-outreach)
+# Off unless enabled. tier 1 = basic LSI keyword variations; tier 2 =
+# localized / professional copy. topics scope the domain fit-matching. The
+# qualifier, link bank and drafts are built here; the actual outreach email to a
+# site owner stays a HUMAN step (SOP §12).
+# ─────────────────────────────────────────────────────────────────────────
+outreach:
+  enabled: false
+  tier: 1                              # 1 basic LSI · 2 localized/professional
+  topics: []                           # target topics for domain fit-matching
 
 
 # ─────────────────────────────────────────────────────────────────────────

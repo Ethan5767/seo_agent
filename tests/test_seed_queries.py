@@ -4,7 +4,6 @@ import json
 import subprocess
 import sys
 
-import pytest
 
 import pipeline.audit.seed_queries as sq
 

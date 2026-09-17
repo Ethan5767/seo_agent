@@ -83,6 +83,31 @@ on:
         required: false
         type: string
         default: ""
+      # AUTOMATION SPINE — the auto-merge master switch. OFF for the whole fleet
+      # by default: a client turns it on in its own thin caller only after the
+      # operator trusts the loop for that repo. When off, the auto-merge job does
+      # not run at all and every PR waits for a human, exactly as before. When on,
+      # the job still merges ONLY what wf-automerge-decide calls AUTO — all gates
+      # green AND a low-risk T1 copy edit (no new page, no medical/legal claim);
+      # everything else is left for a human. Two independent guards, both must
+      # agree: this flag, and the decision.
+      automerge_enabled:
+        description: "Allow the pipeline to auto-merge AUTO-classified PRs (all gates green + low-risk T1). Default false = every PR waits for a human."
+        required: false
+        type: boolean
+        default: false
+      # The client-repo docs contract (work log, cycle-logs, intake-archive).
+      # WARN by default, and that default is not laziness: the contract post-dates
+      # most of the fleet, so making it blocking on day one would turn every
+      # existing client red for a missing directory rather than for anything
+      # wrong with the change under review. A client turns it on in its own thin
+      # caller after running `wf-scaffold-client-docs`, which is additive and
+      # idempotent. Reported either way, so it cannot be quietly ignored.
+      client_docs_blocking:
+        description: "Fail the run when the client-repo docs contract is unmet. Default false = report only."
+        required: false
+        type: boolean
+        default: false
       node_version:
         description: "Node.js version for the build"
         required: false
@@ -119,7 +144,7 @@ env:
   # STAMPED PIPELINE_REF — the deterministic fallback for github.job_workflow_sha.
   # Advanced by the release step at every tag-cut. Because the stamp lives IN the
   # versioned file, it is self-consistent: v0.1.0's copy always stamps v0.1.0.
-  PIPELINE_REF: "v3.1.4"
+  PIPELINE_REF: "v3.2.0"
   PIPELINE_REPO: "Ethan5767/seo_agent"
 
 jobs:
@@ -292,6 +317,24 @@ jobs:
             exit 0
           fi
           wf-rules-selftest . --config docs/client-config.yml
+
+      # The client-repo docs contract. Not a check on the DIFF — a check that
+      # this repo has somewhere durable for the cycle to land. `docs/audit/**`
+      # ships inside the PR and `docs/seo-work-log.md` is the append-only history;
+      # a client missing both can ship work that nothing anywhere records, which
+      # was literally true of one client on 2026-07-28.
+      #
+      # Advisory unless the caller sets client_docs_blocking. The failure output
+      # is one command that creates exactly what is missing.
+      - name: "PRE: client-docs contract (WARN unless client_docs_blocking)"
+        id: client_docs
+        continue-on-error: true
+        run: |
+          if [ "${{ inputs.client_docs_blocking }}" = "true" ]; then
+            wf-client-docs-check . --slug "${GITHUB_REPOSITORY##*/}"
+          else
+            wf-client-docs-check . --slug "${GITHUB_REPOSITORY##*/}" --warn-only
+          fi
 
       # --- Build: THE ONE SHARED BUILD DEFINITION ----------------------------
       # This is the SAME composite action deploy.reusable.yml calls. node setup +
@@ -480,6 +523,25 @@ jobs:
         continue-on-error: true
         run: wf-acceptance-check --project . --out "$BUILD_DIR"
 
+      # CHAIN: the handoff gate (#20). Not an OUT gate — it reads none of the
+      # built tree. It re-reads the three artifacts the PR carries and asserts
+      # each is a strict refinement of the last: every planned item traces to a
+      # measured finding, every claimed fix to a planned item, schemas match.
+      #
+      # Every other gate judges one artifact at a time, and each can be valid on
+      # its own while the chain between them is already broken. Acceptance asks
+      # "did the claimed fix land"; this asks "was there ever a measurement
+      # authorising that fix at all".
+      #
+      # --only-if-claimed: a PR with no changelog.json claims no remediation, so
+      # there is nothing to trace and the gate is not applicable. A changelog
+      # WITHOUT its findings and worklist is the opposite — a fix with no
+      # provenance — and is reported as a break, not skipped.
+      - name: "CHAIN: findings -> worklist -> changelog provenance (BLOCK when the PR claims a fix)"
+        id: e2e
+        continue-on-error: true
+        run: wf-e2e-check --project . --only-if-claimed
+
       # --- Report: step summary table ----------------------------------------
       - name: Build report (step summary)
         if: always()
@@ -508,6 +570,8 @@ jobs:
           TIER: ${{ steps.tier.outcome }}
           PROVENANCE: ${{ steps.provenance.outcome }}
           ACCEPTANCE: ${{ steps.acceptance.outcome }}
+          E2E: ${{ steps.e2e.outcome }}
+          CLIENT_DOCS: ${{ steps.client_docs.outcome }}
           RULES_SELFTEST: ${{ steps.rules_selftest.outcome }}
           BUILD: ${{ steps.build.outcome }}
           HEADINGS: ${{ steps.headings.outcome }}
@@ -523,7 +587,13 @@ jobs:
           LLMS: ${{ steps.llms.outcome }}
           IMAGE: ${{ steps.image.outcome }}
           LCP: ${{ steps.lcp.outcome }}
+          CLIENT_DOCS_BLOCKING: ${{ inputs.client_docs_blocking }}
         run: |
+          # The docs contract is advisory unless the caller opted in. Say which,
+          # in the table itself — a row reading FAIL next to nineteen that block
+          # is otherwise indistinguishable from a blocker.
+          CLIENT_DOCS_ADVISORY=""
+          [ "$CLIENT_DOCS_BLOCKING" = "true" ] || CLIENT_DOCS_ADVISORY=" (advisory)"
           mark() {
             case "$1" in
               success) echo "PASS" ;;
@@ -565,6 +635,8 @@ jobs:
             echo "| OUT | Image budget | 1 | $(mark "$IMAGE") |"
             echo "| OUT | LCP hygiene | 1 | $(mark "$LCP") |"
             echo "| OUT | acceptance (claimed fixes landed) | 20 | $(mark "$ACCEPTANCE") |"
+            echo "| CHAIN | findings -> worklist -> changelog provenance | 21/4 | $(mark "$E2E") |"
+            echo "| PRE | client-repo docs contract${CLIENT_DOCS_ADVISORY} | 1 | $(mark "$CLIENT_DOCS") |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           # Plain-English sticky comment body for non-technical review.
@@ -598,6 +670,8 @@ jobs:
           [ "$LCP" = "failure" ]          && add_fail "LCP hygiene — a lazy-loaded hero or a dimensionless image will hurt Core Web Vitals."
           [ "$TIER" = "failure" ]         && add_fail "Tier — this PR changes a file the repo's declared tier does not permit (or no tier is declared, which permits nothing)."
           [ "$PROVENANCE" = "failure" ]   && add_fail "Claim provenance — changed text states a fact (a rating, a review count, a licence, a year-count, a superlative) that traces to no config field, no measurement, and no citation. Remove it or add the fact to docs/client-config.yml first."
+          [ "$E2E" = "failure" ]          && add_fail "Handoff chain — this PR claims a fix that traces to no measurement, or to a plan item nobody planned. The findings -> worklist -> changelog chain in \`docs/audit/\` is broken, so the provenance every other gate assumes is already gone."
+          [ "$CLIENT_DOCS" = "failure" ]  && add_fail "Client docs contract — this repo is missing a required doc, so a cycle has nowhere durable to land. Run \`wf-scaffold-client-docs . --slug <slug>\` (additive, never overwrites)."
           [ "$ACCEPTANCE" = "failure" ]   && add_fail "Acceptance — a fix this PR claims to have made does not clear the finding it claims to fix. Re-measured against the build output."
 
           if [ -n "$fail_lines" ]; then
@@ -645,6 +719,8 @@ jobs:
           TIER: ${{ steps.tier.outcome }}
           PROVENANCE: ${{ steps.provenance.outcome }}
           ACCEPTANCE: ${{ steps.acceptance.outcome }}
+          E2E: ${{ steps.e2e.outcome }}
+          CLIENT_DOCS: ${{ steps.client_docs.outcome }}
           RULES_SELFTEST: ${{ steps.rules_selftest.outcome }}
           BUILD: ${{ steps.build.outcome }}
           HEADINGS: ${{ steps.headings.outcome }}
@@ -660,6 +736,14 @@ jobs:
           LLMS: ${{ steps.llms.outcome }}
           IMAGE: ${{ steps.image.outcome }}
           LCP: ${{ steps.lcp.outcome }}
+          # B-063: this step gates the merge on $TREE (further down) but never
+          # declared it, and a step OUTPUT is not shell env — so $TREE was empty
+          # on every run, `"" != "true"` was always true, and the gate exited 1
+          # for every client on every PR. The REPORT step declares it and reads
+          # it correctly, so the sticky comment could say GREEN while the check
+          # went red, and auto-merge (gated on this job succeeding) could never
+          # fire. Shipped in v3.1.3, still present in v3.1.4.
+          TREE: ${{ steps.tree.outputs.ready }}
         run: |
           # gate -> "exit-code registry entry : plain description" for attribution.
           # case-based (not `declare -A`) so it is portable across bash versions.
@@ -685,6 +769,8 @@ jobs:
               TIER)         echo "17 : tier-check (diff outside declared tier)" ;;
               PROVENANCE)   echo "18/4 : claim provenance (unsourced claim / empty corpus)" ;;
               ACCEPTANCE)   echo "20 : acceptance (a claimed fix did not land)" ;;
+              E2E)          echo "21/4 : handoff chain (a fix that traces to no measurement)" ;;
+              CLIENT_DOCS)  echo "1 : client-repo docs contract" ;;
               *)            echo "? : unknown gate" ;;
             esac
           }
@@ -707,7 +793,7 @@ jobs:
           fi
           for g in TSC SSR RULES_SELFTEST HEADINGS ORPHAN PARITY EMDASH \
                    AUDIT_BUILT FORBIDDEN ROBOTS CAPSULE NONCOMMODITY FINGERPRINT \
-                   LLMS IMAGE LCP TIER PROVENANCE ACCEPTANCE; do
+                   LLMS IMAGE LCP TIER PROVENANCE ACCEPTANCE E2E CLIENT_DOCS; do
             v="${!g}"
             if [ "$v" = "failure" ]; then
               echo "::error::Blocking gate failed: ${g}  (exit $(reg "$g"))"
@@ -719,3 +805,107 @@ jobs:
             exit 1
           fi
           echo "Quality Gate GREEN — all blocking gates passed."
+
+  # ---------------------------------------------------------------------------
+  # AUTO-MERGE (automation spine) — merges ONLY what the decision calls AUTO.
+  #
+  # Runs after the gate, and only when BOTH guards agree:
+  #   1. the caller opted in            (inputs.automerge_enabled == true)
+  #   2. every blocking gate was green  (needs.quality-gate.result == 'success')
+  # Even then it merges only if `wf-automerge-decide` returns AUTO — all gates
+  # green AND a low-risk T1 copy edit (no new public page, no medical/legal
+  # claim). Anything else it leaves for a human, with a comment saying why. The
+  # decision NEVER fails the run; leaving a PR for a human is a normal outcome,
+  # not an error.
+  #
+  # This is the ONLY step in the whole system that merges without a person, and
+  # it is off for the entire fleet until a client's caller sets the flag.
+  # ---------------------------------------------------------------------------
+  auto-merge:
+    name: Auto-merge (spine)
+    needs: quality-gate
+    if: ${{ inputs.automerge_enabled && needs.quality-gate.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write        # to merge the PR into the default branch
+      pull-requests: write   # to merge / comment on the PR
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      # Full history so wf-automerge-decide can diff base..head for creates + copy.
+      - name: Checkout client site
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Resolve pipeline ref
+        id: pipe
+        env:
+          JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          STAMPED_REF: ${{ env.PIPELINE_REF }}
+        run: |
+          REF="${JOB_WORKFLOW_SHA:-}"
+          if [ -z "$REF" ]; then
+            REF="${STAMPED_REF:-}"
+            echo "::warning::github.job_workflow_sha was empty — falling back to the stamped PIPELINE_REF '${REF}'."
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::No pipeline ref could be resolved. Refusing to auto-merge from an unknown pipeline version."
+            exit 1
+          fi
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pipeline (version-locked)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.PIPELINE_REPO }}
+          ref: ${{ steps.pipe.outputs.ref }}
+          path: .pipeline
+          persist-credentials: false
+          token: ${{ secrets.SEO_AGENT || github.token }}
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install pipeline package
+        run: |
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet ./.pipeline
+
+      # The decision. Reaching this job already means all gates were green, so
+      # --gates-passed true reflects the real state; --enabled reflects guard 1.
+      # The decision is written to $GITHUB_OUTPUT (decision=AUTO|HUMAN, reason=...).
+      - name: Decide auto-merge
+        id: decide
+        run: |
+          wf-automerge-decide \
+            --project . \
+            --base "origin/${{ github.event.pull_request.base.ref }}" \
+            --head HEAD \
+            --gates-passed true \
+            --enabled
+
+      - name: Merge (AUTO only)
+        if: ${{ steps.decide.outputs.decision == 'AUTO' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Decision AUTO — ${{ steps.decide.outputs.reason }}"
+          gh pr merge "${{ github.event.pull_request.number }}" --squash --delete-branch
+
+      - name: Hold for human (everything else)
+        if: ${{ steps.decide.outputs.decision != 'AUTO' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Decision HUMAN — ${{ steps.decide.outputs.reason }}"
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body "🤖 Auto-merge held for a human: ${{ steps.decide.outputs.reason }}"

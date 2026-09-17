@@ -1,0 +1,3 @@
+# Optional headless rendering dependency for CSR triage verification in the Measure stage.
+# Install with: pip install -r requirements-render.txt
+playwright>=1.40.0

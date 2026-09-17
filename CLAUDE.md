@@ -85,7 +85,7 @@ repo + domain
    ↓  PLAN       wf-site-plan        RESOLVED / PERSISTING / NEW / REGRESSION → worklist.json + report.md
    ↓  REMEDIATE  wf-site-remediate   Claude Code edits, inside the tier → changelog.json
    ───────────── everything above runs locally, or in the container ─────────────
-   ↓  GATES      19 gates on the client's PR, in Actions on the client repo
+   ↓  GATES      20 gates on the client's PR, in Actions on the client repo
    ↓  HUMAN MERGE  always. the only path to production.
    ───────────── THE PIPELINE ENDS HERE. deployment is the operator's, on the
                  client's own platform. `deploy.reusable.yml` still exists and is
@@ -165,7 +165,7 @@ Then **tell the other side what changed** — do not assume they will read the l
 | `docs/HOW-IT-WORKS.md` | Plain-language walkthrough of the whole v3 flow, onboarding to proof |
 | `docs/HANDOFF-<date>.md` | Session narratives for the other operator. Newest first, and **dated records** — read the newest, then the ledger. An older one is what was true that day, not now |
 | `pipeline/audit/` | The rail: `onboard` · `measure` · `plan` · `remediate` · `providers`, plus client bootstrap/preflight |
-| `pipeline/gates/` | The 19 gates |
+| `pipeline/gates/` | The 20 gates |
 | `pipeline/lib/` | `common.py` (config + tiering), `baseline.py` (the ratchet), `client_docs.py` |
 | `pipeline/dashboard/` | `wf-dashboard` — a 127.0.0.1 console over the client-repo artifacts. No database, no accounts, no merge action. |
 | `skills/site-remediation/` | The doctrine inlined into every remediation prompt |
@@ -177,14 +177,14 @@ Then **tell the other side what changed** — do not assume they will read the l
 
 ## Where Workflows Live
 
-**There are no cron workflows.** Both fleet-wide pollers went with the intake rail, taking ~2,180 Actions minutes/month with them — which was the entire argument for making this repo public. `seo_agent` can stay private.
+**There are no cron workflows.** Both fleet-wide pollers went with the intake rail, taking ~2,180 Actions minutes/month with them — which was the entire argument for making this repo public on cost grounds. It was made public anyway on 2026-08-11, for a different reason: a client repo's `GITHUB_TOKEN` can read a public repo, so the pipeline checkout needs no shared secret and onboarding a client no longer requires one.
 
 `ci.yml` runs here. Everything else runs **in the client repo**, because GitHub only runs a workflow on the repo that contains it: a PR against Acme can only be gated by a workflow inside Acme.
 
 A client repo holds ~30-line **thin callers** copied from `.github/examples/`. All real logic lives in the `*.reusable.yml` files here, pulled in by tag:
 
 ```yaml
-uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.1.4
+uses: Ethan5767/seo_agent/.github/workflows/quality-gate.reusable.yml@v3.2.0
 secrets: inherit
 ```
 
@@ -196,7 +196,7 @@ That is why bumping one tag upgrades every client at once. Edit **only** the `wi
 
 | Client workflow | Standard? | Trigger | Does |
 |---|---|---|---|
-| `quality-gate.yml` | **yes** | every PR | build once, run 19 gates, sticky comment. Set it as a **required status check** — red gate = un-clickable Merge = prod blocked by construction. |
+| `quality-gate.yml` | **yes** | every PR | build once, run 20 gates + `tsc --noEmit` (21 checks, 20 blocking), sticky comment. Set it as a **required status check** — red gate = un-clickable Merge = prod blocked by construction. |
 | `seo-health.yml` | **yes** | daily + `workflow_dispatch` | live routes, sitemap count, and AI citation-crawler access at the edge. Never blocks. **The only thing watching production**, so a client without it is gated but unwatched. Press Run workflow right after deploying. |
 | `preview.yml` | opt-in, **CF only** | every PR | Cloudflare preview URL + Lighthouse. Monitoring only. Its real job was feeding `render_url` to the quality gate for a repo with no static export — that input is host-agnostic, so on another platform feed it that platform's PR preview URL instead. |
 | `deploy-prod.yml` | opt-in, **CF only** | push to main (= the merge) | build, capture, `wrangler pages deploy`, verify live, auto-rollback, proof, IndexNow. Hard-depends on three `CLOUDFLARE_*` secrets; there is no Vercel or Netlify path here. |
@@ -208,8 +208,8 @@ That is why bumping one tag upgrades every client at once. Edit **only** the `wi
 Read `docs/BUG-LEDGER.md` for the live list. The ones that bite hardest:
 
 1. **A client with no `docs/gate-baseline.json` runs the gates BARE.** Record one before their first PR (`wf-gate-baseline --project <repo> --out docs/gate-baseline.json`, committed to *their* repo) or every piece of inherited debt reads as blocking. The workflow warns loudly rather than failing, which is deliberate — but "warns" is not "handled" (B-007).
-2. **`em_dash_check` accepts no baseline at all.** One em dash in a client's legacy copy blocks every PR forever, with no recording that can accept it. Open as **B-008**; needs a human decision, not a workaround.
-3. **A human collaborator grant is not Actions access.** Being a collaborator on this private repo does not let a client repo's workflow check it out. That needs a `SEO_AGENT` secret in the client repo.
+2. ~~**`em_dash_check` accepts no baseline at all.**~~ **Fixed 2026-08-07 (B-008).** It is in `BASELINEABLE`, and a legacy em dash is recorded once and accepted as content debt; one written into new copy still blocks. Verified from the code, not remembered: `em_dash_check` appears in `BASELINEABLE` in `pipeline/lib/baseline.py`, and `tests/test_ratchet_wiring.py::test_the_em_dash_ratchet_accepts_legacy_and_blocks_new` proves both halves. This entry said "open" for five weeks after it was closed.
+3. ~~**A human collaborator grant is not Actions access.**~~ **No longer applies: `seo_agent` has been PUBLIC since 2026-08-11.** A client repo's own `GITHUB_TOKEN` can read it, and every reusable workflow already falls back to `|| github.token` for the pipeline checkout. The `SEO_AGENT` secret is optional and kept declared only so a client already carrying it keeps working, and so the pipeline survives this repo ever going private again. Verified, not remembered: `gh repo view Ethan5767/seo_agent --json isPrivate` -> `{"isPrivate":false}`. **Do not send an operator hunting for a secret they do not need.**
 4. **Static export is an onboarding precondition, not a footnote.** **Nine** gates derive what they judge from the built HTML tree — including `forbidden_sweep`, which is never-baselineable for legal exposure. Two failure modes, and they are not the same (B-018):
    - **No tree at all** → `build-site` exits 1 and every build-tree step is **SKIPPED**, not green. Loud, and recoverable.
    - **A tree that exists and holds no HTML** → every gate globs zero files and reports **green over nothing**. This is the dangerous one, and pointing `build_output_dir` at `.next` produces exactly it.
@@ -217,7 +217,7 @@ Read `docs/BUG-LEDGER.md` for the live list. The ones that bite hardest:
    The supported answer is `wf-render-snapshot`, which crawls a rendered deployment into the tree the gates already glob, and refuses at exit 19 rather than writing an empty directory. Verified on lee (no static export, SSR on Vercel): 26 routes captured plus sitemap/robots/llms.txt, after which all nine gates gave real verdicts. `wf-onboard` reports the static-export verdict; `None` means "cannot tell", not "fine".
 
    **The general rule this is one instance of: a gate that scanned nothing must never report a pass.** `audit_ssr` broke it until 2026-08-10 by looking only in `src/` — `create-next-app`'s default is no `src/`, so the common Next layout got a silent green from a never-baselineable gate (B-027). Both `forbidden_sweep` and `audit_ssr` now exit **4** for "cannot judge". When you add a gate, decide what its empty input means *before* you ship it, and prefer a denylist over an allowlist keyed on framework — `framework_family()` returns `None` for anything it has not met, so an allowlist silently covers nothing on the next unfamiliar client.
-5. **Branch protection cannot be enabled.** GitHub Free does not support it on private repos. The gate reports but cannot block. See `ADMIN-CHECKLIST.md` §2.
+5. **Branch protection: available here, usually not on the client.** GitHub Free does not support it on **private** repos. `seo_agent` is public, so it *can* have it and currently does not — `gh api repos/Ethan5767/seo_agent/branches/main/protection` returns 404 and `.../rulesets` returns `[]` (checked 2026-09-13). A client on a private repo on Free cannot have it at all, and there the gate reports but cannot block, which is the case that actually matters: the required-status-check row in `ADMIN-CHECKLIST.md` is what makes a red gate un-mergeable, and without protection it is advisory. See `ADMIN-CHECKLIST.md` §2.
 6. **The DataForSEO / GSC / CrUX network paths have never run live.** Only the parsers are tested. Read the status string on the first real run, not the finding count — a provider with no credentials returns a *named skip* precisely so a silent zero can never look like a clean site.
 
 ---

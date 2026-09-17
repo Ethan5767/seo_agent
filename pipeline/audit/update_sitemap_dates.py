@@ -25,7 +25,7 @@ def main():
     # TypeScript file.
     if sitemap.suffix in (".ts", ".js", ".mjs"):
         print(f"[SKIP] {sitemap_rel} is a dynamic sitemap ({sitemap.suffix}). Lastmod is generated at build time from page metadata.")
-        print(f"[INFO] To update lastmod, edit dateModified on the relevant page data files (cities.ts / services.ts / city-service-overrides.ts) and rebuild.")
+        print("[INFO] To update lastmod, edit dateModified on the relevant page data files (cities.ts / services.ts / city-service-overrides.ts) and rebuild.")
         sys.exit(0)
 
     text = sitemap.read_text()

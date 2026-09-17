@@ -100,6 +100,31 @@ Bands come from the client's config where declared; these are the defaults.
 | `nap_phone_missing` | Use the exact phone string from config `nap`. Never a different format, never a guess |
 | `forbidden_phrase_live` | Remove the phrase. Do not paraphrase around a legal restriction — the restriction is on the claim, not the wording |
 | `thin_content` | **The page already exists — expand the copy that is there, do not create anything.** A page can only be measured as thin if it is live, so this is a modify, and at T1 the entry is normally in a data file you already have. Answer the query the page is for; padding to the word count is the failure mode this finding exists to surface |
+| `meta_description_missing`, `meta_description_out_of_band` | 120–160 characters. Worth knowing before you spend effort here: Google rewrites 61–76% of meta descriptions, and a controlled test of *removing* over-long ones measured +4.2%. Write one where the page has a promise the SERP would otherwise miss; do not manufacture one to fill the tag |
+| `h1_count_wrong` | Exactly one `<h1>`, and make it the page's actual subject. Promoting the first `<h2>` to `<h1>` measured +4.5% in a controlled test; inventing a new heading above the content did not |
+| `canonical_mismatch` | Point the canonical at this page's own URL. **Never** point it at a different page to resolve a duplicate — that is a deindexing decision and belongs to a human |
+| `og_image_missing` | Add `og:image` referencing an image that already exists in the repo. Never invent a path, never hotlink |
+| `schema_business_missing` | Add LocalBusiness JSON-LD built **only** from `docs/client-config.yml`. Every value traceable; no invented rating, review count or licence number — `claim_provenance_check` refuses them |
+| `schema_breadcrumb_missing` | BreadcrumbList matching the *rendered* breadcrumb exactly. A schema that disagrees with the DOM measured −5.5%; getting it wrong is worse than leaving it out |
+| `tel_link_missing` | Wrap the existing phone number in `tel:`. Use the config `nap` string verbatim |
+| `ga4_tag_missing` | Add the GA4 tag using the measurement id from the client config. If none is declared, this is a human step — never guess an id |
+| `noindex_present` | **Do not remove it on your own judgement.** A `noindex` is usually deliberate — a staging route, a thin variant, a page someone chose to keep out. Report which page carries it and why you believe it is wrong, and let a human decide. Removing one adds a page to the index, which is the same class of irreversible act as removing one |
+| `url_not_200` | Diagnose only. Do not create the page, do not add a redirect, do not noindex it. Report what the status was and stop |
+| `csr_empty_shell` | Make the main content present in the server-rendered HTML. No AI crawler executes JavaScript, so content behind CSR is invisible to every one of them |
+| `onpage.charset`, `onpage.doctype` | Add `<!DOCTYPE html>` / `<meta charset="utf-8">` as the first elements. Mechanical |
+| `onpage.legacy_meta_keywords` | Delete the tag. Google ignores it entirely and Bing treats stuffing as a mild spam signal |
+| `onpage.meta_refresh` | Remove it and let the server redirect, or leave the page in place. Never add one |
+| `onpage.apple_touch_icon` | Add the link only if the icon already exists in the repo |
+| `onpage.mixed_content` | Rewrite `http://` subresources to `https://`. **Verify each host answers over HTTPS first** — a broken asset is worse than an insecure one |
+| `onpage.external_link_safety` | Add `rel="noopener"` to every `target="_blank"`. Zero risk |
+| `onpage.image_dimensions` | Add the real `width`/`height` from the file. A CLS fix; guessed numbers make it worse |
+| `onpage.deprecated_html`, `onpage.flash` | Replace with the modern equivalent, or remove where it carries no content |
+| `onpage.semantic_main` | Wrap the existing main content in `<main>`. Move nothing |
+| `onpage.heading_order` | Fix skipped levels. This is an **accessibility** fix (WCAG 1.3.1) — Google states heading order does not matter to it, so do not sell it as a ranking change |
+| `onpage.placeholder_text` | Remove lorem ipsum and "TODO" copy. If the section then has nothing to say, flag it for a human rather than writing filler |
+| `onpage.empty_links` | Give the anchor real text, or remove it. An empty link is invisible to a crawler and a screen reader alike |
+| `onpage.hreflang` | Fix the code (`en-UK` is invalid; the UK is `GB`), add the self-reference, and complete the return links. Every locale lives in this repo, so the whole graph is completable — and if two pages do not both point at each other, Google ignores the tags entirely |
+| `onpage.render-blocking_scripts` | Add `defer` to scripts that do not run before paint. Never to one the page depends on during render |
 
 See `references/serp-title-meta-craft.md` for titles and metas and
 `references/anti-slop-prose.md` for the prose rules. Read them before writing any

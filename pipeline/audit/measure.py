@@ -11,7 +11,6 @@ network and no filesystem, so the whole suite runs offline.
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from datetime import date
@@ -20,18 +19,60 @@ from urllib.parse import urlsplit
 
 from pipeline.audit.providers import (crux_findings, dataforseo_findings,
                                       gsc_findings, serp_findings)
-from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
-from pipeline.lib.common import curl, curl_status, load_config
+from pipeline.audit.render_verify import (
+    diff_hydrated_content,
+    is_playwright_available,
+    render_page_playwright,
+)
+from pipeline.lib.baseline import Finding as _BaseFinding, assign_ordinals, sort_findings
+from pipeline.lib.common import curl, curl_status, load_config, visible_text_ratio
+
+from pipeline.lib.html import page_title, sitemap_locs
+
+from pipeline.lib.atomic import write_json_atomic
 
 GATE = "site_health"
 SCHEMA = "site-health/1"
 
+
+class MeasureFinding(_BaseFinding):
+    """Subclass of baseline Finding supporting optional severity and why metadata."""
+    __slots__ = ("severity", "why")
+
+    def __init__(self, gate: str, code: str, location: str, context: str = "",
+                 detail: str = "", ordinal: int = 0, severity: str = "", why: str = ""):
+        super().__init__(gate, code, location, context, detail, ordinal)
+        self.severity = severity
+        self.why = why
+
+    def to_json(self) -> dict:
+        d = super().to_json()
+        if self.severity:
+            d["severity"] = self.severity
+        if self.why:
+            d["why"] = self.why
+        return d
+
+    @classmethod
+    def from_json(cls, d: dict) -> "MeasureFinding":
+        return cls(d["gate"], d["code"], d.get("location", ""), d.get("context", ""),
+                   d.get("detail", ""), int(d.get("ordinal", 0)),
+                   d.get("severity", ""), d.get("why", ""))
+
+
+Finding = MeasureFinding
+
 TITLE_MIN, TITLE_MAX = 30, 60
 DESC_MIN, DESC_MAX = 120, 160
 THIN_CONTENT_WORDS = 500
+# CSR shell thresholds — a raw doc under this many readable words AND under this
+# text/markup ratio is a client-rendered shell. The ratio helper is canonical in
+# lib.common, so this rail and the scanner call a page CSR on identical evidence.
+CSR_MIN_WORDS = 100
+CSR_MIN_RATIO = 0.05
 
 
-def check_page(url: str, html: str, status: int, cfg: dict) -> list:
+def check_page(url: str, html: str, status: int, cfg: dict, render_fetcher=None) -> list:
     """Every check, against one already-fetched page. Pure.
 
     A check whose config input is unset is SKIPPED, not failed: the pipeline
@@ -41,15 +82,33 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
     path = urlsplit(url).path or "/"
     out: list = []
 
-    def add(code: str, context: str = "", detail: str = "") -> None:
-        out.append(Finding(GATE, code, path, context=context, detail=detail))
+    def add(code: str, context: str = "", detail: str = "", severity: str = "", why: str = "") -> None:
+        out.append(MeasureFinding(GATE, code, path, context=context, detail=detail, severity=severity, why=why))
 
     if status != 200:
         add("health.status_not_200", detail=f"status={status}")
+        # B-075. Stop here. Every check below reads `html`, and on an
+        # unreachable page that is "" — which looks exactly like a page that
+        # genuinely has no title, no description, no h1 and no schema. Nine
+        # fabricated findings then flowed into findings.json, became a
+        # worklist, and sent the agent to "fix" a missing title on a page that
+        # has one. Worse, next cycle the page is reachable, those nine vanish,
+        # and the ratchet reports nine items RESOLVED — the client is billed for
+        # progress that never happened.
+        #
+        # The run-level refusal in main() only fires when EVERY url is
+        # unreachable. One route 403ing behind a WAF is the common case and it
+        # sailed straight through.
+        return out
+
+    if not (html or "").strip():
+        # A 200 carrying nothing. Same blindness, different cause, and it must
+        # not read as a page with nine content problems.
+        add("health.unfetchable", detail="200 with an empty body")
+        return out
 
     # title — missing and out-of-band are mutually exclusive
-    t = re.search(r"<title[^>]*>([^<]+)</title>", html)
-    title = t.group(1) if t else ""
+    title = page_title(html) or ""
     if not title:
         add("health.title_missing")
     elif not TITLE_MIN <= len(title) <= TITLE_MAX:
@@ -139,6 +198,38 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
     if words < THIN_CONTENT_WORDS:
         add("health.thin_content", detail=f"words={words}")
 
+    # Rendering: a raw HTML doc with almost no readable text is a client-rendered
+    # (CSR) shell — crawlers and AI bots see an empty page and never wait for the
+    # JS to build it. Same heuristic and thresholds as the scanner's tech_rows
+    # (lib.common.visible_text_ratio, shared with the scanner), so the finding
+    # feeds the ratchet, the plan and the gates instead of living only in the web
+    # MVP. The fix is SSR/SSG, which is template/build work → T3.
+    words_raw, ratio = visible_text_ratio(html)
+    if words_raw < CSR_MIN_WORDS and ratio < CSR_MIN_RATIO:
+        if cfg.get("render_verify"):
+            fetcher = render_fetcher or cfg.get("render_fetcher")
+            if fetcher is None and not is_playwright_available():
+                # Playwright is not installed: skip step 2/3 silently and attach lower-confidence note
+                note = "render-verify unavailable — install requirements-render.txt for confirmation"
+                add("health.csr_empty_shell", detail=f"words={words_raw} ratio={ratio:.3f}; {note}")
+            else:
+                add("health.csr_empty_shell", detail=f"words={words_raw} ratio={ratio:.3f}")
+                render_fn = fetcher or render_page_playwright
+                rendered_html, render_err = render_fn(url)
+                if rendered_html:
+                    diff = diff_hydrated_content(html, rendered_html)
+                    add("health.csr_content_gap",
+                        detail=diff["detail"],
+                        severity=diff["severity"],
+                        why=diff["why"])
+                elif render_err:
+                    add("health.csr_content_gap",
+                        detail=f"render-verify error: {render_err}",
+                        severity="warn",
+                        why="Headless render verification was attempted but encountered an error.")
+        else:
+            add("health.csr_empty_shell", detail=f"words={words_raw} ratio={ratio:.3f}")
+
     # Disambiguate repeated identical findings on one page, per baseline.py's
     # contract. Without this, two images sharing a src collapse to one fingerprint.
     return assign_ordinals(out)
@@ -154,9 +245,6 @@ class UsageError(RuntimeError):
     """Bad arguments, or a sitemap that answered but was not a sitemap. Exit 2."""
 
 
-_LOC_RE = re.compile(r"<loc>\s*([^<\s][^<]*?)\s*</loc>")
-
-
 def _absolute(u: str, domain: str) -> str:
     """Normalize one URL or site-relative path to an absolute, trailing-slash URL."""
     if u.startswith("http"):
@@ -165,7 +253,7 @@ def _absolute(u: str, domain: str) -> str:
     return f"https://{domain}/{path}/" if path else f"https://{domain}/"
 
 
-def check_url(url: str, cfg: dict) -> tuple:
+def check_url(url: str, cfg: dict, render_fetcher=None) -> tuple:
     """Fetch one URL and check it. Returns (findings, reachable).
 
     status 0 is curl's connection-failure signal and means unreachable. A 404 is
@@ -174,7 +262,7 @@ def check_url(url: str, cfg: dict) -> tuple:
     status = curl_status(url)
     if status == 0:
         return [], False
-    return check_page(url, curl(url), status, cfg), True
+    return check_page(url, curl(url), status, cfg, render_fetcher=render_fetcher), True
 
 
 def discover_urls(cfg: dict, url_args: list, limit: int | None = None) -> list:
@@ -188,7 +276,7 @@ def discover_urls(cfg: dict, url_args: list, limit: int | None = None) -> list:
         if not xml.strip():
             raise Unreachable(f"https://{domain}/sitemap.xml is unreachable "
                               f"and no --url was given: nothing to measure")
-        locs = _LOC_RE.findall(xml)
+        locs = sitemap_locs(xml)
         if not locs:
             raise UsageError(f"https://{domain}/sitemap.xml answered but contains "
                              f"no <loc> entries: not a sitemap")
@@ -237,6 +325,8 @@ def _warn_unmeasurable(cfg: dict) -> None:
 
 
 def main() -> int:
+    from pipeline.lib.env import load_env
+    load_env()  # one shared .env: CRUX/GSC/DataForSEO/BrightData keys, if present
     ap = argparse.ArgumentParser(
         prog="wf-site-health",
         description="Measure a live site and write typed findings for the ratchet.")
@@ -258,9 +348,16 @@ def main() -> int:
     ap.add_argument("--with-serp", action="store_true",
                     help="rank and absence for the config's seed_queries (PAID; "
                          "needs BRIGHTDATA_API_KEY / BRIGHTDATA_SERP_ZONE)")
+    ap.add_argument("--with-logs", metavar="PATH",
+                    help="parse a client-supplied access log (Apache/Nginx combined "
+                         "or Cloudflare JSON) into crawl-budget findings")
+    ap.add_argument("--render-verify", action="store_true",
+                    help="run headless render verification on CSR shell candidates (opt-in; needs Playwright)")
     args = ap.parse_args()
 
     cfg = load_config(args.project)
+    if args.render_verify:
+        cfg["render_verify"] = True
     _warn_unmeasurable(cfg)
 
     urls, refused = urls_or_refuse(cfg, args.url, args.limit)
@@ -304,6 +401,10 @@ def main() -> int:
         found, providers["serp"] = serp_findings(cfg["domain"],
                                                  cfg.get("seed_queries"))
         findings.extend(found)
+    if args.with_logs:
+        from pipeline.audit.logparse import parse_logs
+        found, providers["logs"] = parse_logs(args.with_logs)
+        findings.extend(found)
     for name, status in providers.items():
         print(f"[{name}] {status}", file=sys.stderr)
 
@@ -323,7 +424,7 @@ def main() -> int:
         "findings": [dict(f.to_json(), fingerprint=f.fingerprint)
                      for f in sort_findings(findings)],
     }
-    out_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(out_path, doc)
 
     print(f"[OK] {checked} URLs measured, {len(findings)} findings -> {out_path}")
     warn_dominant_code(findings)

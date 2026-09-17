@@ -56,7 +56,8 @@ import sys
 from pathlib import Path
 
 from pipeline.lib import baseline as bl
-from pipeline.lib.common import load_config, client_profile, resolve_build_dir
+from pipeline.lib.common import (load_config, client_profile, resolve_build_dir,
+                                 refuse_empty_scan)
 
 GATE = "lcp_hygiene_check"
 
@@ -210,6 +211,8 @@ def main() -> int:
     promote_warn = bool(perf.get("block_unprioritized_hero", False))
 
     files = sorted(glob.glob(str(build_dir / "**" / "*.html"), recursive=True))
+    if not files:
+        return refuse_empty_scan(GATE, "HTML files", build_dir)
     findings = []
     warnings = []
     for f in files:
@@ -230,7 +233,7 @@ def main() -> int:
         for line, kind, detail, ref in block:
             findings.append(bl.Finding(GATE, kind, rel, context=ref,
                                        detail=f"line {line}: {detail}"))
-        for line, kind, detail, ref in warn:
+        for _line, kind, detail, _ref in warn:
             warnings.append((rel, kind, detail))
 
     verdict, early = bl.resolve(GATE, findings, args)

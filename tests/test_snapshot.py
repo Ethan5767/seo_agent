@@ -7,7 +7,6 @@ empty crawl (an empty build dir makes every gate glob zero files and pass).
 """
 from __future__ import annotations
 
-import json
 
 import pytest
 import yaml

@@ -2,11 +2,18 @@
 
 Every gate in the seo-content-pipeline: what it checks, when it runs, whether it blocks, and the exit code it claims.
 
-**Authority:** the exit-code registry in the header of
-[`.github/workflows/quality-gate.reusable.yml`](../.github/workflows/quality-gate.reusable.yml),
-and the `reg()` case block in its Evaluate step — those two are what the CI
-actually attributes a failure to. Each gate's own module docstring in
-[`pipeline/gates/`](../pipeline/gates/) is authoritative for what it checks.
+**Authority:** the `reg()` case block in the Evaluate step of
+[`.github/workflows/quality-gate.reusable.yml`](../.github/workflows/quality-gate.reusable.yml)
+— that is what CI actually attributes a failure to. Each gate's own module
+docstring in [`pipeline/gates/`](../pipeline/gates/) is authoritative for what it
+checks, and each gate's own `sys.exit` is authoritative for the code it really
+returns, which is not always the one this file assigns it (see the drift note
+below).
+
+> This paragraph used to name "the exit-code registry in the header of
+> `quality-gate.reusable.yml`" as a second authority. **There is no such
+> registry**; `grep -n 'exit-code registry' .github/workflows/quality-gate.reusable.yml`
+> returns one line, and it is the comment above `reg()`. Corrected 2026-09-13.
 
 > **Three docs this file cited as its authority no longer exist**, and had not
 > for at least a release: `PIPELINE-MASTER-BUILD-PLAN.md`,
@@ -71,38 +78,57 @@ Each gate claims a distinct code so the workflow can name the failing gate from 
 | `6` | Content capsule (§20) |
 | `7` | Non-commodity (§21) |
 | `8` | Fingerprint / invisible-Unicode scrub (§17) |
-| `9` | Brief fan-out (§19) (registry) / audit-ssr (observed) / **data-gen emitter refusal** |
+| `9` | audit-ssr (observed). ~~Brief fan-out (§19), data-gen emitter refusal~~ — both went with the emitter in v3 §3; the code is free to reclaim. |
 | `10` | audit-ssr / audit-built (registry) |
 | `11`–`14` | `pipeline/audit/preflight.py` — 11 missing config fields · 12 unresolved TODOs · 13 homepage non-200 · 14 Cloudflare challenge |
-| `15` | **data-gen emitter: pages HELD for curation** (emitted what it could; held pages did not ship) |
-| `16` | **Unsegmentable DOCX** — `distill` / `preflight_docx` / the emitter chain refuse a non-empty handoff that segments to 0 pages (unrecognized page-boundary format). Never reported as "clean". First free code above the fleet. |
+| ~~`15`~~ | ~~data-gen emitter: pages HELD for curation~~ — **GONE.** `pipeline/generate/` was deleted in v3 §3. Free to reclaim. |
+| ~~`16`~~ | ~~Unsegmentable DOCX~~ — **GONE.** `distill` and `preflight_docx` went with the DOCX rail in v3 §3. Free to reclaim. |
 | `17` | **Tier violation** — `tier_check`: the PR diff changes a path or performs an operation the repo's declared tier does not permit (or no tier is declared, which permits nothing). |
 | `18` | **Unsourced claim** — `claim_provenance_check`: changed text states a fact that resolves to no config field, no work-item evidence, no citation, and not to the previous version of the file. |
 | `19` | **Nothing measured** — `wf-site-health`: every source was unreachable. A run that measured nothing must be red, never a green report with zero findings. |
 | `20` | **A claimed fix did not land** — `acceptance_check`: a work item `changelog.json` reports as fixed still fires its finding against the build output, or has no built page to check at all. |
+| `21` | **Broken handoff chain** — `e2e_check`: a planned item traces to no measured finding, a claimed fix to no planned item, or a `changelog.json` arrives with no `findings.json`/`worklist.json` beside it. Added 2026-09-13. |
 
-### `pipeline/generate/` — the data-gen emitter (not a gate; it feeds them)
+### ~~`pipeline/generate/` — the data-gen emitter~~ — GONE, and this section was fiction
 
-The emitter is a writer, not a gate, but it exits on the same registry so an orchestrator can branch on status alone. Authority for this table is the module docstring in [`pipeline/generate/__init__.py`](../pipeline/generate/__init__.py); SPEC-emitter §7 says the same.
+**Deleted in v3 §3**, with the rest of the DOCX rail. Everything that used to be
+documented here described code that does not exist:
 
-| Code | Meaning |
-|---:|---|
-| `0` | every draft emitted clean |
-| `1` | emitted with curation flags — **everything shipped**. The warn flags ride along in the ledger; nothing was withheld. Safe to treat as a pass-with-notes. |
-| `2` | usage / input / dependency error |
-| `9` | refused to emit — at least one BLOCK finding (forbidden or legal phrase, §21 sibling duplicate, out-of-topology URL, out-of-allow-list proprietary variable, structural/TS corruption). Never waivable in `decisions.json`. Also returned by every module's `--self-test` on failure. |
-| `15` | **one or more pages HELD for curation** — the emitter emitted what it could and the held pages did **not** ship. NOT green. CI must treat `15` as "requires acknowledgement", never as pass. The held pages, their offending text and a concrete proposed fix are in `docs/briefs/_curation.md`. |
-| `16` | **unsegmentable input** — `distill` produced no pages, or `emit_ts` was handed a drafts file with zero entries. Refuses rather than report a clean emit that shipped nothing. Shared with `distill` (`UNSEGMENTABLE_EXIT`). |
+* `pipeline/generate/` — `ls pipeline/` returns `audit dashboard deploy gates lib
+  outreach scanner seed`. No `generate`.
+* `.github/workflows/cycle-emit.reusable.yml`, which the removed text called "the
+  orchestrator is real now" and said branched on the emitter's exit codes —
+  `ls .github/workflows/` returns `ci.yml deploy.reusable.yml
+  preview.reusable.yml quality-gate.reusable.yml seo-health.reusable.yml`.
+* `tests/test_cycle_emit_workflow.py`, cited as proof the table could not drift.
+* `docs/briefs/`, `docs/briefs/_curation.md`, `SPEC-emitter.md`, `decisions.json`.
 
-**The orchestrator is real now:** `.github/workflows/cycle-emit.reusable.yml` branches on exactly this table — `0`/`1`/`15` commit and open a PR, `9`/`16`/`2` open none and fail the run with the curation queue as the artifact. It also cross-checks `EMIT_SUMMARY` against the process exit status and refuses if they disagree. `tests/test_cycle_emit_workflow.py` executes that workflow's own verdict script against every code here, so this table and the CI behaviour cannot drift apart silently.
+It also carried two "Corrected 2026-07-21" notes reconciling exit codes `1`, `3`,
+`9` and `15` across four files, three of which are gone. A reader auditing this
+document would have chased six missing paths. Removed 2026-09-13; the codes it
+claimed are struck through in the registry above and are free to reclaim.
 
-Most severe wins: `9` > `15` > `1` > `0`. Every outcome owns a distinct code so an orchestrator can branch on exit status alone. Belt and braces: the emitter also prints a stable parseable line, `EMIT_SUMMARY emitted=N held=N blocked=N flagged=N exit=N`, carrying the same verdict.
+**Claude Code is the only writer now.** If you find another doc describing that
+rail, it is stale — `CLAUDE.md` says to fix it, and this is what fixing it looks
+like.
 
-> Corrected 2026-07-21 (MINOR-1): `emit_ts.py` previously returned an undocumented `3` on refusal, which collides with forbidden-sweep's observed code and contradicted `__init__.py`, SPEC §7 and `brief.py`. All four sources now read `9`.
-
-> Corrected 2026-07-21 (M3): `1` previously meant BOTH "emitted, some warn flags" AND "one or more pages HELD and did not ship", so an orchestrator branching on exit status alone could not tell shipped from not-shipped. Held now claims its own code, `15` — the first free code in the fleet, since `1`–`10` are the gate registry's and `11`–`14` are `pipeline/audit/preflight.py`'s. `1` now means shipped-with-flags only. Same defect class as the 3-vs-9 bug above; fixed before the CI wiring landed. Registry, `pipeline/generate/__init__.py`, `SPEC-emitter.md` §0/§7 and the CLI `--help` all agree.
-
-> **Known drift (do not "fix" without a decision):** Run #1 observed several gates exiting on a code other than the one the registry assigns them — orphan exited `1` (registry says `3`), forbidden-sweep exited `3` (registry says `4` only for the empty-ruleset case), audit-ssr exited `9` (registry says `10`), audit-built exited `5` (registry says `10`). The registry is the intended contract; the observed column below records what actually happened so nobody debugs a phantom. Reconciling the two is a code task, not a doc task.
+> **Known drift (do not "fix" without a decision).** Several gates exit on a code
+> other than the one this registry assigns them. Re-verified against the code on
+> 2026-09-13, not carried forward from the Run #1 observation:
+>
+> | Gate | Registry says | Code actually returns |
+> |---|---:|---:|
+> | `orphan_check` | 3 | `return 1` (three sites, `orphan_check.py:183,188,212`) |
+> | `forbidden_sweep` | 4 (empty ruleset only) | `sys.exit(3)` on hits, `sys.exit(4)` cannot-judge (`:428,435,438`) |
+> | `audit_ssr` | 10 | `sys.exit(9)` (`:276`) |
+> | `audit_built` | 10 | `sys.exit(5)` (`:373`) |
+>
+> The registry is the intended contract and its value is that each gate is
+> distinguishable from its exit status alone — which orphan at `1` is not, since
+> seven other gates also exit `1`. **Nothing branches on these numbers**: the
+> Evaluate loop keys on `steps.<id>.outcome`, so the only consequence today is
+> that `reg()` prints the wrong number in the annotation beside a real failure.
+> Reconciling them is a code task with a test change attached, not a doc task.
 
 ---
 
@@ -139,13 +165,45 @@ The exclusion list is hard-coded in `pipeline/lib/baseline.py`; attempting to ba
 | `llms-sales-purge` | yes | CTA copy in llms.txt — content debt (fingerprinted on phrase + line text). |
 | `audit-built` | yes | The 30-point per-page audit (titles, metas, alt text, FAQ, schema) — content debt (fingerprinted per page URL + check key). |
 
-**Eight** gates accept `--baseline`. Nine are never-baselineable: the six inherited plus the three phase-4 authorship gates. Two are in neither list. 8 + 9 + 2 = 19. (`pages-are-data-check` was a tenth never-baselineable entry until 2026-08-06 — it went with the emitter in v3 §3 and its entry was dead.)
+**Eight** gates accept `--baseline`. **Ten** are never-baselineable: the six inherited, the three phase-4 authorship gates, and `e2e_check` (added 2026-09-13 — see below). Two are in neither list. 8 + 10 + 2 = **20** gate modules. (`pages-are-data-check` was an eleventh never-baselineable entry until 2026-08-06 — it went with the emitter in v3 §3 and its entry was dead.)
 
 > Counted from the code on 2026-08-10, not remembered: `BASELINEABLE` and `NEVER_BASELINEABLE` in `pipeline/lib/baseline.py:132-171`. This line said **Seven** from B-008 (2026-08-07, which moved `em-dash` in and made it eight) until 2026-08-10, so a reader trusting the prose would have been one out for three days. If you change either set, re-count here in the same commit.
 
 `em-dash` **moved into the baselineable set on 2026-08-07** (B-008). A legacy em dash in a client's pre-existing copy is content debt of the same class as a heading that is not in Title Case, and `check-headings` was always baselineable; the never-baselineable list is for live falsehoods and structural invariants, and this is neither. It sat outside both lists only because it predated the ratchet and printed tuples rather than `Finding`s.
 
 Everything still not listed — `robots-aicrawler`, `client-docs-check`, `proof-assert`, the live post-deploy checks — is in a **third category**: neither baselineable nor declared never-baselineable, because on the pilot they were already clean. That is a property of the pilot, not of the gates, and each is a decision waiting to be made rather than a decision already made.
+
+### `e2e-check` — the 20th gate, wired 2026-09-13
+
+`pipeline/gates/e2e_check.py` (`wf-e2e-check`, exit 21 broken / 4 cannot-judge / 0 intact) asserts the `findings → worklist → changelog` handoff chain is internally consistent: every planned item traces to a measured finding, every claimed fix to a planned item, and all three schema strings match. Every other gate judges one artifact at a time, and each artifact can be valid on its own while the chain between them is already broken — which is why no per-file check could ever see this.
+
+It is **never-baselineable by design.** A broken provenance chain is not a defect count that ages into acceptable debt; it is the moment the provenance every other gate assumes stops existing.
+
+On 2026-09-12 it shipped UNVERIFIED and deliberately unwired: wiring an untested gate into the path that blocks every client's production PR is exactly the risk B-018 and the never-green rule warn about. Both preconditions are now met, in this order:
+
+1. **Tests.** `tests/test_e2e_check.py` (19 cases) and `tests/test_e2e_wiring.py` (10 cases). The second exists because a green unit test proves the function works and nothing about whether CI calls it — B-007.
+2. **Registered** in `NEVER_BASELINEABLE` in `pipeline/lib/baseline.py`, which is what moved the count above from 8 + 9 + 2 to 8 + 10 + 2.
+3. **Invoked** by `quality-gate.reusable.yml` as the `CHAIN` step, read by both the report and the Evaluate loop.
+
+**`--only-if-claimed` is what makes it safe to run on every PR.** Three ways a chain can be absent, and they are three different facts:
+
+| State | Verdict | Why |
+|---|---|---|
+| no `changelog.json` | **not applicable**, exit 0 | An ordinary human PR claims no remediation. There is nothing to trace. |
+| `changelog.json` present, `findings.json` or `worklist.json` absent | **BROKEN**, exit 21 | A fix that traces to no measurement and no plan. The artifacts ship *inside* the PR (Model A), so their absence is not "we cannot see them" — it is that they were never there. Deleting the two upstream files must never buy a green. |
+| all three present, `findings.json` empty | **cannot judge**, exit 4 | Nothing to reconcile either way. Sharp edge #4. |
+
+Without the flag the first row is exit 4, which is right for a human running the command against one cycle and wrong for CI running it against every PR.
+
+### `client-docs-check` — wired advisory, 2026-09-13
+
+`wf-client-docs-check` checks that the client repo carries the standard docs tree (`docs/seo-work-log.md`, `docs/cycle-logs/`, `docs/intake-archive/`, `docs/INDEX.md`, `docs/seo-progress.md`, `docs/client-config.yml`). Not a check on the diff — a check that this repo has somewhere durable for a cycle to land. One client had none of them on 2026-07-28 and could ship work that nothing anywhere recorded.
+
+It runs on every PR with `--warn-only`, and the caller opts into blocking with `client_docs_blocking: true`. The default is not laziness: the contract post-dates most of the fleet, so blocking on day one would turn every existing client red for a missing directory rather than for anything wrong with the change under review. The remedy is one idempotent, additive command, printed in the failure output.
+
+### The count, as of 2026-09-13
+
+**21 checks run on every client PR: the 20 gate modules in `pipeline/gates/`, plus `tsc --noEmit`. Twenty of them block. The client-docs contract is the one advisory check, until a client opts in.**
 
 ### Wiring, not just implementation (B-007, 2026-08-06)
 

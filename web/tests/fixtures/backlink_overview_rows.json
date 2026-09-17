@@ -1,0 +1,425 @@
+[
+ {
+  "code": "dfs.backlinks",
+  "what": "332542 backlinks from 2833 referring domains",
+  "why": "Backlinks are a top Google ranking factor \u2014 other sites vouching for yours.",
+  "fix": "keep earning links from relevant, trusted sites",
+  "severity": "ok",
+  "detail": "authority rank 51",
+  "metrics": {
+   "rank": 51,
+   "backlinks": 332542,
+   "backlinks_spam_score": 15,
+   "referring_domains": 2833,
+   "referring_domains_nofollow": 0,
+   "referring_main_domains": 2688,
+   "referring_ips": 2200,
+   "referring_subnets": 1365,
+   "referring_pages": 329209,
+   "referring_pages_nofollow": 0,
+   "broken_backlinks": 1150,
+   "broken_pages": 125,
+   "first_seen": "2019-01-15 23:54:14 +00:00",
+   "tld": [
+    {
+     "label": "jetzt",
+     "value": 232146
+    },
+    {
+     "label": "de",
+     "value": 83244
+    },
+    {
+     "label": "com",
+     "value": 5322
+    },
+    {
+     "label": "net",
+     "value": 1483
+    },
+    {
+     "label": "pl",
+     "value": 1129
+    },
+    {
+     "label": "blogspot.com",
+     "value": 922
+    },
+    {
+     "label": "io",
+     "value": 894
+    },
+    {
+     "label": "ai",
+     "value": 672
+    }
+   ],
+   "types": [
+    {
+     "label": "image",
+     "value": 237478
+    },
+    {
+     "label": "anchor",
+     "value": 63889
+    },
+    {
+     "label": "redirect",
+     "value": 27839
+    },
+    {
+     "label": "canonical",
+     "value": 3
+    }
+   ],
+   "attributes": [
+    {
+     "label": "noopener",
+     "value": 4043
+    },
+    {
+     "label": "noreferrer",
+     "value": 2104
+    },
+    {
+     "label": "external",
+     "value": 45
+    },
+    {
+     "label": "sponsored",
+     "value": 36
+    },
+    {
+     "label": "ugc",
+     "value": 5
+    },
+    {
+     "label": "bookmark",
+     "value": 3
+    },
+    {
+     "label": "author",
+     "value": 2
+    }
+   ],
+   "countries": [
+    {
+     "label": "DE",
+     "value": 83721
+    },
+    {
+     "label": "US",
+     "value": 1533
+    },
+    {
+     "label": "IO",
+     "value": 1286
+    },
+    {
+     "label": "PL",
+     "value": 1271
+    },
+    {
+     "label": "AI",
+     "value": 673
+    },
+    {
+     "label": "WW",
+     "value": 609
+    },
+    {
+     "label": "CC",
+     "value": 373
+    },
+    {
+     "label": "CA",
+     "value": 232
+    }
+   ],
+   "platforms": [
+    {
+     "label": "unknown",
+     "value": 241788
+    },
+    {
+     "label": "organization",
+     "value": 57257
+    },
+    {
+     "label": "blogs",
+     "value": 4038
+    },
+    {
+     "label": "cms",
+     "value": 3140
+    },
+    {
+     "label": "news",
+     "value": 1144
+    },
+    {
+     "label": "ecommerce",
+     "value": 367
+    },
+    {
+     "label": "message-boards",
+     "value": 81
+    }
+   ]
+  }
+ },
+ {
+  "code": "dfs.broken_backlinks",
+  "what": "1150 broken backlink(s)",
+  "why": "Links pointing at dead pages on your site waste the authority they'd pass.",
+  "fix": "restore or 301-redirect those target URLs so the link equity isn't lost",
+  "severity": "warn",
+  "detail": "1150 broken"
+ },
+ {
+  "code": "dfs.referring_domain",
+  "what": "guetsel.de",
+  "why": "A site linking to this domain.",
+  "fix": "keep the relationship; ask for links to your key pages",
+  "severity": "info",
+  "detail": "rank 0 \u00b7 77145 backlinks \u00b7 spam 23 \u00b7 since 2019-01-18",
+  "metrics": {
+   "rank": 0,
+   "backlinks": 77145,
+   "spam": 23,
+   "first_seen": "2019-01-18",
+   "nofollow": false
+  }
+ },
+ {
+  "code": "dfs.referring_domain",
+  "what": "hackaday.com",
+  "why": "A site linking to this domain.",
+  "fix": "keep the relationship; ask for links to your key pages",
+  "severity": "info",
+  "detail": "rank 0 \u00b7 1323 backlinks \u00b7 spam 0 \u00b7 since 2023-11-29",
+  "metrics": {
+   "rank": 0,
+   "backlinks": 1323,
+   "spam": 0,
+   "first_seen": "2023-11-29",
+   "nofollow": true
+  }
+ },
+ {
+  "code": "dfs.referring_domain",
+  "what": "urlscan.io",
+  "why": "A site linking to this domain.",
+  "fix": "keep the relationship; ask for links to your key pages",
+  "severity": "info",
+  "detail": "rank 8 \u00b7 930 backlinks \u00b7 spam 30 \u00b7 since 2026-01-27",
+  "metrics": {
+   "rank": 8,
+   "backlinks": 930,
+   "spam": 30,
+   "first_seen": "2026-01-27",
+   "nofollow": false
+  }
+ },
+ {
+  "code": "dfs.referring_domain",
+  "what": "technewsinsight.com",
+  "why": "A site linking to this domain.",
+  "fix": "keep the relationship; ask for links to your key pages",
+  "severity": "info",
+  "detail": "rank 0 \u00b7 590 backlinks \u00b7 spam 0 \u00b7 since 2023-03-19",
+  "metrics": {
+   "rank": 0,
+   "backlinks": 590,
+   "spam": 0,
+   "first_seen": "2023-03-19",
+   "nofollow": false
+  }
+ },
+ {
+  "code": "dfs.anchor",
+  "what": "\"dataforseo.com\"",
+  "why": "Link text other sites use when they link here.",
+  "fix": "a natural mix of brand, URL and topic anchors is healthy",
+  "severity": "info",
+  "detail": "538 backlinks from 207 domains",
+  "metrics": {
+   "backlinks": 538,
+   "referring_domains": 207
+  }
+ },
+ {
+  "code": "dfs.anchor",
+  "what": "\"(no anchor text)\"",
+  "why": "Link text other sites use when they link here.",
+  "fix": "a natural mix of brand, URL and topic anchors is healthy",
+  "severity": "info",
+  "detail": "267184 backlinks from 331 domains",
+  "metrics": {
+   "backlinks": 267184,
+   "referring_domains": 331
+  }
+ },
+ {
+  "code": "dfs.anchor",
+  "what": "\"DataForSEO\"",
+  "why": "Link text other sites use when they link here.",
+  "fix": "a natural mix of brand, URL and topic anchors is healthy",
+  "severity": "info",
+  "detail": "1769 backlinks from 649 domains",
+  "metrics": {
+   "backlinks": 1769,
+   "referring_domains": 649
+  }
+ },
+ {
+  "code": "dfs.anchor",
+  "what": "\"https://dataforseo.com/dataforseo-bot\"",
+  "why": "Link text other sites use when they link here.",
+  "fix": "a natural mix of brand, URL and topic anchors is healthy",
+  "severity": "info",
+  "detail": "136 backlinks from 41 domains",
+  "metrics": {
+   "backlinks": 136,
+   "referring_domains": 41
+  }
+ },
+ {
+  "code": "dfs.backlink_history",
+  "what": "Referring domains 208 \u2192 908 (2019-01 to 2020-02)",
+  "why": "How the link profile has grown or shrunk month by month.",
+  "fix": "a steady gain in referring domains is the healthy shape",
+  "severity": "info",
+  "detail": "14 months",
+  "metrics": {
+   "points": [
+    {
+     "date": "2019-01",
+     "backlinks": 476,
+     "referring_domains": 208,
+     "new_referring_domains": 191,
+     "lost_referring_domains": 0,
+     "new_backlinks": 427,
+     "lost_backlinks": 6
+    },
+    {
+     "date": "2019-02",
+     "backlinks": 978,
+     "referring_domains": 322,
+     "new_referring_domains": 104,
+     "lost_referring_domains": 7,
+     "new_backlinks": 479,
+     "lost_backlinks": 23
+    },
+    {
+     "date": "2019-03",
+     "backlinks": 1304,
+     "referring_domains": 447,
+     "new_referring_domains": 123,
+     "lost_referring_domains": 10,
+     "new_backlinks": 420,
+     "lost_backlinks": 98
+    },
+    {
+     "date": "2019-04",
+     "backlinks": 1591,
+     "referring_domains": 517,
+     "new_referring_domains": 82,
+     "lost_referring_domains": 14,
+     "new_backlinks": 365,
+     "lost_backlinks": 94
+    },
+    {
+     "date": "2019-05",
+     "backlinks": 1970,
+     "referring_domains": 624,
+     "new_referring_domains": 109,
+     "lost_referring_domains": 15,
+     "new_backlinks": 478,
+     "lost_backlinks": 149
+    },
+    {
+     "date": "2019-06",
+     "backlinks": 2180,
+     "referring_domains": 675,
+     "new_referring_domains": 54,
+     "lost_referring_domains": 9,
+     "new_backlinks": 326,
+     "lost_backlinks": 135
+    },
+    {
+     "date": "2019-07",
+     "backlinks": 2377,
+     "referring_domains": 718,
+     "new_referring_domains": 49,
+     "lost_referring_domains": 9,
+     "new_backlinks": 379,
+     "lost_backlinks": 203
+    },
+    {
+     "date": "2019-08",
+     "backlinks": 2546,
+     "referring_domains": 764,
+     "new_referring_domains": 48,
+     "lost_referring_domains": 9,
+     "new_backlinks": 316,
+     "lost_backlinks": 173
+    },
+    {
+     "date": "2019-09",
+     "backlinks": 2730,
+     "referring_domains": 787,
+     "new_referring_domains": 34,
+     "lost_referring_domains": 10,
+     "new_backlinks": 325,
+     "lost_backlinks": 155
+    },
+    {
+     "date": "2019-10",
+     "backlinks": 2960,
+     "referring_domains": 820,
+     "new_referring_domains": 40,
+     "lost_referring_domains": 8,
+     "new_backlinks": 309,
+     "lost_backlinks": 104
+    },
+    {
+     "date": "2019-11",
+     "backlinks": 3182,
+     "referring_domains": 829,
+     "new_referring_domains": 12,
+     "lost_referring_domains": 6,
+     "new_backlinks": 278,
+     "lost_backlinks": 111
+    },
+    {
+     "date": "2019-12",
+     "backlinks": 3361,
+     "referring_domains": 843,
+     "new_referring_domains": 12,
+     "lost_referring_domains": 2,
+     "new_backlinks": 127,
+     "lost_backlinks": 89
+    },
+    {
+     "date": "2020-01",
+     "backlinks": 3580,
+     "referring_domains": 877,
+     "new_referring_domains": 25,
+     "lost_referring_domains": 11,
+     "new_backlinks": 212,
+     "lost_backlinks": 220
+    },
+    {
+     "date": "2020-02",
+     "backlinks": 3710,
+     "referring_domains": 908,
+     "new_referring_domains": 42,
+     "lost_referring_domains": 9,
+     "new_backlinks": 286,
+     "lost_backlinks": 168
+    }
+   ]
+  }
+ }
+]

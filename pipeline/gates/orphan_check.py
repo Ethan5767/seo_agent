@@ -50,7 +50,8 @@ import sys
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, unquote
 
-LOC_RE = re.compile(r"<loc>\s*([^<]+?)\s*</loc>", re.IGNORECASE)
+from pipeline.lib.html import sitemap_locs
+
 # A path whose final segment contains a dot is treated as a file (asset), not a
 # trailing-slash page route.
 HAS_EXT_RE = re.compile(r"/[^/]*\.[^/]+$")
@@ -121,8 +122,7 @@ def parse_sitemap(out_dir: str) -> tuple[list[str], set[str]]:
     for f in candidates:
         with open(f, encoding="utf-8") as fh:
             text = fh.read()
-        for m in LOC_RE.finditer(text):
-            u = m.group(1).strip()
+        for u in sitemap_locs(text):
             locs.append(u)
             host = urlsplit(u).netloc.lower()
             if host:

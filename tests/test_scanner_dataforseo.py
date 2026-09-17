@@ -1,0 +1,359 @@
+"""DataForSEO ranked-keywords parser + caller (offline, canned response)."""
+from pipeline.scanner.dataforseo import (
+    parse_ranked_keywords, ranked_keywords, cost_of, result_items,
+)
+
+
+def test_cost_of_reads_top_level_cost():
+    assert cost_of({"cost": 0.0123}) == 0.0123
+    assert cost_of({}) == 0.0
+    assert cost_of({"cost": "bad"}) == 0.0
+
+
+def test_result_items_digs_the_nest():
+    assert result_items({"tasks": [{"result": [{"items": [{"k": 1}]}]}]}) == [{"k": 1}]
+    assert result_items({}) == []
+    assert result_items({"tasks": []}) == []
+
+# A minimal response mirroring DataForSEO's ranked_keywords shape.
+DOC = {"cost": 0.0123, "tasks": [{"result": [{"items": [
+    {"keyword_data": {"keyword": "hospital phnom penh",
+                      "keyword_info": {"search_volume": 1200}},
+     "ranked_serp_element": {"serp_item": {"rank_absolute": 3}}},
+    {"keyword_data": {"keyword": "best clinic cambodia",
+                      "keyword_info": {"search_volume": 300}},
+     "ranked_serp_element": {"serp_item": {"rank_absolute": 18}}},
+    {"keyword_data": {"keyword": "orienda hospital",
+                      "keyword_info": {"search_volume": 90}},
+     "ranked_serp_element": {"serp_item": {"rank_absolute": 55}}},
+]}]}]}
+
+
+def test_parse_orders_by_rank_and_grades():
+    rows = parse_ranked_keywords(DOC)
+    assert [r["what"].split('"')[1] for r in rows] == [
+        "hospital phnom penh", "best clinic cambodia", "orienda hospital"]
+    sev = {r["what"].split('"')[1]: r["severity"] for r in rows}
+    assert sev["hospital phnom penh"] == "ok"      # page 1
+    assert sev["best clinic cambodia"] == "warn"   # page 2-3
+    assert sev["orienda hospital"] == "info"       # beyond
+
+
+def test_ranked_keywords_uses_injected_call_and_reports_cost():
+    rows, status, cost = ranked_keywords("x.com", call=lambda p, b: (DOC, None))
+    assert status.startswith("ok:")
+    assert len(rows) == 3
+    assert cost == 0.0123  # the real cost DataForSEO reported
+
+
+def test_call_error_degrades_to_status_not_crash():
+    rows, status, cost = ranked_keywords("x.com", call=lambda p, b: (None, "skipped: creds unset"))
+    assert rows == [] and "skipped" in status and cost == 0.0
+
+
+# ── Task 4: Rankings (domain overview + SERP position + aggregator) ──────────
+from pipeline.scanner.dataforseo import (
+    parse_domain_overview, parse_serp_rank, rankings,
+)
+
+OVERVIEW_DOC = {"cost": 0.002, "tasks": [{"result": [{"items": [
+    {"metrics": {"organic": {"count": 120, "etv": 3400.5, "pos_1": 4}}}]}]}]}
+SERP_DOC = {"cost": 0.0011, "tasks": [{"result": [{"items": [
+    {"type": "organic", "domain": "other.com", "rank_absolute": 1},
+    {"type": "organic", "domain": "x.com", "rank_absolute": 5}]}]}]}
+
+
+def test_domain_overview_parses_footprint():
+    rows = parse_domain_overview(OVERVIEW_DOC)
+    assert rows[0]["code"] == "dfs.domain_overview"
+    assert "120 keywords" in rows[0]["what"]
+    assert "3400" in rows[0]["fix"] or "3401" in rows[0]["fix"]
+
+
+def test_serp_rank_finds_the_client_position():
+    rows = parse_serp_rank(SERP_DOC, "x.com", "hospital")
+    assert rows[0]["what"] == '"hospital" — rank #5' and rows[0]["severity"] == "ok"
+
+
+def test_serp_rank_absent_is_a_warn():
+    rows = parse_serp_rank({"tasks": [{"result": [{"items": []}]}]}, "x.com", "kw")
+    assert rows[0]["severity"] == "warn" and "not in top 20" in rows[0]["what"]
+
+
+def test_rankings_aggregates_and_sums_cost():
+    def fake_call(path, body):
+        if "ranked_keywords" in path:
+            return {"cost": 0.01, "tasks": [{"result": [{"items": [
+                {"keyword_data": {"keyword": "kw", "keyword_info": {"search_volume": 10}},
+                 "ranked_serp_element": {"serp_item": {"rank_absolute": 2}}}]}]}]}, None
+        if "domain_rank_overview" in path:
+            return OVERVIEW_DOC, None
+        if "serp/google" in path:
+            return SERP_DOC, None
+        return {}, None
+    rows, status, cost = rankings("x.com", keywords=["hospital"], call=fake_call)
+    assert cost == round(0.01 + 0.002 + 0.0011, 4)     # exact sum of each call
+    codes = {r["code"] for r in rows}
+    assert {"dfs.ranked_keyword", "dfs.domain_overview", "dfs.serp_rank"} <= codes
+
+
+# ── Task 5: Keywords (volume, ideas, gap, competitors, aggregator) ───────────
+from pipeline.scanner.dataforseo import (
+    parse_search_volume, parse_keyword_gap, parse_competitors, keywords_card, keyword_gap,
+)
+
+
+def test_search_volume_parses_flat_google_ads_items():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword": "hospital phnom penh", "search_volume": 1200}]}]}]}
+    rows = parse_search_volume(doc)
+    assert rows[0]["code"] == "dfs.keyword_volume" and "1200/mo" in rows[0]["what"]
+
+
+def test_keyword_gap_is_a_warn_opportunity():
+    # Competitor-only call (you_is_first=False): they rank #5, you do not; low
+    # volume -> "missing" -> warn.
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword_data": {"keyword": "icu cambodia", "keyword_info": {"search_volume": 90}},
+         "first_domain_serp_element": {"rank_absolute": 5}}]}]}]}
+    rows = parse_keyword_gap(doc, "rival.com")
+    assert rows[0]["code"] == "dfs.keyword_gap" and rows[0]["severity"] == "warn"
+    assert "rival.com" in rows[0]["why"]
+    assert rows[0]["metrics"]["quadrant"] == "missing"
+    assert rows[0]["metrics"]["comp_rank"] == 5 and rows[0]["metrics"]["your_rank"] is None
+
+
+def test_keyword_gap_quadrants():
+    # Overlap call (you_is_first=True): both rank. #2 vs #5 -> you ahead -> shared;
+    # #8 vs #3 -> you behind -> weak. Plus a high-volume competitor-only -> untapped.
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword_data": {"keyword": "ahead term", "keyword_info": {"search_volume": 500},
+                          "keyword_properties": {"keyword_difficulty": 40}},
+         "first_domain_serp_element": {"rank_absolute": 2},
+         "second_domain_serp_element": {"rank_absolute": 5}},
+        {"keyword_data": {"keyword": "behind term", "keyword_info": {"search_volume": 300}},
+         "first_domain_serp_element": {"rank_absolute": 8},
+         "second_domain_serp_element": {"rank_absolute": 3}},
+    ]}]}]}
+    rows = parse_keyword_gap(doc, "rival.com", you_is_first=True)
+    quads = {r["metrics"]["keyword"]: r["metrics"]["quadrant"] for r in rows}
+    assert quads == {"ahead term": "shared", "behind term": "weak"}
+    assert next(r for r in rows if r["metrics"]["keyword"] == "ahead term")["metrics"]["kd"] == 40
+
+    missing = {"tasks": [{"result": [{"items": [
+        {"keyword_data": {"keyword": "big gap", "keyword_info": {"search_volume": 900}},
+         "first_domain_serp_element": {"rank_absolute": 4}}]}]}]}
+    assert parse_keyword_gap(missing, "rival.com")[0]["metrics"]["quadrant"] == "untapped"
+
+
+def test_keyword_gap_makes_two_calls_and_merges():
+    seen_intersections = []
+
+    def fake_call(path, body):
+        seen_intersections.append(body[0]["intersections"])
+        if body[0]["intersections"]:  # overlap: shared/weak
+            return {"cost": 0.05, "tasks": [{"result": [{"items": [
+                {"keyword_data": {"keyword": "shared kw", "keyword_info": {"search_volume": 200}},
+                 "first_domain_serp_element": {"rank_absolute": 3},
+                 "second_domain_serp_element": {"rank_absolute": 9}}]}]}]}, None
+        return {"cost": 0.05, "tasks": [{"result": [{"items": [  # competitor-only: missing
+            {"keyword_data": {"keyword": "missing kw", "keyword_info": {"search_volume": 40}},
+             "first_domain_serp_element": {"rank_absolute": 6}}]}]}]}, None
+
+    rows, status, cost = keyword_gap("you.com", "rival.com", call=fake_call)
+    assert seen_intersections == [True, False]  # both calls made, overlap first
+    quads = {r["metrics"]["keyword"]: r["metrics"]["quadrant"] for r in rows}
+    assert quads == {"shared kw": "shared", "missing kw": "missing"}
+    assert status == "ok" and cost == 0.1
+
+
+def test_competitors_parsed():
+    doc = {"tasks": [{"result": [{"items": [{"domain": "rival.com"}]}]}]}
+    assert parse_competitors(doc)[0]["what"] == "rival.com"
+
+
+def test_keywords_card_aggregates_and_sums_cost():
+    def fake_call(path, body):
+        if "competitors_domain" in path:
+            return {"cost": 0.005, "tasks": [{"result": [{"items": [{"domain": "rival.com"}]}]}]}, None
+        if "domain_intersection" in path:
+            return {"cost": 0.01, "tasks": [{"result": [{"items": [
+                {"keyword_data": {"keyword": "icu cambodia", "keyword_info": {"search_volume": 90}},
+                 "first_domain_serp_element": {"rank_absolute": 5}}]}]}]}, None
+        if "search_volume" in path:
+            return {"cost": 0.02, "tasks": [{"result": [{"items": [{"keyword": "hospital", "search_volume": 1200}]}]}]}, None
+        if "keyword_ideas" in path:
+            return {"cost": 0.008, "tasks": [{"result": [{"items": [
+                {"keyword": "clinic", "keyword_info": {"search_volume": 300}}]}]}]}, None
+        return {}, None
+    rows, status, cost = keywords_card("x.com", keywords=["hospital"], call=fake_call)
+    codes = {r["code"] for r in rows}
+    assert {"dfs.competitor", "dfs.keyword_gap", "dfs.keyword_volume", "dfs.keyword_idea"} <= codes
+    # keyword_gap now makes TWO domain_intersection calls (overlap + competitor-only),
+    # so its 0.01 fixture cost is billed twice.
+    assert cost == round(0.005 + 0.01 + 0.01 + 0.02 + 0.008, 4)
+
+
+# ── Task 6: AI visibility (LLM mentions) ─────────────────────────────────────
+from pipeline.scanner.dataforseo import parse_llm_mentions, llm_mentions
+
+
+def test_llm_mentions_cited_is_ok():
+    doc = {"tasks": [{"result": [{"items": [
+        {"ai_provider": "chatgpt"}, {"ai_provider": "perplexity"}]}]}]}
+    rows = parse_llm_mentions(doc, "Orienda")
+    assert rows[0]["severity"] == "ok" and "cited 2 time" in rows[0]["what"]
+
+
+def test_llm_mentions_absent_is_warn_gap():
+    rows = parse_llm_mentions({"tasks": [{"result": [{"items": []}]}]}, "Orienda")
+    assert rows[0]["severity"] == "warn" and "not cited" in rows[0]["what"]
+
+
+def test_llm_mentions_metrics_engines_and_sources():
+    doc = {"tasks": [{"result": [{"items": [
+        {"ai_provider": "chatgpt", "sources": [{"domain": "rival.com"}, {"domain": "www.you.com"}]},
+        {"ai_provider": "chatgpt", "sources": [{"url": "https://rival.com/x"}]},
+        {"ai_provider": "perplexity", "sources": ["other.com"]},
+    ]}]}]}
+    m = parse_llm_mentions(doc, "You", "you.com")[0]["metrics"]
+    assert m["mentions"] == 3 and m["cited"] is True
+    # per-engine counts, most-cited first
+    assert m["engines"][0] == {"name": "chatgpt", "count": 2}
+    # who is cited INSTEAD: rival.com twice, own domain excluded
+    top = {s["domain"]: s["count"] for s in m["sources"]}
+    assert top.get("rival.com") == 2 and "you.com" not in top and top.get("other.com") == 1
+
+
+def test_llm_mentions_absent_has_empty_metrics():
+    m = parse_llm_mentions({"tasks": [{"result": [{"items": []}]}]}, "You", "you.com")[0]["metrics"]
+    assert m == {"mentions": 0, "cited": False, "engines": [], "sources": []}
+
+
+def test_llm_mentions_caller_injected():
+    rows, status, cost = llm_mentions("Orienda", "x.com",
+                                      call=lambda p, b: ({"cost": 0.03, "tasks": [{"result": [{"items": [{"model": "gpt"}]}]}]}, None))
+    assert cost == 0.03 and rows[0]["severity"] == "ok"
+
+
+# ── Measure-completion: Backlinks ────────────────────────────────────────────
+from pipeline.scanner.dataforseo import parse_backlinks, backlinks
+
+
+def test_backlinks_summary_row():
+    doc = {"cost": 0.02, "tasks": [{"result": [
+        {"backlinks": 340, "referring_domains": 45, "rank": 210, "broken_backlinks": 3}]}]}
+    rows = parse_backlinks(doc)
+    by = {r["code"]: r for r in rows}
+    assert "340 backlinks" in by["dfs.backlinks"]["what"] and by["dfs.backlinks"]["severity"] == "ok"
+    assert by["dfs.broken_backlinks"]["severity"] == "warn"
+
+
+def test_backlinks_none_is_warn():
+    rows = parse_backlinks({"tasks": [{"result": [{"backlinks": 0, "referring_domains": 0}]}]})
+    assert rows[0]["severity"] == "warn"
+
+
+def test_backlinks_caller_injected():
+    rows, status, cost = backlinks("x.com", call=lambda p, b: ({"cost": 0.02, "tasks": [{"result": [{"backlinks": 5, "referring_domains": 2}]}]}, None))
+    assert cost == 0.02 and rows[0]["code"] == "dfs.backlinks"
+
+
+# ── Measure-completion: Historical rank trend (#11) ──────────────────────────
+from pipeline.scanner.dataforseo import parse_historical_rank
+
+
+def test_historical_rank_trend_up_is_ok():
+    doc = {"tasks": [{"result": [{"items": [
+        {"year": 2025, "month": 1, "metrics": {"organic": {"count": 80}}},
+        {"year": 2025, "month": 6, "metrics": {"organic": {"count": 120}}}]}]}]}
+    rows = parse_historical_rank(doc)
+    assert rows[0]["severity"] == "ok" and "up 40" in rows[0]["what"]
+
+
+def test_historical_rank_trend_down_is_warn():
+    doc = {"tasks": [{"result": [{"items": [
+        {"year": 2025, "month": 1, "metrics": {"organic": {"count": 120}}},
+        {"year": 2025, "month": 6, "metrics": {"organic": {"count": 90}}}]}]}]}
+    assert parse_historical_rank(doc)[0]["severity"] == "warn"
+
+
+# ── Measure-completion: keyword difficulty ───────────────────────────────────
+from pipeline.scanner.dataforseo import parse_keyword_difficulty
+
+
+def test_keyword_difficulty_low_is_ok_high_is_info():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword": "easy term", "keyword_difficulty": 20},
+        {"keyword": "hard term", "keyword_difficulty": 80}]}]}]}
+    by = {r["what"]: r for r in parse_keyword_difficulty(doc)}
+    assert by['"easy term" — difficulty 20/100']["severity"] == "ok"
+    assert by['"hard term" — difficulty 80/100']["severity"] == "info"
+
+
+# ── Measure-completion: search intent ────────────────────────────────────────
+from pipeline.scanner.dataforseo import parse_search_intent
+
+
+def test_search_intent_labels_keyword():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword": "buy roof repair", "keyword_intent": {"label": "transactional"}}]}]}]}
+    rows = parse_search_intent(doc)
+    assert rows[0]["code"] == "dfs.search_intent" and "transactional intent" in rows[0]["what"]
+
+
+# ── keyword suggestions (#14) ────────────────────────────────────────────────
+from pipeline.scanner.dataforseo import parse_keyword_suggestions, keyword_suggestions
+
+
+def test_keyword_suggestions_parsed():
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword": "emergency roof repair near me", "keyword_info": {"search_volume": 40}}]}]}]}
+    rows = parse_keyword_suggestions(doc)
+    assert rows[0]["code"] == "dfs.keyword_suggestion" and "emergency roof" in rows[0]["what"]
+
+
+def test_keyword_suggestions_no_seed_skips():
+    rows, status, cost = keyword_suggestions("")
+    assert rows == [] and "skipped" in status
+
+
+
+# ── the market is per client, not per developer (B-076) ──────────────────────
+#
+# LOCATION_CODE was hardcoded to 2116 — Cambodia — with a comment admitting it
+# was "dfs-test default for this client". It governs keyword volume, SERP
+# position, GBP lookup and mention search, so EVERY non-Cambodian client was
+# measured against the wrong market and shown the results as their own.
+
+def test_location_defaults_are_configurable(monkeypatch):
+    import importlib
+    import pipeline.scanner.dataforseo as d
+    monkeypatch.setenv("DFS_LOCATION_CODE", "2840")   # United States
+    monkeypatch.setenv("DFS_LANGUAGE_CODE", "es")
+    importlib.reload(d)
+    assert d.LOCATION_CODE == 2840
+    assert d.LANGUAGE_CODE == "es"
+    monkeypatch.delenv("DFS_LOCATION_CODE")
+    monkeypatch.delenv("DFS_LANGUAGE_CODE")
+    importlib.reload(d)
+
+
+def test_the_default_market_is_not_one_clients_test_value():
+    import pipeline.scanner.dataforseo as d
+    assert d.LOCATION_CODE != 2116, (
+        "2116 is Cambodia, carried over from one client's test run. A default "
+        "must be a deliberate choice, not the last value someone debugged with.")
+
+
+def test_search_volume_parses_the_real_google_ads_shape():
+    """Real response, 2026-09-14 (location 2116): keywords sit directly in
+    tasks[0].result with no `items`. The old parser returned [] for it."""
+    doc = {"status_code": 20000, "cost": 0.09, "tasks": [{"status_code": 20000, "result": [
+        {"keyword": "hospital phnom penh", "spell": None, "location_code": 2116, "language_code": "en",
+         "search_partners": False, "competition": "LOW", "competition_index": 12, "search_volume": 720},
+        {"keyword": "international hospital cambodia", "location_code": 2116, "search_volume": 90},
+    ]}]}
+    rows = parse_search_volume(doc)
+    assert [r["what"] for r in rows] == ['"hospital phnom penh" — 720/mo searches',
+                                         '"international hospital cambodia" — 90/mo searches']

@@ -53,6 +53,8 @@ from pathlib import Path
 
 from pipeline.lib import baseline as bl
 
+from pipeline.lib.common import refuse_empty_scan
+
 GATE = "check_headings"
 
 SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
@@ -201,6 +203,8 @@ def main() -> int:
         stopwords.update(s.strip().lower() for s in extra if isinstance(s, str) and s.strip())
 
     files = sorted(glob.glob(os.path.join(out_dir, "**", "*.html"), recursive=True))
+    if not files:
+        return refuse_empty_scan(GATE, "HTML files", out_dir)
     findings = []
     for path in files:
         rel = os.path.relpath(path, out_dir)

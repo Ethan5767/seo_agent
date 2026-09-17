@@ -73,6 +73,8 @@ from pathlib import Path
 
 from pipeline.lib.common import client_profile, load_config, tier_verdict
 
+from pipeline.lib.atomic import write_json_atomic
+
 SCHEMA = "site-remediate-changelog/1"
 REFUSED_EXIT = 9
 USAGE_EXIT = 2
@@ -404,7 +406,7 @@ def load_worklist(project, cycle: str | None) -> tuple:
     try:
         return target, json.loads((audit / target / "worklist.json").read_text())
     except json.JSONDecodeError as exc:
-        raise RemediateError(f"{audit / target}/worklist.json is not valid JSON: {exc}")
+        raise RemediateError(f"{audit / target}/worklist.json is not valid JSON: {exc}") from exc
 
 
 def read_changelog(project, cycle: str) -> dict:
@@ -738,6 +740,8 @@ def _base(item: dict) -> dict:
 
 
 def main() -> int:
+    from pipeline.lib.env import load_env
+    load_env()  # one shared .env, same file every wf-* command reads
     # Line-buffer stdout when piped (dashboard SSE, `./run.sh`, CI). Without
     # this, print() sits in a block buffer and the operator sees RUNNING with a
     # blank pane until the process exits.
@@ -787,7 +791,7 @@ def main() -> int:
         return 0
 
     out = Path(args.project) / "docs" / "audit" / changelog["cycle"] / "changelog.json"
-    out.write_text(json.dumps(changelog, indent=2, sort_keys=True) + "\n")
+    write_json_atomic(out, changelog)
 
     if args.recommend:
         briefed = sum(1 for r in changelog["items"] if r["status"] == "briefed")

@@ -8,7 +8,6 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
 ANSWER = (
     "A new roof in Charlotte typically runs a few thousand dollars, and the exact "

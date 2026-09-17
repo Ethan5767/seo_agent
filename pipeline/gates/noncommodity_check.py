@@ -244,7 +244,7 @@ def main() -> int:
 
     failures = []
     findings = []          # baseline-comparable view of `failures`
-    for route, path in pages:
+    for route, _path in pages:
         low = texts[route]
         matched = [t for t, rx in matchers if rx.search(low)]
         checks = {}

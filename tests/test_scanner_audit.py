@@ -273,19 +273,26 @@ def test_the_pass_row_is_stamped_with_the_checks_first_code():
 # different weights and floors, so one scan had three health numbers (B-055).
 
 
-def test_health_score_is_the_share_of_gradeable_checks_that_passed():
+def _graded_rows(ok=0, warn=0, error=0, info=0):
+    return ([{"code": "onpage.charset", "severity": "ok"}] * ok
+            + [{"code": "onpage.charset", "severity": "warn"}] * warn
+            + [{"code": "onpage.charset", "severity": "error"}] * error
+            + [{"code": "onpage.charset", "severity": "info"}] * info)
+
+
+def test_health_score_is_the_weighted_share_of_gradeable_checks_that_passed():
     from pipeline.scanner.audit import health_score
-    assert health_score({"ok": 14, "warn": 21, "error": 8, "info": 8}) == 33
-    assert health_score({"ok": 10, "warn": 0, "error": 0}) == 100
-    assert health_score({"ok": 0, "warn": 0, "error": 10}) == 0
+    assert health_score(_graded_rows(ok=14, warn=21, error=8, info=8)) == 33
+    assert health_score(_graded_rows(ok=10)) == 100
+    assert health_score(_graded_rows(error=10)) == 0
 
 
 def test_info_rows_are_not_gradeable_and_move_nothing():
     """An info row reports a fact rather than a verdict. Counting it as a pass
     would let a site raise its health by adding unjudgeable observations."""
     from pipeline.scanner.audit import health_score
-    base = {"ok": 5, "warn": 5, "error": 0, "info": 0}
-    assert health_score(base) == health_score({**base, "info": 500})
+    base = _graded_rows(ok=5, warn=5)
+    assert health_score(base) == health_score(base + _graded_rows(info=500))
 
 
 def test_nothing_gradeable_scores_None_rather_than_zero():
@@ -293,8 +300,8 @@ def test_nothing_gradeable_scores_None_rather_than_zero():
     'everything is broken' instead of 'we did not look'. Same rule as the gates:
     a check that scanned nothing never reports a verdict."""
     from pipeline.scanner.audit import health_score
-    assert health_score({"ok": 0, "warn": 0, "error": 0, "info": 9}) is None
-    assert health_score({}) is None
+    assert health_score(_graded_rows(info=9)) is None
+    assert health_score([]) is None
 
 
 def test_fixing_a_finding_can_only_raise_the_score():
@@ -304,7 +311,7 @@ def test_fixing_a_finding_can_only_raise_the_score():
     from pipeline.scanner.audit import health_score
     prev = None
     for fixed in range(0, 21):          # move findings one at a time into ok
-        s = health_score({"ok": fixed, "warn": 20 - fixed, "error": 0, "info": 3})
+        s = health_score(_graded_rows(ok=fixed, warn=20 - fixed, info=3))
         if prev is not None:
             assert s >= prev, f"score fell from {prev} to {s} after fixing one more finding"
         prev = s
@@ -315,8 +322,8 @@ def test_the_score_never_saturates_away_the_difference():
     """The old model clamped at 0, so a site with 10 errors and one with 400
     were indistinguishable - exactly where a client most needs to see progress."""
     from pipeline.scanner.audit import health_score
-    bad = health_score({"ok": 0, "warn": 0, "error": 400, "info": 0})
-    better = health_score({"ok": 200, "warn": 0, "error": 200, "info": 0})
+    bad = health_score(_graded_rows(error=400))
+    better = health_score(_graded_rows(ok=200, error=200))
     assert bad == 0 and better == 50, "half the errors fixed must show as movement"
 
 

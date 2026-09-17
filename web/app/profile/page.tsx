@@ -8,6 +8,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { GoogleServicesHub } from "@/components/dashboard/GoogleServicesHub";
 import { authedFetch } from "@/lib/authedFetch";
+import { SkeletonBox } from "@/components/dashboard/DashboardSkeletons";
 
 function ProfilePageContent() {
   const searchParams = useSearchParams();
@@ -154,20 +155,18 @@ function ProfilePageContent() {
           fontFamily: "'Inter', -apple-system, sans-serif",
         }}
       >
-        <div
-          style={{
-            width: "36px",
-            height: "36px",
-            border: "3px solid var(--border)",
-            borderTopColor: "var(--accent)",
-            borderRadius: "50%",
-            animation: "authSpin 0.8s linear infinite",
-          }}
-        />
-        <p style={{ marginTop: "16px", color: "var(--ink-muted)", fontSize: "14px", fontWeight: 500 }}>
-          Loading profile...
-        </p>
-        <style>{`@keyframes authSpin { to { transform: rotate(360deg); } }`}</style>
+        <div style={{ width: "min(840px, 100%)", padding: "32px 20px" }}>
+          <SkeletonBox width={130} height={30} borderRadius={6} />
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 24, marginTop: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
+              <SkeletonBox width={56} height={56} borderRadius="50%" />
+              <div><SkeletonBox width={180} height={18} borderRadius={4} /><SkeletonBox width={220} height={12} borderRadius={3} style={{ marginTop: 8 }} /></div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              {Array.from({ length: 8 }, (_, i) => <SkeletonBox key={i} width="100%" height={38} borderRadius={5} />)}
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

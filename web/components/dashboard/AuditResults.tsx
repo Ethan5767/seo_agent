@@ -3,7 +3,7 @@
 import React from "react";
 import { Gauge, fillFor } from "@/components/dashboard/Charts";
 import {
-  scoreBreakdown, rankedIssues, crawledPages, labelOf, CATEGORIES,
+  scoreBreakdown, rankedIssues, crawledPages, CATEGORIES,
   type AuditIssue, type CategoryId, type CrawledPage, type Report,
 } from "@/lib/auditBreakdown";
 
@@ -52,15 +52,15 @@ function EmptyAudit({ children, action }: { children: React.ReactNode; action?: 
 
 export function ScoreWhy({ report, onRun }: { report: Report; onRun?: () => void }) {
   const b = scoreBreakdown(report);
-  if (b.score === null || b.exact === null || b.perCheck === null) {
+  if (b.score === null) {
     return (
       <EmptyAudit action={onRun ? <button type="button" className="btn btn--primary" onClick={onRun}>Run Audit</button> : undefined}>
-        No on-page audit yet. Run one to score this site and see where the points go.
+        No current server-side Site Health score. Run a full on-page audit to score this site and see where the weight went.
       </EmptyAudit>
     );
   }
   const failing = b.error + b.warn;
-  const lost = 100 - b.exact;
+  const lost = Number((b.weighted as any)?.lost_weight ?? 0);
   const maxLoss = Math.max(...b.categories.map((c) => c.pointsLost), 0.0001);
   return (
     <div className="score-why">
@@ -71,7 +71,7 @@ export function ScoreWhy({ report, onRun }: { report: Report; onRun?: () => void
             <b>{b.ok}</b> of <b>{b.graded}</b> checks pass, so Site Health is <b>{b.score}</b>.
           </p>
           <p className="score-why__rule">
-            Every check weighs the same. Each of the {failing} failing checks costs {fmtPts(b.perCheck)} points.
+            Severity-weighted: critical issues count more than high, medium, and low issues.
           </p>
           <ul className="score-why__counts">
             <li><SeverityMark severity="error" /> <b>{b.error}</b></li>
@@ -79,24 +79,18 @@ export function ScoreWhy({ report, onRun }: { report: Report; onRun?: () => void
             <li><SeverityMark severity="ok" /> <b>{b.ok}</b></li>
             {b.info > 0 && <li className="score-why__muted">{b.info} notices, not scored</li>}
           </ul>
-          {b.recomputed && b.savedScore !== null && b.savedScore !== b.score && (
-            <p className="score-why__note">
-              This scan was saved as {b.savedScore} under the old rules, which also counted rankings and Lighthouse.
-              Scored on the on-page audit alone, it is {b.score}.
-            </p>
-          )}
         </div>
       </div>
 
       <div className="table-scroll">
         <table className="data-table">
-          <caption className="data-table__caption">Where the {fmtPts(lost)} points went</caption>
+          <caption className="data-table__caption">Where {fmtPts(lost)} weighted checks were lost</caption>
           <thead>
             <tr>
               <th scope="col">Category</th>
               <th scope="col" className="col-bar">Pass rate</th>
               <th scope="col" className="num">Failing</th>
-              <th scope="col" className="num">Points lost</th>
+              <th scope="col" className="num">Weight lost</th>
             </tr>
           </thead>
           <tbody>
@@ -132,7 +126,7 @@ export function ScoreWhy({ report, onRun }: { report: Report; onRun?: () => void
               <th scope="row">Total</th>
               <td className="col-bar muted">{b.graded} checks graded</td>
               <td className="num">{failing}</td>
-              <td className="num"><b>−{fmtPts(lost)}</b> <span className="muted">= {b.score}</span></td>
+              <td className="num"><b>−{fmtPts(lost)}</b> <span className="muted">(server score {b.score})</span></td>
             </tr>
           </tfoot>
         </table>
@@ -239,7 +233,7 @@ function IssueRow({ issue: i, open, onToggle }: { issue: AuditIssue; open: boole
           {i.detail && !i.pageCount && <div className="cell-sub">{i.detail}</div>}
         </td>
         <td><SeverityMark severity={i.severity} /></td>
-        <td className="hide-narrow muted">{labelOf(i.category)}</td>
+        <td className="hide-narrow muted">{CATEGORIES.find((c) => c.id === i.category)?.label ?? "Uncategorised"}</td>
         <td className="num">{i.pageCount ?? <span className="muted" title="Found once for the whole site">Site</span>}</td>
         <td className="num">−{fmtPts(i.points)}</td>
       </tr>
@@ -247,8 +241,33 @@ function IssueRow({ issue: i, open, onToggle }: { issue: AuditIssue; open: boole
         <tr className="detail-row" id={id}>
           <td colSpan={5}>
             <div className="detail">
-              {i.why && <div><h4>Why it matters</h4><p>{i.why}</p></div>}
-              {i.fix && i.fix !== "passing" && <div><h4>How to fix</h4><p>{i.fix}</p></div>}
+              {(i.effort || i.timeline || i.optional) && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                  {i.effort && <span className="chip">Effort: {i.effort}</span>}
+                  {i.timeline && <span className="chip">Timeline: {i.timeline}</span>}
+                  {i.optional && <span className="chip">Optional — a business choice</span>}
+                </div>
+              )}
+              {/* Client-register plain-language line leads; falls back to why. */}
+              {(i.plain || i.why) && <div><h4>What this means</h4><p>{i.plain || i.why}</p></div>}
+              {i.impact && <div><h4>Why it matters</h4><p>{i.impact}</p></div>}
+              {/* Implementer register: ordered steps, else the one-line fix. */}
+              {i.steps && i.steps.length > 0 ? (
+                <div><h4>How to fix</h4>
+                  <ol style={{ margin: 0, paddingLeft: "1.2rem", lineHeight: 1.6 }}>
+                    {i.steps.map((s, n) => <li key={n}>{s}</li>)}
+                  </ol>
+                </div>
+              ) : (i.fix && i.fix !== "passing" && <div><h4>How to fix</h4><p>{i.fix}</p></div>)}
+              {i.snippet && (
+                <div><h4>Paste this</h4>
+                  <pre style={{ margin: 0, padding: "10px 12px", borderRadius: 6, overflowX: "auto",
+                                background: "var(--ink)", color: "var(--border)", fontSize: 12, lineHeight: 1.5,
+                                whiteSpace: "pre-wrap", wordBreak: "break-word",
+                                fontFamily: "ui-monospace, SFMono-Regular, monospace" }}>{i.snippet}</pre>
+                </div>
+              )}
+              {i.verify && <div><h4>Confirm it worked</h4><p>{i.verify}</p></div>}
               {i.pages.length > 0 && (
                 <div>
                   <h4>Pages ({i.pages.length})</h4>

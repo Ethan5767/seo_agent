@@ -22,7 +22,7 @@ import { actionable, type FixFinding } from "@/lib/fixAdvisor";
  * unpicking, and a model would produce a beautifully formatted one on request.
  */
 export function FixWithClaude({
-  findings, business, domain, facts, label = "Fix with Claude",
+  findings, business, domain, facts, label = "Fix issues",
 }: {
   findings: FixFinding[] | null | undefined;
   business?: string;
@@ -85,7 +85,7 @@ export function FixWithClaude({
           type="button"
           onClick={run}
           disabled={busy || none}
-          title={none ? "Nothing is failing, so there is nothing to fix" : "Send these findings to Claude"}
+          title={none ? "Nothing is failing, so there is nothing to fix" : "Prepare fixes from these findings"}
           style={{
             background: none ? "var(--border)" : "var(--accent)",
             color: none ? "var(--ink-muted)" : "var(--color-white)",
@@ -96,7 +96,7 @@ export function FixWithClaude({
           }}
         >
           <Icon name="bolt" />
-          {busy ? "Claude is writing the fixes…" : none ? "Nothing to fix" : `${label} (${todo.length})`}
+          {busy ? "Preparing fixes…" : none ? "Nothing to fix" : `${label} (${todo.length})`}
         </button>
 
         {busy && (

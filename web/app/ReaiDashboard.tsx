@@ -17,8 +17,7 @@ import {
 import type { PriorityItem } from "@/components/dashboard/types";
 import { derivePriorities } from "../lib/priorities";
 import { supabase } from "../lib/supabase";
-import { PIPELINE_STAGES, stage as pipelineStage, laneCounts, actionableCount,
-         blockedReason, GATE_ROSTER, MERGE_POLICY, AUTOMERGE_DEFAULT_ENABLED, gateFindings, worklistFindings,
+import { PIPELINE_STAGES, stage as pipelineStage, planView, GATE_ROSTER, MERGE_POLICY, AUTOMERGE_DEFAULT_ENABLED, gateFindings, worklistFindings,
          type StageId } from "../lib/pipelineStages";
 import { deriveCoreWebVitals } from "../lib/webVitals";
 import { buildExecutiveReport } from "../lib/executiveReport";
@@ -30,8 +29,12 @@ import { gscViewById } from "../lib/gscViews";
 import { contentToolById } from "../lib/contentTools";
 import { ContentPanel } from "@/components/dashboard/ContentPanel";
 import { GscPanel } from "@/components/dashboard/GscPanel";
+import { GscKeywordPanel } from "@/components/dashboard/GscKeywordPanel";
 import { SeoDashboard } from "@/components/dashboard/SeoDashboard";
 import { AuditHeroBar } from "@/components/dashboard/AuditHeroBar";
+import { PlanSourceReport } from "@/components/dashboard/PlanSourceReport";
+import { OverallScoreCard } from "@/components/dashboard/OverallScoreCard";
+import { MonitorScreen } from "@/components/dashboard/monitor/MonitorScreen";
 import { Modal } from "@/components/dashboard/Modal";
 import { Onboarding, OnboardingSteps } from "@/components/dashboard/Onboarding";
 import { ONPAGE_AUDIT_TOOLS } from "@/lib/auditBreakdown";
@@ -43,15 +46,24 @@ import { ReportTable, ReportStats } from "@/components/dashboard/ReportTable";
 import { LocalBusinessManager } from "@/components/dashboard/LocalBusinessManager";
 import { RepoPicker } from "@/components/dashboard/RepoPicker";
 import { deriveAeoTiles, aeoVerdictColor, aeoMatrixRows } from "@/lib/aeo";
-import { AeoAccessPanel } from "@/components/dashboard/AeoAccessPanel";
 import { AeoCrawlerTable } from "@/components/dashboard/AeoCrawlerTable";
 import { deriveDirectories, directoryLabel, directoryColor, directorySummary } from "@/lib/localSignals";
 import { GateActivity } from "@/components/dashboard/GateActivity";
 import { FixWithClaude } from "@/components/dashboard/FixWithClaude";
+import { BrainstormPlan } from "@/components/dashboard/BrainstormPlan";
 import { GbpMatrix } from "@/components/dashboard/GbpMatrix";
 import { SectionScanButton } from "@/components/dashboard/SectionScanButton";
 import { CompareInputPanel } from "@/components/dashboard/CompareInputPanel";
 import { DomainOverviewDashboard } from "@/components/dashboard/DomainOverviewDashboard";
+import { KeywordTrend } from "@/components/dashboard/KeywordTrend";
+import { SourceBadge } from "@/components/dashboard/SourceBadge";
+import { resolveRankingRows, rankingSourceLabel, gscToRankedKeywords, gscQueriesToRankingRows } from "@/lib/gscRankings";
+
+// Rankings views that prefer Google Search Console (free, first-party) over the
+// paid DataForSEO ranked-keyword rows when a Google account is connected. These
+// go through the default ReportTable branch, where the swap + provenance badge
+// live. (Domain Overview and Position Tracking draw their own dashboards.)
+const GSC_RANKING_VIEWS = new Set(["organic-rankings", "serp-positions"]);
 import { toolVerb } from "@/lib/toolVerbs";
 import { toolsForView } from "@/lib/sectionScans";
 import { formatUsd } from "@/lib/budget";
@@ -287,6 +299,15 @@ function IconShield({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
+/** Monitor: a pulse line — the live site, watched over time. */
+function IconPulse({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12h4l3 8 4-16 3 8h4" />
     </svg>
   );
 }
@@ -992,14 +1013,15 @@ export function AIVisibilityRing({ size = 52 }: { size?: number }) {
   );
 }
 
-export function AuthoritySpeedometer({ score = 11 }: { score?: number }) {
+export function AuthoritySpeedometer({ score }: { score?: number | null }) {
+  const measured = typeof score === "number" && Number.isFinite(score);
   return (
     <div style={{ position: "relative", width: 34, height: 20, overflow: "hidden", display: "inline-block", verticalAlign: "middle" }}>
       <div style={{ width: 34, height: 34, borderRadius: "50%", border: "4px solid var(--border)", borderTopColor: "var(--ok)", borderLeftColor: "var(--accent)", boxSizing: "border-box" }} />
       <div style={{
         position: "absolute", bottom: 0, left: "50%", width: 2, height: 14, background: "var(--ink)",
         transformOrigin: "bottom center",
-        transform: `translateX(-50%) rotate(${Math.min(180, (score / 100) * 180 - 90)}deg)`,
+        transform: `translateX(-50%) rotate(${measured ? Math.min(180, (score! / 100) * 180 - 90) : -90}deg)`,
       }} />
     </div>
   );
@@ -1271,13 +1293,31 @@ function resolveProjectData(
   const c1 = competitors[0] || "";
   const c2 = competitors[1] || "";
   
-  // Competitor ranks are not measured (no keyword intersection is fetched), so
-  // there is no gap to show. They were computed from the client's own rank and
-  // row index, with KD from the same arithmetic.
+  // Real you-vs-them gap, from the `dfs.keyword_gap` rows the Keywords tool now
+  // emits (two domain_intersection calls, classified into quadrants — see
+  // scanner/dataforseo.keyword_gap). Each row carries its positions/KD/quadrant
+  // in `metrics`; we read them structurally, never by parsing the display text.
+  // This is a single-competitor comparison, so comp2Rank is always null until a
+  // second competitor gap is fetched.
   const keywordGapData: Array<{
-    keyword: string; intent: string; myRank: number; comp1Rank: number | null; comp2Rank: number | null;
+    keyword: string; intent: string; myRank: number | null; comp1Rank: number | null; comp2Rank: number | null;
     volume: string; kd: number | null; type: "shared" | "weak" | "missing" | "untapped";
-  }> = [];
+  }> = (measured(report?.keywords as any[]) as any[])
+    .filter((r) => r?.code === "dfs.keyword_gap" && r?.metrics)
+    .map((r) => {
+      const m = r.metrics || {};
+      return {
+        keyword: String(m.keyword ?? ""),
+        intent: "—",
+        myRank: typeof m.your_rank === "number" ? m.your_rank : null,
+        comp1Rank: typeof m.comp_rank === "number" ? m.comp_rank : null,
+        comp2Rank: null,
+        volume: m.volume ? `${m.volume}/mo` : "—",
+        kd: typeof m.kd === "number" ? m.kd : null,
+        type: (["shared", "weak", "missing", "untapped"].includes(m.quadrant) ? m.quadrant : "missing") as
+          "shared" | "weak" | "missing" | "untapped",
+      };
+    });
   void c1; void c2;
 
   // 7. Dynamic Backlink Gap (Real Competitor Linking Domains)
@@ -1478,7 +1518,10 @@ export type ReaiTab =
   | "AI & AEO Lab"
   | "All Tools Directory";
 
-export const TAB_ROUTES: Record<ReaiTab, string> = {
+// The legacy directory renderer remains internal while its removal is completed,
+// but it has no route or navigation entry. Routed tabs are deliberately the
+// subset below.
+export const TAB_ROUTES: Partial<Record<ReaiTab, string>> = {
   "Overview": "/",
   "Traffic Analytics": "/traffic-analytics",
   "Organic Research": "/organic-research",
@@ -1494,7 +1537,6 @@ export const TAB_ROUTES: Record<ReaiTab, string> = {
   "SERP Optimizer": "/serp-preview",
   "Local SEO & GBP": "/local-seo",
   "AI & AEO Lab": "/ai-aeo",
-  "All Tools Directory": "/tools",
 };
 
 /**
@@ -1595,7 +1637,6 @@ export const NAV_SECTIONS: NavSection[] = [
           // The free technical lane (tech/schema/valid) was measured on every
           // scan and had no menu entry at all.
           { label: "Technical Checks", view: "technical" },
-          { label: "Position Tracking", view: "position-tracking" },
         ],
       },
       {
@@ -1621,21 +1662,20 @@ export const NAV_SECTIONS: NavSection[] = [
         ],
       },
       {
+        // Content Ideas is a category label, not an action. Its two entries
+        // lead to the existing measured trend and idea-generation tools.
+        heading: "Content Ideas",
+        items: [
+          { label: "Search Trend", view: "position-tracking" },
+          { label: "Generate Ideas", content: "topics" },
+        ],
+      },
+      {
         heading: "Link Building",
         items: [
           { label: "Backlink Overview", view: "backlink-overview" },
           { label: "Backlinks", view: "backlinks" },
           { label: "Backlink Audit", view: "backlink-audit" },
-        ],
-      },
-      {
-        heading: "Performance",
-        items: [
-          // CrUX field data plus all four Lighthouse categories. Free, and they
-          // already run on every scan; they simply had no screen.
-          { label: "Core Web Vitals", view: "core-web-vitals" },
-          // The repository lane: route existence, next.config, SSR posture,
-          // analytics wiring. No external SEO tool can see any of this.
         ],
       },
       {
@@ -1768,7 +1808,6 @@ export const NAV_SECTIONS: NavSection[] = [
           { label: "Depth Expansion", content: "optimize" },
           { label: "Content Brief", content: "brief" },
           { label: "Answer-First Rewrite", content: "answers" },
-          { label: "Coverage Gaps", content: "topics" },
           { label: "Titles & Snippets", content: "meta" },
           { label: "Question Coverage", content: "faq" },
         ],
@@ -1809,6 +1848,14 @@ export const NAV_SECTIONS: NavSection[] = [
     heading: "Gate & Merge",
     groups: [{ heading: null, items: [{ label: "Gate & Merge", stage: "gate" }] }],
   },
+  {
+    // MONITOR — the only thing watching production. It reads the live site, so
+    // it works for a client with no repository connected.
+    id: "Monitor",
+    label: "Monitor",
+    heading: "Monitor",
+    groups: [{ heading: null, items: [{ label: "Live Site Watch", stage: "monitor" }] }],
+  },
 ];
 
 /** Rail glyphs, keyed by section id. */
@@ -1822,6 +1869,7 @@ export const RAIL_ICONS: Record<string, React.ReactNode> = {
   Plan: <IconClipboard size={19} />,
   Fix: <IconDoc size={19} />,
   Gate: <IconShield size={19} />,
+  Monitor: <IconPulse size={19} />,
 };
 
 /** Every item in a section, flattened across its groups. */
@@ -1876,7 +1924,6 @@ export const ROUTE_TO_TAB: Record<string, ReaiTab> = {
   "/gbp": "Local SEO & GBP",
   "/ai-aeo": "AI & AEO Lab",
   "/aeo": "AI & AEO Lab",
-  "/tools": "All Tools Directory",
 };
 
 export function ReaiDashboard({
@@ -1979,7 +2026,10 @@ export function ReaiDashboard({
   // state, so rendering "nothing measured yet" while clients load is better
   // than a shimmer that may never resolve. The 180ms tab transition still
   // shows a skeleton, because that one is guaranteed to end.
-  const showSkeleton = isTabTransitioning;
+  // Initial client/history loading is a real data wait, not an empty project.
+  // Keep the page-level skeleton up until the selected project's report (or an
+  // explicit empty/error result) has arrived, preventing the Not measured flash.
+  const showSkeleton = isLoading || isTabTransitioning;
 
   // A header-only hint that the initial load is still running. It can never
   // hide the page, so a hung call costs a spinner, not the product.
@@ -2349,10 +2399,15 @@ export function ReaiDashboard({
     return "market";
   });
   const [selectedGscProperty, setSelectedGscProperty] = useState<string>(() => {
+    // A GSC `sc-domain:` property is a bare host — no scheme, no trailing slash.
+    // `currentDomain` can be a full URL (a client's `website`), so strip it or
+    // the siteUrl is malformed and the API rejects it ("must be a sc-domain:").
+    const host = (currentDomain || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    const fallback = host ? `sc-domain:${host}` : "";
     if (typeof window !== "undefined") {
-      return localStorage.getItem("reai_gsc_property") || `sc-domain:${currentDomain}`;
+      return localStorage.getItem("reai_gsc_property") || fallback;
     }
-    return `sc-domain:${currentDomain}`;
+    return fallback;
   });
   const [verifiedGscProperties, setVerifiedGscProperties] = useState<string[]>([]);
   const [liveGscRows, setLiveGscRows] = useState<any[]>([]);
@@ -2404,6 +2459,24 @@ export function ReaiDashboard({
       return cleanP === cleanCurrent || cleanP.includes(cleanCurrent) || cleanCurrent.includes(cleanP);
     });
   }, [googleConnected, verifiedGscProperties, cleanProjectDomain]);
+
+  // Default-select the Search Console property that matches the current project.
+  // The on-connect handler already matches once, but switching projects without
+  // reconnecting left the previous project's property selected (or none), which
+  // read as "No Search Console property is chosen". This re-picks the matching
+  // verified property whenever the project domain or the verified list changes.
+  useEffect(() => {
+    if (!googleConnected || verifiedGscProperties.length === 0 || !cleanProjectDomain) return;
+    const want = cleanProjectDomain.toLowerCase().replace(/^www\./, "");
+    const matched = verifiedGscProperties.find((p) => {
+      const clean = p.toLowerCase().replace(/^sc-domain:/, "").replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
+      return clean === want || clean.includes(want) || want.includes(clean);
+    });
+    if (matched && matched !== selectedGscProperty) {
+      setSelectedGscProperty(matched);
+      if (typeof window !== "undefined") localStorage.setItem("reai_gsc_property", matched);
+    }
+  }, [googleConnected, verifiedGscProperties, cleanProjectDomain, selectedGscProperty]);
 
   const loadCachedSnapshot = useCallback(async (siteUrl: string) => {
     try {
@@ -3391,11 +3464,15 @@ export function ReaiDashboard({
                 >
                   {group.heading && (
                     <div
+                      aria-label={`${group.heading} category`}
                       style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "var(--ink-muted)",
-                        padding: "6px 8px 2px",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: "var(--accent-ink)",
+                        padding: "5px 8px",
+                        borderLeft: "3px solid var(--accent)",
+                        marginTop: groupIndex ? "var(--space-1)" : 0,
+                        borderTop: groupIndex ? "1px solid var(--border)" : 0,
                       }}
                     >
                       {group.heading}
@@ -3473,10 +3550,8 @@ export function ReaiDashboard({
           {activeStage ? (
             (() => {
               const st = pipelineStage(activeStage);
-              const worklist = planState?.plan?.worklist as any[] | undefined;
-              const lanes = st.id === "plan" ? laneCounts(worklist) : null;
-              const canAttempt = st.id === "plan" ? actionableCount(worklist) : null;
-              const hasResult = st.id === "plan" ? Boolean(lanes) : false;
+              const view = st.id === "plan" ? planView(planState?.plan) : null;
+              const hasResult = st.id === "plan" ? Boolean(view) : false;
 
               const card: React.CSSProperties = {
                 background: "var(--color-white)", border: "1px solid var(--border)", borderRadius: 8, padding: "16px 18px",
@@ -3525,11 +3600,50 @@ export function ReaiDashboard({
                   </div>
 
                   {/* ── PLAN: lanes, the actionable gap, and the worklist ── */}
-                  {st.id === "plan" && lanes ? (
+                  {st.id === "plan" ? (
+                    <PlanSourceReport
+                      report={report}
+                      domain={currentDomain}
+                      savedAt={openReport?.scan?.created_at}
+                      planned={hasResult}
+                      busy={planState?.planBusy}
+                      onPlan={planState ? () => planState.runPlan() : undefined}
+                      onOpenAudit={() => openNavItem({ label: "Site Audit", tab: "Site Health & Audit", sub: "issues" })}
+                    />
+                  ) : null}
+
+                  {st.id === "plan" && view ? (() => {
+                    const td: React.CSSProperties = { padding: "10px 14px", borderBottom: "1px solid var(--border)", verticalAlign: "top" };
+                    const laneColour: Record<string, string> = { REGRESSION: "var(--bad)", NEW: "var(--warn)", PERSISTING: "var(--ink-muted)" };
+                    const worklist = planState?.plan?.worklist as any[] | undefined;
+                    const blocked = view.items.filter((i) => i.reason !== null);
+                    return (
                     <>
+                      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
+                        <div style={{ maxWidth: "80ch" }}>
+                          <p style={{ margin: 0, fontSize: 14, color: "var(--ink-body)" }}>
+                            {view.summary || `${view.total} open item${view.total === 1 ? "" : "s"} from this project's last two saved scans.`}
+                          </p>
+                          {/* Which classifier ran. The route falls back to keyword
+                              rules whenever Claude is unreachable, and the two
+                              plans are otherwise indistinguishable on screen. */}
+                          {view.classifiedBy ? (
+                            <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ink-muted)" }}>
+                              {view.classifiedBy === "claude"
+                                ? "Tier, impact and next step read by Claude from each finding's evidence."
+                                : "Claude was unreachable, so tier and impact come from keyword rules. Re-plan to try Claude again."}
+                            </p>
+                          ) : null}
+                        </div>
+                        {planState ? (
+                          <button type="button" className="btn btn--secondary btn--sm" onClick={() => planState.runPlan()} disabled={planState.planBusy}>
+                            {planState.planBusy ? "Planning…" : "Re-plan"}
+                          </button>
+                        ) : null}
+                      </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 14 }}>
-                        {([["Regression", lanes.REGRESSION, "var(--bad)"], ["New", lanes.NEW, "var(--warn)"],
-                           ["Persisting", lanes.PERSISTING, "var(--ink-muted)"], ["Resolved", lanes.RESOLVED, "var(--ok)"]] as const)
+                        {([["Regression", view.lanes.REGRESSION, "var(--bad)"], ["New", view.lanes.NEW, "var(--warn)"],
+                           ["Persisting", view.lanes.PERSISTING, "var(--ink-muted)"], ["Resolved", view.lanes.RESOLVED, "var(--ok)"]] as const)
                           .map(([label, n, colour]) => (
                           <div key={label} style={card}>
                             <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink-muted)" }}>{label}</div>
@@ -3538,46 +3652,112 @@ export function ReaiDashboard({
                         ))}
                       </div>
                       <div style={{ ...card, marginBottom: 14, fontSize: 14, color: "var(--ink-body)" }}>
-                        <b>{canAttempt ?? 0}</b> of <b>{worklist?.length ?? 0}</b> items are inside this client&rsquo;s tier and mapped to a fix the
-                        agent can attempt. The rest need a person — either the tier does not permit the change, or the fix is a judgement call.
+                        <b>{view.inTier}</b> of <b>{view.total}</b> items are inside this client&rsquo;s tier. The Auto-Fix dry run decides which of
+                        those have a fix the agent can apply; the rest need a person.
                       </div>
-                      <div style={{ ...card, padding: 0, overflowX: "auto" }}>
-                        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13.5 }}>
-                          <thead>
-                            <tr>
-                              {["Finding", "Page", "Lane", "Agent can fix?"].map(h => (
-                                <th key={h} style={{ textAlign: "left", padding: "10px 14px", borderBottom: "1.5px solid var(--ink-body)", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink)", whiteSpace: "nowrap" }}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(worklist ?? []).slice(0, 50).map((item: any, i: number) => {
-                              const why = blockedReason(item);
-                              return (
-                                <tr key={item.id ?? i}>
-                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "var(--ink-body)" }}>{item.code ?? item.what ?? "—"}</td>
-                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontFamily: "ui-monospace, monospace", fontSize: 12.5 }}>{item.location ?? item.url ?? "—"}</td>
-                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)" }}>{item.status ?? "—"}</td>
-                                  <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: why ? "var(--ink-muted)" : "var(--ok)", fontWeight: why ? 400 : 600 }}>
-                                    {why ?? "yes"}
+                      {view.total > 0 ? (
+                        <div style={{ ...card, padding: 0, overflowX: "auto" }}>
+                          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13.5 }}>
+                            <thead>
+                              <tr>
+                                {["#", "Finding", "Lane", "Impact", "Tier", "What to do", "Agent can take it?"].map(h => (
+                                  <th key={h} style={{ textAlign: "left", padding: "10px 14px", borderBottom: "1.5px solid var(--ink-body)", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--ink)", whiteSpace: "nowrap" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {view.items.slice(0, 100).map((item, i) => (
+                                <tr key={`${item.code}-${i}`}>
+                                  <td style={{ ...td, color: "var(--ink-muted)", fontVariantNumeric: "tabular-nums" }}>{item.priority ?? i + 1}</td>
+                                  <td style={{ ...td, color: "var(--ink-body)", minWidth: 220 }}>
+                                    <div style={{ fontWeight: 600 }}>{item.what}</div>
+                                    <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11.5, color: "var(--ink-muted)" }}>{item.code}{item.page ? ` · ${item.page}` : ""}</div>
+                                    {item.note ? <div style={{ fontSize: 12, color: "var(--warn)", marginTop: 2 }}>{item.note}</div> : null}
+                                  </td>
+                                  <td style={{ ...td, color: laneColour[item.status] ?? "var(--ink-muted)", fontWeight: 600, whiteSpace: "nowrap" }}>{item.status || "—"}</td>
+                                  <td style={{ ...td, color: "var(--ink-muted)", whiteSpace: "nowrap" }}>{item.impact || "—"}</td>
+                                  <td style={{ ...td, color: "var(--ink-muted)", whiteSpace: "nowrap" }}>{item.tierLabel || "—"}</td>
+                                  <td style={{ ...td, color: "var(--ink-body)", minWidth: 220 }}>{item.fix || "—"}</td>
+                                  <td style={{ ...td, color: item.reason ? "var(--ink-muted)" : "var(--ok)", fontWeight: item.reason ? 400 : 600 }}>
+                                    {item.reason ?? "in tier"}
                                   </td>
                                 </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ ...card, fontSize: 14, color: "var(--ink-muted)" }}>No open items: everything the last scan checked is passing.</div>
+                      )}
+                      {/* Zoom out from per-item classification to strategy: what to
+                          do first, sequencing, what a person must own. Grounded in
+                          the whole worklist. */}
+                      {view.total > 0 ? (
+                        <BrainstormPlan
+                          worklist={worklist}
+                          business={currentBusiness}
+                          domain={currentDomain}
+                          tier={planState?.plan?.clientTier ?? undefined}
+                        />
+                      ) : null}
+                      {view.resolved.length > 0 ? (
+                        <details style={{ ...card, marginTop: 14 }}>
+                          <summary style={{ cursor: "pointer", fontSize: 14, fontWeight: 600, color: "var(--ok)" }}>Resolved since the previous scan ({view.resolved.length})</summary>
+                          <ul style={{ margin: "10px 0 0", paddingLeft: 18, fontSize: 13.5, color: "var(--ink-body)" }}>
+                            {view.resolved.map((r, i) => <li key={`${r.code}-${i}`}>{r.what} <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 11.5, color: "var(--ink-muted)" }}>{r.code}</span></li>)}
+                          </ul>
+                        </details>
+                      ) : null}
+                      {view.brief ? (
+                        <details style={{ ...card, marginTop: 14 }}>
+                          <summary style={{ cursor: "pointer", fontSize: 14, fontWeight: 600, color: "var(--ink-body)" }}>Developer brief (in-tier items)</summary>
+                          <pre style={{ margin: "10px 0 0", whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.55, color: "var(--ink-body)", fontFamily: "ui-monospace, monospace", maxHeight: 520, overflowY: "auto" }}>{view.brief}</pre>
+                        </details>
+                      ) : null}
                       {/* The items the agent CANNOT take are the ones a person is
-                          left holding, and "the rest need a person" is exactly
-                          where this screen used to stop. Items the agent CAN take
-                          are excluded: those already have a pipeline that runs
-                          them under a tier with the gates watching. */}
-                      <FixWithClaude
-                        findings={worklistFindings(worklist)}
-                        business={currentBusiness}
-                        domain={currentDomain}
-                        label="Brief me on the items the agent cannot take"
-                      />
+                          left holding. Items it can take already have a pipeline
+                          that runs them under a tier with the gates watching. */}
+                      {blocked.length > 0 ? (
+                        <FixWithClaude
+                          findings={worklistFindings(worklist)}
+                          business={currentBusiness}
+                          domain={currentDomain}
+                          label="Brief me on the items the agent cannot take"
+                        />
+                      ) : null}
+                    </>
+                    );
+                  })() : null}
+
+                  {/* ── MONITOR: what the live site is actually DOING —
+                      Search Console and GA4 for this project's property, plus a
+                      live availability strip underneath. The Google numbers are
+                      the point; the site checks are the safety net. ── */}
+                  {st.id === "monitor" ? (
+                    <>
+                      <div style={{ ...card, marginBottom: 14, fontSize: 13.5, color: "var(--ink-body)" }}>
+                        Real visitor activity for <b>{currentDomain || "this project"}</b>, straight from Google
+                        Analytics (GA4): who came, how many sessions, which channels brought them, and the pages
+                        they landed on. First-party data about a property you own, and free.
+                        {!googleConnected && (
+                          <>
+                            {" "}
+                            <button type="button" className="link" onClick={handleConnectGoogle}>
+                              Connect Google and pick this project&rsquo;s GA4 property →
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      <section aria-labelledby="mon-visitors">
+                        <h2 id="mon-visitors" style={{ fontSize: 15, fontWeight: 650, color: "var(--ink)", margin: "0 0 4px" }}>
+                          Visitors
+                        </h2>
+                        <p style={{ fontSize: 12.5, color: "var(--ink-muted)", margin: "0 0 12px", maxWidth: "70ch" }}>
+                          Users, sessions, channels and landing pages from this project&rsquo;s GA4 property.
+                        </p>
+                        <Ga4Panel domain={currentDomain} onConnect={handleConnectGoogle} />
+                      </section>
                     </>
                   ) : null}
 
@@ -3781,24 +3961,14 @@ export function ReaiDashboard({
                     </>
                   ) : null}
 
-                  {/* ── Stages with no result yet: plan (unplanned) and fix ── */}
-                  {(st.id === "fix" || (st.id === "plan" && !hasResult)) ? (
+                  {/* ── Fix with no result yet. (Plan shows its source report instead.) ── */}
+                  {st.id === "fix" ? (
                     <div style={{ border: "1px dashed var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "28px 24px", maxWidth: 760 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-body)", marginBottom: 8 }}>
-                        {st.id === "plan" ? "Nothing planned for this cycle yet" : "Nothing fixed in this cycle yet"}
+                        Nothing fixed in this cycle yet
                       </div>
                       <p style={{ fontSize: 13, color: "var(--ink-muted)", margin: 0, lineHeight: 1.6, maxWidth: "68ch" }}>{st.absent}</p>
                       <div style={{ marginTop: 14, fontSize: 12, color: "var(--ink-muted)", fontFamily: "ui-monospace, monospace" }}>source: {st.source}</div>
-                      {st.id === "plan" && planState ? (
-                        <button
-                          type="button"
-                          onClick={() => planState.runPlan()}
-                          disabled={planState.planBusy}
-                          style={{ marginTop: 16, padding: "8px 14px", borderRadius: 6, border: 0, cursor: "pointer", background: "var(--ink-body)", color: "var(--color-white)", fontSize: 13, fontWeight: 600, opacity: planState.planBusy ? 0.6 : 1 }}
-                        >
-                          {planState.planBusy ? "Planning…" : "Run Plan"}
-                        </button>
-                      ) : null}
                       {st.id === "fix" ? (
                         <button
                           type="button"
@@ -3865,6 +4035,15 @@ export function ReaiDashboard({
                       </div>
                     ) : null}
                   </div>
+                  {ct.id === "topics" ? (
+                    <div style={{ marginBottom: "var(--space-5)" }}>
+                      <KeywordTrend
+                        clientId={selectedClient?.id}
+                        title="Research trend"
+                        subtitle="keyword positions measured across scans — use demand, not guesses, to shape content ideas"
+                      />
+                    </div>
+                  ) : null}
                   <ContentPanel
                     toolId={ct.id}
                     domain={currentDomain || undefined}
@@ -4008,35 +4187,71 @@ export function ReaiDashboard({
                     // The summary row with the full link profile is filed under the
                     // Backlinks view's code; the overview reads it from there.
                     <BacklinkOverviewDashboard rows={[...rows, ...rowsForView(report, viewById("backlinks")!)]} />
+                  ) : view.id === "position-tracking" ? (
+                    // Real rank tracking: the per-keyword position history from the
+                    // `keywords` table (saved every scan), drawn as movement over
+                    // time, then the current-scan rows/charts below it.
+                    <>
+                      <KeywordTrend clientId={selectedClient?.id} />
+                      {rows.length > 0 && <ReportStats rows={rows} search={isSearchView(view)} />}
+                      {rows.length > 0 && <ViewCharts viewId={view.id} label={view.label} rows={rows as any} report={report} />}
+                      <ReportTable view={view} rows={rows} checkedEmpty={checkedEmpty} />
+                    </>
                   ) : view.id === "domain-overview" ? (
                     // The one search tool built out as a full dashboard: cards,
                     // position distribution, movement, trend and top keywords,
                     // from the metrics the scanner now attaches to the row.
                     // One dashboard. The ranked-keyword charts that sat above it
                     // repeated its positions and keywords (a second summary).
-                    <DomainOverviewDashboard rows={[...rows, ...rowsForView(report, viewById("organic-rankings")!)]} />
+                    <DomainOverviewDashboard rows={[...rows,
+                      // Top keywords under the overview prefer Google Search
+                      // Console (free, real) when connected; else the paid
+                      // DFS ranked-keyword rows. GSC rows carry the same
+                      // `dfs.ranked_keyword` code the dashboard reads.
+                      ...(googleConnected && liveGscRows.length
+                        ? gscQueriesToRankingRows(liveGscRows)
+                        : rowsForView(report, viewById("organic-rankings")!))]} />
                   ) : (
                     <>
                       {/* Counts and charts only over data: an unscanned page showed
                           a "Results 0" strip and an empty chart card above the
                           table's own empty state, three empty boxes for one fact. */}
-                      {rows.length > 0 && <ReportStats rows={rows} search={isSearchView(view)} />}
-                      {/* Every search view gets charts above its table when its
-                          rows carry rank/volume — a picture first, then the data.
-                          Renders nothing when there is nothing to plot. */}
-                      {/* Every tool page opens on charts of its own rows (operator,
-                          2026-09-15: "every overview"), then the table. */}
-                      {rows.length > 0 && <ViewCharts viewId={view.id} label={view.label} rows={rows as any} report={report} />}
-                      {/* No empty-state "Run an audit" button here: it navigated
-                          to the Site Health screen instead of running this tool,
-                          and every view already carries its own correctly-worded
-                          run control (SectionScanButton / CompareInputPanel) at
-                          the top. A second, mislabelled action only confused. */}
-                      <ReportTable
-                        view={view}
-                        rows={rows}
-                        checkedEmpty={checkedEmpty}
-                      />
+                      {(() => {
+                        // Rankings views prefer Google Search Console (free, real,
+                        // your own site) when connected, falling back to the paid
+                        // DFS ranked-keyword rows. The badge names which produced
+                        // the table so provenance is never a guess.
+                        const resolved = GSC_RANKING_VIEWS.has(view.id)
+                          ? resolveRankingRows({ gscRows: googleConnected ? liveGscRows : [], dfsRows: rows })
+                          : null;
+                        const shownRows = resolved ? resolved.rows : rows;
+                        return (
+                          <>
+                            {resolved && resolved.source !== "none" && (
+                              <div style={{ marginBottom: "var(--space-3)" }}>
+                                <SourceBadge
+                                  label={rankingSourceLabel(resolved.source)}
+                                  kind={resolved.source === "gsc" ? "google" : "paid"}
+                                />
+                              </div>
+                            )}
+                            {shownRows.length > 0 && <ReportStats rows={shownRows} search={isSearchView(view)} />}
+                            {/* Charts first, then the table. Renders nothing when
+                                there is nothing to plot. */}
+                            {shownRows.length > 0 && <ViewCharts viewId={view.id} label={view.label} rows={shownRows as any} report={report} />}
+                            {/* Run controls live at the top of each view; no
+                                mislabelled "Run an audit" button here. */}
+                            <ReportTable view={view} rows={shownRows} checkedEmpty={checkedEmpty} />
+                            {/* GSC is an additive owned-site signal, not an
+                                alternative keyword-volume source. It follows
+                                the primary DataForSEO table and is mounted
+                                only for a connected, selected property. */}
+                            {view.id === "keyword-overview" && googleConnected && selectedGscProperty && (
+                              <GscKeywordPanel siteUrl={selectedGscProperty} />
+                            )}
+                          </>
+                        );
+                      })()}
                     </>
                   )}
                   {/* Fix-with-Claude is for findings to repair, so it stays off
@@ -4047,7 +4262,7 @@ export function ReaiDashboard({
                       findings={rows}
                       business={currentBusiness}
                       domain={currentDomain}
-                      label={`Fix these ${view.label.toLowerCase()} issues with Claude`}
+                      label={`Fix these ${view.label.toLowerCase()} issues`}
                     />
                   )}
                 </div>
@@ -4284,702 +4499,88 @@ export function ReaiDashboard({
             <PageSkeletonLayout tab={activeTab} />
           ) : (
             <>
-              {activeTab === "Overview" && !selectedClient && (
-                <Onboarding
-                  url={newUrl} setUrl={setNewUrl}
-                  biz={newBiz} setBiz={setNewBiz}
-                  saving={savingProject}
-                  onSubmit={handleCreateProjectSubmit}
-                  projects={clients.map((c) => ({ id: c.id, business: c.business, domain: c.domain }))}
-                  onChooseProject={(id) => { const c = clients.find((x) => x.id === id); if (c) onSelectClient(c); }}
-                />
-              )}
-              {activeTab === "Overview" && selectedClient && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* Step 2 of getting started, until the first audit exists. */}
-              {!report && <OnboardingSteps current={2} />}
-              {/* ── SEO DASHBOARD ── The on-page audit's run bar, then the
-                  dashboard (components/dashboard/SeoDashboard.tsx): Site Health
-                  and why, top issues, crawled pages, then search and links.
-                  The ranked issues replaced PriorityActions here, which listed
-                  the same findings a second time. ── */}
-              <AuditHeroBar
-                currentDomain={currentDomain}
-                onRunAudit={runOnpageAudit}
-                isScanning={scanState?.busy}
-                phaseLine={scanState?.phaseLine}
-                scanTools={scanState?.tools}
-                liveLogs={scanState?.live}
-                pages={crawlPages}
-                onPagesChange={(n) => onCrawlPagesChange?.(n)}
-                lastScanAt={openReport?.scan?.created_at}
-                onEditProject={selectedClient ? () => openEditProject(selectedClient) : undefined}
-                onCreateProject={() => openCreateProject()}
-              />
-              <SeoDashboard
-                report={report}
-                scans={scans}
-                domain={currentDomain}
-                onRun={currentDomain ? () => runOnpageAudit(currentDomain, [...ONPAGE_AUDIT_TOOLS], crawlPages) : undefined}
-                onOpen={(target) => {
-                  if (target === "site-audit" || target === "issues" || target === "pages") {
-                    setActiveTab("Site Health & Audit");
-                    setAuditProjectList(false);
-                    setAuditSubTab(target === "site-audit" ? "summary" : target);
-                  } else if (target === "ai") {
-                    selectAeoFocus("matrix");
-                  } else {
-                    openNavItem({ label: target, view: target });
-                  }
-                }}
-              />
-            </div>
-          )}
-
-          {/* ── SUB-VIEW: TRAFFIC ANALYTICS (REAI FLAGSHIP) ── */}
-          {activeTab === "Traffic Analytics" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {/* ── GOOGLE SEARCH CONSOLE & GA4 INTEGRATION BAR ── */}
-              {!googleConnected ? (
-                <div style={{
-                  background: "var(--surface)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-md)",
-                  boxShadow: "var(--shadow-sm)",
-                  padding: "var(--space-4) var(--space-5)",
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  flexWrap: "wrap", gap: "var(--space-4)",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flex: "1 1 260px", minWidth: 0 }}>
-                    <div style={{
-                      width: 40, height: 40, borderRadius: "var(--radius-md)", background: "var(--accent-tint)",
-                      border: "1px solid var(--accent-border)",
-                      display: "grid", placeItems: "center", flexShrink: 0,
-                    }}>
-                      <IconGoogle size={22} />
-                    </div>
-                    <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                      <div style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--ink)" }}>
-                        Connect Google Search Console & GA4
-                      </div>
-                      <div style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)", marginTop: 2, maxWidth: "62ch" }}>
-                        Show verified first-party organic clicks, impressions, and exact Google search queries for <b>{currentDomain}</b>. No manual credentials.
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    onClick={handleConnectGoogle}
-                    disabled={googleConnecting}
-                  >
-                    <IconGoogle size={14} />
-                    <span>{googleConnecting ? "Connecting to Google..." : "Connect Google Account"}</span>
-                  </button>
-                </div>
-              ) : (
-                <div style={{
-                  background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)", display: "flex", justifyContent: "space-between", alignItems: "center",
-                  flexWrap: "wrap", gap: "var(--space-3)", boxShadow: "var(--shadow-sm)",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-sm)", fontWeight: 600, color: hasCurrentDomainInGsc ? "var(--ok)" : "var(--warn)" }}>
-                      <span style={{
-                        width: 8, height: 8, borderRadius: "var(--radius-full)",
-                        background: hasCurrentDomainInGsc ? "var(--ok)" : "var(--warn)",
-                      }} />
-                      <span>{hasCurrentDomainInGsc ? "Google Search Console Connected" : "Google Account Connected"}</span>
-                    </div>
-                    <span style={{ color: "var(--border-strong)" }}>|</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                        Account: <b style={{ color: "var(--ink-body)" }}>{googleAccount}</b>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          window.location.href = "/api/auth/google?prompt=select_account%20consent";
+              {activeTab === "Overview" && (
+                !selectedClient ? (
+                  <Onboarding
+                    url={newUrl} setUrl={setNewUrl}
+                    biz={newBiz} setBiz={setNewBiz}
+                    saving={savingProject}
+                    onSubmit={handleCreateProjectSubmit}
+                    projects={clients.map((c) => ({ id: c.id, business: c.business, domain: c.domain }))}
+                    onChooseProject={(id) => { const c = clients.find((x) => x.id === id); if (c) onSelectClient(c); }}
+                  />
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {/* Step 2 of getting started, until the first audit exists. */}
+                    {!report && <OnboardingSteps current={2} />}
+                    {/* ── SEO DASHBOARD ── The on-page audit's run bar, then the
+                        dashboard (components/dashboard/SeoDashboard.tsx): Site Health
+                        and why, top issues, crawled pages, then search and links.
+                        The ranked issues replaced PriorityActions here, which listed
+                        the same findings a second time. ── */}
+                    <AuditHeroBar
+                      currentDomain={currentDomain}
+                      onRunAudit={runOnpageAudit}
+                      isScanning={scanState?.busy}
+                      phaseLine={scanState?.phaseLine}
+                      scanTools={scanState?.tools}
+                      liveLogs={scanState?.live}
+                      pages={crawlPages}
+                      onPagesChange={(n) => onCrawlPagesChange?.(n)}
+                      lastScanAt={openReport?.scan?.created_at}
+                      onEditProject={selectedClient ? () => openEditProject(selectedClient) : undefined}
+                      onCreateProject={() => openCreateProject()}
+                    />
+                    {/* The four-pillar score, above the technical dashboard: Site
+                        Health grades the on-page audit alone, this weighs Technical,
+                        Content, Backlinks and AEO together and withholds a number
+                        until all four have run. */}
+                    <div style={{ marginTop: "var(--space-4)" }}>
+                      <OverallScoreCard
+                        report={report}
+                        onRunPillar={(key) => {
+                          if (key === "technical") setActiveTab("Site Health & Audit");
+                          else if (key === "content") setActiveTab("On-Page SEO");
+                          else if (key === "backlinks") setActiveTab("Backlink Audit");
+                          else setActiveTab("AI & AEO Lab");
                         }}
-                        style={{
-                          background: "var(--surface-3)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-xs)",
-                          padding: "1px 6px", fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-muted)", cursor: "pointer",
-                        }}
-                        title="Switch to another Google Account"
-                      >
-                        Switch Gmail
-                      </button>
-                    </div>
-                    <span style={{ color: "var(--border-strong)" }}>|</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>Property:</span>
-                      <select
-                        value={selectedGscProperty}
-                        onChange={(e) => {
-                          const nextProp = e.target.value;
-                          setSelectedGscProperty(nextProp);
-                          setTrafficDataSource("gsc");
-                          if (typeof window !== "undefined") {
-                            localStorage.setItem("reai_gsc_property", nextProp);
-                            localStorage.setItem("reai_traffic_source", "gsc");
-                          }
-                          fetchGscAnalytics(nextProp);
-                        }}
-                        style={{
-                          background: "var(--surface-2)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-sm)",
-                          padding: "3px 8px", fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-body)",
-                        }}
-                      >
-                        {verifiedGscProperties.length > 0 ? (
-                          verifiedGscProperties.map((p) => (
-                            <option key={p} value={p}>{p} (Verified)</option>
-                          ))
-                        ) : (
-                          <>
-                            <option value={`sc-domain:${currentDomain}`}>sc-domain:{currentDomain} (not in this Google account)</option>
-                            <option value={`https://${currentDomain}/`}>https://{currentDomain}/ (URL Prefix)</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Mode Switcher Toggle */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{
-                      fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ok)", background: "var(--ok-tint)",
-                      border: "1px solid var(--ok-border)", padding: "3px 9px", borderRadius: "var(--radius-sm)",
-                    }}>
-                      Source: Google Search Console
-                    </span>
-
-                    {/* Live Auto-Refresh Controller */}
-                    {trafficDataSource === "gsc" && (
-                      <div style={{
-                        display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)",
-                        background: autoRefreshInterval !== "off" ? "var(--ok-tint)" : "var(--surface-2)",
-                        border: `1px solid ${autoRefreshInterval !== "off" ? "var(--ok-border)" : "var(--border)"}`,
-                        padding: "3px 8px", borderRadius: "var(--radius-sm)",
-                      }}>
-                        <span style={{
-                          width: 8, height: 8, borderRadius: "var(--radius-full)",
-                          background: autoRefreshInterval !== "off" ? "var(--ok)" : "var(--ink-faint)",
-                        }} />
-                        <span style={{ color: autoRefreshInterval !== "off" ? "var(--ok)" : "var(--ink-muted)", fontWeight: 600 }}>
-                          {autoRefreshInterval !== "off" ? `Auto-refresh (${syncCountdown}s)` : "Paused"}
-                        </span>
-                        <select
-                          value={autoRefreshInterval}
-                          onChange={(e) => {
-                            const val = e.target.value as any;
-                            setAutoRefreshInterval(val);
-                            if (typeof window !== "undefined") localStorage.setItem("reai_traffic_autorefresh", val);
-                          }}
-                          style={{
-                            background: "var(--surface)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-xs)",
-                            padding: "1px 4px", fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-body)", cursor: "pointer",
-                          }}
-                        >
-                          <option value="30s">30s</option>
-                          <option value="60s">60s</option>
-                          <option value="5m">5m</option>
-                          <option value="off">Off</option>
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            fetchGscAnalytics(selectedGscProperty);
-                            setSyncToast(`Syncing latest data for ${selectedGscProperty}...`);
-                            setTimeout(() => setSyncToast(null), 2500);
-                          }}
-                          style={{
-                            background: "transparent", border: 0, cursor: "pointer", fontSize: "var(--text-xs)",
-                            color: "var(--accent-ink)", padding: "0 2px", fontWeight: 600,
-                          }}
-                          title="Force sync now"
-                        >
-                          Sync now
-                        </button>
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => setShowIntegrationsModal(true)}
-                      style={{
-                        background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
-                        padding: "5px 9px", fontSize: "var(--text-xs)", color: "var(--ink-muted)", cursor: "pointer", fontWeight: 600,
-                      }}
-                    >
-                      Manage
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Notice when current project website is NOT in the connected Google Account */}
-              {googleConnected && !hasCurrentDomainInGsc && (
-                <div style={{
-                  background: "var(--warn-tint)", border: "1px solid var(--warn-border)", borderRadius: "var(--radius-md)",
-                  padding: "var(--space-4) var(--space-5)", display: "flex", flexDirection: "column", gap: "var(--space-3)",
-                }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-3)" }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--warn)" }}>
-                        Website "{currentDomain}" Not Found in Connected Google Account ({googleAccount})
-                      </div>
-                      <p style={{ margin: "6px 0 10px", fontSize: "var(--text-sm)", color: "var(--warn)", lineHeight: 1.5 }}>
-                        Your connected Gmail account <b>{googleAccount}</b> does not own or manage Search Console data for <b>{currentDomain}</b>.
-                        To view real first-party Google analytics for <b>{currentBusiness}</b>, please connect the Gmail account that has verified ownership of this site.
-                      </p>
-
-                      {verifiedGscProperties.length > 0 && (
-                        <div style={{ background: "var(--surface)", border: "1px solid var(--warn-border)", borderRadius: "var(--radius-md)", padding: "10px 14px", marginBottom: 12 }}>
-                          <span style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--warn)" }}>
-                            Websites verified under {googleAccount} ({verifiedGscProperties.length}):
-                          </span>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                            {verifiedGscProperties.map((prop) => {
-                              const cleanProp = prop.replace(/^sc-domain:/, "").replace(/^https?:\/\//, "").replace(/\/$/, "");
-                              const isSelected = selectedGscProperty === prop;
-                              return (
-                                <button
-                                  key={prop}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedGscProperty(prop);
-                                    setTrafficDataSource("gsc");
-                                    if (typeof window !== "undefined") {
-                                      localStorage.setItem("reai_gsc_property", prop);
-                                      localStorage.setItem("reai_traffic_source", "gsc");
-                                    }
-                                    fetchGscAnalytics(prop);
-                                  }}
-                                  style={{
-                                    background: isSelected ? "var(--warn)" : "var(--warn-tint)",
-                                    color: isSelected ? "var(--color-white)" : "var(--warn)",
-                                    border: `1px solid ${isSelected ? "var(--warn)" : "var(--warn-border)"}`,
-                                    borderRadius: "var(--radius-sm)", padding: "4px 10px",
-                                    fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
-                                  }}
-                                >
-                                  {cleanProp}{isSelected ? " · Active" : ""}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            window.location.href = "/api/auth/google?prompt=select_account%20consent";
-                          }}
-                          style={{
-                            background: "var(--warn)", color: "var(--color-white)", border: 0, borderRadius: "var(--radius-sm)",
-                            padding: "7px 15px", fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
-                            display: "flex", alignItems: "center", gap: 7,
-                          }}
-                        >
-                          <IconGoogle size={14} />
-                          <span>Connect Another Gmail Account</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleSwitchToGscProject}
-                          style={{
-                            background: "var(--surface)", color: "var(--warn)", border: "1px solid var(--warn-border)", borderRadius: "var(--radius-sm)",
-                            padding: "7px 14px", fontSize: "var(--text-xs)", fontWeight: 600, cursor: "pointer",
-                          }}
-                        >
-                          Switch Workspace to {cleanGscDomain}
-                        </button>
-
-                        <a
-                          href={`https://search.google.com/search-console?resource_id=${encodeURIComponent(`https://${currentDomain}/`)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            color: "var(--warn)", fontSize: "var(--text-xs)", textDecoration: "underline", fontWeight: 600, marginLeft: 4,
-                          }}
-                        >
-                          Add {currentDomain} to Search Console ↗
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {!googleConnected ? (
-                <div style={{
-                  background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)",
-                  padding: "var(--space-7) var(--space-5)", textAlign: "center", display: "flex", flexDirection: "column",
-                  alignItems: "center", gap: "var(--space-4)", boxShadow: "var(--shadow-sm)",
-                }}>
-                  <div style={{
-                    width: 58, height: 58, borderRadius: "var(--radius-lg)", background: "var(--accent-tint)",
-                    border: "1px solid var(--accent-border)", display: "grid", placeItems: "center",
-                  }}>
-                    <IconGoogle size={30} />
-                  </div>
-                  <div style={{ maxWidth: "56ch" }}>
-                    <h3 style={{ margin: "0 0 8px 0", fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--ink)" }}>
-                      Google Search Console & GA4 Disconnected
-                    </h3>
-                    <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--ink-muted)", lineHeight: 1.6 }}>
-                      No active Google account is connected for <b>{currentDomain}</b>.
-                      Real organic clicks and search impressions appear once you sign in with the Google account that manages this website. Nothing is estimated or simulated.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--lg"
-                    onClick={handleConnectGoogle}
-                    disabled={googleConnecting}
-                  >
-                    <IconGoogle size={16} />
-                    <span>{googleConnecting ? "Connecting to Google..." : "Sign in with Google Account"}</span>
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {/* Top Traffic KPIs with Integrated Live GSC Data */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
-                    {/* Verified Clicks */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          Verified Clicks (28d)
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)", background: "var(--ok-tint)", padding: "1px 6px", borderRadius: 4 }}>
-                          Google GSC
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
-                        <div>
-                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
-                            {isGscLoading ? "..." : gscMetrics.clicks.toLocaleString()}
-                          </div>
-                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
-                            Organic search clicks
-                          </div>
-                        </div>
-                        {gscDateTrend.length > 0 && (
-                          <MiniSparkline data={gscDateTrend.map((p) => p.v)} color="var(--ok)" width={58} height={24} />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Total Impressions */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          Total Impressions (28d)
-                        </span>
-                        <span style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--info)", background: "var(--info-tint)", padding: "1px 6px", borderRadius: "var(--radius-xs)" }}>
-                          Google SERP
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
-                        <div>
-                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
-                            {isGscLoading ? "..." : gscMetrics.impressions.toLocaleString()}
-                          </div>
-                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
-                            Search visibility
-                          </div>
-                        </div>
-                        {gscDateTrend.length > 0 && (
-                          <MiniSparkline data={gscDateTrend.map((p) => p.i ?? 0)} color="var(--info)" width={58} height={24} />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Average CTR */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          Average CTR
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)" }}>Clicks / Imp</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
-                        <div>
-                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
-                            {isGscLoading ? "..." : `${gscMetrics.ctr}%`}
-                          </div>
-                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
-                            Click-through rate
-                          </div>
-                        </div>
-                        <div style={{ width: 54, display: "flex", flexDirection: "column", gap: 3 }}>
-                          <div style={{ height: 4, background: "var(--surface-3)", borderRadius: 2, overflow: "hidden" }}>
-                            <div style={{ width: `${Math.min(100, Math.max(5, gscMetrics.ctr * 10))}%`, height: "100%", background: "var(--accent)", borderRadius: 2 }} />
-                          </div>
-                          <span style={{ fontSize: 12, color: "var(--ink-muted)", textAlign: "right" }}>GSC live</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Average Position */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          Average Position
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ok)" }}>SERP Rank</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
-                        <div>
-                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
-                            {isGscLoading ? "..." : gscMetrics.avgPosition > 0 ? `#${gscMetrics.avgPosition}` : "—"}
-                          </div>
-                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
-                            Average Google rank
-                          </div>
-                        </div>
-                        <MiniRadialGauge score={gscMetrics.avgPosition > 0 ? Math.max(10, Math.round(100 - gscMetrics.avgPosition)) : 0} size={34} color="var(--ok)" />
-                      </div>
-                    </div>
-
-                    {/* Ranked Queries */}
-                    <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 96 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          Ranked Queries
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-muted)" }}>
-                          Search Console
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
-                        <div>
-                          <div style={{ fontSize: "var(--text-2xl)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.1 }}>
-                            {isGscLoading ? "..." : gscMetrics.topQueries.length.toString()}
-                          </div>
-                          <div style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)", marginTop: 4 }}>
-                            Search queries recorded
-                          </div>
-                        </div>
-                        <MiniRadialGauge score={Math.min(100, gscMetrics.topQueries.length * 4)} size={34} color="var(--ok)" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Traffic Trend & Device Split */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 12 }}>
-                    <div style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "var(--shadow-sm)" }}>
-                      <ExecutiveTrafficChart
-                        trend={gscDateTrend}
-                        totalVisits={`${gscMetrics.clicks.toLocaleString()} Clicks`}
-                        domain={cleanGscDomain}
-                        totalKeywords={gscMetrics.topQueries.length}
                       />
                     </div>
-
-                    {/* Device Split Card with Donut Chart */}
-                    <div style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", padding: "18px 20px", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                      <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                          <h4 style={{ margin: 0, fontSize: "var(--text-base)", fontWeight: 700, color: "var(--ink-body)" }}>Device Breakdown</h4>
-                          <span style={{
-                            fontSize: "var(--text-xs)", fontWeight: 600,
-                            color: gscDeviceSplit ? "var(--ok)" : "var(--ink-muted)",
-                            background: gscDeviceSplit ? "var(--ok-tint)" : "var(--surface-3)",
-                            border: `1px solid ${gscDeviceSplit ? "var(--ok-border)" : "var(--border)"}`,
-                            padding: "2px 7px", borderRadius: 4,
-                          }}>
-                            {gscDeviceSplit ? "Google GSC Verified" : "Not measured"}
-                          </span>
-                        </div>
-
-                        {gscDeviceSplit ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14 }}>
-                            <MiniDonut
-                              size={68}
-                              strokeWidth={6.5}
-                              slices={[
-                                { pct: gscDeviceSplit.mobile, color: "var(--ok)" },
-                                { pct: gscDeviceSplit.desktop, color: "var(--accent)" },
-                              ]}
-                            />
-                            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
-                              {([["Mobile Devices", gscDeviceSplit.mobile, "var(--ok)"],
-                                 ["Desktop Browsers", gscDeviceSplit.desktop, "var(--accent)"]] as const).map(([label, pct, colour]) => (
-                                <div key={label}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--text-xs)", fontWeight: 600, marginBottom: 4 }}>
-                                    <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-body)" }}>
-                                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: colour }} />
-                                      {label}
-                                    </span>
-                                    <span style={{ fontWeight: 700, color: "var(--ink)" }}>{pct}%</span>
-                                  </div>
-                                  <div style={{ height: 6, background: "var(--surface-3)", borderRadius: 3, overflow: "hidden" }}>
-                                    <div style={{ width: `${pct}%`, height: "100%", background: colour, borderRadius: 3 }} />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          /* No donut, no bars. A chart is a claim, and drawing one
-                             from a default is how 68/32 ended up under a green
-                             "GSC Verified" badge on every account. */
-                          <div style={{ padding: "18px 2px", fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.55 }}>
-                            Search Console returned no device breakdown for this property and date range.
-                            Nothing is shown rather than a default split.
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                        {/* Was "Mobile-first indexing compliant · ✓ Verified" -
-                            a hardcoded pair. Nothing in this codebase measures
-                            mobile-first indexing. */}
-                        {gscDeviceSplit
-                          ? "Share of clicks by device, from Search Console."
-                          : "Mobile-first indexing is not measured by this product."}
-                      </div>
-                    </div>
+                    <SeoDashboard
+                      report={report}
+                      scans={scans}
+                      domain={currentDomain}
+                      gscKeywords={googleConnected ? gscToRankedKeywords(liveGscRows) : undefined}
+                      onRun={currentDomain ? () => runOnpageAudit(currentDomain, [...ONPAGE_AUDIT_TOOLS], crawlPages) : undefined}
+                      onOpen={(target) => {
+                        if (target === "site-audit" || target === "issues" || target === "pages") {
+                          setActiveTab("Site Health & Audit");
+                          setAuditProjectList(false);
+                          setAuditSubTab(target === "site-audit" ? "summary" : target);
+                        } else if (target === "ai") {
+                          selectAeoFocus("matrix");
+                        } else {
+                          openNavItem({ label: target, view: target });
+                        }
+                      }}
+                    />
                   </div>
-
-                  {/* Geographic Country Distribution Table */}
-                  <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px 20px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink-body)" }}>
-                        Traffic by Country & Geographic Market
-                      </h4>
-                      <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                        {gscCountrySplit.length > 0
-                          ? `${gscCountrySplit.length} verified countries (Google Search Console)`
-                          : "No international traffic recorded in last 28 days"}
-                      </span>
-                    </div>
-
-                    <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
-                      <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", textAlign: "left" }}>
-                          <thead>
-                            <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: "var(--text-xs)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                              <th style={{ padding: "10px 14px", fontWeight: 700 }}>Country / Region</th>
-                              <th style={{ padding: "10px 14px", fontWeight: 700 }}>Traffic Share</th>
-                              <th style={{ padding: "10px 14px", fontWeight: 700 }}>Impressions</th>
-                              <th style={{ padding: "10px 14px", fontWeight: 700 }}>Distribution Bar</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {gscCountrySplit.length === 0 ? (
-                              <tr>
-                                <td colSpan={4} style={{ padding: "24px 14px", textAlign: "center", color: "var(--ink-muted)" }}>
-                                  No geographic traffic impressions recorded by Google Search Console in this period.
-                                </td>
-                              </tr>
-                            ) : (
-                              gscCountrySplit.map((c: any, i: number) => (
-                                <tr key={i} style={{ borderBottom: i === gscCountrySplit.length - 1 ? "none" : "1px solid var(--border)", color: "var(--ink-body)" }}>
-                                  <td style={{ padding: "11px 14px", fontWeight: 600 }}>
-                                    <span style={{ marginRight: 8 }}>{c.code}</span> {c.country}
-                                  </td>
-                                  <td style={{ padding: "11px 14px", fontWeight: 700, color: "var(--accent)" }}>{c.share}%</td>
-                                  <td style={{ padding: "11px 14px", color: "var(--ink-muted)" }}>{c.visits}</td>
-                                  <td style={{ padding: "11px 14px", width: "40%" }}>
-                                    <div style={{ height: 7, background: "var(--surface-3)", borderRadius: 4, overflow: "hidden" }}>
-                                      <div style={{ width: `${c.share}%`, height: "100%", background: "var(--accent)", borderRadius: 4 }} />
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Google Search Console Verified Queries Section */}
-                  <div style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", overflow: "hidden" }}>
-                    <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface-2)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <IconGoogle size={17} />
-                        <span style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--ink-body)" }}>Top Verified Google Search Console Queries</span>
-                        <span style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ok)", background: "var(--ok-tint)", border: "1px solid var(--ok-border)", padding: "1px 7px", borderRadius: "var(--radius-full)" }}>
-                          First-Party Data
-                        </span>
-                      </div>
-                      <span style={{ fontSize: "var(--text-xs)", color: "var(--ink-muted)" }}>
-                        {isGscLoading ? "Refreshing live data..." : `Showing ${gscMetrics.topQueries.length} live queries for `}
-                        <b>{selectedGscProperty}</b>
-                      </span>
-                    </div>
-
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "var(--text-sm)" }}>
-                        <thead>
-                          <tr style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)", color: "var(--ink-muted)", fontSize: "var(--text-xs)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                            <th style={{ padding: "11px 18px", fontWeight: 700 }}>Search Query</th>
-                            <th style={{ padding: "11px 18px", fontWeight: 700 }}>Clicks</th>
-                            <th style={{ padding: "11px 18px", fontWeight: 700 }}>Impressions</th>
-                            <th style={{ padding: "11px 18px", fontWeight: 700 }}>Avg CTR</th>
-                            <th style={{ padding: "11px 18px", fontWeight: 700 }}>Avg Position</th>
-                            <th style={{ padding: "11px 18px", fontWeight: 700 }}>Ranking Tier</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {isGscLoading ? (
-                            <tr>
-                              <td colSpan={6} style={{ padding: "32px 18px", textAlign: "center", color: "var(--ink-muted)" }}>
-                                <div style={{ display: "inline-block", width: 18, height: 18, border: "2px solid var(--border)", borderTopColor: "var(--accent)", borderRadius: "var(--radius-full)", animation: "spin 1s linear infinite", marginRight: 8, verticalAlign: "middle" }} />
-                                Loading live Google Search Console performance data for <b>{selectedGscProperty}</b>...
-                              </td>
-                            </tr>
-                          ) : gscMetrics.topQueries.length === 0 ? (
-                            <tr>
-                              <td colSpan={6} style={{ padding: "32px 18px", textAlign: "center", color: "var(--ink-muted)" }}>
-                                No search impressions recorded by Google Search Console for <b>{selectedGscProperty}</b> in the last 28 days.
-                              </td>
-                            </tr>
-                          ) : (
-                            gscMetrics.topQueries.map((q, idx) => (
-                              <tr key={idx} style={{ borderBottom: idx === gscMetrics.topQueries.length - 1 ? "none" : "1px solid var(--border)", color: "var(--ink-body)" }}>
-                                <td style={{ padding: "12px 18px", fontWeight: 600, color: "var(--accent-ink)" }}>
-                                  {q.query}
-                                </td>
-                                <td style={{ padding: "12px 18px", fontWeight: 700, color: "var(--ink)" }}>
-                                  {q.clicks.toLocaleString()}
-                                </td>
-                                <td style={{ padding: "12px 18px", color: "var(--ink-muted)" }}>
-                                  {q.impressions.toLocaleString()}
-                                </td>
-                                <td style={{ padding: "12px 18px", fontWeight: 600, color: "var(--ok)" }}>
-                                  {q.ctr}%
-                                </td>
-                                <td style={{ padding: "12px 18px", fontWeight: 700, color: "var(--ink-body)" }}>
-                                  #{q.position}
-                                </td>
-                                <td style={{ padding: "12px 18px" }}>
-                                  <span style={{
-                                    fontSize: "var(--text-xs)", fontWeight: 600, padding: "2px 8px", borderRadius: "var(--radius-xs)",
-                                    background: q.position <= 3 ? "var(--ok-tint)" : q.position <= 10 ? "var(--info-tint)" : "var(--surface-2)",
-                                    color: q.position <= 3 ? "var(--ok)" : q.position <= 10 ? "var(--info)" : "var(--ink-muted)",
-                                    border: `1px solid ${q.position <= 3 ? "var(--ok-border)" : q.position <= 10 ? "var(--info-border)" : "var(--border)"}`,
-                                  }}>
-                                    {q.position <= 3 ? "Top 3" : q.position <= 10 ? "Page 1" : q.position <= 20 ? "Page 2" : "Deep SERP"}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </>
+                )
               )}
-            </div>
+
+          {/* ── SUB-VIEW: TRAFFIC ANALYTICS (STAGE 6 MONITOR WORKSPACE) ── */}
+          {activeTab === "Traffic Analytics" && (
+            <MonitorScreen
+              currentDomain={currentDomain}
+              currentBusiness={currentBusiness}
+              googleConnected={googleConnected}
+              googleAccount={googleAccount}
+              handleConnectGoogle={handleConnectGoogle}
+              googleConnecting={googleConnecting}
+              verifiedGscProperties={verifiedGscProperties}
+              selectedGscProperty={selectedGscProperty}
+              setSelectedGscProperty={setSelectedGscProperty}
+            />
           )}
 
           {/* ── SUB-VIEW: ORGANIC RESEARCH (REAI FLAGSHIP) ── */}
@@ -6514,10 +6115,16 @@ export function ReaiDashboard({
                   findings={allIssues}
                   business={currentBusiness}
                   domain={currentDomain}
-                  label="Fix these audit findings with Claude"
+                  label="Fix these audit findings"
                 />
               }
               setAuditSeverityFilter={setAuditSeverityFilter}
+              onSendToPlan={planState ? () => {
+                // Plan runs over the saved scans; open the Plan page at once so
+                // "Planning…" shows there, not on a screen the operator left.
+                void planState.runPlan();
+                openNavItem({ label: "This Cycle's Worklist", stage: "plan" } as NavItem);
+              } : undefined}
               setActiveTab={setActiveTab}
               planState={planState}
               setShowExecutiveReportModal={setShowExecutiveReportModal}
@@ -7163,7 +6770,7 @@ export function ReaiDashboard({
                           findings={[...gbpRows, ...mentionsRows, ...measured(report?.local as any[])]}
                           business={currentBusiness}
                           domain={currentDomain}
-                          label="Fix these local issues with Claude"
+                          label="Fix these local issues"
                         />
                       </div>
                     </>
@@ -11936,4 +11543,3 @@ export const metadata: Metadata = {
     </div>
   );
 }
-

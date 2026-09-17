@@ -19,7 +19,12 @@ from urllib.parse import urlsplit
 
 from pipeline.audit.providers import (crux_findings, dataforseo_findings,
                                       gsc_findings, serp_findings)
-from pipeline.lib.baseline import Finding, assign_ordinals, sort_findings
+from pipeline.audit.render_verify import (
+    diff_hydrated_content,
+    is_playwright_available,
+    render_page_playwright,
+)
+from pipeline.lib.baseline import Finding as _BaseFinding, assign_ordinals, sort_findings
 from pipeline.lib.common import curl, curl_status, load_config, visible_text_ratio
 
 from pipeline.lib.html import page_title, sitemap_locs
@@ -28,6 +33,34 @@ from pipeline.lib.atomic import write_json_atomic
 
 GATE = "site_health"
 SCHEMA = "site-health/1"
+
+
+class MeasureFinding(_BaseFinding):
+    """Subclass of baseline Finding supporting optional severity and why metadata."""
+    __slots__ = ("severity", "why")
+
+    def __init__(self, gate: str, code: str, location: str, context: str = "",
+                 detail: str = "", ordinal: int = 0, severity: str = "", why: str = ""):
+        super().__init__(gate, code, location, context, detail, ordinal)
+        self.severity = severity
+        self.why = why
+
+    def to_json(self) -> dict:
+        d = super().to_json()
+        if self.severity:
+            d["severity"] = self.severity
+        if self.why:
+            d["why"] = self.why
+        return d
+
+    @classmethod
+    def from_json(cls, d: dict) -> "MeasureFinding":
+        return cls(d["gate"], d["code"], d.get("location", ""), d.get("context", ""),
+                   d.get("detail", ""), int(d.get("ordinal", 0)),
+                   d.get("severity", ""), d.get("why", ""))
+
+
+Finding = MeasureFinding
 
 TITLE_MIN, TITLE_MAX = 30, 60
 DESC_MIN, DESC_MAX = 120, 160
@@ -39,7 +72,7 @@ CSR_MIN_WORDS = 100
 CSR_MIN_RATIO = 0.05
 
 
-def check_page(url: str, html: str, status: int, cfg: dict) -> list:
+def check_page(url: str, html: str, status: int, cfg: dict, render_fetcher=None) -> list:
     """Every check, against one already-fetched page. Pure.
 
     A check whose config input is unset is SKIPPED, not failed: the pipeline
@@ -49,8 +82,8 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
     path = urlsplit(url).path or "/"
     out: list = []
 
-    def add(code: str, context: str = "", detail: str = "") -> None:
-        out.append(Finding(GATE, code, path, context=context, detail=detail))
+    def add(code: str, context: str = "", detail: str = "", severity: str = "", why: str = "") -> None:
+        out.append(MeasureFinding(GATE, code, path, context=context, detail=detail, severity=severity, why=why))
 
     if status != 200:
         add("health.status_not_200", detail=f"status={status}")
@@ -173,7 +206,29 @@ def check_page(url: str, html: str, status: int, cfg: dict) -> list:
     # MVP. The fix is SSR/SSG, which is template/build work → T3.
     words_raw, ratio = visible_text_ratio(html)
     if words_raw < CSR_MIN_WORDS and ratio < CSR_MIN_RATIO:
-        add("health.csr_empty_shell", detail=f"words={words_raw} ratio={ratio:.3f}")
+        if cfg.get("render_verify"):
+            fetcher = render_fetcher or cfg.get("render_fetcher")
+            if fetcher is None and not is_playwright_available():
+                # Playwright is not installed: skip step 2/3 silently and attach lower-confidence note
+                note = "render-verify unavailable — install requirements-render.txt for confirmation"
+                add("health.csr_empty_shell", detail=f"words={words_raw} ratio={ratio:.3f}; {note}")
+            else:
+                add("health.csr_empty_shell", detail=f"words={words_raw} ratio={ratio:.3f}")
+                render_fn = fetcher or render_page_playwright
+                rendered_html, render_err = render_fn(url)
+                if rendered_html:
+                    diff = diff_hydrated_content(html, rendered_html)
+                    add("health.csr_content_gap",
+                        detail=diff["detail"],
+                        severity=diff["severity"],
+                        why=diff["why"])
+                elif render_err:
+                    add("health.csr_content_gap",
+                        detail=f"render-verify error: {render_err}",
+                        severity="warn",
+                        why="Headless render verification was attempted but encountered an error.")
+        else:
+            add("health.csr_empty_shell", detail=f"words={words_raw} ratio={ratio:.3f}")
 
     # Disambiguate repeated identical findings on one page, per baseline.py's
     # contract. Without this, two images sharing a src collapse to one fingerprint.
@@ -198,7 +253,7 @@ def _absolute(u: str, domain: str) -> str:
     return f"https://{domain}/{path}/" if path else f"https://{domain}/"
 
 
-def check_url(url: str, cfg: dict) -> tuple:
+def check_url(url: str, cfg: dict, render_fetcher=None) -> tuple:
     """Fetch one URL and check it. Returns (findings, reachable).
 
     status 0 is curl's connection-failure signal and means unreachable. A 404 is
@@ -207,7 +262,7 @@ def check_url(url: str, cfg: dict) -> tuple:
     status = curl_status(url)
     if status == 0:
         return [], False
-    return check_page(url, curl(url), status, cfg), True
+    return check_page(url, curl(url), status, cfg, render_fetcher=render_fetcher), True
 
 
 def discover_urls(cfg: dict, url_args: list, limit: int | None = None) -> list:
@@ -296,9 +351,13 @@ def main() -> int:
     ap.add_argument("--with-logs", metavar="PATH",
                     help="parse a client-supplied access log (Apache/Nginx combined "
                          "or Cloudflare JSON) into crawl-budget findings")
+    ap.add_argument("--render-verify", action="store_true",
+                    help="run headless render verification on CSR shell candidates (opt-in; needs Playwright)")
     args = ap.parse_args()
 
     cfg = load_config(args.project)
+    if args.render_verify:
+        cfg["render_verify"] = True
     _warn_unmeasurable(cfg)
 
     urls, refused = urls_or_refuse(cfg, args.url, args.limit)

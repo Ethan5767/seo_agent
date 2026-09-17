@@ -809,30 +809,62 @@ p {
 /* ---- Audit run bar (components/dashboard/AuditHeroBar.tsx) ---- */
 .run-bar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3) var(--space-5);
+  flex-direction: column;
+  gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
 }
-.run-bar__what { flex: 1 1 320px; min-width: 0; }
 .run-bar__title { margin: 0; font-size: var(--text-md); font-weight: 600; color: var(--ink); }
-.run-bar__domain {
-  display: inline-flex;
+.run-bar__sub { margin: 2px 0 0; font-size: var(--text-xs); color: var(--ink-muted); }
+/* Input-style bar: domain field, page count and one button share one border. */
+.run-bar__input {
+  display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-top: 2px;
-  font-size: var(--text-sm);
-  color: var(--ink-body);
-  overflow-wrap: anywhere;
+  min-height: 44px;
+  padding: 4px 4px 4px var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
-.run-bar__domain b { font-weight: 600; }
-.run-bar__sub { margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--ink-muted); }
-.run-bar__controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
-.run-bar__pages { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--ink-muted); }
+.run-bar__input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.run-bar__domain {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-body);
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.run-bar__domain--empty { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 400; color: var(--ink-muted); }
+.run-bar__pages {
+  flex: none;
+  min-height: 34px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.run-bar__go { flex: none; min-height: 34px; }
+@media (max-width: 480px) {
+  .run-bar__input { flex-wrap: wrap; padding: var(--space-2); }
+  .run-bar__domain { flex-basis: 100%; padding: var(--space-1) var(--space-1) var(--space-2); }
+  .run-bar__pages { border-left: 0; }
+  .run-bar__go { margin-left: auto; }
+}
 
 .run-progress {
   margin-top: var(--space-3);
@@ -873,6 +905,9 @@ p {
 @keyframes runPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 /* ---- Site Audit tabs and overview (components/dashboard/MeasureScreen.tsx) ---- */
+.audit-tabs-row { display: flex; align-items: flex-end; gap: var(--space-3); border-bottom: 1px solid var(--border); }
+.audit-tabs-row .audit-tabs { flex: 1 1 auto; min-width: 0; border-bottom: 0; }
+.audit-tabs-row__plan { flex: none; margin-bottom: 6px; }
 .audit-tabs {
   display: flex;
   gap: var(--space-1);
@@ -1280,3 +1315,157 @@ select.form-field__input { padding-right: var(--space-2); }
   .onboard { padding: var(--space-6) var(--space-4); margin: 0 auto; }
   .onboard__title { font-size: var(--text-h3); }
 }
+
+/* ---- Plan: the report a plan is built from (components/dashboard/PlanSourceReport.tsx) ---- */
+.plan-src {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.plan-src--empty { max-width: 760px; }
+.plan-src__head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.plan-src__eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--accent); }
+.plan-src__title { margin: 2px 0 0; font-size: var(--text-md); font-weight: 600; color: var(--ink); }
+.plan-src__meta { margin: 2px 0 0; font-size: var(--text-sm); color: var(--ink-muted); }
+.plan-src__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.plan-src__head .plan-src__actions { margin-top: 0; }
+.plan-src__note { margin: var(--space-3) 0 0; max-width: 80ch; font-size: var(--text-sm); color: var(--ink-body); }
+.plan-src__body { margin-top: var(--space-4); }
+.plan-src__summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); cursor: pointer; }
+.plan-src__summary .plan-src__title { margin: 0; }
+.run-bar__speed {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding-left: var(--space-2); border-left: 1px solid var(--border);
+  font-size: var(--text-sm); color: var(--ink-muted); cursor: pointer; white-space: nowrap;
+}
+.run-bar__speed input { accent-color: var(--accent); cursor: pointer; }
+
+/* ---- Overall SEO Score (components/dashboard/OverallScoreCard.tsx) ----
+   Pillar identity uses the system's own validated categorical order
+   (--chart-1..4, DESIGN.md §14): slots 3-4 sit under 3:1 on light, so every
+   band is direct-labelled in the legend. No second palette lives here. */
+
+.ovr {
+  padding: 22px 24px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.ovr__head { margin-bottom: 18px; }
+.ovr__title { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; color: var(--ink); }
+.ovr__sub { margin: 3px 0 0; max-width: 78ch; font-size: 12.5px; line-height: 1.5; color: var(--ink-muted); }
+
+/* Hero: gauge on the left, the 100-point bar on the right, one baseline grid. */
+.ovr__hero {
+  display: grid; grid-template-columns: 208px minmax(0, 1fr); align-items: center;
+  gap: 32px; padding-bottom: 20px; border-bottom: 1px solid var(--border);
+}
+.ovr__gauge-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.ovr__gauge { width: 190px; height: 106px; }
+.ovr__gauge-track { fill: none; stroke: var(--surface-3); stroke-width: 9; stroke-linecap: round; }
+.ovr__gauge-fill { fill: none; stroke-width: 9; stroke-linecap: round; transition: stroke-dasharray .6s var(--ease); }
+.ovr__gauge-num { font-size: 42px; font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; fill: var(--ink); }
+.ovr__gauge-of { font-size: 10.5px; letter-spacing: .04em; fill: var(--ink-muted); }
+.ovr__gauge-empty { font-size: 13px; font-weight: 600; fill: var(--ink-muted); }
+.ovr__badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 11px; border-radius: var(--radius-full);
+  font-size: 11.5px; font-weight: 650; white-space: nowrap;
+}
+
+.ovr__lede { margin: 0 0 14px; font-size: 13px; line-height: 1.55; color: var(--ink-muted); max-width: 68ch; }
+.ovr__lede b { color: var(--ink); font-weight: 650; }
+
+/* One 100-point bar. Band width = weight, solid fill = points earned, 2px gaps. */
+.ovr__bar { display: flex; gap: 2px; }
+.ovr__band { min-width: 0; }
+/* The shortfall is a tint of the pillar's own hue. `opacity` here would fade the
+   fill inside it too, which is why the bar rendered empty. */
+.ovr__band-track {
+  height: 14px; border-radius: 3px; overflow: hidden;
+  background: color-mix(in srgb, currentColor 15%, var(--surface));
+}
+.ovr__band-fill { display: block; height: 100%; border-radius: 3px; background: currentColor; }
+.ovr__band-track { position: relative; }
+.ovr__band-target {
+  position: absolute; top: -2px; bottom: -2px; left: 80%;
+  width: 2px; border-radius: 1px; background: var(--ink); opacity: .32;
+}
+.ovr__legend-item--key { color: var(--ink-muted); }
+.ovr__target-key { width: 2px; height: 11px; border-radius: 1px; background: var(--ink); opacity: .32; transform: translateY(1px); }
+.ovr__legend { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 12px 0 0; padding: 0; list-style: none; }
+.ovr__legend-item { display: inline-flex; align-items: baseline; gap: 7px; font-size: 12px; }
+.ovr__swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; transform: translateY(1px); }
+.ovr__legend-name { color: var(--ink-muted); }
+.ovr__legend-val { color: var(--ink); font-weight: 650; font-variant-numeric: tabular-nums; }
+.ovr__legend-max { color: var(--ink-faint, var(--ink-muted)); font-weight: 400; }
+
+/* Pillar cards: identity on the top edge, number in ink, status as one line. */
+.ovr__pillars { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 20px; }
+.ovr__pillar {
+  padding: 13px 15px 14px; border: 1px solid var(--border); border-top: 2px solid currentColor;
+  border-radius: var(--radius-sm); background: var(--surface);
+}
+.ovr__pillar-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ovr__pillar-title { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.ovr__pillar-weight { font-size: 11px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.ovr__pillar-score {
+  margin-top: 7px; font-size: 28px; font-weight: 750; line-height: 1;
+  letter-spacing: -0.02em; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.ovr__pillar-outof { margin-left: 2px; font-size: 12px; font-weight: 500; color: var(--ink-muted); letter-spacing: 0; }
+.ovr__pillar-score[data-empty] { font-size: 13px; font-weight: 600; color: var(--ink-muted); letter-spacing: 0; padding: 7px 0 3px; }
+.ovr__pillar-foot { display: flex; align-items: center; gap: 5px; margin-top: 8px; font-size: 11.5px; font-weight: 600; }
+.ovr__pillar-run { margin-top: 9px; text-align: left; font-size: 11.5px; }
+
+.ovr__why { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.ovr__why > .link { font-size: 12.5px; }
+.ovr__table { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 12.5px; }
+.ovr__caption { margin-bottom: 10px; font-size: 12px; color: var(--ink-muted); text-align: left; }
+.ovr__table th {
+  padding: 7px 10px; border-bottom: 1px solid var(--border-strong); text-align: left;
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); font-weight: 650;
+}
+.ovr__table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ovr__check { color: var(--ink); }
+.ovr__code { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--ink-muted); }
+.ovr__muted { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 720px) {
+  .ovr__hero { grid-template-columns: 1fr; gap: 20px; }
+  .ovr__gauge-wrap { align-items: flex-start; }
+}
+
+/* ---- Live site watch (components/dashboard/LiveMonitor.tsx) ---- */
+.live { padding: 20px 22px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.live__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.live__state { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.live__dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--ink-faint, var(--ink-muted)); flex: none; }
+.live__dot--on { background: var(--ok); animation: runPulse 1.8s var(--ease) infinite; }
+.live__label { font-size: 13px; font-weight: 600; color: var(--ink); }
+.live__domain { font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--ink-muted); }
+.live__actions { display: inline-flex; align-items: center; gap: 12px; }
+.live__error { margin: 12px 0 0; padding: 9px 12px; background: var(--warn-tint); border-radius: var(--radius-sm); font-size: 12.5px; color: var(--ink-body); }
+.live__summary { margin: 14px 0 0; font-size: 13.5px; color: var(--ink-muted); }
+.live__summary b { color: var(--ink); }
+.live__table-wrap { margin-top: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.live__table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.live__table th { padding: 9px 12px; border-bottom: 1px solid var(--border-strong); text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); font-weight: 650; white-space: nowrap; }
+.live__table td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--ink-body); }
+.live__table tr:last-child td { border-bottom: 0; }
+.live__check { font-weight: 600; color: var(--ink); }
+.live__code { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--ink-muted); }
+.live__pages { margin-top: 5px; }
+.live__pages summary { cursor: pointer; font-size: 12px; color: var(--ink-muted); }
+.live__pages ul { margin: 6px 0 0; padding-left: 18px; font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--ink-muted); }
+
+/* ---- Charted panels (Search performance, Monitor) ----
+   One flex row per band: cards grow to fill, so a row never ends in a dead
+   column. Same contract as .chart-card--1/2/3 above. */
+.chart-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--space-4); }
+.metric-row { display: flex; flex-wrap: wrap; gap: var(--space-5) var(--space-8); }
+.metric-row > * { flex: 1 1 140px; min-width: 0; }

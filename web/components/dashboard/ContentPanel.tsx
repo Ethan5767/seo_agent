@@ -332,7 +332,7 @@ export function ContentPanel({ toolId, domain, business, keywords, findings, que
             cursor: busy || missing.length > 0 ? "not-allowed" : "pointer",
           }}
         >
-          {busy ? "Writing…" : "Write draft"}
+          {busy ? "Generating ideas…" : tool.id === "topics" ? "Generate ideas" : "Generate draft"}
         </button>
       </form>
 

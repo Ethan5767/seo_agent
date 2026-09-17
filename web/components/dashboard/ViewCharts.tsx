@@ -2,7 +2,7 @@
 
 import React from "react";
 import { ChartCard, Metric, Gauge, Donut, DistributionBars, Empty } from "@/components/dashboard/Charts";
-import { chartKind, keywordCharts, compareCharts, backlinkGapCharts, findingCharts, type ChartRow } from "@/lib/viewCharts";
+import { chartKind, keywordCharts, keywordGapCharts, compareCharts, backlinkGapCharts, findingCharts, type ChartRow } from "@/lib/viewCharts";
 import { backlinks as backlinkMetrics, lighthouse } from "@/lib/dashboardMetrics";
 
 /**
@@ -56,6 +56,27 @@ export function ViewCharts({ viewId, label, rows, report }: { viewId: string; la
         {k.intent.length > 0 && (
           <ChartCard title="Search intent">
             <Donut segments={k.intent.map((s, i) => ({ ...s, color: PALETTE[i % PALETTE.length] }))} center={<b style={{ color: "var(--ink)" }}>{k.intent.reduce((a, b) => a + b.value, 0)}</b>} />
+          </ChartCard>
+        )}
+      </div>
+    );
+  }
+
+  if (kind === "keyword-gap") {
+    const g = keywordGapCharts(measured);
+    return (
+      <div style={grid}>
+        <ChartCard title="Summary">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
+            <Metric label="Gap keywords" value={fmt(g.total)} />
+            <Metric label="Openings" value={fmt(g.openings)} tone="var(--warn)" sub="they rank, you do not" />
+            <Metric label="You're behind" value={fmt(g.losing)} tone="var(--bad)" sub="both rank, they win" />
+            <Metric label="You hold" value={fmt(g.beating)} tone="var(--ok)" sub="level or ahead" />
+          </div>
+        </ChartCard>
+        {g.quadrants.length > 0 && (
+          <ChartCard title="Gap by quadrant" subtitle="Untapped and Missing are the openings">
+            <DistributionBars items={g.quadrants} color="var(--chart-1)" empty="No gap classified." />
           </ChartCard>
         )}
       </div>

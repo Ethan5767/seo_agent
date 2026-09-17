@@ -8,10 +8,10 @@ GOOD = (
     '<link rel="icon" href="/favicon.ico">'
     '<script type="application/ld+json">{"@type":"LocalBusiness"}</script>'
     "</head><body><main><h1>Real content</h1>"
-    + "<p>" + ("word " * 300) + "</p></main></body></html>"
+    + "<p>" + ("word " * 300) + "</p><a href='/a'>A</a></main></body></html>"
 )
 
-BARE = "<html><head></head><body><div id='root'></div></body></html>"
+BARE = "<html><head><script src='/app.js'></script></head><body><div id='root'></div></body></html>"
 
 
 def test_good_page_passes_the_technical_checks():
@@ -27,7 +27,67 @@ def test_bare_shell_flags_csr_and_missing_tags():
     assert by["HTTPS"]["severity"] == "error"            # http, not https
     assert by["Mobile viewport"]["severity"] == "error"  # no viewport
     assert by["Rendering (crawler-visible content)"]["severity"] == "error"  # empty shell
+    assert by["Rendering (crawler-visible content)"]["detail"] == "likely CSR shell — heuristic"
     assert by["XML sitemap"]["severity"] == "warn"       # no sitemap
+
+
+def test_tier_b_psi_doc_detects_measured_content_gap():
+    # Raw HTML has 1 link and minimal text, but PSI rendered 50 elements and 10 links
+    raw_html = '<html><head></head><body><div id="root"><p>Loading...</p></div></body></html>'
+    psi_doc = {
+        "lighthouseResult": {
+            "audits": {
+                "dom-size-insight": {"numericValue": 65},
+                "link-text": {"details": {"items": [{"href": f"/p{i}", "text": f"Link {i}"} for i in range(8)]}},
+            }
+        }
+    }
+    rows = tech_rows("https://x.com/", raw_html, 200, None, psi_doc=psi_doc)
+    by = {r["what"]: r for r in rows}
+    render_row = by["Rendering (crawler-visible content)"]
+    assert render_row["severity"] == "error"
+    assert render_row["detail"] == "confirmed content gap — measured"
+
+
+def test_tier_b_requires_more_than_half_the_rendered_links_to_be_added_by_js():
+    raw_html = '<html><body><a href="/a">A</a><a href="/b">B</a></body></html>'
+    psi_doc = {"lighthouseResult": {"audits": {
+        "dom-size-insight": {"numericValue": 20},
+        "link-text": {"details": {"items": [{"href": f"/{n}"} for n in range(4)]}},
+    }}}
+    row = next(r for r in tech_rows("https://x.com/", raw_html, 200, None, psi_doc=psi_doc)
+               if r["what"] == "Rendering (crawler-visible content)")
+    assert row["severity"] == "ok"
+
+
+def test_empty_shell_without_javascript_is_not_called_csr():
+    rows = tech_rows("https://x.com/", "<html><body><div id='root'></div></body></html>", 200, None)
+    row = next(r for r in rows if r["what"] == "Rendering (crawler-visible content)")
+    assert row["severity"] == "ok"
+
+
+def test_missing_psi_link_evidence_falls_back_to_the_heuristic_tier():
+    html = '<html><head><script src="/app.js"></script></head><body><div id="app"></div></body></html>'
+    psi_doc = {"lighthouseResult": {"audits": {"dom-size-insight": {"numericValue": 40}}}}
+    row = next(r for r in tech_rows("https://x.com/", html, 200, None, psi_doc=psi_doc)
+               if r["what"] == "Rendering (crawler-visible content)")
+    assert row["detail"] == "likely CSR shell — heuristic"
+
+
+def test_tier_b_psi_doc_passes_when_content_in_raw_html():
+    psi_doc = {
+        "lighthouseResult": {
+            "audits": {
+                "dom-size-insight": {"numericValue": 25},
+                "link-text": {"details": {"items": [{"href": "/a", "text": "A"}]}},
+            }
+        }
+    }
+    rows = tech_rows("https://x.com/", GOOD, 200, "<urlset><loc>https://x.com/</loc></urlset>", psi_doc=psi_doc)
+    by = {r["what"]: r for r in rows}
+    render_row = by["Rendering (crawler-visible content)"]
+    assert render_row["severity"] == "ok"
+    assert "303 words" in render_row["detail"]
 
 
 def test_visible_text_ratio_detects_empty_shell():

@@ -19,6 +19,9 @@ dependencies = [
 test = [
     "pytest>=8.0",
 ]
+render = [
+    "playwright>=1.40.0",
+]
 
 [project.scripts]
 # ── gates (build-time quality suite) ─────────────────────────────────────────
@@ -113,6 +116,9 @@ pythonpath = ["."]
 # red the whole time.
 addopts = "-ra --strict-markers"
 python_files = ["test_*.py"]
+markers = [
+    "integration: integration tests requiring external dependencies/network",
+]
 
 [tool.setuptools.packages.find]
 include = ["pipeline*"]

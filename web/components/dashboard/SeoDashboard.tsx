@@ -6,9 +6,10 @@ import {
 } from "@/components/dashboard/Charts";
 import {
   healthTrend, issueHistory, rankedKeywords, positionDistribution, organic, backlinks, lighthouse, aiSearch,
-  type Report, type ScanLike,
+  type Report, type ScanLike, type RankedKeyword,
 } from "@/lib/dashboardMetrics";
 import { ScoreWhy, IssuesTable, PagesTable } from "@/components/dashboard/AuditResults";
+import { SourceBadge } from "@/components/dashboard/SourceBadge";
 import { crawledPages, rankedIssues } from "@/lib/auditBreakdown";
 
 /**
@@ -71,7 +72,7 @@ function Panel({
 }
 
 export function SeoDashboard({
-  report, scans, domain, onOpen, onRun,
+  report, scans, domain, onOpen, onRun, gscKeywords,
 }: {
   report: Report;
   scans: ScanLike[] | null | undefined;
@@ -79,8 +80,15 @@ export function SeoDashboard({
   onOpen: (target: DashboardTarget) => void;
   /** Runs the on-page audit, for the empty states. */
   onRun?: () => void;
+  /** Ranked keywords from Google Search Console, preferred over the paid
+   *  DataForSEO rows when present (free, real, first-party). Empty/undefined
+   *  falls back to the scan's `dfs.ranked_keyword` rows. */
+  gscKeywords?: RankedKeyword[];
 }) {
-  const keywords = rankedKeywords(report);
+  // Prefer Google Search Console when it gave us keywords; else the scan's
+  // DataForSEO ranked-keyword rows. Provenance is shown on the panel.
+  const usingGsc = Boolean(gscKeywords && gscKeywords.length > 0);
+  const keywords = usingGsc ? (gscKeywords as RankedKeyword[]) : rankedKeywords(report);
   const dist = positionDistribution(keywords);
   const org = organic(report);
   const links = backlinks(report);
@@ -150,6 +158,14 @@ export function SeoDashboard({
           subtitle={keywords.length ? `Best ${shown} of ${keywords.length}, by position` : undefined}
           action={keywords.length ? { label: "All rankings", onClick: () => onOpen("organic-rankings") } : undefined}
         >
+          {keywords.length ? (
+            <div style={{ marginBottom: 10 }}>
+              <SourceBadge
+                label={usingGsc ? "Google Search Console" : "DataForSEO"}
+                kind={usingGsc ? "google" : "paid"}
+              />
+            </div>
+          ) : null}
           {keywords.length ? (
             <table className="seo-table">
               <thead>

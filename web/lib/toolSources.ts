@@ -79,12 +79,16 @@ export const TOOL_SOURCES: Record<string, ToolSources> = {
   },
   technical: {
     dataforseo: { tools: ["site"], codes: op(DFS_FLAGS.technical) },
-    ours: ours("technical", ["tech", "schema", "validate"]),
+    ours: ours("technical", ["tech", "headers", "schema", "validate", "render", "media", "security", "url", "index_reality", "logs", "migration"]),
   },
   "position-tracking": { dataforseo: dfs("position-tracking", ["rank_trend"]), ours: { disabled: GSC_NOT_YET } },
+  "live-monitor": {
+    dataforseo: { disabled: "The monitor reads the live site directly, which costs nothing." },
+    ours: ours("live-monitor", ["monitor"]),
+  },
   "core-web-vitals": {
     dataforseo: { disabled: "DataForSEO has no real-user field data. Google's CrUX and Lighthouse are the source, and free." },
-    ours: ours("core-web-vitals", ["perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp"]),
+    ours: ours("core-web-vitals", ["perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp", "lh_pages"]),
   },
   // ── Competitive ──
   "domain-overview": { dataforseo: dfs("domain-overview", ["rankings"]), ours: { disabled: GSC_NOT_YET } },
@@ -128,7 +132,8 @@ type CatalogLike = { key: string; available?: boolean; unavailable_reason?: stri
 /**
  * Why a source cannot be picked right now, or "" when it can. Static reasons
  * come from the table; a live one (no DataForSEO credentials, paused spend)
- * comes from the scanner catalog, so the dropdown and the scan agree.
+ * comes from the scanner catalog, so the dropdown and the scan agree. While
+ * the catalog is loading, the scan endpoint remains the availability check.
  */
 export function sourceBlocker(
   viewId: string, source: SourceId, catalog: CatalogLike[] | null | undefined,
@@ -136,12 +141,6 @@ export function sourceBlocker(
   const opt = TOOL_SOURCES[viewId]?.[source];
   if (!opt) return "Not configured for this page.";
   if (!isEnabled(opt)) return opt.disabled;
-  // No catalog means availability is unknown (scanner down, or /api/tools not
-  // answered yet). Assuming DataForSEO was up filtered saved reports down to
-  // dfs.op.* rows and hid every free row behind "No data here yet".
-  if (source === "dataforseo" && !(catalog && catalog.length)) {
-    return "Tool list not loaded, so DataForSEO availability is unknown. Is wf-scan-web running?";
-  }
   const down = (catalog ?? []).filter((t) => opt.tools.includes(t.key) && t.available === false);
   return down.length ? down[0].unavailable_reason || "Unavailable right now." : "";
 }

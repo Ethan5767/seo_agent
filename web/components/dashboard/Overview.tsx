@@ -7,6 +7,7 @@ import { ProjectJourney } from "./ProjectJourney";
 import { PriorityActions } from "./PriorityActions";
 import { derivePriorities } from "../../lib/priorities";
 import { AuditHeroBar } from "./AuditHeroBar";
+import { OverallScoreCard } from "./OverallScoreCard";
 
 interface OverviewProps {
   onNavigate: (tab: ReaiTab, subTab?: NavSubTab) => void;
@@ -28,7 +29,7 @@ interface OverviewProps {
 export function Overview({
   onNavigate,
   onSelectPriorityAction,
-  domain = "example.com",
+  domain = "",
   hasGsc = false,
   onRunAudit,
   isScanning = false,
@@ -41,6 +42,10 @@ export function Overview({
   remediations = null,
 }: OverviewProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const rows = Object.values(report || {}).flatMap((v) => Array.isArray(v) ? v as any[] : []);
+  const health = typeof report?.score === "number" ? report.score : null;
+  const errors = rows.filter((r: any) => r?.severity === "error").length;
+  const aeoRows = rows.filter((r: any) => String(r?.code || "").startsWith("aeo."));
 
   return (
     <div style={{ maxWidth: "100%", paddingBottom: 40 }}>
@@ -75,7 +80,20 @@ export function Overview({
         />
       </div>
 
-      {/* 3. PRODUCT PRINCIPLE CALLOUT */}
+      {/* 3. OVERALL SEO SCORE — four pillars, weighted, with its own breakdown. */}
+      <div style={{ marginBottom: 20 }}>
+        <OverallScoreCard
+          report={report}
+          onRunPillar={(key) => {
+            if (key === "technical") onNavigate("Site Health & Audit");
+            else if (key === "content") onNavigate("On-Page SEO", "Content");
+            else if (key === "backlinks") onNavigate("Backlink Audit");
+            else onNavigate("AI & AEO Lab");
+          }}
+        />
+      </div>
+
+      {/* 4. PRODUCT PRINCIPLE CALLOUT */}
       <div
         style={{
           background: "var(--ok-tint)",
@@ -135,13 +153,13 @@ export function Overview({
                   border: "1px solid var(--border)",
                 }}
               >
-                Demo data
+                {health === null ? "Not measured" : "Measured"}
               </span>
             </div>
 
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "14px 0" }}>
               <div style={{ fontSize: 36, fontWeight: 800, color: "var(--ok)", lineHeight: 1 }}>
-                88
+                {health === null ? "—" : health}
               </div>
               <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>
                 / 100 Health Score
@@ -151,11 +169,11 @@ export function Overview({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
               <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Critical Issues: </span>
-                <strong style={{ color: "var(--bad)" }}>2</strong>
+                <strong style={{ color: "var(--bad)" }}>{health === null ? "—" : errors}</strong>
               </div>
               <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Ranked Keywords: </span>
-                <strong style={{ color: "var(--ink)" }}>428</strong>
+                <strong style={{ color: "var(--ink)" }}>—</strong>
               </div>
             </div>
           </div>
@@ -220,7 +238,7 @@ export function Overview({
 
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "14px 0" }}>
               <div style={{ fontSize: 36, fontWeight: 800, color: "var(--accent)", lineHeight: 1 }}>
-                74%
+                {aeoRows.length ? `${Math.round((aeoRows.filter((r: any) => r.severity === "ok").length / aeoRows.length) * 100)}%` : "—"}
               </div>
               <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>
                 AI Answer Readiness
@@ -230,11 +248,11 @@ export function Overview({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
               <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>AI Crawlers: </span>
-                <strong style={{ color: "var(--ok)" }}>Allowed</strong>
+                <strong style={{ color: "var(--ink-muted)" }}>Not measured</strong>
               </div>
               <div style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 6 }}>
                 <span style={{ color: "var(--ink-muted)" }}>Schema Clarity: </span>
-                <strong style={{ color: "var(--warn)" }}>Needs Review</strong>
+                <strong style={{ color: "var(--ink-muted)" }}>Not measured</strong>
               </div>
             </div>
           </div>
@@ -326,23 +344,23 @@ export function Overview({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, fontSize: 12.5 }}>
             <div style={{ background: "var(--surface-2)", padding: 14, borderRadius: 6 }}>
               <div style={{ fontWeight: 600, color: "var(--ink-body)", marginBottom: 6 }}>Core Web Vitals (CrUX)</div>
-              <div style={{ color: "var(--ink-muted)" }}>Largest Contentful Paint (LCP): <strong style={{ color: "var(--warn)" }}>2.9s (Needs Work)</strong></div>
-              <div style={{ color: "var(--ink-muted)" }}>Interaction to Next Paint (INP): <strong style={{ color: "var(--ok)" }}>140ms (Good)</strong></div>
-              <div style={{ color: "var(--ink-muted)" }}>Cumulative Layout Shift (CLS): <strong style={{ color: "var(--ok)" }}>0.04 (Good)</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>Largest Contentful Paint (LCP): <strong>Not measured</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>Interaction to Next Paint (INP): <strong>Not measured</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>Cumulative Layout Shift (CLS): <strong>Not measured</strong></div>
             </div>
 
             <div style={{ background: "var(--surface-2)", padding: 14, borderRadius: 6 }}>
               <div style={{ fontWeight: 600, color: "var(--ink-body)", marginBottom: 6 }}>Crawl Diagnostic Summary</div>
-              <div style={{ color: "var(--ink-muted)" }}>Robots.txt: <strong style={{ color: "var(--ok)" }}>Valid & Crawlable</strong></div>
-              <div style={{ color: "var(--ink-muted)" }}>XML Sitemap: <strong style={{ color: "var(--ok)" }}>Indexed (142 URLs)</strong></div>
-              <div style={{ color: "var(--ink-muted)" }}>Canonical Tags: <strong style={{ color: "var(--ok)" }}>98% Consistent</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>Robots.txt: <strong>Not measured</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>XML Sitemap: <strong>Not measured</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>Canonical Tags: <strong>Not measured</strong></div>
             </div>
 
             <div style={{ background: "var(--surface-2)", padding: 14, borderRadius: 6 }}>
               <div style={{ fontWeight: 600, color: "var(--ink-body)", marginBottom: 6 }}>AI Crawler Status</div>
-              <div style={{ color: "var(--ink-muted)" }}>GPTBot: <strong style={{ color: "var(--ok)" }}>Allowed</strong></div>
-              <div style={{ color: "var(--ink-muted)" }}>ClaudeBot: <strong style={{ color: "var(--ok)" }}>Allowed</strong></div>
-              <div style={{ color: "var(--ink-muted)" }}>PerplexityBot: <strong style={{ color: "var(--ok)" }}>Allowed</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>GPTBot: <strong>Not measured</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>ClaudeBot: <strong>Not measured</strong></div>
+              <div style={{ color: "var(--ink-muted)" }}>PerplexityBot: <strong>Not measured</strong></div>
             </div>
           </div>
         </div>

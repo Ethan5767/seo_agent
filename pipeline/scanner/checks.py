@@ -80,6 +80,11 @@ STATIC_CHECKS: dict[str, list[str]] = {
         "Over-optimization", "Nofollow usage", "Self-referential links", "Outbound links",
         "Image links",
     ],
+    "crawl_traps": ["Pagination traps", "Session-ID traps", "Faceted URL traps", "Calendar traps", "Path permutation growth"],
+    "crawl_depth": ["Click-depth distribution", "Orphan pages"],
+    "js_navigation": ["JS-only navigation"],
+    "parameters": ["URL parameter inventory", "Tracking parameters", "Functional parameters"],
+    "interstitial": ["Mobile interstitial candidates"],
     "perf": ["LCP (Largest Contentful Paint)", "INP (Interaction to Next Paint)", "CLS (Cumulative Layout Shift)"],
 }
 

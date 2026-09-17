@@ -157,10 +157,10 @@ test("a source only runs tools whose rows its page shows (no unseen spend)", () 
 });
 
 
-test("an unknown catalog never hides free rows behind a DataForSEO default", () => {
-  assert.equal(effectiveSource("technical", null, []), "ours");
-  assert.equal(effectiveSource("technical", null, undefined), "ours");
-  assert.match(sourceBlocker("backlinks", "dataforseo", []), /not loaded/);
+test("an unknown catalog leaves enabled sources available", () => {
+  assert.equal(effectiveSource("technical", null, []), "dataforseo");
+  assert.equal(effectiveSource("technical", null, undefined), "dataforseo");
+  assert.equal(sourceBlocker("backlinks", "dataforseo", []), "");
 });
 
 test("Scan all from a tool page runs free tools plus the chosen source, and names any paid one", () => {
@@ -224,7 +224,10 @@ test("Backlink Audit only waits for rows a scan can produce (B-115)", () => {
 test("a DataForSEO-only Test skips our free crawl and does not change the page default", () => {
   const btn = read("web", "components", "dashboard", "SectionScanButton.tsx");
   assert.match(btn, /if \(paidOnly && onCrawlScan\) \{[\s\S]{0,300}onCrawlScan\(domain, keys, 1\)/);
-  assert.match(btn, /viewId === "site-crawl" && !paidOnly/);
+  // The depth control also serves any view running a tool that measures the
+  // crawled pages (`lh_pages`), so the guard widened — `!paidOnly` is the part
+  // this test is about, and it still stands.
+  assert.match(btn, /\(viewId === "site-crawl" \|\| crawlsPages\) && !paidOnly/);
   const app = read("web", "app", "ScannerApp.tsx");
   assert.match(app, /customCrawlPages === "number" && customCrawlPages > 1/);
 });

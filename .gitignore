@@ -103,3 +103,4 @@ web/.next/
 # source of truth, including its docs/client-config.yml and tier. They must
 # never be committed into the engine repo.
 BothGG/
+vendor/

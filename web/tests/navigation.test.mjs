@@ -43,7 +43,6 @@ test("Navigation & UX: Sidebar contains the merged navigation groups", () => {
     "AI Visibility",
     "Fixes",
     "Workspace",
-    "All Tools Directory",
   ];
 
   for (const group of expectedGroups) {
@@ -72,7 +71,7 @@ function workspaceLabels() {
   const dashboardPath = path.join(webDir, "app", "ReaiDashboard.tsx");
   const content = fs.readFileSync(dashboardPath, "utf-8");
   const start = content.indexOf("Workspace (always present)");
-  const end = content.indexOf("All Tools Directory Pinned", start);
+  const end = content.indexOf("</aside>", start);
   assert.ok(start !== -1 && end !== -1, "Workspace footer not found");
   return [...content.slice(start, end).matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
 }
@@ -372,29 +371,14 @@ test("Privacy & Trust: Personal email address is absent across web codebase", ()
   scanDir(webDir);
 });
 
-test("Tools Directory: the catalog comes from the scanner, not a fixture", () => {
-  // `app/toolsCatalogData.ts` declared 160 tools in its header, held 148
-  // entries, and was transcribed from a document. No entry carried a key, a
-  // cost, or anything the scanner would recognise, so nothing in it could be
-  // run and nothing said which of the 23 real tools it corresponded to.
-  const fixture = path.join(webDir, "app", "toolsCatalogData.ts");
-  assert.ok(!fs.existsSync(fixture), "the fabricated tool catalog must not return");
-
-  const dashboard = fs.readFileSync(path.join(webDir, "app", "ReaiDashboard.tsx"), "utf-8");
+test("Tools Directory is not exposed as a web route", () => {
   assert.ok(
-    !dashboard.includes("ALL_PLATFORM_TOOLS"),
-    "the dashboard must not read the fabricated catalog"
-  );
-  assert.ok(
-    dashboard.includes("fetchTools"),
-    "the directory must read the scanner's own catalog via /api/tools"
+    !fs.existsSync(path.join(webDir, "app", "tools", "page.tsx")),
+    "the removed Tools Directory must not retain a routable page",
   );
 
-  // The real module exists and is the single source.
-  const lib = path.join(webDir, "lib", "toolCatalog.ts");
-  assert.ok(fs.existsSync(lib), "lib/toolCatalog.ts must exist");
-  const libSrc = fs.readFileSync(lib, "utf-8");
-  assert.ok(libSrc.includes("/api/tools"), "the catalog must be fetched from /api/tools");
+  const types = fs.readFileSync(path.join(webDir, "components", "dashboard", "types.ts"), "utf-8");
+  assert.ok(!types.includes('"/tools"'), "the removed route must not remain in shared navigation maps");
 });
 
 test("Local Business Manager: Comprehensive Google profile and maps management is present", () => {
@@ -445,8 +429,12 @@ test("Audit Hero Bar: one run bar for the on-page audit, and no results inside i
   assert.ok(!content.includes("Audit Any Website") && !/<input[^>]*inputUrl/.test(content), "no typed-URL audit box");
   assert.ok(content.includes("Run Audit"), "Run audit button must exist");
   assert.ok(content.includes("Auditing"), "Scanning progress state must exist");
-  // It runs the on-page audit's tools at a chosen depth, not every free tool.
-  assert.ok(/onRunAudit\(domain, \[\.\.\.ONPAGE_AUDIT_TOOLS\], depth\)/.test(content), "the bar must run ONPAGE_AUDIT_TOOLS");
+  // It runs the complete technical/on-page audit at a chosen depth, not every
+  // tool in the product (keywords, rankings, content, local, etc. stay scoped).
+  assert.ok(/onRunAudit\(domain, \[\.\.\.ONPAGE_AUDIT_TOOLS\], depth\)/.test(content),
+    "the bar must run every ONPAGE_AUDIT_TOOLS check");
+  assert.ok(!content.includes("speedCheck") && !content.includes("Speed"),
+    "the audit must not hide per-page Lighthouse behind a Speed toggle");
   assert.ok(content.includes("AUDIT_CRAWL_OPTIONS"), "pages to crawl must be chosen");
   // Results are the AuditResults blocks. The bar drew its own score and check
   // list, which made three health summaries on Site Audit.
@@ -514,4 +502,3 @@ test("AI Search Visibility (AEO): no fabricated AI answers about the client", ()
     "the presetPrompts fixture array must not return"
   );
 });
-

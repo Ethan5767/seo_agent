@@ -15,8 +15,7 @@ export type ReaiTab =
   | "On-Page SEO"
   | "SERP Optimizer"
   | "Local SEO & GBP"
-  | "AI & AEO Lab"
-  | "All Tools Directory";
+  | "AI & AEO Lab";
 
 export type NavSubTab =
   // SEO Foundations
@@ -59,7 +58,6 @@ export const TAB_ROUTES: Record<ReaiTab, string> = {
   "SERP Optimizer": "/serp-preview",
   "Local SEO & GBP": "/local-seo",
   "AI & AEO Lab": "/ai-aeo",
-  "All Tools Directory": "/tools",
 };
 
 export const ROUTE_TO_TAB: Record<string, ReaiTab> = {
@@ -91,7 +89,6 @@ export const ROUTE_TO_TAB: Record<string, ReaiTab> = {
   "/gbp": "Local SEO & GBP",
   "/ai-aeo": "AI & AEO Lab",
   "/aeo": "AI & AEO Lab",
-  "/tools": "All Tools Directory",
 };
 
 export type DataStatusBadge =

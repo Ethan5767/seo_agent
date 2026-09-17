@@ -18,8 +18,12 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from pipeline.scanner.rows import make_row
+from pipeline.lib.env import load_env
+
+load_env()
 
 PSI = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 CATEGORIES = [("performance", "Performance"), ("seo", "SEO"),
@@ -117,7 +121,13 @@ def psi_field_metrics(doc: dict) -> tuple:
 
 
 def _key() -> str:
-    return os.environ.get("PAGESPEED_API_KEY") or os.environ.get("CRUX_API_KEY") or ""
+    return (
+        os.environ.get("PAGESPEED_API_KEY")
+        or os.environ.get("PSI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("CRUX_API_KEY")
+        or ""
+    )
 
 
 def get_psi(ctx, call=None) -> tuple:
@@ -133,10 +143,107 @@ def get_psi(ctx, call=None) -> tuple:
 
 def category_tool(ctx, cat_key: str, label: str, call=None) -> tuple:
     """(rows, status, cost) — one Lighthouse category as a Measure tool. Cost $0."""
+    key = _key()
+    if not key and call is None:
+        row = _row(f"Lighthouse: {label}", "info",
+                   f"Google speed / Lighthouse API key not configured. Set PAGESPEED_API_KEY, PSI_API_KEY, or GOOGLE_API_KEY in .env.",
+                   "set PAGESPEED_API_KEY in .env",
+                   detail="not configured")
+        row["code"] = f"lh.{cat_key.replace('-', '_')}_disabled"
+        return [row], "skipped: no Google speed key set up yet", 0.0
     doc, err = get_psi(ctx, call)
     if err:
         return [], err, 0.0
     return category_rows(doc, cat_key, label), "ok (Google Lighthouse)", 0.0
+
+
+def page_scores(urls, limit: int | None = None, call=None, workers: int = 4) -> tuple:
+    """(rows, status) — Lighthouse Performance for each crawled page.
+
+    One PSI run only ever judged the audited URL, so a single "Performance 95"
+    stood for a whole site. Depth is the operator's call (10 / 25 / every
+    crawled page) because each page is one PSI round trip: free, but not
+    instant. Runs a few at a time; PSI is per-URL and has no batch form.
+
+    Pages PSI refused are listed as such, never folded in with the fast ones —
+    an unmeasured page must not read as a passing one.
+    """
+    targets = [u for u in (urls or [])][: limit if limit else None]
+    if not targets:
+        return [], "no pages: nothing was crawled to measure"
+    call = call or _psi_call
+    key = _key()
+
+    scored: list[tuple] = []          # (url, percent)
+    refused: list[tuple] = []         # (url, why)
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        for url, (doc, err) in zip(targets, pool.map(lambda u: call(u, key), targets)):
+            cat = (((doc or {}).get("lighthouseResult") or {}).get("categories") or {}).get("performance") or {}
+            score = cat.get("score")
+            if err or score is None:
+                refused.append((url, err or "PageSpeed Insights returned no Performance score"))
+            else:
+                scored.append((url, round(score * 100)))
+
+    rows: list[dict] = []
+    below50 = sorted([s for s in scored if s[1] < 50], key=lambda s: s[1])
+    below90 = sorted([s for s in scored if 50 <= s[1] < 90], key=lambda s: s[1])
+    if below50:
+        r = _row("Pages below 50", "error",
+                 "Google scores these pages' performance below 50 out of 100, the band Lighthouse calls poor.",
+                 "start with the slowest page listed here; templated pages usually share one cause",
+                 detail=f"{len(below50)} of {len(scored)} measured")
+        r["code"], r["pages"] = "lh.pages_below_50", [u for u, _ in below50]
+        rows.append(r)
+    if below90:
+        r = _row("Pages below 90", "warn",
+                 "Google scores these pages' performance between 50 and 89 out of 100 — short of the good band.",
+                 "raise the slowest of these; the fixes are usually shared across a template",
+                 detail=f"{len(below90)} of {len(scored)} measured")
+        r["code"], r["pages"] = "lh.pages_below_90", [u for u, _ in below90]
+        rows.append(r)
+    if refused:
+        r = _row("Pages not measured", "info",
+                 "PageSpeed Insights did not return a Performance score for these pages, so their speed is unknown.",
+                 "re-run the depth, or check the pages are publicly reachable",
+                 detail=f"{len(refused)} page(s): {refused[0][1]}")
+        r["code"], r["pages"] = "lh.pages_not_measured", [u for u, _ in refused]
+        rows.append(r)
+
+    if scored:
+        worst = min(scored, key=lambda s: s[1])
+        best = max(scored, key=lambda s: s[1])
+        median = sorted(p for _, p in scored)[len(scored) // 2]
+        good = len(scored) - len(below50) - len(below90)
+        r = _row("Pages measured", "ok" if good == len(scored) else "info",
+                 f"Lighthouse Performance across {len(scored)} page(s): median {median}/100, "
+                 f"worst {worst[1]}/100 ({worst[0]}), best {best[1]}/100.",
+                 "keep it up" if good == len(scored) else "work down the pages listed above",
+                 detail=f"{len(scored)} page(s) measured, {good} in the good band")
+        r["code"] = "lh.pages_measured"
+        rows.append(r)
+
+    measured_note = f"{len(scored)} page(s)"
+    if refused:
+        measured_note += f", {len(refused)} refused"
+    return rows, f"ok (Google Lighthouse, {measured_note})"
+
+
+def pages_tool(ctx, call=None) -> tuple:
+    """(rows, status, cost) — Lighthouse Performance across the crawled pages.
+
+    Measures every page the crawl reached; `lighthouse_pages` in the scan
+    request caps that when fewer round trips are wanted. With no multi-page
+    crawl there is one page — what a single PSI run always did. Free either
+    way; each page is one round trip, so depth is time.
+    """
+    urls = list(getattr(ctx, "crawled_urls", None) or [ctx.url])
+    # Depth defaults to every page the crawl reached — the tool is named for the
+    # site, not this page — and `lighthouse_pages` caps it when an operator wants
+    # fewer round trips than the crawl went deep.
+    depth = int(getattr(ctx, "lighthouse_pages", 0) or 0)
+    rows, status = page_scores(urls, limit=depth if depth > 0 else None, call=call)
+    return rows, status, 0.0
 
 
 def _psi_call(url: str, key: str) -> tuple:

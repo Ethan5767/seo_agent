@@ -90,8 +90,11 @@ const { GATE_ROSTER, MERGE_POLICY, AUTOMERGE_DEFAULT_ENABLED, blockedReason } =
   await import("../lib/pipelineStages.ts");
 
 test("the pipeline covers each stage once, in run order", () => {
-  assert.deepEqual(PIPELINE_STAGES.map((s) => s.id), ["plan", "fix", "gate"]);
-  assert.deepEqual(PIPELINE_STAGES.map((s) => s.step), [1, 2, 3]);
+  // Monitor is stage 4 because it is the only one that runs AFTER the merge:
+  // the pipeline is PR-terminal, and what happens to the live site afterwards
+  // was watched by nothing the product could show.
+  assert.deepEqual(PIPELINE_STAGES.map((s) => s.id), ["plan", "fix", "gate", "monitor"]);
+  assert.deepEqual(PIPELINE_STAGES.map((s) => s.step), [1, 2, 3, 4]);
 });
 
 test("merging is reachable from the gate screen, not hidden behind another click", () => {
@@ -154,4 +157,54 @@ test("blockedReason names why an item is not actionable", () => {
   assert.match(blockedReason({ action: "fix", tier_blocked: true }), /tier/);
   assert.match(blockedReason({ action: "fix", human_edit: true }), /human/);
   assert.match(blockedReason({}), /no automated fix/);
+});
+
+test("planView reads the web plan's shape: resolved counted, tier from inScope", async () => {
+  // /api/plan returns web rows ({code, what, fix, status, inScope, ...}) and a
+  // separate `resolved` array. The Plan screen read only engine fields
+  // (action / tier_blocked / location), so every row said "no automated fix
+  // mapped", the page column was "—", and Resolved was always 0.
+  const { planView } = await import("../lib/pipelineStages.ts");
+  assert.equal(planView(null), null, "never planned is not an empty plan");
+  const v = planView({
+    worklist: [
+      { code: "title.dup", what: "Duplicate titles", fix: "Unique titles", status: "NEW", inScope: true, priority: 1, impact: "High Impact", tierLabel: "T1: Copy Only", severity: "warn" },
+      { code: "schema.none", what: "No structured data", status: "PERSISTING", inScope: false, priority: 2, tierLabel: "T3: Full Scope", severity: "error" },
+    ],
+    resolved: [{ code: "h1.missing", status: "RESOLVED" }],
+  });
+  assert.deepEqual(v.lanes, { NEW: 1, PERSISTING: 1, REGRESSION: 0, RESOLVED: 1 });
+  assert.equal(v.total, 2);
+  assert.equal(v.inTier, 1);
+  assert.equal(v.items[0].reason, null, "in tier: nothing blocks it");
+  assert.match(v.items[1].reason, /tier/);
+  assert.equal(v.items[0].what, "Duplicate titles");
+});
+
+test("planView keeps the engine shape's reasons", async () => {
+  const { planView } = await import("../lib/pipelineStages.ts");
+  const v = planView({ worklist: [{ code: "a", action: "fix", status: "NEW" }, { code: "b", status: "NEW", tier_blocked: false }] });
+  assert.equal(v.inTier, 1);
+  assert.match(v.items[1].reason, /no automated fix/);
+});
+
+test("planView of a plan that only resolved things still renders", async () => {
+  const { planView } = await import("../lib/pipelineStages.ts");
+  const v = planView({ worklist: [], resolved: [{ code: "x" }, { code: "y" }] });
+  assert.deepEqual(v.lanes, { NEW: 0, PERSISTING: 0, REGRESSION: 0, RESOLVED: 2 });
+  assert.equal(v.total, 0);
+});
+
+test("planView carries who classified the plan, so the screen can say", async () => {
+  // /api/plan asks Claude to classify each finding and falls back to keyword
+  // rules on ANY failure — no CLI, bad JSON, non-zero exit, a 90s timeout. The
+  // two plans looked identical on screen, so "did it reach Claude?" could only
+  // be answered by reading the server's source. The response has always said;
+  // nothing read it.
+  const { planView } = await import("../lib/pipelineStages.ts");
+  const rows = { worklist: [{ code: "a", status: "NEW", inScope: true }] };
+  assert.equal(planView({ ...rows, classifiedBy: "claude" }).classifiedBy, "claude");
+  assert.equal(planView({ ...rows, classifiedBy: "heuristic" }).classifiedBy, "heuristic");
+  // An older plan, saved before the field existed, must not claim either.
+  assert.equal(planView(rows).classifiedBy, null);
 });

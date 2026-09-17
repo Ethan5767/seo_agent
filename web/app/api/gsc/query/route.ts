@@ -42,31 +42,118 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "siteUrl must be a `sc-domain:` property or an http(s) URL." }, { status: 400 });
     }
 
-    const days = Number.isFinite(body?.days) ? Math.min(Math.max(Math.trunc(body.days), 1), 480) : 28;
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    let startDate: string;
+    let endDate: string;
+
+    if (typeof body?.startDate === "string" && dateRegex.test(body.startDate) &&
+        typeof body?.endDate === "string" && dateRegex.test(body.endDate)) {
+      startDate = body.startDate;
+      endDate = body.endDate;
+    } else {
+      const days = Number.isFinite(body?.days) ? Math.min(Math.max(Math.trunc(body.days), 1), 480) : 28;
+      endDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      startDate = new Date(Date.now() - (days + 2) * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    }
+
     const rowLimit = Number.isFinite(body?.rowLimit) ? Math.min(Math.max(Math.trunc(body.rowLimit), 1), 25000) : 50;
 
-    const endDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const startDate = new Date(Date.now() - (days + 2) * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const allowedDimensions = new Set(["query", "page", "country", "device", "searchAppearance", "date"]);
+    const dimensions = Array.isArray(body?.dimensions) && body.dimensions.length > 0
+      ? body.dimensions.filter((d: unknown): d is string => typeof d === "string" && allowedDimensions.has(d)).slice(0, 5)
+      : ["query"];
+
+    // Validate & sanitize dimensionFilterGroups
+    let dimensionFilterGroups: any[] | undefined = undefined;
+    if (Array.isArray(body?.dimensionFilterGroups)) {
+      const sanitized = body.dimensionFilterGroups
+        .filter((g: any) => g && Array.isArray(g.filters))
+        .map((g: any) => ({
+          groupType: g.groupType === "or" ? "or" : "and",
+          filters: g.filters
+            .filter((f: any) => f && typeof f.dimension === "string" && typeof f.expression === "string")
+            .map((f: any) => ({
+              dimension: f.dimension,
+              operator: ["equals", "notEquals", "contains", "notContains", "includingRegex", "excludingRegex"].includes(f.operator)
+                ? f.operator
+                : "contains",
+              expression: String(f.expression).slice(0, 500),
+            })),
+        }))
+        .filter((g: any) => g.filters.length > 0);
+
+      if (sanitized.length > 0) {
+        dimensionFilterGroups = sanitized;
+      }
+    }
+
+    const validSearchTypes = new Set(["web", "image", "video", "news", "discover", "googleNews"]);
+    const searchType = typeof body?.searchType === "string" && validSearchTypes.has(body.searchType)
+      ? body.searchType
+      : undefined;
 
     const endpoint = `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`;
 
-    const gscPayload = {
+    const primaryPayload: Record<string, any> = {
       startDate,
       endDate,
-      dimensions: Array.isArray(body?.dimensions) && body.dimensions.length > 0
-        ? body.dimensions.filter((d: unknown) => typeof d === "string").slice(0, 4)
-        : ["query"],
+      dimensions,
       rowLimit,
       aggregationType: "byProperty",
     };
+    if (dimensionFilterGroups) primaryPayload.dimensionFilterGroups = dimensionFilterGroups;
+    if (searchType) primaryPayload.type = searchType;
+
+    const headers = {
+      Authorization: `Bearer ${session.gscToken}`,
+      "Content-Type": "application/json",
+    };
+
+    const hasComparison =
+      typeof body?.compareStartDate === "string" && dateRegex.test(body.compareStartDate) &&
+      typeof body?.compareEndDate === "string" && dateRegex.test(body.compareEndDate);
+
+    if (hasComparison) {
+      const compPayload: Record<string, any> = {
+        ...primaryPayload,
+        startDate: body.compareStartDate,
+        endDate: body.compareEndDate,
+      };
+
+      const [primaryRes, compRes] = await Promise.all([
+        fetch(endpoint, { method: "POST", headers, body: JSON.stringify(primaryPayload) }),
+        fetch(endpoint, { method: "POST", headers, body: JSON.stringify(compPayload) }),
+      ]);
+
+      if (!primaryRes.ok) {
+        const message =
+          primaryRes.status === 401 ? "The Google connection expired. Reconnect Search Console."
+          : primaryRes.status === 403 ? "This Google account does not have access to that property."
+          : `Search Console returned HTTP ${primaryRes.status}.`;
+        return NextResponse.json({ error: message }, { status: primaryRes.status });
+      }
+
+      const primaryData = await primaryRes.json();
+      let comparisonRows: any[] = [];
+      if (compRes.ok) {
+        try {
+          const compData = await compRes.json();
+          comparisonRows = Array.isArray(compData?.rows) ? compData.rows : [];
+        } catch {
+          // Non-critical if comparison fails
+        }
+      }
+
+      return NextResponse.json({
+        ...primaryData,
+        comparisonRows,
+      });
+    }
 
     const res = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.gscToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(gscPayload),
+      headers,
+      body: JSON.stringify(primaryPayload),
     });
 
     if (!res.ok) {

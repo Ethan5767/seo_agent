@@ -29,6 +29,22 @@ export interface ReportRow {
   metrics?: Record<string, unknown>;
   /** The competitor domain a row belongs to, when a comparison tagged it. */
   competitor?: string;
+  /** Keyword-gap quadrant label (Missing/Weak/Shared/Untapped), for the gap view
+   *  column; the numeric positions/KD live in `metrics`. */
+  quadrant?: string;
+  /** The remediation playbook, attached to failing findings by the scanner
+   *  (`audit._row` -> `recommendations.playbook`). All optional: a finding with
+   *  no written playbook omits or empties them, and the renderer falls back to
+   *  the one-line why/fix. `plain`/`impact` are client-register; `steps`/
+   *  `snippet`/`verify`/`timeline`/`effort` are for whoever implements. */
+  plain?: string;
+  impact?: string;
+  effort?: string;
+  steps?: string[];
+  snippet?: string;
+  verify?: string;
+  timeline?: string;
+  optional?: boolean;
 }
 
 export interface ScanReport {

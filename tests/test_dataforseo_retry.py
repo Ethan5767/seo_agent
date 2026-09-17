@@ -7,6 +7,10 @@ from pipeline.scanner import dataforseo as d
 def _creds(monkeypatch):
     monkeypatch.setenv("DATAFORSEO_LOGIN", "x")
     monkeypatch.setenv("DATAFORSEO_PASSWORD", "y")
+    # Opt in to the live-call path so retry behaviour is exercised. The suite's
+    # autouse `_no_network` guard still blocks any real socket, so urlopen must
+    # be stubbed (as each test does) — this only lifts the spend gate.
+    monkeypatch.setenv("DATAFORSEO_PAUSE_SPEND", "0")
 
 
 class _Resp:

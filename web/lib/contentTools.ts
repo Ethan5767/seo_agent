@@ -402,7 +402,7 @@ which section targets it.`),
   },
   {
     id: "topics",
-    label: "Coverage Gaps",
+    label: "Content Ideas",
     evidence: { strength: "mixed", note:
       "New pages only pay where there is demand to meet. Ground the list in measured queries; a topic nobody searches for cannot rank, whatever it is written like." },
     blurb:

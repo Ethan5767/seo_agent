@@ -6,6 +6,353 @@ see `CLAUDE.md` (the sync contract).
 
 ## [Unreleased]
 
+### Added (Measure Stage: Scoped Headless-Render Triage for CSR Shell Candidates)
+
+- Added opt-in scoped headless rendering triage to `pipeline/audit/measure.py` backed by `pipeline/audit/render_verify.py` and an optional Playwright dependency (`requirements-render.txt` and `pyproject.toml [project.optional-dependencies] render`).
+- Gated behind `render_verify: true` in `docs/client-config.yml` (and `--render-verify` in `wf-site-health`). When disabled or omitted, the core engine remains stdlib-only and unaffected.
+- When the CSR heuristic fires on a page and `render_verify` is enabled:
+  - If Playwright is not installed, silently skips the browser launch and attaches a lower-confidence note (`render-verify unavailable — install requirements-render.txt for confirmation`) to the existing `health.csr_empty_shell` finding without failing the scan.
+  - If Playwright is available, executes a single Chromium headless render (`networkidle` or bounded wait), extracts hydrated visible text and JSON-LD blocks, diffs against raw HTML, and emits `health.csr_content_gap`.
+  - Severity is `error` if answer-first content (top-of-fold text) or JSON-LD entity types are present post-render but absent pre-render (invisible to non-JS AI search bots like GPTBot, ClaudeBot, PerplexityBot); `warn` otherwise.
+  - Finding detail reports `words: X -> Y, jsonld: A -> B`; `why` explains why CSR content is a leading indicator for AI answer engines.
+- Added comprehensive unit tests in `tests/test_render_verify.py` (8 passed, 1 skipped integration test). `pytest tests/test_render_verify.py tests/test_measure.py` -> 58 passed, 1 skipped.
+
+### Changed
+
+- Added three additional Site Audit tools without duplicating existing modules: `js_navigation` (real-anchor versus JavaScript navigation), `parameters` (observed URL parameter classification), and `interstitial` (static mobile overlay candidates). Combined with `crawl_traps` and `crawl_depth`, the Site Audit registry now contains 25 tools; these checks are owned, free, and emit `coverage.*` findings.
+
+- Added two new Site Audit tools backed by the existing crawl graph: `crawl_traps` (pagination, session, faceted, calendar, and path-permutation signals) and `crawl_depth` (click-depth distribution and sitemap-orphan pages). They are registered in the Site Audit run, emit normalized `crawl.*` findings, and require no paid API call. `pytest -q tests/test_scanner_crawl.py tests/test_scanner_server.py` -> 26 passed.
+
+- Added [`docs/SITE-AUDIT-ACCEPTANCE-CRITERIA.md`](docs/SITE-AUDIT-ACCEPTANCE-CRITERIA.md), the definition of done for the A–K Site Audit expansion. It separates core, connected-evidence, migration, and scheduled tools; requires explicit unavailable/unverified states; and specifies exact chart and regression-analysis outputs. No new A–K implementation is claimed by this entry.
+
+- Fixed the SEO Dashboard loading race: initial client/history fetches now use
+  the page skeleton until the selected project's report resolves, so real and
+  DEMO projects no longer flash as "Not measured" before their saved data loads.
+
+- Removed fabricated preview reports, gauge score defaults, placeholder project
+  identity defaults, and persisted zero-valued traffic fallbacks. Missing data now
+  stays explicitly unmeasured; apply `web/migrations/2026-09-16-remove-fabricated-defaults.sql`
+  to make traffic snapshot columns nullable in Supabase.
+
+- Site Audit now requests the complete 20-tool technical/on-page set: its free
+  crawl, headers, production monitoring, AI-access, field-data and per-page
+  Lighthouse checks, plus DataForSEO Site Health when spend is enabled. Keyword,
+  ranking, competitor, backlink, content, trust, video and local tools remain
+  deliberately outside this audit. The optional Speed toggle was removed.
+- SEO navigation now gives every non-clickable category title a clearer visual
+  treatment (accent-colored text, left accent rule, and group divider). Ranking history and the
+  content-topic generator appear under **Content Ideas** as **Search Trend**
+  and **Generate Ideas**, respectively.
+- Tool pages no longer show a DataForSEO availability warning while the scanner
+  catalog is still loading; the scan endpoint remains the authoritative check.
+- Removed the obsolete All Tools Directory route and sidebar entry. Core Web Vitals remains available inside Site Audit, while Content Ideas now pairs measured keyword-position history with idea generation.
+
+### Fixed (Monitor never fabricates GA4 metrics; widget overrides and actions tested)
+
+- GA4 funnel stages now show only reported totals. A zero or absent GA4 metric
+  remains zero; the former 100-session / 62%-engaged / 7%-conversion fabricated
+  fallback has been removed.
+- Per-widget date presets now resolve into actual request dates for both GSC and
+  GA4 instead of silently falling back to the global range.
+- Monitor add, edit, delete, and rearrange actions now share pure layout
+  operations with interaction-flow tests; saved layouts remain intentionally
+  browser/project-local through existing local storage.
+
+### Added (Keyword Overview: owned-site Search Console query evidence)
+
+- Connected owners now see a clearly separate **“Queries already earning
+  impressions”** panel below the primary DataForSEO Keyword Overview table.
+  It reads the selected verified GSC property through the existing authenticated
+  query route and shows only measured impressions, clicks, CTR, and average
+  position for the last 28 days. It explicitly does not present those rows as
+  volume, discovery, or difficulty data.
+
+### Changed (Site Health v4 is severity-weighted and backend-authoritative)
+
+- `pipeline/scanner/audit.py` now calculates Site Health from backend-owned
+  critical/high/medium/low weights (10/5/2/1), ships its v4 score, complete
+  weighted breakdown, and each scored row's assigned weight/category. The old
+  count-only v3 formula remains only as `unweighted_health_score()` for
+  ratchet comparison; it is not used to produce scanner reports.
+- The web client is now display-only for Site Health: its score/version/formula
+  were removed. A browser merge after any scoped/section scan explicitly clears
+  score, breakdown, counts, and denominator rather than inventing a composite
+  from mixed scan responses.
+- Verified: focused Python scoring tests (58 passed), focused web parity tests
+  (11 passed), and `npm run build` (successful production build).
+
+### Changed (Technical CSR Detection Uses Explicit Confidence Tiers)
+
+- The web scanner now emits one rendering verdict from the **Technical** tool:
+  an empty JavaScript shell is labelled `likely CSR shell — heuristic`, while a
+  PageSpeed response showing more than 50% rendered-only links is labelled
+  `confirmed content gap — measured`. The older measure-rail CSR heuristic is
+  retained for file-based audits but suppressed from the scanner SEO group, so
+  one scan cannot report conflicting duplicate CSR findings.
+- Verified: `pytest -m "not dataforseo"` (1,437 passed, 2 skipped) and
+  `cd web && npm test` (584 passed).
+
+### Changed (Monitor is GA4-only; GSC property auto-selects per project)
+
+- **Monitor** now shows only the GA4 **Visitors** section (operator decision).
+  Removed the Search performance (GSC) block and the "Is the site up and
+  readable" live-check from the Monitor screen; intro copy updated to GA4-only.
+  (The GSC SearchPerformance and LiveMonitor components still exist for other
+  uses; they are just no longer mounted on Monitor.)
+- **Default property selection:** an effect now re-selects the Search Console
+  property whose domain matches the current project whenever the project (or the
+  verified-properties list) changes — previously the domain match ran only on
+  connect, so switching projects left the wrong/none property and Search
+  performance read "No Search Console property is chosen." GA4 already
+  auto-selects by domain via `Ga4Panel`.
+- Verified: `tsc --noEmit` clean.
+
+### Fixed (GSC search-performance rejected a valid domain: malformed sc-domain:)
+
+- The default Search Console property was built as `sc-domain:${currentDomain}`
+  with `currentDomain` still carrying its scheme/slash (a client's `website` is a
+  full URL), producing `sc-domain:https://example.com/` — which fails the GSC
+  siteUrl regex, so Search performance showed "siteUrl must be a `sc-domain:`
+  property or an http(s) URL." Now the host is stripped to a bare domain before
+  the `sc-domain:` prefix (`ReaiDashboard.tsx`). Verified: `tsc` clean.
+- Note: this only well-forms the request; GSC still returns data only for a
+  property the connected account has VERIFIED (the DEMO project's
+  `demo-clinic.example` is mock and owns no property, so it stays empty).
+
+### Added (G3: rankings screens prefer Google Search Console, with a source badge)
+
+- Wired the G1 resolver into the UI so the "your own site" rankings run on free
+  Google data when connected, paid DataForSEO only as fallback:
+  - **Organic Rankings** and **SERP Positions** (default ReportTable branch) swap
+    to GSC rows via `resolveRankingRows` and show a `SourceBadge`.
+  - **Top Keywords** on the Dashboard (`SeoDashboard`, new `gscKeywords` prop via
+    `gscToRankedKeywords`) and the **Domain Overview** top-keywords table now
+    prefer GSC, each with the badge.
+- New `web/components/dashboard/SourceBadge.tsx` — "Source: Google Search Console
+  / DataForSEO / Not connected", colour + label (never colour alone). Extended
+  `gscRankings.ts` to accept the flattened live GSC row shape (`query`, plus
+  `keys`) and added `gscToRankedKeywords`.
+- Everything falls back to DataForSEO when Google is not connected, so it is
+  non-breaking; lights up the moment Connect Google succeeds. The GBP row-swap
+  into the bespoke Local section is the one remaining piece (G2 resolver ready;
+  the Local section already surfaces live GBP via LocalBusinessManager).
+- Verified: `tsc --noEmit` clean; 43 web tests pass (incl. the source resolver
+  + a hardened single-mount test). One pre-existing Overview test failure
+  ("run bar leads") is from the earlier OverallScoreCard/Overview change, not G3.
+  NOT verified against live GSC yet (needs Connect Google to complete).
+
+### Added (G5: consolidated data-source map — what stays paid and why)
+
+- `docs/DATA-SOURCES.md` documents, per tool, the data source and whether a free
+  Google API can replace the paid one: free-able via Google (rankings→GSC,
+  local→GBP, CWV→CrUX, traffic→GSC), free-but-heavy-setup (volume→Google Ads),
+  and paid-only-no-free-equivalent (backlinks, keyword gap, competitor
+  rankings/KD, AI mentions, web mentions). The per-tool `disabled` reasons in
+  `web/lib/toolSources.ts` (`NO_LINK_INDEX`, `NO_OTHER_SITES`, the ai-mentions
+  line) already mark the DFS-only tools in the UI; this is the summary + rule of
+  thumb (owned-property data = free via Google; off-site intelligence = paid).
+
+### Added (G2: Google Business Profile as a free Local source — data layer)
+
+- Second step of the DFS→Google migration. `web/lib/gbpLocal.ts` turns a
+  normalized GBP location (`gbp.normalizeLocation`) into the `gbp.*` local rows
+  the Local view renders — primary category, NAP completeness, opening hours,
+  verification — and resolves the source (`resolveLocalRows`): prefer the owned
+  Google profile, fall back to DataForSEO `business_data`, else `none`.
+  `localSourceLabel` names it for the badge.
+- Honest scope: the owned-location endpoint carries category/NAP/hours/verified
+  but NOT rating/review count (that is the allowlist-gated reviews endpoint,
+  tracked separately), so reviews stay with DataForSEO / the allowlist. Rows are
+  marked `metrics.source = "gbp"`.
+- OAuth already scoped (`business.manage`). Screen wiring + provenance badge are
+  G3. Verified: 3 new unit tests pass; `tsc --noEmit` clean. NOT verified against
+  a live claimed profile.
+
+### Added (G1: Google Search Console as a free rankings source — data layer)
+
+- First step of moving the "your own site" tools off paid DataForSEO onto free
+  Google APIs. `web/lib/gscRankings.ts` converts GSC query rows into the
+  `dfs.ranked_keyword` shape the rankings views already render
+  (`gscQueryToRankingRow`, `gscQueriesToRankingRows`) and resolves which source
+  to use (`resolveRankingRows`): prefer Google when it has rows, fall back to
+  DataForSEO, else `none` — never an empty list dressed as a source.
+  `rankingSourceLabel` names it for the badge.
+- Honest about the difference: a GSC row carries real clicks/impressions but no
+  search volume and a 28-day average position, and covers the operator's own
+  property only — so `volume` is null and `metrics.source = "gsc"`.
+- The Google OAuth here is already scoped for this (`webmasters.readonly`), so no
+  new setup is needed; connecting a Google account with a GSC property lights it
+  up. The screen wiring and the per-screen provenance badge are G3.
+- Verified: 5 new unit tests (convert, drop-empty, sort, prefer-Google, DFS
+  fallback, none) pass; `tsc --noEmit` clean. NOT yet verified against live GSC
+  (no client has granted access in this repo).
+
+### Added (AEO citation display: per-engine share of voice + who's cited instead)
+
+- The `dfs.llm_mentions` row was reduced in the UI to "Cited / 0", throwing away
+  the richest, most differentiated data the product has.
+- **Backend** (`pipeline/scanner/dataforseo.py::parse_llm_mentions`): now emits a
+  structured `metrics` object — `{mentions, cited, engines[], sources[]}` — with
+  a per-engine mention count and the competitor domains cited in the same answers
+  (the brand's own domain excluded, since the point is who is cited INSTEAD).
+- **UI** (`web/components/dashboard/AeoOverviewDashboard.tsx`): a new AI Citations
+  panel with per-engine share-of-voice bars and a "who gets cited instead" list.
+  Distinct states for cited, not-cited-yet, cited-but-no-competitors, and an
+  older scan with no metrics (falls back to the count).
+- Citation trend over cycles is NOT built — there is no persisted citation-history
+  table yet (rankings have one; citations do not). Left as an honest gap.
+- Verified: 32 Python tests pass (new: engine/source metrics, own-domain
+  exclusion, empty-metrics); `tsc --noEmit` clean; panel wired at
+  `ReaiDashboard`. NOT run live — paid DataForSEO is frozen in this repo.
+
+### Added (Overall SEO Score is now severity-weighted, not an equal-weight pass rate)
+
+- `web/lib/overallScore.ts` scores each pillar on the share of check WEIGHT that
+  passed, not the raw pass count: `CHECK_WEIGHTS` assigns CRITICAL=10 / HIGH=5 /
+  MEDIUM=2 (default) / LOW=1 by finding code, so a missing `<title>` outweighs a
+  missing `apple-touch-icon` tenfold. Four pillars (Technical 35 / Content 35 /
+  Backlinks 20 / AEO 10) combine into one number, withheld until every pillar has
+  run (an unmeasured pillar is never averaged in as zero). Rendered by
+  `OverallScoreCard` (gauge + weighted contribution bar + per-pillar deductions),
+  wired in `ReaiDashboard` and `Overview`.
+- The ratchet's equal-weight `health_score` (`pipeline/scanner/audit.py`,
+  `ok/(ok+warn+error)`, `HEALTH_SCORE_VERSION=3`) is deliberately UNTOUCHED — the
+  severity-weighted number is an additive headline, so nothing the monotonic
+  ratchet depends on changed.
+- Verified: `tsc --noEmit` clean; wiring confirmed (ReaiDashboard, Overview);
+  ratchet formula confirmed unchanged; numeric check — one critical failure among
+  nine low-severity passes scores 47 severity-weighted vs 90 equal-weight.
+
+### Added (Rank tracking is now a real per-keyword trend, not a snapshot)
+
+- Positions were already being persisted — `saveScan` writes one row per keyword
+  per scan into the `keywords` table (indexed `client_id, created_at`) — but
+  nothing read them back, so "rank tracking" only ever showed the current scan.
+- **Read:** `web/lib/db.ts::keywordRankHistory(clientId)` groups those rows by
+  keyword and orders by scan date into per-keyword series (`points`, `first`,
+  `latest`, `delta`; delta negative = improved, screen convention).
+- **UI:** `web/components/dashboard/KeywordTrend.tsx` renders each keyword's
+  movement as an INVERTED sparkline (#1 at the top) with first/latest/change,
+  slotted into the Position Tracking view above the current-scan table. A keyword
+  with one reading says a trend needs a second scan rather than drawing a flat
+  line; no history at all gets an honest empty state.
+- Capture is per-scan (the existing cadence); an automated re-scan scheduler is
+  ops/out-of-scope — the hook is the scan itself.
+- Verified: `tsc --noEmit` clean; against live Supabase, `keywords` holds 32 rows
+  → 15 keyword series with >=2 measured points across 2 scans for the Orienda
+  client, so the trend renders on real data. NOT verified in-browser.
+
+### Added (Keyword Gap is now a real you-vs-them view, not a competitor-only list)
+
+- **Backend** (`pipeline/scanner/dataforseo.py`): `keyword_gap` now makes TWO
+  `domain_intersection` calls — `intersections: true` (target1=you) for terms you
+  both rank for, and `intersections: false` (target1=competitor) for terms they
+  rank for and you don't — and classifies each into a quadrant: **Shared** (you
+  level/ahead), **Weak** (they beat you), **Missing** (they rank, you don't),
+  **Untapped** (Missing with high demand). Each row carries your position, their
+  position, keyword difficulty and volume in a structured `metrics` object (no
+  prose round-trip), plus a top-level `quadrant` label. Rows merge and de-dup by
+  keyword, both-rank data winning. One call could only ever show one quadrant.
+- **Frontend:** the Keyword Gap report view gets dedicated columns
+  (Gap / Keyword you-vs-them / Detail / What to do) and a quadrant-count summary
+  in `ViewCharts` (openings, you're-behind, you-hold, and a per-quadrant bar).
+  `ReaiDashboard`'s `keywordGapData` — previously hardcoded `[]` — now derives
+  from the real `dfs.keyword_gap` row metrics (single competitor; comp2 null
+  until a second gap is fetched).
+- Verified: 30 Python tests pass (new: quadrant classification, two-call merge,
+  cost); 26 web tests pass; `tsc --noEmit` clean. NOT run against a live domain
+  pair — paid DataForSEO is frozen / never-run-live in this repo, so only the
+  parser and merge are exercised (offline), consistent with every other DFS tool.
+
+### Added (Findings now render the full remediation playbook, not just a one-liner)
+
+- `recommendations.py` already generated, per finding code, a client-register
+  `plain`/`impact` and an implementer-register `effort`/`steps`/`snippet`/
+  `verify`/`timeline` — but the UI showed only the one-line why/fix, so all of it
+  was dead code next to a shipped feature. Now surfaced.
+- **Backend:** `pipeline/scanner/audit.py::_row` (the emitter for the whole
+  failing-finding checklist — verified at audit.py:152/185/198) attaches the full
+  `playbook(code)` to every finding row. Unwritten codes return empty
+  strings/lists (`recommendations._EMPTY_PLAYBOOK`), so a row with no playbook
+  degrades to exactly the old why/fix shape. Keys survive `multipage.merge_by_code`
+  (`dict(r)` copy). Passing rows (`_pass_row`) carry no playbook, as before.
+- **Frontend:** `ReportRow` (`web/lib/priorities.ts`) and `AuditIssue`
+  (`web/lib/auditBreakdown.ts`) gained the optional playbook fields.
+  `ReportTable` rows are now expandable (chevron on the status pill) into a
+  `PlaybookDetail` panel — what-this-means / why-it-matters / ordered how-to-fix /
+  copy-paste snippet / confirm-it-worked, plus effort/timeline/optional chips.
+  `AuditResults`'s existing issue expansion renders the same. Every part is
+  conditional, so a partial or absent playbook shows only what exists.
+- Coverage today: `RECOMMENDATIONS` covers 24 codes, ~8 with full steps/snippet,
+  9 with `plain`; the remaining check codes fall back to why/fix. Writing more
+  playbook content is a separate content task.
+- Verified: `npx tsc --noEmit` clean; Python confirms `_row('health.title_length')`
+  carries steps+snippet+plain and an unknown code degrades to empty+generic why.
+  NOT verified in-browser on :1000.
+
+### Added (Plan-stage "Brainstorm with Claude" — an interactive brainstorm)
+
+- A **"Brainstorm the plan with Claude"** conversation on the Plan screen,
+  modelled on the Superpowers *brainstorming* skill: instead of a one-shot
+  report, Claude runs a dialogue — it asks ONE question at a time (goal this
+  cycle, time budget, who does the work), prefers A/B/C choices, proposes
+  approaches, and converges on a `## Cycle Plan`. Grounded in the worklist;
+  unknown facts come back as `[confirm: ...]`.
+- Turn-based over the `claude` CLI (single-shot), so the whole transcript is
+  replayed in the prompt each turn to keep the conversation's memory. Each reply
+  streams.
+- New: `web/app/api/plan/brainstorm/route.ts` (ambient auth, `--allowedTools ""`,
+  same rail as `/api/fix/advise`; accepts `{worklist, messages[], domain,
+  business, tier}`, refuses 400 with no worklist) and
+  `web/components/dashboard/BrainstormPlan.tsx` (a chat: start button → message
+  history → input box, Enter to send, Stop/Reset). Wired into `ReaiDashboard`
+  under the worklist table; disabled with a reason when the worklist is empty.
+- Verified: `npx tsc --noEmit` clean; the `claude` CLI opens with one orienting
+  line + a single A/B/C question, and turn 2 respects the operator's answer
+  (tested with a 4-item worklist).
+
+### Fixed (Plan built an empty worklist when the findings table was empty)
+
+- The Plan stage read findings from the normalized `findings` table
+  (`lastTwoScansFindings`). A project whose scan carries a **report** but no
+  normalized rows — the DEMO seed, or any pre-normalization scan — planned to
+  **zero** items even though its report clearly showed issues, so the Plan screen
+  said "everything passing" and Claude classification never ran (it only fires
+  when items > 0).
+- `web/lib/db.ts::lastTwoScansFindings` now falls back to `findingsFromReport`,
+  which flattens the scan's `report` snapshot: it walks EVERY top-level key (not
+  just `_GROUPS` — the actionable issues live under `eeat`/`video`/`content`/
+  `lh_*`/`backlinks`, none of which are in `_GROUPS`) and takes any array whose
+  rows have a `code` and a `severity`. The Plan route's error/warn filter drops
+  the info/ok rows.
+- Verified against the real DEMO report in Supabase: 137 rows extracted → 33
+  actionable (error/warn) → 26 unique-code worklist items (was 0). `tsc` clean.
+
+### Changed (Plan classification now runs through Claude, not keyword matching)
+
+- **Why.** The Plan route (`web/app/api/plan/route.ts`) decided each finding's
+  tier and impact from substrings of the finding code — `getFindingTier`
+  ("anything with `title` is T1") and `getFindingImpact` (a keyword table). It
+  could not argue from the finding's own evidence, so the tier, the "Agent can
+  take it?" verdict and the "What to do" line were all guesses.
+- **What.** When the `claude` CLI is available, the route now sends the whole
+  worklist to the operator's Claude subscription (ambient auth, the same rail as
+  `/api/fix/advise` and `/api/content/generate`) and gets back, per finding, a
+  grounded **tier**, **impact**, an **agentCanTake** verdict, and a one-line
+  **whatToDo** (derivation-only; unknown facts come back as `[confirm: ...]`).
+  Both the Python-API path and the pure-TS fallback path are overlaid.
+- **Safety.** The keyword logic is kept verbatim as the deterministic fallback in
+  `web/lib/planClassify.ts::heuristicClass` and runs whenever Claude is
+  unreachable (no CLI, bad JSON, timeout, non-zero exit). The plan is never
+  blocked on the model. The response carries `classifiedBy: "claude" |
+  "heuristic"` so the caller knows which ran.
+- **New:** `web/lib/planClassify.ts` (`classifyWithClaude`, `heuristicClass`).
+- **Verified.** `npx tsc --noEmit` clean. The `claude -p --model sonnet` prompt
+  returns strict fenced JSON in the exact shape `parseClassJson` handles (tested
+  at the CLI: `health.title_length` → T1/Quick Win, `dfs.broken_backlinks` →
+  T3/High Impact). NOT yet verified end-to-end in the running app on :1000 — the
+  Plan screen needs a project with a saved audit before it renders any worklist.
+
 ### Changed (tool pages redesigned: one template, a chart palette, responsive shell)
 
 - **Why.** Reported by the operator: every page used the brand colour and still looked bad. Screenshots of Domain Overview, Backlink Overview, On-Page Checks and Keyword Gap showed six problems:

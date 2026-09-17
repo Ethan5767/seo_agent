@@ -24,7 +24,8 @@ def _present(html: str, pattern: str) -> bool:
     return re.search(pattern, html, re.IGNORECASE) is not None
 
 
-def tech_rows(url: str, html: str, status: int, sitemap: str | None) -> list[dict]:
+def tech_rows(url: str, html: str, status: int, sitemap: str | None,
+              psi_doc: dict | None = None) -> list[dict]:
     rows: list[dict] = []
 
     # HTTPS
@@ -80,17 +81,73 @@ def tech_rows(url: str, html: str, status: int, sitemap: str | None) -> list[dic
         rows.append(_row("Favicon", "warn", "No favicon — the browser tab and results show a blank icon.",
                          'Add <link rel="icon" href="/favicon.ico">.'))
 
-    # Rendering: SSR vs CSR
+    # Rendering: SSR vs CSR (Hybrid Tier B + Tier C)
     words, ratio = visible_text_ratio(html)
-    if words < 100 and ratio < 0.05:
-        rows.append(_row("Rendering (crawler-visible content)", "error",
-                         "The raw HTML has almost no readable text — the page is likely built in the browser (client-side rendering), so search and AI bots see an empty page.",
-                         "Serve the content server-side (SSR/SSG) so it's in the HTML on first load.",
-                         detail=f"{words} words in raw HTML"))
+    raw_elements = len(re.findall(r'<[a-zA-Z0-9]+', html))
+    raw_links = len(re.findall(r'<a\b[^>]*\bhref=', html, re.IGNORECASE))
+
+    # Tier B: Measured against Google Lighthouse rendered DOM when available
+    lr = (psi_doc or {}).get("lighthouseResult") or {}
+    audits = lr.get("audits") or {}
+    dom_val = (audits.get("dom-size-insight", {}).get("numericValue")
+               or audits.get("dom-size", {}).get("numericValue"))
+    link_audit = audits.get("link-text") or {}
+    link_items = (link_audit.get("details") or {}).get("items")
+    rendered_links = len(link_items) if isinstance(link_items, list) else 0
+
+    # PageSpeed does not expose the full rendered text node count, but it does
+    # expose every link Lighthouse inspected.  That makes links the only direct
+    # raw-vs-rendered content count available without adding a browser.  Do not
+    # promote an element-count proxy to a confirmed content gap.
+    if dom_val is not None and isinstance(link_items, list):
+        dom_elements = int(dom_val)
+        added_link_share = ((rendered_links - raw_links) / rendered_links
+                            if rendered_links else 0)
+        has_measured_gap = rendered_links > raw_links and added_link_share > 0.5
+        if has_measured_gap:
+            rows.append(_row(
+                "Rendering (crawler-visible content)", "error",
+                f"Google PageSpeed rendered {rendered_links} links in headless Chrome, but raw HTML contains only "
+                f"{raw_links} ({added_link_share:.0%} added by JavaScript). The rendered DOM has {dom_elements} "
+                f"elements while the raw response has {raw_elements} and {words} words. Essential links are generated "
+                "via JavaScript, making them invisible to raw HTML crawlers.",
+                "Pre-render or server-side render (SSR/SSG) the page so raw HTML crawlers receive complete content.",
+                detail="confirmed content gap — measured"
+            ))
+        else:
+            rows.append(_row(
+                "Rendering (crawler-visible content)", "ok",
+                "The content is present in raw HTML and matches the rendered DOM — crawlers can read it without executing JavaScript.",
+                "passing", detail=f"{words} words"
+            ))
     else:
-        rows.append(_row("Rendering (crawler-visible content)", "ok",
-                         "The content is present in the raw HTML — crawlers and AI bots can read it on first load.",
-                         "passing", detail=f"{words} words"))
+        # Tier C: Heuristic empty-shell detection on raw HTML
+        spa_patterns = [
+            r'<div[^>]*\bid=["\'](root|app|__next)["\'][^>]*>\s*</div>',
+            r'<div[^>]*\bid=["\'](root|app|__next)["\'][^>]*>\s*<!--.*?-->\s*</div>',
+            r'<main[^>]*\bid=["\'](root|app)["\'][^>]*>\s*</main>',
+        ]
+        is_spa_shell = any(re.search(p, html, re.IGNORECASE | re.DOTALL) for p in spa_patterns)
+        has_scripts = bool(re.search(r'<script\b', html, re.IGNORECASE))
+        has_noscript_warning = bool(re.search(r'<noscript\b[^>]*>.*?(enable|javascript|browser).*?</noscript>',
+                                               html, re.IGNORECASE | re.DOTALL))
+        is_csr_heuristic = has_scripts and words < 100 and (is_spa_shell or has_noscript_warning)
+
+        if is_csr_heuristic:
+            sev = "warn" if (words >= 30 and not is_spa_shell) else "error"
+            rows.append(_row(
+                "Rendering (crawler-visible content)", sev,
+                f"The raw HTML contains only {words} words and matches an empty client-side application shell. "
+                "Search and AI crawlers that do not execute JavaScript will see a blank or minimal page.",
+                "Serve the content server-side (SSR/SSG) so it is present in the HTML on first load.",
+                detail="likely CSR shell — heuristic"
+            ))
+        else:
+            rows.append(_row(
+                "Rendering (crawler-visible content)", "ok",
+                "The content is present in the raw HTML — crawlers and AI bots can read it on first load.",
+                "passing", detail=f"{words} words"
+            ))
 
     # Sitemap
     # Counted through the shared parser, not by counting opening tags: an empty

@@ -85,11 +85,38 @@ export interface ReportTableProps {
   checkedEmpty?: { title: string; hint: string; action?: { label: string; onClick: () => void } };
 }
 
+/**
+ * A failing finding carries a remediation playbook from the scanner
+ * (`audit._row` -> `recommendations.playbook`): a plain-language explanation, an
+ * impact/effort read, ordered steps, a copy-paste snippet, and a verify check.
+ * The row shows only the one-liner; this decides whether there is more behind
+ * it worth an expander. Passing rows and search-data rows never qualify.
+ */
+function hasPlaybook(row: ReportRow): boolean {
+  return Boolean(
+    row.plain ||
+      row.impact ||
+      (row.steps && row.steps.length > 0) ||
+      row.snippet ||
+      row.verify ||
+      (row.why && row.fix && row.fix !== "passing"),
+  );
+}
+
 export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTableProps) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string>("severity");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(0);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const toggleExpand = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   // A search tool returns data, so it drops the audit "Status / Pass" column and
   // reads as a plain data table — the way the category presents a lookup.
@@ -349,24 +376,43 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
           <tbody>
             {visible.map((row, i) => {
               const tone = SEVERITY_TONE[row.severity || "info"] ?? SEVERITY_TONE.info;
+              const rowKey = `${row.code}-${row.what}-${i}`;
+              // Only findings with something behind the one-liner get an
+              // expander; search-data rows never do.
+              const canExpand = !search && hasPlaybook(row);
+              const isOpen = expanded.has(rowKey);
+              const colCount = (search ? 0 : 1) + (anyAffected ? 1 : 0) + view.columns.length;
               return (
-                <tr key={`${row.code}-${row.what}-${i}`} className="report-table__row">
+                <React.Fragment key={rowKey}>
+                <tr
+                  className="report-table__row"
+                  onClick={canExpand ? () => toggleExpand(rowKey) : undefined}
+                  style={canExpand ? { cursor: "pointer" } : undefined}
+                  aria-expanded={canExpand ? isOpen : undefined}
+                >
                   {!search && (
                     <td style={cellStyle}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          fontSize: "var(--text-xs)",
-                          fontWeight: 600,
-                          padding: "2px 10px",
-                          borderRadius: "var(--radius-full)",
-                          color: tone.fg,
-                          background: tone.bg,
-                          border: `1px solid ${tone.border}`,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {tone.label}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        {canExpand && (
+                          <span aria-hidden="true" style={{ color: "var(--ink-muted)", fontSize: 10, width: 8, display: "inline-block" }}>
+                            {isOpen ? "▾" : "▸"}
+                          </span>
+                        )}
+                        <span
+                          style={{
+                            display: "inline-block",
+                            fontSize: "var(--text-xs)",
+                            fontWeight: 600,
+                            padding: "2px 10px",
+                            borderRadius: "var(--radius-full)",
+                            color: tone.fg,
+                            background: tone.bg,
+                            border: `1px solid ${tone.border}`,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {tone.label}
+                        </span>
                       </span>
                     </td>
                   )}
@@ -395,6 +441,14 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
                     </td>
                   ))}
                 </tr>
+                {canExpand && isOpen && (
+                  <tr className="report-table__detail">
+                    <td colSpan={colCount} style={{ ...cellStyle, background: "var(--surface-2)" }}>
+                      <PlaybookDetail row={row} />
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -420,6 +474,91 @@ export function ReportTable({ view, rows, onRunAudit, checkedEmpty }: ReportTabl
             disabled={safePage >= pageCount - 1}
             onClick={() => setPage(safePage + 1)}
           />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The remediation playbook for one finding, shown when its row is expanded.
+ *
+ * Every part is optional and rendered only when present, so a finding with a
+ * partial playbook (say a `plain` line but no snippet) shows just that, and a
+ * finding with none falls back to the why/fix it always carries. The client
+ * register (`plain`, `impact`) leads; the implementer register (`steps`,
+ * `snippet`, `verify`) follows under a divider.
+ */
+function PlaybookDetail({ row }: { row: ReportRow }) {
+  const chip = (text: string) => (
+    <span style={{
+      fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--ink-muted)",
+      background: "var(--surface-3)", border: "1px solid var(--border)",
+      borderRadius: "var(--radius-full)", padding: "2px 10px", whiteSpace: "nowrap",
+    }}>{text}</span>
+  );
+  const heading = (text: string) => (
+    <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, letterSpacing: ".04em",
+                  textTransform: "uppercase", color: "var(--ink-muted)", marginBottom: 4 }}>{text}</div>
+  );
+
+  const plain = row.plain || row.why;
+  const steps = row.steps || [];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)", padding: "var(--space-2) 0", maxWidth: "80ch" }}>
+      {(row.effort || row.timeline || row.optional) && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {row.effort && chip(`Effort: ${row.effort}`)}
+          {row.timeline && chip(`Timeline: ${row.timeline}`)}
+          {row.optional && chip("Optional — a business choice")}
+        </div>
+      )}
+
+      {plain && (
+        <div>
+          {heading("What this means")}
+          <div style={{ color: "var(--ink-body)", lineHeight: 1.55 }}>{plain}</div>
+        </div>
+      )}
+
+      {row.impact && (
+        <div>
+          {heading("Why it matters")}
+          <div style={{ color: "var(--ink-body)", lineHeight: 1.55 }}>{row.impact}</div>
+        </div>
+      )}
+
+      {steps.length > 0 ? (
+        <div>
+          {heading("How to fix it")}
+          <ol style={{ margin: 0, paddingLeft: "1.2rem", color: "var(--ink-body)", lineHeight: 1.6 }}>
+            {steps.map((s, i) => <li key={i} style={{ marginBottom: 2 }}>{s}</li>)}
+          </ol>
+        </div>
+      ) : row.fix && row.fix !== "passing" ? (
+        <div>
+          {heading("How to fix it")}
+          <div style={{ color: "var(--ink-body)", lineHeight: 1.55 }}>{row.fix}</div>
+        </div>
+      ) : null}
+
+      {row.snippet && (
+        <div>
+          {heading("Paste this")}
+          <pre style={{
+            margin: 0, padding: "var(--space-3)", borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--border)", background: "var(--ink)", color: "var(--border)",
+            fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word",
+            overflowX: "auto", fontFamily: "ui-monospace, SFMono-Regular, monospace",
+          }}>{row.snippet}</pre>
+        </div>
+      )}
+
+      {row.verify && (
+        <div>
+          {heading("Confirm it worked")}
+          <div style={{ color: "var(--ink-body)", lineHeight: 1.55 }}>{row.verify}</div>
         </div>
       )}
     </div>

@@ -360,8 +360,11 @@ test("no category is styled as a pass over an unmeasured score", () => {
     false,
     "a category row must not hardcode the pass colour",
   );
-  // A category nothing graded is left out rather than drawn as 0%.
-  assert.match(readFileSync(path.resolve(__dirname, "..", "lib", "auditBreakdown.ts"), "utf8"), /\.filter\(\(c\) => c\.graded > 0\)/);
+  // The backend omits categories with no graded checks; the client reads that
+  // supplied list rather than fabricating a 0% category from its own rows.
+  const breakdown = readFileSync(path.resolve(__dirname, "..", "lib", "auditBreakdown.ts"), "utf8");
+  assert.match(breakdown, /Array\.isArray\(\(s\.weighted as any\)\?\.categories\)/);
+  assert.doesNotMatch(breakdown, /\.filter\(\(c\) => c\.graded > 0\)/);
   assert.equal(/"AI Ready"/.test(BOTH_CODE), false,
     "'AI Ready' was a hardcoded pass badge over a pillar nothing measured");
 });

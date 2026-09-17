@@ -51,6 +51,7 @@ Runs on the fetched HTML in memory (no network → milliseconds, not fake).
 | AI visibility (AEO) | AI-crawler robots access, answer-first structure | `/robots.txt` + HTML |
 | Internal links | count, anchor quality, contextual, nofollow, over-opt, outbound | the fetched page HTML |
 | Performance (CrUX) | LCP / INP / CLS (real users, 28-day field data) | Google CrUX API |
+| Headless render triage (opt-in) | hydrated DOM visible text, JSON-LD, top-of-fold diff | Playwright Chromium (opt-in `render_verify`) |
 
 ### Phase 2 — Google Lighthouse (FREE, external, ~10-30s)
 Google runs Lighthouse in their cloud; we read the result.
@@ -102,7 +103,7 @@ Each finding's `code` prefix tells you its exact source, so nothing is a black b
 
 | Prefix | Source |
 |---|---|
-| `dfs.` / `health.` | DataForSEO (live crawl / SERP / labs / backlinks / business data) |
+| `dfs.` / `health.` | DataForSEO (live crawl / SERP / labs / backlinks / business data) or site health engine (`health.csr_empty_shell`, `health.csr_content_gap`) |
 | `lh.` | Google Lighthouse (PageSpeed Insights) |
 | `src.` | Your source code (GitHub repo) |
 | `crux` / perf | Google Chrome UX Report (real-user field data) |

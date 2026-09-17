@@ -15,7 +15,7 @@
 import type { ReportRow, ScanReport } from "./priorities";
 
 export interface ReportColumn {
-  key: "what" | "detail" | "why" | "fix" | "severity";
+  key: "what" | "detail" | "why" | "fix" | "severity" | "quadrant";
   label: string;
   /** Right-aligned and tabular; used for columns that hold figures. */
   numeric?: boolean;
@@ -71,6 +71,17 @@ const FINDING_COLUMNS: ReportColumn[] = [
   { key: "fix", label: "What to do" },
 ];
 
+// Keyword Gap is a you-vs-them comparison, so it leads with the quadrant
+// (Missing/Weak/Shared/Untapped) and shows the positions/KD the `what`/`detail`
+// carry, then the recommended move. Sorting by `quadrant` groups the table by
+// opportunity type.
+const KEYWORD_GAP_COLUMNS: ReportColumn[] = [
+  { key: "quadrant", label: "Gap", width: "12%" },
+  { key: "what", label: "Keyword (you vs them)", width: "40%" },
+  { key: "detail", label: "Detail", width: "18%" },
+  { key: "fix", label: "What to do" },
+];
+
 export const REPORT_VIEWS: ReportView[] = [
   {
     id: "position-tracking",
@@ -121,8 +132,8 @@ export const REPORT_VIEWS: ReportView[] = [
     section: "SEO",
     label: "Keyword Gap",
     codes: ["dfs.keyword_gap"],
-    blurb: "Terms a competitor ranks for and this domain does not.",
-    columns: KEYWORD_COLUMNS,
+    blurb: "You vs a competitor: terms they rank for and you do not (Missing/Untapped), where they beat you (Weak), and where you hold (Shared).",
+    columns: KEYWORD_GAP_COLUMNS,
     emptyHint: "Run a scan with the Keywords tool enabled; the gap comes with it.",
   },
   {
@@ -217,7 +228,7 @@ export const REPORT_VIEWS: ReportView[] = [
       // The DataForSEO per-page flags, one row per check with a page count
       // (onpage_audit.aggregate_checks). Emitted on every Site Health run and
       // reachable from no screen until now.
-      "dfs.op.",
+      "dfs.op.", "crawl.",
       // The free multi-page crawl's own site-wide rows (crawl.site_rows):
       // duplicate titles/descriptions, orphans, broken internal links, and the
       // pages-crawled summary. Free, on by default, and likewise unscreened.
@@ -227,6 +238,18 @@ export const REPORT_VIEWS: ReportView[] = [
       "Structural problems found crawling the site: duplicates, depth, orphans, redirects and broken internal links. Both crawls report here - the free multi-page walk and the paid Site Health audit.",
     columns: FINDING_COLUMNS,
     emptyHint: "Run a scan. The multi-page crawl is free; the Site Health tool adds the paid rows.",
+  },
+  {
+    // The MONITOR stage has its own screen (/stage/monitor), and its rows also
+    // land here so a code the scanner emits is never reachable from nowhere.
+    id: "live-monitor",
+    section: "SEO",
+    label: "Live Site Watch",
+    codes: ["monitor."],
+    blurb:
+      "What the live site looks like right now: watched routes answering, page furniture intact, the sitemap still whole, and the AI citation crawlers still reaching the edge. This is the only check that runs against production rather than a build.",
+    columns: FINDING_COLUMNS,
+    emptyHint: "Open the Monitor stage and press Run monitor. It reads the live site, so it needs no repository.",
   },
   {
     id: "serp-positions",
@@ -328,7 +351,7 @@ export const REPORT_VIEWS: ReportView[] = [
     id: "technical",
     section: "SEO",
     label: "Technical Checks",
-    codes: ["tech.", "schema.", "valid."],
+    codes: ["tech.", "schema.", "valid.", "render.", "media.", "security.", "url.", "coverage.", "index.", "logs.", "migration."],
     blurb:
       "Crawlability and markup: HTTPS, robots.txt, sitemap, hreflang, structured-data validity. Free, and every one of them runs by default.",
     columns: FINDING_COLUMNS,

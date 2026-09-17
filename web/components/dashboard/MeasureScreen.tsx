@@ -70,6 +70,8 @@ export interface MeasureScreenProps {
    * it measures and displays, and the caller decides what to offer next.
    */
   footer?: React.ReactNode;
+  /** Sends these results to the Plan stage and opens it. Absent: no button. */
+  onSendToPlan?: () => void;
   setAuditSeverityFilter: (sev: CheckSeverityFilter) => void;
   setActiveTab: (tab: ReaiTab) => void;
   planState?: {
@@ -192,6 +194,7 @@ export function MeasureScreen({
   setAuditCategoryFilter,
   auditSeverityFilter,
   footer,
+  onSendToPlan,
   setAuditSeverityFilter,
   setActiveTab,
   planState,
@@ -229,6 +232,7 @@ export function MeasureScreen({
           { id: "progress", label: "History" },
         ];
         return (
+          <div className="audit-tabs-row">
           <div className="audit-tabs" role="tablist" aria-label="Site Audit views">
             {tabs.map((t) => (
               <button
@@ -243,6 +247,20 @@ export function MeasureScreen({
                 {typeof t.count === "number" && <span className="audit-tabs__count">{t.count}</span>}
               </button>
             ))}
+          </div>
+          {/* Audit results -> Plan: the ratchet over the last two saved scans,
+              then the Plan page, so the handoff is one click, not a hunt. */}
+          {onSendToPlan && (
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm audit-tabs-row__plan"
+              onClick={onSendToPlan}
+              disabled={planState?.planBusy || issueCount === 0}
+              title={issueCount === 0 ? "No issues to plan yet. Run the audit first." : "Sort these findings into a worklist on the Plan page"}
+            >
+              {planState?.planBusy ? "Planning…" : "Send to Plan →"}
+            </button>
+          )}
           </div>
         );
       })()}

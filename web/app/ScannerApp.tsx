@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { auditScore, SCORE_VERSION } from "@/lib/auditBreakdown";
 import { AuthGate } from "./auth";
 import { ReaiDashboard } from "./ReaiDashboard";
 import { saveClient, updateClient, saveScan, lastTwoScansFindings,
@@ -12,7 +11,7 @@ import { listRepos } from "../lib/github";
 import { supabase } from "../lib/supabase";
 import { authedFetch } from "@/lib/authedFetch";
 import { readScanStream } from "@/lib/scanStream";
-import { mergeScanReport } from "@/lib/reportMerge";
+import { invalidateMergedScore, mergeScanReport } from "@/lib/reportMerge";
 import { marketFor } from "@/lib/market";
 import { pickScanProject, sameSite } from "@/lib/scanTarget";
 import { applyScanEvent, type ToolActivity } from "@/lib/scanActivity";
@@ -404,7 +403,7 @@ function Scanner({ initialTab, initialNav }: { initialTab?: any; initialNav?: In
     }).catch((e) => console.error("tool catalog fetch failed — is the backend running?", e));
   }, []);
   const [filter, setFilter] = useState<"all" | "error" | "warn" | "ok">("all");
-  const [crawlPages, setCrawlPages] = useState(5);  // free multi-page crawl depth (default 5 pages, max 25)
+  const [crawlPages, setCrawlPages] = useState(5);  // free multi-page crawl depth (AUDIT_CRAWL_OPTIONS; the scanner caps it)
   const [busy, setBusy] = useState(false);
   const scanInFlight = useRef(false);
   const [live, setLive] = useState<string[]>([]);
@@ -427,9 +426,19 @@ function Scanner({ initialTab, initialNav }: { initialTab?: any; initialNav?: In
     setPlanBusy(true); setPlan(null); setRemed(null); setDry(null); setApply(null); setConfirmApply(false);
     try {
       const { current, previous } = await lastTwoScansFindings(activeId);
+      // The project's own tier and domain. Without them the route planned every
+      // client as T1 on "example.com", and the brief said so.
       const res = await authedFetch("/api/plan", {
         method: "POST",
-        body: JSON.stringify({ current, previous }),
+        body: JSON.stringify({
+          current, previous,
+          tier: histClient?.tier ?? 1,
+          model: histClient?.model || "B",
+          domain: (histClient?.domain || url || "").replace(/^https?:\/\//, "").replace(/\/.*$/, ""),
+          business: histClient?.business || business,
+          goal: histClient?.goal || undefined,
+          cycle: new Date().toISOString().slice(0, 7),
+        }),
       });
       setPlan(await res.json());
     } catch (e) {
@@ -603,22 +612,11 @@ function Scanner({ initialTab, initialNav }: { initialTab?: any; initialNav?: In
                 page: (finalAudit as any).page || baseReport.page,
                 site_url: activeUrl,
               };
-              // Re-scored the scanner's way (lib/auditBreakdown, score version 3):
-              // only the on-page audit's groups count, so merging a Rankings or
-              // Backlinks run over the open report cannot move Site Health. This
-              // counted every group, and fell back to 0 when nothing was graded.
-              const s = auditScore(merged);
-              const all: Record<string, number> = { error: 0, warn: 0, info: 0, ok: 0 };
-              for (const v of Object.values(merged)) {
-                if (!Array.isArray(v)) continue;
-                for (const r of v as any[]) if (r?.severity && all[r.severity] !== undefined) all[r.severity]++;
-              }
-              merged.counts = { error: s.error, warn: s.warn, info: s.info, ok: s.ok };
-              merged.counts_all = all;
-              merged.score = s.score;
-              merged.graded = s.graded;
-              merged.score_version = SCORE_VERSION;
-              finalAudit = merged as unknown as Audit;
+              // This is a union of separate scan responses, often a section
+              // scan over an older full report. The browser has neither the
+              // backend formula nor a trustworthy denominator. Mark it
+              // scoreless instead of recreating the old 76-vs-75 drift.
+              finalAudit = invalidateMergedScore(merged) as unknown as Audit;
             }
 
             if (finalAudit) {
@@ -628,7 +626,7 @@ function Scanner({ initialTab, initialNav }: { initialTab?: any; initialNav?: In
                   id: "latest",
                   created_at: new Date().toISOString(),
                   url: activeUrl,
-                  score: finalAudit.score || 0,
+                  score: finalAudit.score ?? null,
                   counts: (finalAudit.counts as Record<string, number>) || {},
                   cost: finalAudit.cost || 0,
                 },

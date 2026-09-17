@@ -4,6 +4,7 @@ import React from "react";
 import { sectionById, toolsForSection, sectionCost, toolsForView, viewCost, type ToolLike } from "@/lib/sectionScans";
 import { SOURCE_LABEL, type SourceId } from "@/lib/toolSources";
 import { toolVerb } from "@/lib/toolVerbs";
+import { AUDIT_CRAWL_OPTIONS } from "@/lib/auditBreakdown";
 
 /**
  * "Scan this section" or "Test this tool" specifically.
@@ -123,6 +124,9 @@ export function SectionScanButton({
   }
 
   const ready = Boolean(keys && keys.length) && !sourceBlocked;
+  // A tool that judges the crawled pages rather than this one: its depth is the
+  // page count, so the control belongs on any view that runs it.
+  const crawlsPages = Boolean(keys?.includes("lh_pages"));
   const paidOnly = Boolean(keys && keys.length) &&
     keys!.every((k) => (tools ?? []).find((t) => t.key === k)?.group === "dataforseo");
   const paid = cost?.paid ?? [];
@@ -160,7 +164,7 @@ export function SectionScanButton({
               // servers. Our free multi-page crawl would add 1.5-2 minutes (25
               // pages) for rows this page does not show.
               onCrawlScan(domain, keys, 1);
-            } else if (viewId === "site-crawl" && onCrawlScan) {
+            } else if ((viewId === "site-crawl" || crawlsPages) && onCrawlScan) {
               onCrawlScan(domain, keys, selectedPages);
             } else {
               onScan(domain, keys);
@@ -173,24 +177,32 @@ export function SectionScanButton({
         {busy ? "Scanning…" : isViewScoped ? `${action.verb} ${action.object}` : `Scan ${section.label} only`}
       </button>
 
-      {viewId === "site-crawl" && !paidOnly && (
+      {/* How many pages this run reads. On Core Web Vitals it is also the
+          Lighthouse depth: `lh_pages` measures each crawled page, and every page
+          is one round trip to Google. The list used to stop at 25 and be written
+          out by hand here; it now comes from AUDIT_CRAWL_OPTIONS, which the
+          scanner's own cap bounds. */}
+      {(viewId === "site-crawl" || crawlsPages) && !paidOnly && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <label htmlFor="crawl-depth-select" style={label}>
-            Pages
+          <label htmlFor={`crawl-depth-${viewId ?? sectionId}`} style={label}>
+            {crawlsPages ? "Lighthouse pages" : "Pages"}
           </label>
           <select
-            id="crawl-depth-select"
+            id={`crawl-depth-${viewId ?? sectionId}`}
             value={selectedPages}
             disabled={busy}
             onChange={(e) => handlePagesChange(Number(e.target.value))}
             style={{ ...select, cursor: busy ? "not-allowed" : "pointer" }}
+            title={crawlsPages
+              ? "Lighthouse runs once per page, so more pages means a longer run. It costs nothing."
+              : "How many pages the free crawl reads"}
           >
-            <option value={2}>2 pages (fast link check)</option>
-            <option value={5}>5 pages (standard)</option>
-            <option value={10}>10 pages (deep crawl)</option>
-            <option value={15}>15 pages (comprehensive)</option>
-            <option value={20}>20 pages (thorough)</option>
-            <option value={25}>25 pages (maximum)</option>
+            <option value={1}>1 page (this URL only)</option>
+            {AUDIT_CRAWL_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n} pages{n === AUDIT_CRAWL_OPTIONS[AUDIT_CRAWL_OPTIONS.length - 1] ? " (all, slowest)" : ""}
+              </option>
+            ))}
           </select>
         </div>
       )}

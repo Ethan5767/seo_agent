@@ -25,7 +25,7 @@
  * the rule the engine already applies to itself (exit 4, cannot judge).
  */
 
-export type StageId = "plan" | "fix" | "gate";
+export type StageId = "plan" | "fix" | "gate" | "monitor";
 
 export type PipelineStage = {
   id: StageId;
@@ -75,6 +75,17 @@ export const PIPELINE_STAGES: PipelineStage[] = [
     absent:
       "No pull requests open for this client. The agent opens one when it has fixes to propose; connect the client's repository if you expect to see something here.",
     source: "the client repo's check runs, via GitHub",
+  },
+  {
+    id: "monitor",
+    label: "Monitor",
+    step: 4,
+    purpose:
+      "What the site is actually doing in search: real clicks, impressions and positions from Search Console, the visitors GA4 recorded, and a live check that the pages are still up and readable.",
+    connected: true,
+    absent:
+      "Connect Google and pick this project's Search Console property. The numbers here are first-party — they are about a site you own, so they are measured rather than estimated.",
+    source: "Search Console + GA4, and the live site",
   },
 ];
 
@@ -185,6 +196,96 @@ export function blockedReason(item: {
   return null;
 }
 
+export interface PlanRow {
+  priority: number | null;
+  code: string;
+  what: string;
+  fix: string;
+  why: string;
+  status: string;
+  severity: string;
+  impact: string;
+  tierLabel: string;
+  page: string;
+  note: string;
+  /** Why the agent may not take it; null when nothing blocks it. */
+  reason: string | null;
+}
+
+/**
+ * Why the agent may not take a worklist row, for either planner's shape: engine
+ * rows carry `action` / `tier_blocked` / `human_edit`; web rows carry `inScope`
+ * and know nothing about fix mapping (the Auto-Fix dry run decides that).
+ */
+export function planRowReason(i: Record<string, any>): string | null {
+  if (!i) return null;
+  if ("inScope" in i && !("action" in i || "tier_blocked" in i || "human_edit" in i)) {
+    return i.inScope === false ? "above this client's tier" : null;
+  }
+  return blockedReason(i);
+}
+
+export interface PlanView {
+  lanes: { NEW: number; PERSISTING: number; REGRESSION: number; RESOLVED: number };
+  total: number;
+  /** Items nothing blocks: inside the tier (web rows) or actionable (engine rows). */
+  inTier: number;
+  items: PlanRow[];
+  resolved: Array<{ code: string; what: string }>;
+  summary: string;
+  brief: string;
+  /** Which classifier ran: Claude, or the deterministic keyword fallback.
+   *  null for a plan saved before the route recorded it. */
+  classifiedBy: "claude" | "heuristic" | null;
+}
+
+/**
+ * One reading of a plan for the Plan screen, whichever planner produced it.
+ *
+ * `/api/plan` returns web rows (`inScope`, `what`, `fix`, plus a separate
+ * `resolved` array); `wf-site-plan` rows carry `action` / `tier_blocked` /
+ * `location`. The screen read only the engine fields, so a web plan showed
+ * "no automated fix mapped" on every row, "—" for every page, and 0 resolved.
+ * Never planned -> null, never an empty plan.
+ */
+export function planView(plan: Record<string, any> | null | undefined): PlanView | null {
+  if (!plan || (!Array.isArray(plan.worklist) && !Array.isArray(plan.resolved))) return null;
+  const worklist: Array<Record<string, any>> = Array.isArray(plan.worklist) ? plan.worklist : [];
+  const resolvedRows: Array<Record<string, any>> = Array.isArray(plan.resolved) ? plan.resolved : [];
+  const lanes = laneCounts(worklist) ?? { NEW: 0, PERSISTING: 0, REGRESSION: 0, RESOLVED: 0 };
+  lanes.RESOLVED += resolvedRows.length;
+
+  const items: PlanRow[] = worklist.map((i) => {
+    const reason = planRowReason(i);
+    return {
+      priority: typeof i.priority === "number" ? i.priority : null,
+      code: String(i.code ?? ""),
+      what: String(i.what ?? i.code ?? "worklist item"),
+      fix: String(i.fix ?? ""),
+      why: String(i.why ?? ""),
+      status: String(i.status ?? "").toUpperCase(),
+      severity: String(i.severity ?? ""),
+      impact: String(i.impact ?? ""),
+      tierLabel: String(i.tierLabel ?? (typeof i.min_tier === "number" ? `T${i.min_tier}` : "")),
+      page: String(i.location ?? i.url ?? ""),
+      note: String(i.note ?? ""),
+      reason,
+    };
+  });
+
+  return {
+    lanes,
+    total: items.length,
+    inTier: items.filter((i) => i.reason === null).length,
+    items,
+    resolved: resolvedRows.map((r) => ({ code: String(r.code ?? ""), what: String(r.what ?? r.code ?? "") })),
+    summary: String(plan.executiveSummary ?? ""),
+    brief: String(plan.developerBriefMarkdown ?? ""),
+    classifiedBy: plan.classifiedBy === "claude" || plan.classifiedBy === "heuristic"
+      ? plan.classifiedBy : null,
+  };
+}
+
 /* ── Gate failures as findings ──────────────────────────────────────────────
  *
  * A red gate is the moment an operator is most stuck and least helped. The check
@@ -245,12 +346,12 @@ export function worklistFindings(
 ): Array<{ code: string; what: string; why: string; fix: string; severity: string; detail: string }> {
   if (!Array.isArray(worklist)) return [];
   return worklist
-    .filter((i) => i && blockedReason(i) !== null)
+    .filter((i) => i && planRowReason(i) !== null)
     .slice(0, 25)
     .map((i) => ({
       code: String(i.code ?? "plan.item"),
       what: String(i.what ?? i.code ?? "worklist item"),
-      why: String(i.why ?? `Lane: ${i.status ?? "unknown"}. ${blockedReason(i)}.`),
+      why: String(i.why ?? `Lane: ${i.status ?? "unknown"}. ${planRowReason(i)}.`),
       fix: String(i.fix ?? "explain what a person has to do here, and why the agent cannot"),
       severity: i.status === "REGRESSION" ? "error" : "warn",
       detail: String(i.location ?? i.url ?? ""),

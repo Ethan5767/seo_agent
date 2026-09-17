@@ -12,8 +12,9 @@ real fetcher built on measure.curl.
 from __future__ import annotations
 
 import re
-from urllib.parse import urldefrag, urljoin, urlsplit
+from urllib.parse import parse_qsl, urldefrag, urljoin, urlsplit
 
+from pipeline.lib.common import visible_text_ratio
 from pipeline.lib.html import page_title, sitemap_locs
 
 _DESC = re.compile(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']*)', re.IGNORECASE)
@@ -65,14 +66,35 @@ def links_in(base_url: str, html: str) -> set[str]:
     return out
 
 
+def raw_links_in(base_url: str, html: str) -> set[str]:
+    """Same-site navigational URLs, retaining query strings for trap analysis."""
+    out: set[str] = set()
+    host = _host(base_url)
+    for href in _HREF.findall(html or ""):
+        href = href.strip()
+        if href.startswith(("mailto:", "tel:", "javascript:", "#", "data:")):
+            continue
+        absolute = urljoin(base_url, href)
+        if not absolute.startswith(("http://", "https://")) or _host(absolute) != host:
+            continue
+        if re.search(r"\.(png|jpe?g|gif|svg|webp|css|js|pdf|zip|ico|xml|json)$",
+                     urlsplit(absolute).path, re.IGNORECASE):
+            continue
+        out.add(absolute)
+    return out
+
+
 def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
-               max_pages: int = 25, on_page=None) -> dict:
+               max_pages: int = 25, on_page=None, seed=None) -> dict:
     """Walk the site from entry_url. `fetch(url)->(html,status)`.
 
     `on_page(n, total, url)` is called before each page fetch, for live progress.
 
+    `seed` is `(html, status)` for entry_url when the caller has already read it,
+    so the entry is not fetched a second time.
+
     Returns {pages, reachable, sitemap_urls, capped}: `pages` is a list of
-    {url,status,title,desc,links}; `reachable` is the set of URLs found by
+    {url,status,title,desc,links,html}; `reachable` is the set of URLs found by
     following links from the entry (used for orphan detection); `sitemap_urls`
     is every <loc> in the sitemap; `capped` is True if the cap was hit.
     """
@@ -89,8 +111,9 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
     sitemap_urls = set(_sitemap_real)
 
     reachable: set[str] = {entry}          # discovered by following links
-    queue: list[str] = [entry]
+    queue: list[tuple[str, int]] = [(entry, 0)]
     fetched: dict[str, dict] = {}
+    depths: dict[str, int] = {entry: 0}
     capped = False
 
     # `_norm` is a CANONICAL form for comparison - it appends a trailing slash so
@@ -109,21 +132,35 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
         if len(fetched) >= max_pages:
             capped = True
             break
-        url = queue.pop(0)
+        url, depth = queue.pop(0)
         if url in fetched:
             continue
         target = real.get(url, url)
+        # The tick is progress, not a fetch: the entry still counts as page 1 of
+        # the walk even when the caller already read it.
         _tick(target)
-        html, status = fetch(target)
+        if url == entry and seed is not None:
+            html, status = seed[0] or "", seed[1]
+        else:
+            html, status = fetch(target)
         links = links_in(target, html) if status == 200 else set()
+        raw_links = raw_links_in(target, html) if status == 200 else set()
         fetched[url] = {"url": target, "status": status, "title": title_of(html),
-                        "desc": desc_of(html), "links": sorted(_norm(l) for l in links)}
+                        "desc": desc_of(html), "links": sorted(_norm(l) for l in links),
+                        "raw_links": sorted(raw_links),
+                        # The body, kept so the caller's per-page tools can read
+                        # the page this crawl already fetched. Dropping it made
+                        # every multi-page scan fetch the whole site twice.
+                        "html": html or "",
+                        "depth": depth}
         for l in links:
             key = _norm(l)
             reachable.add(key)
             real.setdefault(key, l)
-            if key not in fetched and key not in queue:
-                queue.append(key)
+            if key not in depths:
+                depths[key] = depth + 1
+                if key not in fetched:
+                    queue.append((key, depth + 1))
 
     # Also fetch sitemap URLs we never reached by link (needed to SEE orphans and
     # to compare titles), within the remaining budget.
@@ -138,7 +175,10 @@ def crawl_site(entry_url: str, fetch, sitemap_text: str | None = None,
         html, status = fetch(target)
         fetched[url] = {"url": target, "status": status, "title": title_of(html),
                         "desc": desc_of(html),
-                        "links": sorted(_norm(l) for l in links_in(target, html)) if status == 200 else []}
+                        "links": sorted(_norm(l) for l in links_in(target, html)) if status == 200 else [],
+                        "raw_links": sorted(raw_links_in(target, html)) if status == 200 else [],
+                        "html": html or "",
+                        "depth": -1}
 
     return {"pages": list(fetched.values()), "reachable": reachable,
             "sitemap_urls": sitemap_urls, "capped": capped}
@@ -225,6 +265,131 @@ def site_rows(crawl: dict) -> list[dict]:
                              "Add an internal link to this page from a relevant page.",
                              detail=u))
 
+    # Click depth: flag pages at depth > 3 as warning.
+    for p in pages:
+        d = p.get("depth", 0)
+        if d > 3:
+            row = _row("Click depth", "warn",
+                       f"{p['url']} is {d} clicks away from the entry page (depth {d}). "
+                       f"Pages deeper than 3 clicks are harder for search engines to crawl and users to find.",
+                       "Add internal links from higher-level category or navigation pages to reduce click depth.",
+                       detail=f"depth {d} — {p['url']}")
+            row["pages"] = [p["url"]]
+            rows.append(row)
+
+    rows += crawl_behavior_rows(crawl)
+    from pipeline.scanner.validate import hreflang_cluster_rows
+    rows += hreflang_cluster_rows(pages)
+    return rows
+
+
+def crawl_trap_rows(crawl: dict) -> list[dict]:
+    """Detect URL patterns that can expand a crawl without discovering new
+    content. Pure analysis of the crawl graph; no extra requests."""
+    pages = crawl.get("pages") or []
+    urls = [str(p.get("url") or "") for p in pages]
+    if len(urls) < 2:
+        return [{"code": "crawl.traps_not_measured", "what": "Crawl traps",
+                 "why": "A trap needs multiple crawled URLs to establish a pattern.",
+                 "fix": "Run a multi-page crawl.", "detail": "needs at least 2 pages",
+                 "severity": "info"}]
+    findings: list[dict] = []
+    query_keys: dict[str, set[str]] = {}
+    for u in urls:
+        q = dict(parse_qsl(urlsplit(u).query, keep_blank_values=True))
+        for key in q:
+            query_keys.setdefault(key.lower(), set()).add(u)
+    trap_names = {
+        "page": "pagination",
+        "paged": "pagination",
+        "p": "pagination",
+        "page_num": "pagination",
+        "session": "session IDs",
+        "sid": "session IDs",
+        "jsessionid": "session IDs",
+        "sort": "faceted sorting",
+        "filter": "faceted filtering",
+        "facet": "faceted filtering",
+        "calendar": "calendar navigation",
+        "date": "calendar navigation",
+    }
+    for key, affected in sorted(query_keys.items()):
+        if key in trap_names and len(affected) >= 2:
+            findings.append({"code": f"crawl.trap_{trap_names[key].replace(' ', '_')}",
+                             "what": f"Crawl trap: {trap_names[key]}", "severity": "warn",
+                             "why": f"The crawl found {len(affected)} URLs varying the '{key}' parameter; this can create unbounded crawl paths.",
+                             "fix": "Constrain or canonicalize the parameter and prevent crawl-only permutations.",
+                             "detail": f"parameter {key}: {len(affected)} URLs", "pages": sorted(affected)[:100]})
+    paths = [urlsplit(u).path.lower() for u in urls]
+    if len(paths) >= 4 and len(set(paths)) < len(paths) * 0.75:
+        findings.append({"code": "crawl.trap_path_permutation", "what": "Path permutation growth",
+                         "severity": "warn",
+                         "why": "Many crawled URLs collapse to a small set of repeated path shapes, indicating URL permutations.",
+                         "fix": "Limit generated permutations and expose one canonical URL per content item.",
+                         "detail": f"{len(urls)} URLs, {len(set(paths))} path shapes", "pages": urls[:100]})
+    return findings or [{"code": "crawl.traps", "what": "Crawl traps", "severity": "ok",
+                         "why": "No pagination, session, calendar, or faceted URL expansion pattern was detected in the crawled sample.",
+                         "fix": "passing", "detail": f"{len(urls)} URLs sampled"}]
+
+
+def crawl_depth_rows(crawl: dict) -> list[dict]:
+    """Report click-depth distribution and pages not reached by links."""
+    pages = crawl.get("pages") or []
+    if not pages:
+        return [{"code": "crawl.depth_not_measured", "what": "Crawl depth",
+                 "severity": "info", "why": "No pages were crawled.",
+                 "fix": "Run a multi-page crawl.", "detail": "no pages"}]
+    depths = [int(p.get("depth", -1)) for p in pages if int(p.get("depth", -1)) >= 0]
+    if not depths:
+        return [{"code": "crawl.depth_not_measured", "what": "Crawl depth",
+                 "severity": "info", "why": "The crawl did not record click depth.",
+                 "fix": "Run the current crawler.", "detail": "depth unavailable"}]
+    rows = [{"code": "crawl.depth_distribution", "what": "Click-depth distribution",
+             "severity": "ok", "why": "Click depth shows how many links a crawler needs to reach each page.",
+             "fix": "passing", "detail": ", ".join(f"depth {d}: {depths.count(d)}" for d in sorted(set(depths)))}]
+    orphan = [p.get("url") for p in pages if p.get("depth") == -1 and p.get("url")]
+    if orphan:
+        rows.append({"code": "crawl.orphan_pages", "what": "Orphan pages",
+                     "severity": "warn", "why": "These sitemap pages were not reached by following internal links from the entry page.",
+                     "fix": "Add relevant internal links or remove stale sitemap URLs.",
+                     "detail": f"{len(orphan)} page(s)", "pages": orphan[:100]})
+    return rows
+
+
+def crawl_behavior_rows(crawl: dict) -> list[dict]:
+    """Detect URL patterns that can consume crawl budget without new content."""
+    pages = crawl.get("pages", [])
+    raw_urls = [u for p in pages for u in p.get("raw_links", [])]
+    if not raw_urls:
+        return []
+    rows: list[dict] = []
+    param_urls = [u for u in raw_urls if urlsplit(u).query]
+    param_keys: dict[str, set[str]] = {}
+    for url in param_urls:
+        keys = tuple(sorted(k.lower() for k, _ in parse_qsl(urlsplit(url).query, keep_blank_values=True)))
+        if keys:
+            param_keys.setdefault("&".join(keys), set()).add(url)
+    trap_urls = [u for u in param_urls if re.search(r"(?:^|[&?])(?:sid|session|phpsessid|jsessionid|token)=|(?:^|[&?])(?:utm_|fbclid|gclid)", u, re.I)]
+    if trap_urls:
+        rows.append(_row("Crawl trap — session/tracking URLs", "warn",
+                         f"The crawl found {len(trap_urls)} same-site URLs carrying session or tracking parameters. "
+                         "These can create many duplicate URLs without new content.",
+                         "Strip tracking/session parameters from internal links and disallow only the useless variants.",
+                         detail=", ".join(sorted(trap_urls)[:5])))
+    facets = [u for u in param_urls if len(parse_qsl(urlsplit(u).query, keep_blank_values=True)) >= 2]
+    if len(facets) >= 3 or len(param_keys) >= 4:
+        rows.append(_row("Crawl trap — faceted parameters", "warn",
+                         f"The crawl found {len(param_keys)} parameter combinations ({len(facets)} multi-parameter URLs). "
+                         "Facets can multiply crawlable URLs faster than content is created.",
+                         "Choose a canonical facet strategy: allow useful combinations, canonicalize, or noindex the rest.",
+                         detail=f"{len(param_keys)} combinations"))
+    sequence_urls = [u for u in raw_urls if re.search(r"(?:/page(?:/|=)|[?&]page=|/calendar/|/(?:20\d\d)(?:/\d{1,2})?)", u, re.I)]
+    if len(sequence_urls) >= 5:
+        rows.append(_row("Crawl trap — pagination/calendar", "warn",
+                         f"The crawl found {len(sequence_urls)} pagination or calendar-like URLs. "
+                         "Unbounded sequences can consume crawl budget.",
+                         "Bound pagination, link only useful pages, and keep calendar archives out of the crawl path unless they earn indexing.",
+                         detail=", ".join(sorted(sequence_urls)[:5])))
     return rows
 
 

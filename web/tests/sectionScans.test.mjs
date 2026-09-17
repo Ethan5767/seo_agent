@@ -201,7 +201,8 @@ test("toolsForView returns dedicated tools for specific screens like site-crawl 
   assert.deepEqual(crawlTools, ["internal", "site"]);
 
   const techTools = toolsForView("technical", TOOLS);
-  assert.deepEqual(techTools, ["tech", "schema", "validate"]);
+  // `headers` reads the response (security headers, redirects, soft-404, cert).
+  assert.deepEqual(techTools, ["tech", "headers", "schema", "validate"]);
 
   const backlinksTools = toolsForView("backlinks", TOOLS);
   assert.deepEqual(backlinksTools, ["backlinks"]);

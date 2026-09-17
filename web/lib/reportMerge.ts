@@ -35,3 +35,16 @@ export function mergeScanReport(base: Report, next: Report, ranTools: readonly s
   }
   return merged;
 }
+
+/**
+ * A client-side merge combines results from different scanner invocations. It
+ * has no complete, trustworthy denominator, so it must never invent a health
+ * score. Only a complete backend report may carry one.
+ */
+export function invalidateMergedScore(report: Report): Report {
+  const stale: Report = { ...report, score: null, score_version: null, score_breakdown: null };
+  delete stale.counts;
+  delete stale.counts_all;
+  delete stale.graded;
+  return stale;
+}

@@ -94,20 +94,9 @@ test("no nav item resolves to nothing", () => {
   assert.deepEqual(orphans, [], `nav items with no destination: ${JSON.stringify(orphans)}`);
 });
 
-test("the pinned tools button is not also a nav item", () => {
-  // The directory has its own pinned button at the foot of the drawer. Listing
-  // it in a section as well is the duplicate this structure exists to prevent.
-  const labels = navItems().map((i) => i.label);
-  assert.equal(
-    labels.includes("All Tools"),
-    false,
-    "All Tools Directory has a pinned button; it must not also be a section item",
-  );
-});
-
 test("no nav entry is hardcoded to never highlight", () => {
   const start = SRC.indexOf("Merged navigation, drawer half");
-  const end = SRC.indexOf("All Tools Directory Pinned", start);
+  const end = SRC.indexOf("</aside>", start);
   assert.ok(start !== -1 && end !== -1, "drawer block not found");
   assert.equal(
     /isSelected:\s*false/.test(SRC.slice(start, end)),

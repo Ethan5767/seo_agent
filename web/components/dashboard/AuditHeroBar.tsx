@@ -15,7 +15,7 @@ import { AUDIT_CRAWL_OPTIONS, ONPAGE_AUDIT_TOOLS } from "@/lib/auditBreakdown";
 
 interface AuditHeroBarProps {
   currentDomain?: string;
-  /** Runs the on-page audit: `ONPAGE_AUDIT_TOOLS` over `pages` crawled pages. */
+  /** Runs every `ONPAGE_AUDIT_TOOLS` check over `pages` crawled pages. */
   onRunAudit: (url: string, tools: string[], pages: number) => void;
   isScanning?: boolean;
   phaseLine?: string;
@@ -39,7 +39,6 @@ export function AuditHeroBar({
   pages,
   onPagesChange,
   lastScanAt,
-  onEditProject,
   onCreateProject,
 }: AuditHeroBarProps) {
   // The project's domain, never a typed one: a typed site created or switched
@@ -58,32 +57,41 @@ export function AuditHeroBar({
   return (
     <div>
       <form className="run-bar" onSubmit={run} aria-label="On-page audit">
-        <div className="run-bar__what">
+        <div className="run-bar__head">
           <h2 className="run-bar__title">On-page audit</h2>
-          {domain ? (
-            <div className="run-bar__domain" aria-label="Project domain">
-              <b>{shownDomain}</b>
-              {onEditProject && <button type="button" className="link" onClick={onEditProject}>Change</button>}
-            </div>
-          ) : (
-            <div className="run-bar__domain" aria-label="Project domain">
-              No project selected.
-              {onCreateProject && <button type="button" className="link" onClick={onCreateProject}>Create a project</button>}
-            </div>
-          )}
           <p className="run-bar__sub">
-            Free. Crawls the site and checks titles, descriptions, headings, links, images, structured data, sitemap and technical setup.
+            Checks every technical SEO signal: on-page, crawl, headers, schema, AI access, field data and Lighthouse on every selected page. Includes DataForSEO Site Health (paid).
             {lastScanAt ? ` Last audit ${new Date(lastScanAt).toLocaleDateString()}.` : ""}
           </p>
         </div>
-        <div className="run-bar__controls">
-          <label className="run-bar__pages field">
-            Pages to crawl
-            <select value={depth} onChange={(e) => onPagesChange(Number(e.target.value))} disabled={isScanning}>
-              {AUDIT_CRAWL_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
-          <button type="submit" className="btn btn--primary btn--lg" disabled={isScanning || !domain}>
+        {/* One input-style bar, one button. The domain is the project's and is
+            read-only (operator, 2026-09-15: one project, one domain); change it
+            by editing the project. */}
+        <div className="run-bar__input" data-disabled={!domain || undefined}>
+          {domain ? (
+            <input
+              className="run-bar__domain"
+              aria-label="Project domain"
+              value={shownDomain}
+              readOnly
+              title="The open project's domain"
+            />
+          ) : (
+            <span className="run-bar__domain run-bar__domain--empty" aria-label="Project domain">
+              No project selected.
+              {onCreateProject && <button type="button" className="link" onClick={onCreateProject}>Create a project</button>}
+            </span>
+          )}
+          <select
+            className="run-bar__pages"
+            aria-label="Pages to crawl"
+            value={depth}
+            onChange={(e) => onPagesChange(Number(e.target.value))}
+            disabled={isScanning}
+          >
+            {AUDIT_CRAWL_OPTIONS.map((n) => <option key={n} value={n}>{n} pages</option>)}
+          </select>
+          <button type="submit" className="btn btn--primary btn--sm run-bar__go" disabled={isScanning || !domain}>
             {isScanning ? "Auditing…" : "Run Audit"}
           </button>
         </div>

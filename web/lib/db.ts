@@ -305,6 +305,66 @@ export async function listClients(): Promise<ClientWithStats[]> {
   });
 }
 
+export type KeywordHistoryPoint = { at: string; position: number | null };
+export type KeywordSeries = {
+  keyword: string;
+  volume: number | null;
+  points: KeywordHistoryPoint[];  // oldest first
+  first: number | null;           // earliest measured position
+  latest: number | null;          // most recent measured position
+  delta: number | null;           // latest - first, negative = improved (moved up)
+};
+
+/**
+ * Per-keyword position over time, for real rank tracking (not a snapshot).
+ *
+ * The `keywords` table already stores one row per keyword per scan (written by
+ * `saveScan`), so the history is simply those rows grouped by keyword and
+ * ordered by scan date. A keyword needs at least two scans to have a trend;
+ * `points` still returns the single point so the caller can say "one reading so
+ * far" rather than showing nothing. `delta` uses screen convention: a smaller
+ * position number is better, so a negative delta is an improvement.
+ */
+export async function keywordRankHistory(clientId: string): Promise<KeywordSeries[]> {
+  if (!clientId) return [];
+  let data: Array<{ keyword: string; position: number | null; volume: number | null; created_at: string }> = [];
+  try {
+    const res = await supabase
+      .from("keywords").select("keyword, position, volume, created_at")
+      .eq("client_id", clientId).order("created_at", { ascending: true });
+    if (res.error) { console.error("keywordRankHistory", res.error); return []; }
+    data = (res.data as typeof data) || [];
+  } catch (e) {
+    console.error("keywordRankHistory", e);
+    return [];
+  }
+
+  const byKeyword = new Map<string, KeywordSeries>();
+  for (const r of data) {
+    const kw = (r.keyword || "").trim();
+    if (!kw) continue;
+    let s = byKeyword.get(kw);
+    if (!s) {
+      s = { keyword: kw, volume: null, points: [], first: null, latest: null, delta: null };
+      byKeyword.set(kw, s);
+    }
+    s.points.push({ at: r.created_at, position: r.position });
+    if (typeof r.volume === "number") s.volume = r.volume;
+  }
+
+  const series: KeywordSeries[] = [];
+  for (const s of byKeyword.values()) {
+    const measured = s.points.filter((p) => typeof p.position === "number") as Array<{ at: string; position: number }>;
+    s.first = measured.length ? measured[0].position : null;
+    s.latest = measured.length ? measured[measured.length - 1].position : null;
+    s.delta = s.first !== null && s.latest !== null ? s.latest - s.first : null;
+    series.push(s);
+  }
+  // Most-tracked (most data points) first, then best current position.
+  series.sort((a, b) => b.points.length - a.points.length || (a.latest ?? 999) - (b.latest ?? 999));
+  return series;
+}
+
 export type RemediationItem = { code: string; url: string; status: string; note: string; files: string[] };
 export type RemediationRow = {
   id: string; created_at: string; url: string; cycle: string;
@@ -387,29 +447,70 @@ export async function getScanReport(scanId: string): Promise<Record<string, unkn
   return null;
 }
 
+/** Flatten a scan's `report` snapshot into finding rows, for scans whose
+ *  normalized `findings` table has no rows — a report-only seed (the DEMO
+ *  project), or a scan saved before findings were normalized. Without this a
+ *  project that clearly has issues (its report shows 13) plans to an empty
+ *  worklist.
+ *
+ *  The report scatters findings across MANY top-level keys, not just `_GROUPS`:
+ *  the DEMO report's warn/error issues live under `eeat`, `video`, `content`,
+ *  `lh_perf`, `backlinks`, etc. So we walk every top-level value and take any
+ *  array whose elements look like findings (a `code` and a `severity`). The Plan
+ *  route filters to error/warn, so the info/ok rows we pick up here are dropped
+ *  there — including them costs nothing and missing a key costs the whole plan.
+ *  Codes duplicated across keys are de-duped by the Plan route (highest severity
+ *  wins). */
+function findingsFromReport(report: unknown): FindingRow[] {
+  if (!report || typeof report !== "object") return [];
+  const out: FindingRow[] = [];
+  for (const value of Object.values(report as Record<string, unknown>)) {
+    if (!Array.isArray(value)) continue;
+    for (const row of value as Array<Record<string, unknown>>) {
+      if (!row || typeof row !== "object") continue;
+      if (typeof row.code !== "string" || typeof row.severity !== "string") continue;
+      out.push({
+        code: String(row.code ?? ""),
+        what: String(row.what ?? ""),
+        why: String(row.why ?? ""),
+        fix: String(row.fix ?? ""),
+        detail: String(row.detail ?? ""),
+        severity: String(row.severity ?? ""),
+        tool: row.tool ? String(row.tool) : undefined,
+      });
+    }
+  }
+  return out;
+}
+
 /** The findings from a client's two most recent scans — {current, previous} —
- *  for the Plan-stage ratchet. `previous` is [] when only one scan exists. */
+ *  for the Plan-stage ratchet. `previous` is [] when only one scan exists.
+ *  Falls back to the report snapshot when the normalized findings table is empty
+ *  for a scan (see `findingsFromReport`). */
 export async function lastTwoScansFindings(
   clientId: string,
 ): Promise<{ current: FindingRow[]; previous: FindingRow[]; currentScanId?: string }> {
   const empty = { current: [], previous: [] };
   if (!clientId) return empty;
   const { data: scans, error } = await supabase
-    .from("scans").select("id, created_at")
+    .from("scans").select("id, created_at, report")
     .eq("client_id", clientId).order("created_at", { ascending: false }).limit(2);
   if (error) { console.error("lastTwoScansFindings.scans", error); return empty; }
   if (!scans?.length) return empty;
 
-  const findingsFor = async (scanId: string): Promise<FindingRow[]> => {
+  const findingsFor = async (scan: { id: string; report?: unknown }): Promise<FindingRow[]> => {
     const { data, error: fErr } = await supabase
       .from("findings").select("code, what, why, fix, detail, severity, tool")
-      .eq("scan_id", scanId);
+      .eq("scan_id", scan.id);
     // Surface a real read failure — a silent [] would fake a clean/all-NEW plan.
     if (fErr) { console.error("lastTwoScansFindings.findings", fErr); throw fErr; }
-    return (data as FindingRow[]) || [];
+    const rows = (data as FindingRow[]) || [];
+    // No normalized rows -> derive from the report the scan always carries, so a
+    // report-only project (DEMO, or a pre-normalization scan) still plans.
+    return rows.length ? rows : findingsFromReport(scan.report);
   };
-  const current = await findingsFor(scans[0].id);
-  const previous = scans[1] ? await findingsFor(scans[1].id) : [];
+  const current = await findingsFor(scans[0]);
+  const previous = scans[1] ? await findingsFor(scans[1]) : [];
   return { current, previous, currentScanId: scans[0].id };
 }
 

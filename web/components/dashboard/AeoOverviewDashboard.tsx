@@ -13,7 +13,13 @@ import React from "react";
  * green ring over zero measurements (B-094).
  */
 
-interface Row { code?: string; what?: string; severity?: string; detail?: string }
+interface CitationMetrics {
+  mentions: number;
+  cited: boolean;
+  engines: Array<{ name: string; count: number }>;
+  sources: Array<{ domain: string; count: number }>;
+}
+interface Row { code?: string; what?: string; severity?: string; detail?: string; fix?: string; metrics?: CitationMetrics }
 
 const GROUPS: { key: string; label: string; match: (code: string, what: string) => boolean }[] = [
   { key: "answer", label: "Answer Readiness", match: (c) => c.includes("answer") || c.includes("statistics") || c.includes("data_tables") || c.includes("no_answer") },
@@ -75,10 +81,81 @@ export function AeoOverviewDashboard({ aeoRows, aiRows }: { aeoRows: Row[]; aiRo
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(10rem, 1fr))", gap: "var(--space-3)" }}>
         <Stat label="Signals passing" value={measured ? String(passing) : "—"} tone="var(--ok)" />
         <Stat label="Needs fix" value={measured ? String(needsFix) : "—"} tone={needsFix ? "var(--warn)" : "var(--ink)"} />
-        <Stat label="AI engine mentions" value={String(mentions)} tone={llm?.severity === "ok" ? "var(--ok)" : "var(--ink)"} />
+        <Stat label="AI engine mentions" value={llm?.metrics ? String(llm.metrics.mentions) : String(mentions)} tone={llm?.severity === "ok" ? "var(--ok)" : "var(--ink)"} />
         <Stat label="Total signals checked" value={measured ? String(aeoRows.length) : "—"} tone="var(--ink)" />
       </div>
+
+      {/* AI citations, the product's sharpest differentiator: which engines cite
+          the brand and, crucially, who gets cited INSTEAD. Only when the mentions
+          tool actually ran (the row exists). */}
+      {llm && <CitationPanel llm={llm} />}
     </div>
+  );
+}
+
+/** Per-engine share of voice + who is cited instead, from `dfs.llm_mentions`
+ *  metrics. Handles cited / not-cited / cited-but-no-competitors distinctly. */
+function CitationPanel({ llm }: { llm: Row }) {
+  const m = llm.metrics;
+  // No structured metrics (older scan) — fall back to the one-line row, no panel.
+  if (!m) return null;
+
+  if (!m.cited || m.mentions === 0) {
+    return (
+      <section style={panel}>
+        <h2 style={panelTitle}>AI Citations</h2>
+        <p style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)", marginTop: "var(--space-3)", lineHeight: 1.6 }}>
+          Not cited by AI answer engines yet. {llm.fix || "Publish citable, factual content (clear answers, statistics, entity schema) so engines reference you."}
+        </p>
+      </section>
+    );
+  }
+
+  const engineTotal = m.engines.reduce((a, e) => a + e.count, 0) || 1;
+  return (
+    <section style={panel}>
+      <h2 style={panelTitle}>AI Citations</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 18rem), 1fr))", gap: "var(--space-5)", marginTop: "var(--space-4)" }}>
+        <div>
+          <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--ink)", marginBottom: "var(--space-3)" }}>
+            Cited {m.mentions} time{m.mentions === 1 ? "" : "s"} across {m.engines.length} engine{m.engines.length === 1 ? "" : "s"}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+            {m.engines.map((e) => (
+              <div key={e.name} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                <span style={{ width: "clamp(5rem, 28%, 8rem)", fontSize: "var(--text-sm)", color: "var(--ink-body)", fontWeight: 600, flexShrink: 0, textTransform: "capitalize" }}>{e.name}</span>
+                <div style={{ flex: 1, height: 12, background: "var(--surface-3)", borderRadius: "var(--radius-full)", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.round((e.count / engineTotal) * 100)}%`, height: "100%", background: "var(--ok-fill)", borderRadius: "var(--radius-full)" }} />
+                </div>
+                <span style={{ width: "4.5rem", textAlign: "right", fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--ink)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                  {e.count} · {Math.round((e.count / engineTotal) * 100)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--ink)", marginBottom: "var(--space-3)" }}>
+            Who gets cited instead
+          </div>
+          {m.sources.length ? (
+            <ol style={{ margin: 0, paddingLeft: "1.2rem", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+              {m.sources.map((s) => (
+                <li key={s.domain} style={{ fontSize: "var(--text-sm)", color: "var(--ink-body)" }}>
+                  <span style={{ fontFamily: "ui-monospace, monospace" }}>{s.domain}</span>
+                  <span style={{ color: "var(--ink-muted)" }}> · cited {s.count}×</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p style={{ fontSize: "var(--text-sm)", color: "var(--ink-muted)", lineHeight: 1.6 }}>
+              No competitor domains were captured in the answers that cite you — the answers point to you directly.
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

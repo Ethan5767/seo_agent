@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { GoogleServicesHub } from "./GoogleServicesHub";
+import { LocalBusinessSkeleton } from "./DashboardSkeletons";
 import { Panel, StatStrip } from "./Panel";
 import styles from "./LocalPresence.module.css";
 import { authedFetch } from "@/lib/authedFetch";
@@ -356,6 +357,8 @@ export function LocalBusinessManager({
   const tabId = (key: string) => `${uid}-tab-${key}`;
   const panelId = `${uid}-tabpanel`;
   const reviewLink = `https://search.google.com/local/writereview?placeid=${placeId}`;
+
+  if (loading) return <LocalBusinessSkeleton />;
 
   return (
     <div className={styles.stack}>

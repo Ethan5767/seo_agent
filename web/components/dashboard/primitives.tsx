@@ -22,13 +22,13 @@ export function IconTerminal({ size = 18 }: { size?: number }) {
 }
 
 export function MiniRadialGauge({
-  score = 41,
+  score,
   size = 34,
   strokeWidth = 3.5,
   color = "var(--ok)",
   bgColor = "var(--border)",
 }: {
-  score?: number;
+  score?: number | null;
   size?: number;
   strokeWidth?: number;
   color?: string;
@@ -36,7 +36,8 @@ export function MiniRadialGauge({
 }) {
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;
-  const strokeDash = Math.min(circ, Math.max(0, (score / 100) * circ));
+  const measured = typeof score === "number" && Number.isFinite(score);
+  const strokeDash = measured ? Math.min(circ, Math.max(0, (score! / 100) * circ)) : 0;
   const fontSize = size >= 60 ? 15 : size >= 44 ? 12 : 9.5;
 
   return (
@@ -55,17 +56,18 @@ export function MiniRadialGauge({
           style={{ transition: "stroke-dasharray 0.4s ease" }}
         />
       </svg>
-      <span style={{ position: "absolute", fontSize, fontWeight: 700, color: "var(--ink-body)", letterSpacing: "-0.02em" }}>{score}</span>
+      <span style={{ position: "absolute", fontSize, fontWeight: 700, color: "var(--ink-body)", letterSpacing: "-0.02em" }}>{measured ? score : "—"}</span>
     </div>
   );
 }
 
-export function SiteHealthDonut({ score = 82, size = 110 }: { score?: number; size?: number }) {
+export function SiteHealthDonut({ score, size = 110 }: { score?: number | null; size?: number }) {
   const stroke = size <= 80 ? 7 : 11;
   const radius = (size - stroke) / 2;
   const circ = 2 * Math.PI * radius;
-  const offset = circ - (Math.max(0, Math.min(100, score)) / 100) * circ;
-  const color = score >= 80 ? "var(--ok)" : score >= 50 ? "var(--warn)" : "var(--bad)";
+  const measured = typeof score === "number" && Number.isFinite(score);
+  const offset = measured ? circ - (Math.max(0, Math.min(100, score!)) / 100) * circ : circ;
+  const color = !measured ? "var(--border-strong)" : score! >= 80 ? "var(--ok)" : score! >= 50 ? "var(--warn)" : "var(--bad)";
   const valFontSize = size <= 80 ? 17 : 24;
   const labelFontSize = size <= 80 ? 8.5 : 10;
 
@@ -91,7 +93,7 @@ export function SiteHealthDonut({ score = 82, size = 110 }: { score?: number; si
         alignItems: "center", justifyContent: "center", pointerEvents: "none",
       }}>
         <span style={{ fontSize: valFontSize, fontWeight: 800, color: "var(--ink)", lineHeight: 1 }}>
-          {score}%
+          {measured ? `${score}%` : "—"}
         </span>
         <span style={{ fontSize: labelFontSize, color: "var(--ink-muted)", marginTop: 2, fontWeight: 600 }}>
           Health

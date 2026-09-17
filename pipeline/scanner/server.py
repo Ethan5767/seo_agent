@@ -14,6 +14,8 @@ import secrets
 import shutil
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 from datetime import date
 from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,7 +39,8 @@ from pipeline.scanner.plan import build_plan
 from pipeline.scanner.remediate import build_remediation
 from pipeline.scanner.remediate_bridge import bridge_worklist
 from pipeline.scanner.checks import checks_for
-from pipeline.scanner.crawl import crawl_site, links_in, site_rows
+from pipeline.scanner.crawl import crawl_site, links_in, site_rows, crawl_trap_rows, crawl_depth_rows
+from pipeline.lib.html import sitemap_locs
 from pipeline.scanner.rows import unavailable_row
 from pipeline.scanner import progress
 from pipeline.scanner.multipage import merge_by_code
@@ -53,18 +56,57 @@ STATIC = Path(__file__).parent / "static"
 # The one shared .env loader — same file every wf-* command reads.
 from pipeline.lib.env import load_env as load_dotenv  # noqa: E402 (re-export)
 
+load_dotenv()
+
 from pipeline.lib.atomic import write_json_atomic
+from pipeline.scanner.contracts import normalize_findings, tool_metadata
+from pipeline.scanner.log_analysis import analyze_logs, parse_access_logs
+from pipeline.scanner.index_reconcile import reconcile_index
+from pipeline.scanner.rendering import rendering_rows, render_url
+from pipeline.scanner.media import media_rows
+from pipeline.scanner.security import security_rows
+from pipeline.scanner.url_quality import url_quality_rows
+from pipeline.scanner.migration import migration_rows
+from pipeline.scanner.coverage_new import js_navigation_rows, parameter_inventory_rows, interstitial_rows
+
+
+# robots.txt and sitemap.xml per origin, for the life of one scan. `_default_fetch`
+# read both on EVERY call and the crawl calls it once per page, so a 100-page
+# audit spent 200 requests re-reading two files that cannot change mid-scan.
+_ORIGIN_FILES: dict = {}
+_ORIGIN_FILES_TTL = 600.0
+
+
+def _forget_origin_files() -> None:
+    """Drop the cache. Called at the start of each scan, and by its tests."""
+    _ORIGIN_FILES.clear()
+
+
+def _origin_files(origin: str) -> tuple:
+    hit = _ORIGIN_FILES.get(origin)
+    if hit and (time.time() - hit[0]) < _ORIGIN_FILES_TTL:
+        return hit[1], hit[2]
+    robots = measure.curl(f"{origin}/robots.txt", cache_bust=False)
+    sitemap = measure.curl(f"{origin}/sitemap.xml", cache_bust=False)
+    _ORIGIN_FILES[origin] = (time.time(), robots, sitemap)
+    return robots, sitemap
 
 
 def _default_fetch(url: str):
-    """(html, status, robots_text, sitemap_text) for a live URL. Reuses curl."""
-    status = measure.curl_status(url)
-    html = measure.curl(url) if status else ""
+    """(html, status, robots_text, sitemap_text, headers, chain) for a live URL.
+
+    One `curl_full` gets the body, the status, the response headers and every
+    redirect hop — what used to take a HEAD for the status and a GET for the
+    body, and still threw the headers away. Callers that only want the first
+    four values keep working: the tuple grew at the end.
+    """
+    from pipeline.lib.common import curl_full
+    full = curl_full(url)
+    status, html = full["status"], full["body"]
     parts = urlsplit(url)
     origin = f"{parts.scheme}://{parts.netloc}"
-    robots = measure.curl(f"{origin}/robots.txt", cache_bust=False)
-    sitemap = measure.curl(f"{origin}/sitemap.xml", cache_bust=False)
-    return html, status, robots, sitemap
+    robots, sitemap = _origin_files(origin)
+    return html, status, robots, sitemap, full["headers"], full["chain"]
 
 
 def normalize_url(url: str) -> str:
@@ -127,7 +169,16 @@ TOOLS = [
     Tool("On-page deep", "onpage", "On-page", "free", "free", 0.0, None,
          lambda c: (onpage.onpage_rows(c.url, c.html), None, 0.0)),
     Tool("Technical", "tech", "Technical", "free", "free", 0.0, None,
-         lambda c: (tech_rows(c.url, c.html, c.status, c.sitemap), None, 0.0)),
+         lambda c: _tech_tool(c)),
+    # What the RESPONSE says about itself: security headers, X-Robots-Tag,
+    # cache/compression, the live redirect chain, the apex and HTTPS entry
+    # points, whether a missing page really 404s, and the certificate's expiry.
+    Tool("Headers & redirects", "headers", "Technical", "free", "free", 0.0, None,
+         lambda c: _headers_tool(c)),
+    # MONITOR — the live site after the merge, not the page being audited. Same
+    # assertions as the client repo's daily seo-health workflow.
+    Tool("Production monitor", "monitor", "Technical", "free", "free", 0.0, None,
+         lambda c: _monitor_tool(c)),
     Tool("Schema validation", "schema", "Technical", "free", "free", 0.0, None,
          lambda c: (schema_rows(c.html), None, 0.0)),
     Tool("Sitemap & hreflang", "validate", "Technical", "free", "free", 0.0, None,
@@ -157,6 +208,9 @@ TOOLS = [
          lambda c: lighthouse.category_tool(c, "accessibility", "Accessibility")),
     Tool("Lighthouse: Best practices", "lh_bp", "Lighthouse (Google)", "free", "free", 0.0, None,
          lambda c: lighthouse.category_tool(c, "best-practices", "Best practices")),
+    # Site-wide, not this page: the four cards above judge the audited URL only.
+    Tool("Lighthouse: Pages", "lh_pages", "Lighthouse (Google)", "free", "free", 0.0, None,
+         lambda c: lighthouse.pages_tool(c)),
     Tool("Internal links", "internal", "Links", "free", "free", 0.0, None,
          lambda c: (internal_link_rows(c.url, c.html), None, 0.0)),
     Tool("Backlinks (DataForSEO)", "backlinks", "Links", "dataforseo", "~$0.025", 0.025, None,
@@ -183,6 +237,32 @@ TOOLS = [
          lambda c: (source_audit.analyze_source(
              source_audit.fetch_repo_files(c.repo, c.github_token),
              source_audit.fetch_repo_tree(c.repo, c.github_token)), None, 0.0)),
+    # Access logs are user-uploaded evidence, not a network call. The tool is
+    # opt-in and remains absent from a normal audit until a log file is supplied.
+    Tool("Access log analysis", "logs", "Technical", "user_upload", "free (needs log upload)", 0.0, "logs",
+         lambda c: (analyze_logs(parse_access_logs(c.access_logs), crawl_urls=set(c.crawl_urls)), None, 0.0)),
+    Tool("Index reality reconciliation", "index_reality", "Technical", "third_party", "free (needs Search Console)", 0.0, "gsc",
+         lambda c: (reconcile_index(set(c.crawl_urls), set(c.sitemap_urls), c.gsc_data), None, 0.0)),
+    Tool("Headless rendering parity", "render", "Technical", "free", "free (Playwright)", 0.0, None,
+         lambda c: (lambda rendered, error: (rendering_rows(c.url, c.html, rendered, error), None, 0.0))(*render_url(c.url))),
+    Tool("Media SEO", "media", "Technical", "free", "free", 0.0, None,
+         lambda c: (media_rows(c.html), None, 0.0)),
+    Tool("Security and cloaking", "security", "Technical", "free", "free", 0.0, None,
+         lambda c: (security_rows(c.url, c.html, c.headers), None, 0.0)),
+    Tool("URL structure consistency", "url", "Technical", "free", "free", 0.0, None,
+         lambda c: (url_quality_rows(c.crawl_urls), None, 0.0)),
+    Tool("Crawl trap detection", "crawl_traps", "Links", "free", "free", 0.0, None,
+         lambda c: (crawl_trap_rows(getattr(c, "crawl_snapshot", {})), None, 0.0)),
+    Tool("Crawl depth & orphan analysis", "crawl_depth", "Links", "free", "free", 0.0, None,
+         lambda c: (crawl_depth_rows(getattr(c, "crawl_snapshot", {})), None, 0.0)),
+    Tool("JavaScript-only navigation", "js_navigation", "Technical", "free", "free", 0.0, None,
+         lambda c: (js_navigation_rows(c.html), None, 0.0)),
+    Tool("URL parameter inventory", "parameters", "Technical", "free", "free", 0.0, None,
+         lambda c: (parameter_inventory_rows(getattr(c, "crawl_snapshot", {})), None, 0.0)),
+    Tool("Mobile interstitial detection", "interstitial", "Technical", "free", "free", 0.0, None,
+         lambda c: (interstitial_rows(c.html), None, 0.0)),
+    Tool("Migration snapshot diff", "migration", "Technical", "own_crawler", "free (needs snapshots)", 0.0, "snapshot",
+         lambda c: (migration_rows(c.migration_snapshot, c.migration_current), None, 0.0)),
 ]
 
 
@@ -218,13 +298,35 @@ PER_PAGE = {"seo", "onpage", "schema", "content", "video", "eeat", "internal"}
 # fetched their results still stand; they were bought, and they are true.
 PAGE_INDEPENDENT = {t.key for t in TOOLS if t.group in ("dataforseo", "source")}
 
-# The on-page audit: every free check that reads the site's own pages for
-# titles, meta, headings, links, images, schema, sitemap and technical setup.
-# The Dashboard and Site Audit run exactly this (operator, 2026-09-15: "Run
-# audit" used to run all 16 free tools, content, trust, local, AI visibility,
-# video and Lighthouse included). Site Health is scored over these groups plus
-# the crawl's `site` rows: `audit.SCORED_GROUPS`.
-ONPAGE_AUDIT_TOOLS = ("seo", "onpage", "tech", "schema", "validate", "internal")
+# The on-page audit: every technical/on-page check that reads the site's pages
+# or crawl, including DataForSEO Site Health. It deliberately excludes keyword,
+# ranking, competitor, backlink, content, trust, video and local tools. The
+# Dashboard and Site Audit run exactly this. DataForSEO availability and the
+# spend pause are still enforced before the paid tool can run.
+# What the pipeline's on-page audit runs.
+#
+# `headers` (response headers, redirect chain, soft-404, certificate), `aeo`
+# (robots.txt and AI-crawler access) and `perf` (real-user Core Web Vitals from
+# CrUX) were all built, tested, and reachable from nowhere in this flow — the
+# audit judged the HTML and never the response, the robots file, or the speed
+# real visitors get. The four Lighthouse category cards share ONE PageSpeed call
+# per scan, so they cost one round trip between them.
+#
+# Lighthouse page checks run at the chosen audit depth, rather than hiding
+# behind a separate Speed toggle. This makes Run Audit a complete technical SEO
+# audit with a single, predictable scope.
+ONPAGE_AUDIT_TOOLS = ("seo", "site", "onpage", "tech", "headers", "monitor", "schema", "validate",
+                      "internal", "aeo", "perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp", "lh_pages", "render", "media", "security", "url", "crawl_traps", "crawl_depth", "js_navigation", "parameters", "interstitial")
+
+# How deep the free multi-page crawl may go in one scan.
+#
+# It was 25 because the scan fetched every page twice — once to map the site,
+# once again for the per-page tools — and the walk is sequential, so 25 pages
+# already meant 50 round trips. The crawl now carries each page's body, so a
+# page costs one request, and a real site (operator, 2026-09-16: "one website is
+# at least 100 pages") fits in a single audit. Still bounded: the crawl is
+# serial and every page runs the per-page tools, so depth is time.
+MAX_CRAWL_PAGES = 100
 
 
 def handle_plan(req: dict) -> dict:
@@ -234,6 +336,41 @@ def handle_plan(req: dict) -> dict:
     prev = req.get("previous")
     return build_plan(cur if isinstance(cur, list) else [],
                       prev if isinstance(prev, list) else [])
+
+
+def handle_monitor(req: dict, fetch=None, files=None) -> dict:
+    """One production-watch run, for the live Monitor screen to poll.
+
+    Deliberately NOT a scan: it saves nothing. The screen refreshes on a timer,
+    and a scan row per refresh would bury the audit history in the same table.
+    `fetch` and `files` are injected by the tests; live, both read the site.
+    """
+    from pipeline.scanner import monitor as M
+
+    url = normalize_url(str(req.get("url") or "").strip())
+    if not url:
+        return {"rows": [], "counts": {}, "domain": "", "checked_at": "",
+                "error": "no url given — the monitor needs the site to watch"}
+
+    parts = urlsplit(url)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    if files is None:
+        def files(o):
+            return (measure.curl(f"{o}/robots.txt", cache_bust=False),
+                    measure.curl(f"{o}/sitemap.xml", cache_bust=False))
+    robots, sitemap = files(origin)
+
+    routes = req.get("routes")
+    rows = M.monitor_rows(url, sitemap=sitemap, robots=robots,
+                          fetch=fetch or _live_fetch_full,
+                          routes=routes if isinstance(routes, list) and routes else None,
+                          min_sitemap=int(req.get("min_sitemap") or 0),
+                          limit=max(1, min(int(req.get("limit") or M.DEFAULT_ROUTE_LIMIT), MAX_CRAWL_PAGES)))
+    counts = {"error": 0, "warn": 0, "info": 0, "ok": 0}
+    for r in rows:
+        counts[r["severity"]] = counts.get(r["severity"], 0) + 1
+    return {"rows": rows, "counts": counts, "domain": parts.netloc,
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
 def handle_remediate(req: dict) -> dict:
@@ -486,15 +623,62 @@ def tool_catalog() -> list[dict]:
 
     return [{"key": t.key, "label": t.label, "category": t.category,
              "group": t.group, "cost": t.cost, "cost_num": t.cost_num,
+             **tool_metadata(t),
              "phase": phase_of(t), "phase_label": _PHASE_LABEL[phase_of(t)],
              "checks": checks_for(t.key),
              "available": _avail(t)[0], "unavailable_reason": _avail(t)[1]} for t in TOOLS]
 
 
+def _live_fetch_full(url: str, **kw):
+    from pipeline.lib.common import curl_full
+    return curl_full(url, **kw)
+
+
+def _monitor_tool(c) -> tuple:
+    """(rows, status, cost) — one production-watch run over the live routes."""
+    from pipeline.scanner import monitor as M
+
+    live = getattr(c, "fetch_full", None)
+    if not live:
+        return ([], "not run: the monitor reads the live site, and no live fetcher was supplied", 0.0)
+    rows = M.monitor_rows(c.url, sitemap=c.sitemap, robots=c.robots, fetch=live,
+                          limit=int(getattr(c, "monitor_routes", 0) or M.DEFAULT_ROUTE_LIMIT))
+    return rows, f"ok (live site, {len(rows)} check(s))", 0.0
+
+
+def _tech_tool(c) -> tuple:
+    """(rows, status, cost) — Technical on-page checks, comparing raw HTML with
+    PageSpeed Insights rendered DOM when available."""
+    psi_doc = getattr(c, "_psi", None)
+    if psi_doc is None:
+        try:
+            from pipeline.scanner import lighthouse
+            psi_doc, _ = lighthouse.get_psi(c)
+        except Exception:
+            psi_doc = None
+    return tech_rows(c.url, c.html, c.status, c.sitemap, psi_doc=psi_doc), None, 0.0
+
+
+def _headers_tool(c) -> tuple:
+    """(rows, status, cost) — every response-level check for this page."""
+    from pipeline.scanner import headers_check as H
+
+    rows = H.header_rows(c.headers) + H.redirect_rows(c.url, c.chain)
+    live = getattr(c, "fetch_full", None)
+    if live:
+        rows += H.entry_point_rows(c.url, fetch=live)
+        rows += H.soft_404_rows(c.url, fetch=live)
+        rows += H.ssl_rows(c.url)
+    read = "ok (response headers)" if c.headers is not None else "no response headers were read"
+    return rows, read, 0.0
+
+
 def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
                  max_pages=25, keywords=None, selected=None,
                  competitors=None, business="", on_tool=None, on_progress=None,
-                 repo="", github_token="", crawl_pages=1) -> dict:
+                 repo="", github_token="", crawl_pages=1, lighthouse_pages=0, monitor_routes=0,
+                 fetch_full=None, access_logs="", gsc_data=None, migration_snapshot=None,
+                 migration_current=None) -> dict:
     """Compose the audit by running each selected tool in TOOLS.
     `selected`: a set of tool keys to run, or None = run all. A tool with
     `needs="repo"` is skipped when no repo/token is supplied.
@@ -505,6 +689,9 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
     Tests inject DataForSEO tools by monkeypatching `dataforseo.<fn>` (the same
     module-level seam the parser tests use) — no per-tool injection params."""
     log = log if log is not None else []
+    # One scan, one read of robots.txt and sitemap.xml per origin. Cleared here
+    # so a later scan of the same site sees whatever those files say then.
+    _forget_origin_files()
     url = normalize_url(url)
     fetched = fetch(url)
     html, status = fetched[0], fetched[1]
@@ -527,7 +714,20 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         robots=fetched[2], sitemap=fetched[3] if len(fetched) > 3 else None,
         crux=crux, max_pages=max_pages, keywords=keywords or [], competitors=competitors or [],
         brand=business or (urlsplit(url).netloc or url),
-        repo=repo, github_token=github_token)
+        repo=repo, github_token=github_token, access_logs=access_logs,
+        gsc_data=gsc_data, migration_snapshot=migration_snapshot, migration_current=migration_current,
+        sitemap_urls=set(sitemap_locs(fetched[3] if len(fetched) > 3 else None)),
+        # Filled in after the crawl, for the tools that judge the site rather
+        # than this page (Lighthouse: Pages).
+        crawled_urls=[url], crawl_urls=[url], lighthouse_pages=lighthouse_pages, monitor_routes=monitor_routes,
+        # The response's own headers and redirect hops, when the fetcher carries
+        # them (`_default_fetch` does; a test's 4-tuple fetch does not).
+        headers=fetched[4] if len(fetched) > 4 else None,
+        chain=fetched[5] if len(fetched) > 5 else [],
+        # The live entry-point, soft-404 and certificate checks each ask the
+        # origin something the page fetch cannot answer. Absent, they say they
+        # were not measured rather than passing the site.
+        fetch_full=fetch_full)
     # The source lane runs only for an owner/name GitHub repo + read token —
     # same guard as fetch_repo_files, so a local path skips instead of running
     # the tool to an empty result.
@@ -540,13 +740,19 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         # paid call is only ever made because someone picked it.
         if selected is not None:
             return t.key in selected
-        return t.group != "dataforseo" and not (t.needs == "repo" and not source_ok)
+        return t.group not in ("dataforseo", "user_upload", "third_party") and not (t.needs == "repo" and not source_ok)
 
     def _blocker(t) -> str:
         """Why a wanted tool cannot run right now, or "" when it can."""
         if t.group == "dataforseo":
             ok, reason = dataforseo.availability()
             return "" if ok else reason
+        if t.needs == "snapshot" and not (ctx.migration_snapshot and ctx.migration_current):
+            return "Migration mode needs both a pre-launch snapshot and a post-launch crawl."
+        if t.needs == "logs" and not getattr(ctx, "access_logs", ""):
+            return "upload an Apache/Nginx/Cloudflare/Fastly/CloudFront access log first"
+        if t.needs == "gsc" and not getattr(ctx, "gsc_data", None):
+            return "connect Google Search Console before reconciling index reality"
         if t.needs == "repo" and not source_ok:
             return ("needs a GitHub repo (owner/name) on the project and a GitHub "
                     "token: sign in with GitHub, then scan again")
@@ -566,8 +772,13 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         # The scan's fetch returns (html, status, robots, sitemap); crawl_site
         # wants the (html, status) contract its own tests use. Adapt here rather
         # than widening the crawler, which is also used standalone.
-        walk = crawl_site(url, lambda u: fetch(u)[:2], ctx.sitemap,
-                          max_pages=crawl_pages,
+        # The crawl reads each page once and does not need a cold render: a
+        # cache-busted fetch of this site measured 12.5s against 3.3s cached,
+        # and the crawl is serial. The audited URL above is still fetched fresh.
+        crawl_fetch = ((lambda u: (lambda r: (r["body"], r["status"]))(fetch_full(u, cache_bust=False)))
+                       if fetch_full else (lambda u: fetch(u)[:2]))
+        walk = crawl_site(url, crawl_fetch, ctx.sitemap,
+                          max_pages=crawl_pages, seed=(html, status),
                           on_page=(lambda n, total, u: on_progress(
                               "Multi-page crawl", f"Fetching page {n} of up to {total}: {u}",
                               {"step": "page", "phase": "progress", "n": n, "total": total, "url": u}))
@@ -575,16 +786,26 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
         for page in walk["pages"]:
             if page["url"] == url:
                 continue
-            # crawl_site keeps only what site-level checks need, so the body is
-            # re-fetched for the per-page tools. Same pages, one extra read.
-            pf = fetch(page["url"])
-            extra_pages.append((page["url"], pf[0], pf[1]))
+            # The crawl carries each page's body, so the per-page tools read what
+            # it already fetched. This used to re-fetch every page: a 100-page
+            # audit made 200 sequential requests, which is what held the depth
+            # at 25.
+            extra_pages.append((page["url"], page.get("html") or "", page["status"]))
         site_findings = site_rows(walk)
+        ctx.sitemap_urls = set(walk["sitemap_urls"])
+        ctx.crawl_snapshot = walk
         if on_progress:
             on_progress("Multi-page crawl", f"Crawled {len(walk['pages'])} page(s)",
                         {"step": "page", "phase": "finished", "n": len(walk["pages"]), "total": crawl_pages})
         if extra_pages:
             log.append(f"Crawled {len(extra_pages) + 1} pages for the free checks.")
+        # Only pages that answered 200: PSI on a 404 measures the error page,
+        # and a redirect would score a URL the crawl never judged.
+        ctx.crawled_urls = [url] + [u for u, _, st in extra_pages if st == 200]
+        ctx.crawl_urls = list(ctx.crawled_urls)
+
+    if crawl_pages <= 1:
+        ctx.crawl_snapshot = {}
 
     # url -> {code: worst failing severity} for the per-page summary. Filled
     # from the scored per-page tools only, so a page's counts add up to the
@@ -620,7 +841,8 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
 
     groups: dict[str, list] = {}
     if site_findings:
-        groups["site"] = site_findings
+        site_tool = next(t for t in TOOLS if t.key == "site")
+        groups["site"] = normalize_findings(site_findings, site_tool)
     cost = 0.0
     # Walk phases in order (cheap → paid → source); a phase with no selected
     # tool is skipped silently, with no marker.
@@ -652,7 +874,7 @@ def build_report(url: str, fetch=_default_fetch, crux="auto", log=None,
             # Extend, never assign: the free crawl's site-wide rows are already
             # filed under "site", which is also the Site Health tool's key. An
             # assignment here threw the crawl's findings away whenever both ran.
-            groups.setdefault(t.key, []).extend(rows)
+            groups.setdefault(t.key, []).extend(normalize_findings(rows, t))
             line = tool_status or _status_line(rows)
             log.append(f"{t.label} — {line}")
             if on_tool:
@@ -848,6 +1070,10 @@ class Handler(BaseHTTPRequestHandler):
                 "error": "not authorized — this endpoint is not reachable from "
                          "another page. Open the console the server printed."
             }), "application/json")
+        if self.path == "/monitor":
+            n = int(self.headers.get("Content-Length", 0))
+            req = json.loads(self.rfile.read(n) or b"{}")
+            return self._send(200, json.dumps(handle_monitor(req)))
         if self.path == "/plan":
             n = int(self.headers.get("Content-Length", 0))
             req = json.loads(self.rfile.read(n) or b"{}")
@@ -913,9 +1139,13 @@ class Handler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             max_pages = 25
         try:
-            crawl_pages = max(1, min(int(req.get("crawl_pages") or 1), 25))
+            crawl_pages = max(1, min(int(req.get("crawl_pages") or 1), MAX_CRAWL_PAGES))
+            lighthouse_pages = max(0, min(int(req.get("lighthouse_pages") or 0), MAX_CRAWL_PAGES))
+            monitor_routes = max(0, min(int(req.get("monitor_routes") or 0), MAX_CRAWL_PAGES))
         except (TypeError, ValueError):
             crawl_pages = 1
+            lighthouse_pages = 0
+            monitor_routes = 0
         # The project's market (web/lib/market.ts derives it from the domain).
         # Validated here: a location code is a positive integer, a language a
         # short code. Anything else falls back to the env default.
@@ -960,7 +1190,10 @@ class Handler(BaseHTTPRequestHandler):
                                              on_tool=on_tool, on_progress=on_progress, keywords=profile["keywords"],
                                              competitors=profile["competitors"], business=profile["business"],
                                              repo=repo, github_token=(req.get("github_token") or ""),
-                                             crawl_pages=crawl_pages)}
+                                             crawl_pages=crawl_pages,
+                                             lighthouse_pages=lighthouse_pages,
+                                             monitor_routes=monitor_routes,
+                                             fetch_full=_live_fetch_full)}
             checkout = local_checkout(repo)
             if checkout:
                 out["cycle"] = run_cycle(checkout, url, model, log=log, profile=profile)

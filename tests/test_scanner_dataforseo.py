@@ -99,7 +99,7 @@ def test_rankings_aggregates_and_sums_cost():
 
 # ── Task 5: Keywords (volume, ideas, gap, competitors, aggregator) ───────────
 from pipeline.scanner.dataforseo import (
-    parse_search_volume, parse_keyword_gap, parse_competitors, keywords_card,
+    parse_search_volume, parse_keyword_gap, parse_competitors, keywords_card, keyword_gap,
 )
 
 
@@ -111,11 +111,60 @@ def test_search_volume_parses_flat_google_ads_items():
 
 
 def test_keyword_gap_is_a_warn_opportunity():
+    # Competitor-only call (you_is_first=False): they rank #5, you do not; low
+    # volume -> "missing" -> warn.
     doc = {"tasks": [{"result": [{"items": [
-        {"keyword_data": {"keyword": "icu cambodia", "keyword_info": {"search_volume": 90}}}]}]}]}
+        {"keyword_data": {"keyword": "icu cambodia", "keyword_info": {"search_volume": 90}},
+         "first_domain_serp_element": {"rank_absolute": 5}}]}]}]}
     rows = parse_keyword_gap(doc, "rival.com")
     assert rows[0]["code"] == "dfs.keyword_gap" and rows[0]["severity"] == "warn"
     assert "rival.com" in rows[0]["why"]
+    assert rows[0]["metrics"]["quadrant"] == "missing"
+    assert rows[0]["metrics"]["comp_rank"] == 5 and rows[0]["metrics"]["your_rank"] is None
+
+
+def test_keyword_gap_quadrants():
+    # Overlap call (you_is_first=True): both rank. #2 vs #5 -> you ahead -> shared;
+    # #8 vs #3 -> you behind -> weak. Plus a high-volume competitor-only -> untapped.
+    doc = {"tasks": [{"result": [{"items": [
+        {"keyword_data": {"keyword": "ahead term", "keyword_info": {"search_volume": 500},
+                          "keyword_properties": {"keyword_difficulty": 40}},
+         "first_domain_serp_element": {"rank_absolute": 2},
+         "second_domain_serp_element": {"rank_absolute": 5}},
+        {"keyword_data": {"keyword": "behind term", "keyword_info": {"search_volume": 300}},
+         "first_domain_serp_element": {"rank_absolute": 8},
+         "second_domain_serp_element": {"rank_absolute": 3}},
+    ]}]}]}
+    rows = parse_keyword_gap(doc, "rival.com", you_is_first=True)
+    quads = {r["metrics"]["keyword"]: r["metrics"]["quadrant"] for r in rows}
+    assert quads == {"ahead term": "shared", "behind term": "weak"}
+    assert next(r for r in rows if r["metrics"]["keyword"] == "ahead term")["metrics"]["kd"] == 40
+
+    missing = {"tasks": [{"result": [{"items": [
+        {"keyword_data": {"keyword": "big gap", "keyword_info": {"search_volume": 900}},
+         "first_domain_serp_element": {"rank_absolute": 4}}]}]}]}
+    assert parse_keyword_gap(missing, "rival.com")[0]["metrics"]["quadrant"] == "untapped"
+
+
+def test_keyword_gap_makes_two_calls_and_merges():
+    seen_intersections = []
+
+    def fake_call(path, body):
+        seen_intersections.append(body[0]["intersections"])
+        if body[0]["intersections"]:  # overlap: shared/weak
+            return {"cost": 0.05, "tasks": [{"result": [{"items": [
+                {"keyword_data": {"keyword": "shared kw", "keyword_info": {"search_volume": 200}},
+                 "first_domain_serp_element": {"rank_absolute": 3},
+                 "second_domain_serp_element": {"rank_absolute": 9}}]}]}]}, None
+        return {"cost": 0.05, "tasks": [{"result": [{"items": [  # competitor-only: missing
+            {"keyword_data": {"keyword": "missing kw", "keyword_info": {"search_volume": 40}},
+             "first_domain_serp_element": {"rank_absolute": 6}}]}]}]}, None
+
+    rows, status, cost = keyword_gap("you.com", "rival.com", call=fake_call)
+    assert seen_intersections == [True, False]  # both calls made, overlap first
+    quads = {r["metrics"]["keyword"]: r["metrics"]["quadrant"] for r in rows}
+    assert quads == {"shared kw": "shared", "missing kw": "missing"}
+    assert status == "ok" and cost == 0.1
 
 
 def test_competitors_parsed():
@@ -129,7 +178,8 @@ def test_keywords_card_aggregates_and_sums_cost():
             return {"cost": 0.005, "tasks": [{"result": [{"items": [{"domain": "rival.com"}]}]}]}, None
         if "domain_intersection" in path:
             return {"cost": 0.01, "tasks": [{"result": [{"items": [
-                {"keyword_data": {"keyword": "icu cambodia", "keyword_info": {"search_volume": 90}}}]}]}]}, None
+                {"keyword_data": {"keyword": "icu cambodia", "keyword_info": {"search_volume": 90}},
+                 "first_domain_serp_element": {"rank_absolute": 5}}]}]}]}, None
         if "search_volume" in path:
             return {"cost": 0.02, "tasks": [{"result": [{"items": [{"keyword": "hospital", "search_volume": 1200}]}]}]}, None
         if "keyword_ideas" in path:
@@ -139,7 +189,9 @@ def test_keywords_card_aggregates_and_sums_cost():
     rows, status, cost = keywords_card("x.com", keywords=["hospital"], call=fake_call)
     codes = {r["code"] for r in rows}
     assert {"dfs.competitor", "dfs.keyword_gap", "dfs.keyword_volume", "dfs.keyword_idea"} <= codes
-    assert cost == round(0.005 + 0.01 + 0.02 + 0.008, 4)
+    # keyword_gap now makes TWO domain_intersection calls (overlap + competitor-only),
+    # so its 0.01 fixture cost is billed twice.
+    assert cost == round(0.005 + 0.01 + 0.01 + 0.02 + 0.008, 4)
 
 
 # ── Task 6: AI visibility (LLM mentions) ─────────────────────────────────────
@@ -156,6 +208,26 @@ def test_llm_mentions_cited_is_ok():
 def test_llm_mentions_absent_is_warn_gap():
     rows = parse_llm_mentions({"tasks": [{"result": [{"items": []}]}]}, "Orienda")
     assert rows[0]["severity"] == "warn" and "not cited" in rows[0]["what"]
+
+
+def test_llm_mentions_metrics_engines_and_sources():
+    doc = {"tasks": [{"result": [{"items": [
+        {"ai_provider": "chatgpt", "sources": [{"domain": "rival.com"}, {"domain": "www.you.com"}]},
+        {"ai_provider": "chatgpt", "sources": [{"url": "https://rival.com/x"}]},
+        {"ai_provider": "perplexity", "sources": ["other.com"]},
+    ]}]}]}
+    m = parse_llm_mentions(doc, "You", "you.com")[0]["metrics"]
+    assert m["mentions"] == 3 and m["cited"] is True
+    # per-engine counts, most-cited first
+    assert m["engines"][0] == {"name": "chatgpt", "count": 2}
+    # who is cited INSTEAD: rival.com twice, own domain excluded
+    top = {s["domain"]: s["count"] for s in m["sources"]}
+    assert top.get("rival.com") == 2 and "you.com" not in top and top.get("other.com") == 1
+
+
+def test_llm_mentions_absent_has_empty_metrics():
+    m = parse_llm_mentions({"tasks": [{"result": [{"items": []}]}]}, "You", "you.com")[0]["metrics"]
+    assert m == {"mentions": 0, "cited": False, "engines": [], "sources": []}
 
 
 def test_llm_mentions_caller_injected():

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const { mergeScanReport } = await import("../lib/reportMerge.ts");
+const { mergeScanReport, invalidateMergedScore } = await import("../lib/reportMerge.ts");
 
 const codes = (rows) => rows.map((r) => r.code);
 const BASE = {
@@ -41,4 +41,22 @@ test("ScannerApp merges through mergeScanReport", () => {
   const app = readFileSync(new URL("../app/ScannerApp.tsx", import.meta.url), "utf8");
   assert.match(app, /\.\.\.mergeScanReport\(baseReport, /);
   assert.doesNotMatch(app, /\.\.\.baseReport,\s*\.\.\.finalAudit,/);
+  assert.match(app, /invalidateMergedScore\(merged\)/);
+  assert.doesNotMatch(app, /auditScore\(merged\)|SCORE_VERSION/);
+});
+
+test("a partial section scan cannot manufacture or retain a combined score", () => {
+  const full = { ...BASE, score: 75, score_version: 4, graded: 40,
+    counts: { ok: 30, warn: 5, error: 5 }, score_breakdown: { total_weight: 90 } };
+  const technicalOnly = { tech: [{ code: "tech.https", severity: "ok" }],
+    score: 100, score_version: 4, graded: 1, counts: { ok: 1, warn: 0, error: 0 } };
+  const merged = mergeScanReport(full, technicalOnly, ["tech"]);
+  const visible = invalidateMergedScore(merged);
+  assert.equal(visible.score, null);
+  assert.equal(visible.score_version, null);
+  assert.equal(visible.score_breakdown, null);
+  assert.equal("counts" in visible, false);
+  assert.equal("graded" in visible, false);
+  assert.deepEqual(visible.tech, technicalOnly.tech);
+  assert.deepEqual(visible.seo, full.seo);
 });

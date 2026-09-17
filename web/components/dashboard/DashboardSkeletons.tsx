@@ -24,6 +24,22 @@ export function SkeletonBox({
   );
 }
 
+/** Reusable table body skeleton. Columns mirror the eventual table grid. */
+export function TableSkeleton({ columns = 6, rows = 8 }: { columns?: number; rows?: number }) {
+  return (
+    <div role="status" aria-label="Loading table" style={{ width: "100%", overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: 12, padding: "8px 10px", borderBottom: "1px solid var(--border)" }}>
+        {Array.from({ length: columns }, (_, i) => <SkeletonBox key={i} width="75%" height={10} borderRadius={3} />)}
+      </div>
+      {Array.from({ length: rows }, (_, r) => (
+        <div key={r} style={{ display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: 12, alignItems: "center", padding: "10px", minHeight: 36, borderBottom: r === rows - 1 ? 0 : "1px solid var(--border)" }}>
+          {Array.from({ length: columns }, (_, c) => <SkeletonBox key={c} width={c === 0 ? "88%" : "62%"} height={c === 0 ? 13 : 11} borderRadius={3} />)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Report view skeleton ──
 // Mirrors the real report screen exactly: the ReportStats strip (four joined
 // count cells) above the ReportTable (Status · Pages · Issue · Fix columns), so
@@ -719,6 +735,30 @@ export function LocalSeoSkeleton() {
         <div style={{ background: "var(--surface)", borderRadius: 8, border: "1px solid var(--border)", padding: "18px" }}>
           <SkeletonBox width={180} height={14} borderRadius={4} />
           <SkeletonBox width="100%" height={160} borderRadius={6} style={{ marginTop: 14 }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Business Profile has a connection banner, title/action row, eight tabs, and
+ * a two-column details form. Keep those fixed regions occupied while GBP loads. */
+export function LocalBusinessSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ height: 52, border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)" }}>
+        <SkeletonBox width="38%" height={14} borderRadius={4} style={{ margin: "18px" }} />
+      </div>
+      <div style={{ border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", padding: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+          <div><SkeletonBox width={220} height={18} borderRadius={4} /><SkeletonBox width={280} height={11} borderRadius={3} style={{ marginTop: 8 }} /></div>
+          <SkeletonBox width={130} height={32} borderRadius={6} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, borderBottom: "1px solid var(--border)", paddingBottom: 12 }}>
+          {Array.from({ length: 8 }, (_, i) => <SkeletonBox key={i} width="100%" height={28} borderRadius={5} />)}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 18 }}>
+          {Array.from({ length: 6 }, (_, i) => <SkeletonBox key={i} width="100%" height={34} borderRadius={5} />)}
         </div>
       </div>
     </div>

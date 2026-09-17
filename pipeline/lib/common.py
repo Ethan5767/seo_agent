@@ -108,17 +108,61 @@ BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.
 # TimeoutExpired, which every caller here would otherwise propagate as an
 # uncaught traceback mid-run. Both helpers already have an established failure
 # signal — "" for curl, 0 for curl_status — so a timeout returns that instead.
-def curl(url: str, cache_bust: bool = True) -> str:
+def _parse_dump(out: str) -> dict:
+    """Split `curl -D -` output into the redirect chain, final headers and body.
+
+    curl writes one header block per hop, then the body. The blocks are what -L
+    hides: a single 301 and a three-hop 302 chain both end in the same 200.
+    """
+    chain: list[dict] = []
+    headers: dict = {}
+    rest = out
+    while True:
+        if not rest.startswith("HTTP/"):
+            break
+        split = re.split(r"\r?\n\r?\n", rest, maxsplit=1)
+        block, rest = split[0], (split[1] if len(split) > 1 else "")
+        lines = re.split(r"\r?\n", block)
+        try:
+            status = int(lines[0].split()[1])
+        except (IndexError, ValueError):
+            break
+        headers = {}
+        for line in lines[1:]:
+            if ":" in line:
+                k, v = line.split(":", 1)
+                headers[k.strip().lower()] = v.strip()
+        chain.append({"status": status, "location": headers.get("location", "")})
+    return {"body": rest, "status": chain[-1]["status"] if chain else 0,
+            "headers": headers, "chain": chain}
+
+
+def curl_full(url: str, cache_bust: bool = True, follow: bool = True) -> dict:
+    """{body, status, headers, chain} for one URL — the whole response.
+
+    `curl` returns the body alone, which is why nothing downstream could check a
+    security header, an X-Robots-Tag, a cache or compression header, or tell a
+    soft-404 from a real one, and why every redirect hop was invisible behind
+    -L. Headers are lower-cased because callers match on the name; `chain` is one
+    entry per hop, in order, so a 302 used as a permanent move is visible.
+
+    A host that hangs is unreachable, not a crash: status 0, empty everything.
+    """
     u = url + (f"?cb={os.urandom(4).hex()}" if cache_bust else "")
-    # -L follows redirects so sites with no-trailing-slash policy (BLH, etc.) still return real HTML
+    args = ["curl", "-s", "-D", "-", "-A", BROWSER_UA, "-H", f"Accept: {BROWSER_ACCEPT}"]
+    if follow:
+        args.append("-L")
     try:
-        r = subprocess.run(
-            ["curl", "-sL", "-A", BROWSER_UA, "-H", f"Accept: {BROWSER_ACCEPT}", u],
-            capture_output=True, text=True, timeout=30,
-        )
+        r = subprocess.run(args + [u], capture_output=True, text=True, timeout=30)
     except subprocess.TimeoutExpired:
-        return ""
-    return r.stdout
+        return {"body": "", "status": 0, "headers": {}, "chain": []}
+    return _parse_dump(r.stdout)
+
+
+def curl(url: str, cache_bust: bool = True) -> str:
+    """The response body. See `curl_full` when the headers or hops matter."""
+    # -L follows redirects so sites with no-trailing-slash policy (BLH, etc.) still return real HTML
+    return curl_full(url, cache_bust=cache_bust)["body"]
 
 
 def curl_final_host(url: str) -> str:

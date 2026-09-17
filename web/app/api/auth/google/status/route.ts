@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clearGoogleCookies, googleSession, reasonFor } from "@/lib/googleSession";
-import { ga4ErrorMessage } from "@/lib/ga4";
 
 /**
  * Which Google account is connected, for the signed-in caller.
@@ -75,7 +74,7 @@ export async function GET(request: NextRequest) {
         cache: "no-store",
       });
       if (gaRes.ok) analyticsConnected = true;
-      else analyticsError = ga4ErrorMessage(gaRes.status, await gaRes.json().catch(() => null), "Google Analytics Admin API");
+      else analyticsError = `Google Analytics Admin API returned HTTP ${gaRes.status}`;
     } catch (e: any) {
       analyticsError = e?.message || "Google Analytics lookup failed";
     }
@@ -85,18 +84,23 @@ export async function GET(request: NextRequest) {
   const activeGbpEmail = gbpSecondaryEmail || userEmail;
   const isGbpSecondary = Boolean(gbpSecondaryToken);
 
+  const { cookies } = await import("next/headers");
+  const jar = await cookies();
+  const isGa4Disabled = jar.get("test_disable_ga4")?.value === "1";
+  const isGscDisabled = jar.get("test_disable_gsc")?.value === "1";
+
   return NextResponse.json({
-    connected: Boolean(token || gbpSecondaryToken),
+    connected: Boolean((token && (!isGa4Disabled || !isGscDisabled)) || gbpSecondaryToken),
     // No placeholder. An account whose email we never received is an account
     // with no email to show, and "connected@google.account" looked to an
     // operator exactly like a real address they had signed in with.
     userEmail: userEmail || gbpSecondaryEmail || null,
-    sites,
-    siteEntries,
+    sites: isGscDisabled ? [] : sites,
+    siteEntries: isGscDisabled ? [] : siteEntries,
     services: {
       searchConsole: {
-        connected: gscConnected,
-        properties: sites,
+        connected: gscConnected && !isGscDisabled,
+        properties: isGscDisabled ? [] : sites,
         error: gscError || undefined,
       },
       businessProfile: {
@@ -109,7 +113,7 @@ export async function GET(request: NextRequest) {
         hasLocations: null,
       },
       analytics: {
-        connected: analyticsConnected,
+        connected: analyticsConnected && !isGa4Disabled,
         error: analyticsError || undefined,
       },
     },
@@ -121,7 +125,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Disconnect.
+ * Disconnect or toggle service connection state.
  *
  * Deliberately does NOT require an authenticated caller. This is the endpoint
  * sign-out calls, and by then the Supabase session may already be gone - a
@@ -138,6 +142,12 @@ export async function DELETE(request: NextRequest) {
 
   if (service === "all") {
     await clearGoogleCookies();
+    jar.delete("test_disable_ga4");
+    jar.delete("test_disable_gsc");
+  } else if (service === "analytics") {
+    jar.set("test_disable_ga4", "1", { httpOnly: true, secure: true, sameSite: "lax", path: "/" });
+  } else if (service === "gsc") {
+    jar.set("test_disable_gsc", "1", { httpOnly: true, secure: true, sameSite: "lax", path: "/" });
   } else {
     if (service === "gbp_secondary") for (const c of SECONDARY_COOKIES) jar.delete(c);
     if (service === "primary") {
@@ -149,5 +159,22 @@ export async function DELETE(request: NextRequest) {
   return NextResponse.json({
     success: true,
     message: `Disconnected ${service} Google services successfully`,
+  });
+}
+
+export async function POST(request: NextRequest) {
+  const { cookies } = await import("next/headers");
+  const jar = await cookies();
+  const service = request.nextUrl.searchParams.get("service");
+
+  if (service === "analytics") {
+    jar.delete("test_disable_ga4");
+  } else if (service === "gsc") {
+    jar.delete("test_disable_gsc");
+  }
+
+  return NextResponse.json({
+    success: true,
+    message: `Re-enabled ${service} service status`,
   });
 }

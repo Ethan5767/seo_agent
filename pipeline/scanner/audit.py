@@ -13,7 +13,7 @@ from pipeline.gates.robots_aicrawler_check import (
     DEFAULT_CITATION_UAS, DEFAULT_TRAINING_UAS, parse_groups, root_blocked,
     rules_for_ua,
 )
-from pipeline.scanner.recommendations import recommend, severity_of
+from pipeline.scanner.recommendations import recommend, severity_of, playbook
 
 # schema.org Article types. An Article is judged on authorship; anything else is
 # not an article and the check does not apply to it at all.
@@ -54,14 +54,30 @@ def _row(code: str, detail: str, what: str | None = None) -> dict:
     failed. `rowsForView` de-duplicates on code plus `what`, so a label that
     flips with the outcome makes one check look like two.
     """
-    r = recommend(code, detail)
+    # `playbook` is a superset of `recommend`: it carries the same why/fix plus
+    # the client-register `plain`/`impact` and the implementer-register
+    # `steps`/`snippet`/`verify`/`timeline`/`effort`. Attaching them to the row
+    # here is what lets the UI render the full remediation, not just the
+    # one-line fix. A code with no written playbook returns empty strings/lists
+    # (see recommendations._EMPTY_PLAYBOOK), so an unenriched row degrades to
+    # exactly the old shape rather than breaking a renderer.
+    pb = playbook(code)
     return {
         "code": code,
         "what": what or code.split(".", 1)[-1].replace("_", " "),
-        "why": r["why"],
-        "fix": r["fix"],
+        "why": pb["why"],
+        "fix": pb["fix"],
         "detail": detail,
-        "severity": severity_of(code),
+        "severity": pb["severity"],
+        # The playbook, for the finding renderer. Empty when unwritten.
+        "plain": pb["plain"],
+        "impact": pb["impact"],
+        "effort": pb["effort"],
+        "steps": pb["steps"],
+        "snippet": pb["snippet"],
+        "verify": pb["verify"],
+        "timeline": pb["timeline"],
+        "optional": pb["optional"],
     }
 
 
@@ -160,7 +176,13 @@ def seo_rows(url: str, html: str, status: int, cfg: dict) -> list[dict]:
     """The full SEO checklist — every check, pass (green) or fail — so nothing is
     hidden. A check that produced a finding shows the problem; every other check
     shows as passing."""
-    findings = measure.check_page(url, html, status, cfg)
+    # `measure.check_page` also serves the file-based audit rail, where its
+    # raw-HTML CSR heuristic remains the only rendering signal.  In the web
+    # scanner, Technical owns rendering because it can additionally compare
+    # against PageSpeed's rendered links.  Drop the rail-only finding here so
+    # one page never gets two contradictory CSR verdicts.
+    findings = [f for f in measure.check_page(url, html, status, cfg)
+                if f.code != "health.csr_empty_shell"]
     by_code: dict[str, str] = {f.code: f.to_json().get("detail", "") for f in findings}
     rows: list[dict] = []
     for label, codes, pass_why in SEO_CHECKS:
@@ -341,23 +363,135 @@ def perf_rows(crux) -> list[dict]:
 #: silently rewrites every client's history and the ratchet cannot tell the
 #: difference. Lighthouse has revised its weights five times; unversioned, that
 #: would look like every site on earth improving or degrading on the same day.
-HEALTH_SCORE_VERSION = 3
+HEALTH_SCORE_VERSION = 4
 
-#: The groups Site Health is computed over: the on-page audit's tools
-#: (`server.ONPAGE_AUDIT_TOOLS`) plus `site`, where the crawl files its
-#: site-wide rows. Version 3 (2026-09-15). Until then every group counted, so
-#: fifteen top-10 keyword rows from Rankings, or a Lighthouse category row,
-#: raised "Site Health" with no change to a single page. Those rows still ship
-#: and still have their own panels; they are just not a verdict on the pages.
-SCORED_GROUPS = frozenset({"seo", "onpage", "tech", "schema", "validate", "internal", "site"})
+#: The groups Site Health is computed over: the audit's own page-level checks
+#: plus `site`, where the crawl files its site-wide rows. Version 3
+#: (2026-09-15). Until then every group counted, so fifteen top-10 keyword rows
+#: from Rankings, or a Lighthouse category row, raised "Site Health" with no
+#: change to a single page. Those rows still ship and still have their own
+#: panels; they are just not a verdict on the pages.
+#:
+#: `headers` joined in 2026-09-16: a missing HSTS header or a soft-404 is a
+#: defect in these pages, measured deterministically from the response.
+#:
+#: Three tools in `ONPAGE_AUDIT_TOOLS` are deliberately NOT scored:
+#:   aeo    — AI-answer readiness is its own pillar with its own panel.
+#:   perf   — CrUX is field data about visitors' devices and networks, which
+#:            moves without the site changing.
+#:   lh_*   — Google's own lab scores, already a verdict of their own; folding
+#:            them in would grade the same page twice, on someone else's model.
+SCORED_GROUPS = frozenset({"seo", "onpage", "tech", "headers", "schema",
+                           "validate", "internal", "site"})
 
 
-def health_score(counts: dict) -> int | None:
-    """Share of gradeable checks that passed, 0-100, or None when none ran.
+CRITICAL_SCORE_CODES = frozenset({
+    "health.noindex_present", "headers.x-robots-tag", "health.title_missing",
+    "health.canonical_mismatch", "tech.https", "hygiene.soft_404",
+    "redirect.loop",
+})
+HIGH_SCORE_CODES = frozenset({
+    "health.desc_missing", "health.h1_count", "onpage.single_title",
+    "onpage.mixed_content", "tech.mobile_viewport", "tech.xml_sitemap",
+    "health.thin_content", "tech.structured_data_found", "schema.structured_data",
+    "schema.valid_json-ld", "schema.schema_@type", "redirect.chain",
+    "site.duplicate_page_titles", "site.broken_internal_link",
+})
+LOW_SCORE_CODES = frozenset({
+    "onpage.apple_touch_icon", "tech.favicon", "tech.twitter/x_card",
+    "onpage.legacy_meta_keywords", "onpage.inline_styles", "onpage.url_case",
+    "onpage.url_underscores", "onpage.iframe_count",
+})
 
-    **The whole formula, deliberately:** `ok / (ok + warn + error)`. Info rows
-    are not gradeable - they report a fact rather than a verdict - so they are
-    excluded from both halves rather than counted as passes.
+
+def score_weight(row: dict) -> int:
+    """Business impact weight for a stable finding code; unlisted checks are medium.
+
+    A passing row retains the failure's code, so this scores a check equally
+    before and after it is fixed. That is essential for a monotonic score.
+    """
+    code = row.get("code", "")
+    if code in CRITICAL_SCORE_CODES:
+        return 10
+    if code in HIGH_SCORE_CODES:
+        return 5
+    if code in LOW_SCORE_CODES:
+        return 1
+    return 2
+
+
+_SCORE_CATEGORIES = (
+    ("titles", "Titles and descriptions"), ("content", "Headings and content"),
+    ("links", "Links"), ("images", "Images"), ("schema", "Structured data"),
+    ("indexing", "Crawling and indexing"), ("technical", "Technical and mobile"),
+    ("social", "Social sharing"),
+)
+
+
+def score_category(code: str) -> str:
+    """The backend-owned presentation category for one scored finding."""
+    if code.startswith(("health.title", "health.desc", "onpage.single_title", "onpage.single_meta_description", "site.duplicate_")):
+        return "titles"
+    if code.startswith(("health.og_image", "tech.open_graph", "tech.twitter/")):
+        return "social"
+    if code.startswith(("health.schema", "schema.", "tech.structured_data")):
+        return "schema"
+    if code.startswith(("health.img", "onpage.image")):
+        return "images"
+    if code.startswith(("tech.internal", "tech.anchor", "site.broken_internal_link", "site.orphan", "onpage.empty_links", "onpage.link_volume", "onpage.external_link_safety")):
+        return "links"
+    if code.startswith(("health.canonical", "health.noindex", "onpage.single_canonical", "onpage.meta_refresh", "onpage.hreflang", "onpage.url_", "valid.", "tech.xml_sitemap", "tech.rendering", "site.pages_crawled", "headers.x-robots-tag", "redirect.", "hygiene.soft_404")):
+        return "indexing"
+    if code.startswith(("health.h1", "health.thin_content", "onpage.heading_order", "onpage.subheadings", "onpage.semantic_main", "onpage.placeholder_text")):
+        return "content"
+    return "technical"
+
+
+def weighted_score_breakdown(rows: list[dict]) -> dict:
+    """The complete score explanation shipped with the report for display only."""
+    buckets = {key: {"id": key, "label": label, "total_weight": 0, "passed_weight": 0,
+                     "lost_weight": 0, "graded": 0, "ok": 0, "warn": 0, "error": 0}
+               for key, label in _SCORE_CATEGORIES}
+    total = passed = 0
+    for row in rows:
+        if row.get("severity") not in {"ok", "warn", "error"}:
+            continue
+        weight = score_weight(row)
+        bucket = buckets[score_category(str(row.get("code") or ""))]
+        total += weight
+        bucket["total_weight"] += weight
+        bucket["graded"] += 1
+        severity = row["severity"]
+        bucket[severity] += 1
+        if severity == "ok":
+            passed += weight
+            bucket["passed_weight"] += weight
+        else:
+            bucket["lost_weight"] += weight
+    categories = []
+    for key, _ in _SCORE_CATEGORIES:
+        bucket = buckets[key]
+        if bucket["graded"]:
+            bucket["pass_rate"] = round(100 * bucket["passed_weight"] / bucket["total_weight"])
+            categories.append(bucket)
+    return {"total_weight": total, "passed_weight": passed, "lost_weight": total - passed,
+            "categories": categories}
+
+
+def unweighted_health_score(counts: dict) -> int | None:
+    """Version 3's count-based score, retained for ratchet comparisons."""
+    graded = counts.get("ok", 0) + counts.get("warn", 0) + counts.get("error", 0)
+    if graded <= 0:
+        return None
+    return round(100 * counts.get("ok", 0) / graded)
+
+
+def health_score(rows: list[dict]) -> int | None:
+    """Severity-weighted share of gradeable checks that passed, 0-100.
+
+    **The whole formula, deliberately:** `passed_weight / total_weight`. Info
+    rows are not gradeable - they report a fact rather than a verdict - so they
+    are excluded from both halves rather than counted as passes.
 
     It replaces `max(0, 100 - 10*errors - 3*warns)`, which was a penalty model
     with an arbitrary clamp, and was wrong in three ways that mattered:
@@ -381,10 +515,12 @@ def health_score(counts: dict) -> int | None:
     must never report a health of 0%, which reads as "everything is broken"
     rather than "we did not look".
     """
-    graded = counts.get("ok", 0) + counts.get("warn", 0) + counts.get("error", 0)
-    if graded <= 0:
+    graded = [r for r in rows if r.get("severity") in {"ok", "warn", "error"}]
+    if not graded:
         return None
-    return round(100 * counts.get("ok", 0) / graded)
+    breakdown = weighted_score_breakdown(graded)
+    total, passed = breakdown["total_weight"], breakdown["passed_weight"]
+    return round(100 * passed / total)
 
 
 def not_measured_row(group: str) -> dict:
@@ -438,11 +574,13 @@ def assemble(groups: dict, reachable: bool = True, page_independent=frozenset())
 
     counts = {"error": 0, "warn": 0, "info": 0, "ok": 0}
     counts_all = {"error": 0, "warn": 0, "info": 0, "ok": 0}
+    scored_rows = []
     for name, rows in groups.items():
         for r in rows:
             counts_all[r["severity"]] = counts_all.get(r["severity"], 0) + 1
             if name in SCORED_GROUPS:
                 counts[r["severity"]] = counts.get(r["severity"], 0) + 1
+                scored_rows.append(r)
     # `graded` is the score's denominator, shipped beside it because the score
     # is only comparable between scans that graded the same checks. Enabling a
     # tool raises the score with no change to the site: adding `onpage` (28
@@ -454,6 +592,12 @@ def assemble(groups: dict, reachable: bool = True, page_independent=frozenset())
     #
     # `counts` and `graded` are the score's own inputs (scored groups only);
     # `counts_all` is every row, for screens that summarise the whole report.
-    return {**groups, "score": health_score(counts), "counts": counts,
+    breakdown = weighted_score_breakdown(scored_rows)
+    # A report row carries the backend's assigned weight so every renderer can
+    # explain an issue without duplicating the scoring policy.
+    for row in scored_rows:
+        row["score_weight"] = score_weight(row)
+        row["score_category"] = score_category(str(row.get("code") or ""))
+    return {**groups, "score": health_score(scored_rows), "counts": counts,
             "counts_all": counts_all, "graded": graded,
-            "score_version": HEALTH_SCORE_VERSION}
+            "score_version": HEALTH_SCORE_VERSION, "score_breakdown": breakdown}

@@ -1,53 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, checkRateLimit, readJsonBodyWithLimit } from "@/lib/server-security";
 import { scannerPost, PYTHON_API, ScannerUnconfigured } from "@/lib/scannerFetch";
+import { classifyWithClaude, heuristicClass, type PlanClass } from "@/lib/planClassify";
 
+// classifyWithClaude spawns the `claude` CLI, which needs the Node runtime; the
+// edge runtime has no child_process. Same as /api/fix/advise.
+export const runtime = "nodejs";
 
 const SEV_RANK: Record<string, number> = { error: 2, warn: 1, info: 0, ok: 0 };
 const ACTIONABLE = new Set(["error", "warn"]);
 
-// Classify finding scope tier based on finding code / category
+// The tier/impact split used to be two keyword-matching functions here
+// (`getFindingTier`/`getFindingImpact`) that decided "anything with `title` is
+// T1" from a substring. That logic now lives in `lib/planClassify.heuristicClass`
+// as the DETERMINISTIC FALLBACK, kept for when Claude is unreachable. When the
+// `claude` CLI is available, `classifyWithClaude` reads each finding's evidence
+// and returns a grounded tier, impact, agent-can-take verdict and a one-line
+// whatToDo. `classifiedBy` on the response records which one ran.
 function getFindingTier(code: string, what: string, category: string): { tier: number; tierLabel: string } {
-  const c = (code + " " + what + " " + category).toLowerCase();
-  if (
-    c.includes("title") ||
-    c.includes("description") ||
-    c.includes("meta") ||
-    c.includes("alt") ||
-    c.includes("h1") ||
-    c.includes("h2") ||
-    c.includes("heading") ||
-    c.includes("copy")
-  ) {
-    return { tier: 1, tierLabel: "T1: Copy Only" };
-  }
-  if (
-    c.includes("content") ||
-    c.includes("article") ||
-    c.includes("blog") ||
-    c.includes("faq") ||
-    c.includes("eeat") ||
-    c.includes("bio") ||
-    c.includes("author") ||
-    c.includes("entity")
-  ) {
-    return { tier: 2, tierLabel: "T2: Content" };
-  }
-  return { tier: 3, tierLabel: "T3: Full Scope" };
+  const { tier, tierLabel } = heuristicClass(code, what, category, "warn");
+  return { tier, tierLabel };
 }
 
-function getFindingImpact(severity: string, code: string): { impact: "Critical Blocker" | "High Impact" | "Medium" | "Quick Win"; priorityScore: number } {
-  const c = code.toLowerCase();
-  if (c.includes("robots") || c.includes("500") || c.includes("404") || c.includes("noindex")) {
-    return { impact: "Critical Blocker", priorityScore: 100 };
-  }
-  if (severity === "error" || c.includes("title") || c.includes("lcp") || c.includes("canonical")) {
-    return { impact: "High Impact", priorityScore: 80 };
-  }
-  if (c.includes("schema") || c.includes("alt") || c.includes("inp") || c.includes("cls")) {
-    return { impact: "Medium", priorityScore: 60 };
-  }
-  return { impact: "Quick Win", priorityScore: 40 };
+function getFindingImpact(severity: string, code: string): { impact: PlanClass["impact"]; priorityScore: number } {
+  const { impact, priorityScore } = heuristicClass(code, "", "", severity);
+  return { impact, priorityScore };
+}
+
+// Overlay Claude's classification onto a worklist item, keyed by code. Recomputes
+// inScope/selectedForSprint from the CLASSIFIED tier and the agent-can-take
+// verdict, so a Claude call actually changes what the sprint picks up.
+function applyClass(item: any, cls: PlanClass | undefined, clientTier: number): any {
+  if (!cls) return item;
+  const inScope = cls.tier <= clientTier && cls.agentCanTake !== false;
+  return {
+    ...item,
+    tier: cls.tier,
+    tierLabel: cls.tierLabel,
+    impact: cls.impact,
+    priorityScore: cls.priorityScore,
+    agentCanTake: cls.agentCanTake,
+    whatToDo: cls.whatToDo,
+    reason: cls.reason,
+    // The grounded line becomes the fix the developer brief renders, when present.
+    fix: cls.whatToDo || item.fix,
+    why: cls.reason || item.why,
+    inScope,
+    selectedForSprint: inScope,
+  };
 }
 
 function generateModelABrief(domain: string, business: string, worklist: any[]): string {
@@ -123,11 +123,25 @@ export async function POST(req: NextRequest) {
     previous = [],
     tier = 1,
     model = "B",
-    domain = "example.com",
-    business = "Client Business",
-    goal = "Organic Visibility",
-    cycle = "2026-09",
+    domain = "",
+    business = "",
+    goal = "",
+    cycle = "",
   } = body;
+  if (!String(domain).trim() || !String(business).trim()) {
+    return NextResponse.json({ error: "A real project domain and business name are required." }, { status: 400 });
+  }
+
+  // Overlay Claude's grounded classification onto a heuristic-classified
+  // worklist. Returns ["claude" | "heuristic", worklist]. Any failure inside
+  // classifyWithClaude returns null and we keep the heuristic result, so the
+  // plan is never blocked on the `claude` CLI being reachable.
+  const classify = async (worklist: any[]): Promise<["claude" | "heuristic", any[]]> => {
+    if (worklist.length === 0) return ["heuristic", worklist];
+    const map = await classifyWithClaude(worklist, { clientTier: Number(tier), domain, business });
+    if (!map) return ["heuristic", worklist];
+    return ["claude", worklist.map((w) => applyClass(w, map.get(w.code), Number(tier)))];
+  };
 
   // 1. Try forwarding to Python API if running
   try {
@@ -159,14 +173,16 @@ export async function POST(req: NextRequest) {
           };
         });
 
-        const brief = generateModelABrief(domain, business, enriched.filter((i: any) => i.inScope));
+        const [classifiedBy, classified] = await classify(enriched);
+        const brief = generateModelABrief(domain, business, classified.filter((i: any) => i.inScope));
 
         return NextResponse.json({
           ...pyData,
-          worklist: enriched,
+          worklist: classified,
           clientTier: Number(tier),
           clientModel: model,
           cycle,
+          classifiedBy,
           developerBriefMarkdown: brief,
         });
       }
@@ -274,18 +290,22 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Claude overlay before the sort, so the ranking uses the classified
+  // priorityScore/impact rather than the heuristic one.
+  const [classifiedBy, classifiedWorklist] = await classify(worklist);
+
   // Sort worklist: REGRESSION and high priority first
-  worklist.sort((a, b) => {
+  classifiedWorklist.sort((a, b) => {
     if (a.status === "REGRESSION" && b.status !== "REGRESSION") return -1;
     if (b.status === "REGRESSION" && a.status !== "REGRESSION") return 1;
     return b.priorityScore - a.priorityScore;
   });
 
-  worklist.forEach((w, i) => {
+  classifiedWorklist.forEach((w, i) => {
     w.priority = i + 1;
   });
 
-  const sprintItems = worklist.filter((w) => w.inScope);
+  const sprintItems = classifiedWorklist.filter((w) => w.inScope);
   const brief = generateModelABrief(domain, business, sprintItems);
 
   const executiveSummary = sprintItems.length > 0
@@ -297,9 +317,10 @@ export async function POST(req: NextRequest) {
     clientDomain: domain,
     clientTier: Number(tier),
     clientModel: model,
-    worklist,
+    worklist: classifiedWorklist,
     resolved,
     counts,
+    classifiedBy,
     executiveSummary,
     // `projectedLift` was here: `+${Math.min(28, Math.max(6, sprintItems.length * 2.2))}% Organic Visibility`.
     // A traffic forecast computed from the NUMBER OF TO-DO ITEMS, floored at 6%

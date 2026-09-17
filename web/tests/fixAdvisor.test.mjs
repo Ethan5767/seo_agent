@@ -212,10 +212,15 @@ test("the fixer is mounted on every stage of the pipeline", () => {
 
 test("the report-view mount is on the shared renderer, not per screen", () => {
   // One mount covers every view in reportViews.ts. Bolting one onto each screen
-  // is how copies drift apart.
+  // is how copies drift apart. Checked by intent — the fixer for the report
+  // views appears exactly once, inside that renderer — rather than by the
+  // position of the first "})()", which an inner IIFE (e.g. the rankings
+  // source-swap) would trip without adding a second mount.
   const block = DASH.slice(DASH.indexOf("const rows = rowsForView(report, view"));
-  assert.ok(block.indexOf("<FixWithClaude") < block.indexOf("})()"),
-    "the fixer must sit inside the shared view renderer");
+  const label = 'label={`Fix these ${view.label.toLowerCase()} issues`}';
+  const first = block.indexOf(label);
+  assert.ok(first > 0, "the shared view renderer must mount Fix with Claude");
+  assert.equal(block.indexOf(label, first + 1), -1, "only one shared fixer mount, not per screen");
 });
 
 /* ── gate failures ───────────────────────────────────────────────────────── */

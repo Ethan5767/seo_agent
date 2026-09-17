@@ -119,6 +119,21 @@ export const metadata = {
         "snippet": "",
         "verify": "The page answers its question without the reader needing another tab, and the scan's Content depth check reports passing.",
     },
+    "health.csr_empty_shell": {
+        "severity": "warn",
+        "why": "The raw HTML contains virtually no readable copy and matches an empty client-side application shell. Crawlers that do not execute JavaScript will see a blank page.",
+        "fix": "Serve content server-side (SSR/SSG) so it is present in the initial HTML on first load.",
+    },
+    "health.csr_content_gap": {
+        "severity": "error",
+        "why": "AI crawlers (GPTBot, ClaudeBot, PerplexityBot, etc.) do not execute JS, so if the answer/entity content only exists post-render, those crawlers see the same empty shell the raw-HTML scan sees — this finding is a leading indicator, not a false positive to dismiss.",
+        "fix": "Serve key answer-first content and JSON-LD structured data in the initial server-rendered HTML (SSR/SSG).",
+    },
+    "csr_content_gap": {
+        "severity": "error",
+        "why": "AI crawlers (GPTBot, ClaudeBot, PerplexityBot, etc.) do not execute JS, so if the answer/entity content only exists post-render, those crawlers see the same empty shell the raw-HTML scan sees — this finding is a leading indicator, not a false positive to dismiss.",
+        "fix": "Serve key answer-first content and JSON-LD structured data in the initial server-rendered HTML (SSR/SSG).",
+    },
     # AEO
     "aeo.robots_missing": {
         "why": "With no robots.txt, AI citation crawlers have no explicit allow and some treat the site as off-limits.",

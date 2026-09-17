@@ -131,7 +131,7 @@ export function TrendChart({
         </defs>
         {ticks.map((t, i) => (
           <g key={i}>
-            <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke={GRID} strokeDasharray={i ? "3 4" : undefined} />
+            <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke={GRID} strokeWidth={i ? 1 : 1.25} />
             <text x={padL - 6} y={y(t) + 4} textAnchor="end" fontSize="12" fill="var(--ink-muted)">{Math.round(t)}</text>
           </g>
         ))}

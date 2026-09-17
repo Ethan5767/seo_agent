@@ -111,7 +111,10 @@ export function sectionCost(
 /** Tool keys that back a specific report view, so an operator can test THAT SPECIFIC TOOL directly. */
 export const VIEW_TOOLS: Record<string, string[]> = {
   "site-crawl": ["internal", "site"],
-  "technical": ["tech", "schema", "validate"],
+  // `headers` reads the response itself: security headers, redirects, soft-404,
+  // certificate. Same view as the other page-level technical checks.
+  "technical": ["tech", "headers", "schema", "validate"],
+  "live-monitor": ["monitor"],
   "position-tracking": ["rank_trend"],
   // `dfs.domain_overview` is emitted by rankings() (dataforseo.py), not by the
   // keywords card; this button used to spend $0.18 on the wrong tool (D9).
@@ -129,7 +132,9 @@ export const VIEW_TOOLS: Record<string, string[]> = {
   "backlink-audit": ["backlinks"],
   "backlink-gap": ["backlink_gap"],
   // The view blurb promises all four Lighthouse categories; the button ran two (D14).
-  "core-web-vitals": ["perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp"],
+  // `lh_pages` runs Lighthouse over the pages the crawl reached, so this view's
+  // Pages control is also its Lighthouse depth: one page is one round trip.
+  "core-web-vitals": ["perf", "lh_perf", "lh_seo", "lh_a11y", "lh_bp", "lh_pages"],
   "on-page": ["seo", "onpage"],
   "content-quality": ["content", "eeat"],
   "video": ["video"],

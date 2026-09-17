@@ -23,6 +23,7 @@ domain: <example.com>
 website: "https://<example.com>"
 industry: "<trade>"                   # roofing | hvac | plumbing | electrical | ...
 deploy_platform: cloudflare-pages
+render_verify: false                  # Opt-in headless render triage for CSR pages (requires requirements-render.txt)
 
 
 # ─────────────────────────────────────────────────────────────────────────

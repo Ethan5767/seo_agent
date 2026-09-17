@@ -604,14 +604,90 @@ def parse_keyword_ideas(doc: dict, top: int = TOP_ROWS) -> list[dict]:
     return rows
 
 
-def parse_keyword_gap(doc: dict, competitor: str, top: int = TOP_ROWS) -> list[dict]:
+# A competitor-only term with at least this much demand is worth calling out as
+# a high-value "untapped" gap rather than a plain "missing" one.
+GAP_UNTAPPED_MIN_VOL = 100
+
+# Quadrant copy, so the row's why/fix reads for a human and the structured figure
+# lives in `metrics` for the UI (no prose-regex round-trip).
+_GAP_LABEL = {"missing": "Missing", "weak": "Weak", "shared": "Shared", "untapped": "Untapped"}
+
+
+def _rank_of(el: object) -> int | None:
+    """A SERP element's absolute position, or None. `domain_intersection` carries
+    `first_domain_serp_element` (target1) and `second_domain_serp_element`
+    (target2); each has `rank_absolute` (falls back to `rank_group`)."""
+    if not isinstance(el, dict):
+        return None
+    r = el.get("rank_absolute")
+    if r is None:
+        r = el.get("rank_group")
+    return r if isinstance(r, int) else None
+
+
+def _kd_of(it: dict) -> object:
+    """Keyword difficulty (0-100) from a Labs item's keyword_properties, or None."""
+    kp = (it.get("keyword_data") or {}).get("keyword_properties") or {}
+    kd = kp.get("keyword_difficulty")
+    return kd if isinstance(kd, (int, float)) else None
+
+
+def _gap_row(kw: str, vol, kd, your_rank: int | None, comp_rank: int | None,
+             competitor: str, quadrant: str) -> dict:
+    """One keyword-gap row. `metrics` carries the structured figures the UI reads;
+    `what`/`why`/`fix` are the human display, derived from them, never re-parsed."""
+    why = {
+        "missing": f"{competitor} ranks for this term and you do not.",
+        "untapped": f"{competitor} ranks for this high-demand term and you do not — the biggest openings.",
+        "weak": f"You both rank, but {competitor} is ahead of you.",
+        "shared": f"You and {competitor} both rank and you are level or ahead.",
+    }[quadrant]
+    fix = {
+        "missing": "create a page targeting this term",
+        "untapped": "prioritise a page for this high-value term",
+        "weak": "strengthen the page for this term to overtake them",
+        "shared": "hold and defend this position",
+    }[quadrant]
+    you_s = f"#{your_rank}" if your_rank else "unranked"
+    comp_s = f"#{comp_rank}" if comp_rank else "unranked"
+    what = f'"{kw}" — you {you_s} vs them {comp_s}' + (f" · {vol}/mo" if vol else "")
+    detail = _GAP_LABEL[quadrant] + (f" · KD {kd}" if kd is not None else "")
+    return {
+        "code": "dfs.keyword_gap", "what": what, "why": why, "fix": fix,
+        "severity": "info" if quadrant == "shared" else "warn", "detail": detail,
+        # Top-level `quadrant` label so a report column can show/sort it without
+        # reaching into metrics; the structured figures stay in `metrics`.
+        "quadrant": _GAP_LABEL[quadrant],
+        "metrics": {"quadrant": quadrant, "keyword": kw, "volume": vol, "kd": kd,
+                    "your_rank": your_rank, "comp_rank": comp_rank, "competitor": competitor},
+    }
+
+
+def parse_keyword_gap(doc: dict, competitor: str, you_is_first: bool = False,
+                      top: int = TOP_ROWS) -> list[dict]:
+    """Rows from a `domain_intersection` response, classified into gap quadrants.
+
+    `you_is_first` says which SERP element is the user's domain: True for the
+    overlap call (`target1=you`), False for the competitor-only call
+    (`target1=competitor`). A row with neither rank, or only the user's rank, is
+    not a gap this view surfaces and is dropped.
+    """
     rows = []
     for it in result_items(doc)[:top]:
         kw, vol = _kw_vol(it)
-        if kw:
-            rows.append(_kw_row("dfs.keyword_gap", kw, vol, "warn",
-                                f"{competitor} ranks for this term and you do not — a gap you're losing.",
-                                "create content targeting this term to close the gap"))
+        if not kw:
+            continue
+        first = _rank_of(it.get("first_domain_serp_element"))
+        second = _rank_of(it.get("second_domain_serp_element"))
+        your_rank = first if you_is_first else second
+        comp_rank = second if you_is_first else first
+        if your_rank and comp_rank:
+            quadrant = "shared" if your_rank <= comp_rank else "weak"
+        elif comp_rank and not your_rank:
+            quadrant = "untapped" if (vol or 0) >= GAP_UNTAPPED_MIN_VOL else "missing"
+        else:
+            continue  # you-only or neither: not a competitor gap
+        rows.append(_gap_row(kw, vol, _kd_of(it), your_rank, comp_rank, competitor, quadrant))
     return rows
 
 
@@ -665,12 +741,46 @@ def keyword_suggestions(seed: str, call=call) -> tuple:
 
 
 def keyword_gap(you: str, competitor: str, call=call) -> tuple:
+    """The you-vs-them keyword gap, in four quadrants.
+
+    Two `domain_intersection` calls, because one cannot express all four:
+      A. `intersections: True`, target1=you  -> terms you BOTH rank for
+         -> Shared (you level/ahead) or Weak (they are ahead).
+      B. `intersections: False`, target1=competitor -> terms THEY rank for and
+         you do not -> Missing, or Untapped when the demand is high.
+    Rows carry the positions and KD in `metrics`, merged and de-duplicated by
+    keyword (the richer both-rank row from call A wins). A single call was the
+    old behaviour and could only ever show one quadrant.
+    """
     if not competitor:
         return [], "skipped: no competitor", 0.0
-    return _tool("/v3/dataforseo_labs/google/domain_intersection/live",
-                 [{"target1": competitor, "target2": you, "intersections": False,
-                   "location_code": location_code(), "language_code": language_code(), "limit": TOP_ROWS}],
-                 lambda d: parse_keyword_gap(d, competitor), call=call)
+    path = "/v3/dataforseo_labs/google/domain_intersection/live"
+    loc, lang = location_code(), language_code()
+    docA, errA = call(path, [{"target1": you, "target2": competitor, "intersections": True,
+                              "location_code": loc, "language_code": lang, "limit": TOP_ROWS}])
+    docB, errB = call(path, [{"target1": competitor, "target2": you, "intersections": False,
+                              "location_code": loc, "language_code": lang, "limit": TOP_ROWS}])
+    if errA and errB:
+        return [], errA or errB, 0.0
+
+    rows, seen, cost = [], set(), 0.0
+    # Call A first, so a both-rank quadrant wins the de-dup over a missing dup.
+    for doc, you_first in ((docA, True), (docB, False)):
+        if not doc:
+            continue
+        cost += cost_of(doc)
+        for r in parse_keyword_gap(doc, competitor, you_is_first=you_first):
+            kw = r["metrics"]["keyword"]
+            if kw in seen:
+                continue
+            seen.add(kw)
+            rows.append(r)
+
+    status = "ok"
+    if errA or errB:
+        # One call failed; the other's rows still ship, with the reason named.
+        status = f"ok (partial: {errA or errB})"
+    return rows, status, round(cost, 4)
 
 
 def competitors(domain: str, call=call) -> tuple:
@@ -822,20 +932,54 @@ def keywords_card(domain: str, keywords=None, competitor_list=None, call=call) -
 
 # ── AI visibility (tool 17): LLM mentions ────────────────────────────────────
 
-def parse_llm_mentions(doc: dict, brand: str) -> list[dict]:
-    """One summary row: is the brand cited by AI answer engines, and how often."""
+def _mention_domain(src: object) -> str:
+    """A bare hostname from a source entry (dict with domain/url, or a string)."""
+    if isinstance(src, dict):
+        raw = str(src.get("domain") or src.get("url") or src.get("source") or "")
+    else:
+        raw = str(src or "")
+    return (raw.lower().replace("https://", "").replace("http://", "")
+            .replace("www.", "").split("/")[0].strip())
+
+
+def parse_llm_mentions(doc: dict, brand: str, domain: str = "") -> list[dict]:
+    """One summary row plus structured `metrics` for the AEO citation panel.
+
+    The single richest signal this product has is "which AI engines cite you, and
+    who they cite instead". The old row reduced it to a count in `detail`; the
+    `metrics` object here carries the per-engine breakdown and the competitor
+    domains showing up in the same answers (`sources`), so the UI can show share
+    of voice and who is winning the citation instead of a flat "Cited / 0".
+    """
     items = result_items(doc)
     if not items:
         return [{"code": "dfs.llm_mentions", "what": f"{brand}: not cited by AI engines",
                  "why": "AI answer engines (ChatGPT, Perplexity, Google AI) don't reference the brand yet — the AEO gap.",
                  "fix": "publish citable, factual content (clear answers, stats, entity schema) so AI engines cite you",
-                 "severity": "warn", "detail": "0 mentions"}]
-    models = sorted({str(it.get("ai_provider") or it.get("model") or it.get("llm_model") or "AI")
-                     for it in items})
+                 "severity": "warn", "detail": "0 mentions",
+                 "metrics": {"mentions": 0, "cited": False, "engines": [], "sources": []}}]
+
+    engine_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    own = (domain or "").lower().replace("www.", "").split("/")[0]
+    for it in items:
+        eng = str(it.get("ai_provider") or it.get("model") or it.get("llm_model") or "AI")
+        engine_counts[eng] = engine_counts.get(eng, 0) + 1
+        for s in (it.get("sources") or it.get("citations") or it.get("references") or []):
+            d = _mention_domain(s)
+            if not d or (own and own in d):
+                continue  # skip the brand's own domain: we want who is cited INSTEAD
+            source_counts[d] = source_counts.get(d, 0) + 1
+
+    engines = sorted(({"name": k, "count": v} for k, v in engine_counts.items()),
+                     key=lambda e: (-e["count"], e["name"]))
+    sources = sorted(({"domain": k, "count": v} for k, v in source_counts.items()),
+                     key=lambda s: (-s["count"], s["domain"]))[:10]
     return [{"code": "dfs.llm_mentions", "what": f"{brand}: cited {len(items)} time(s) by AI",
              "why": "AI answer engines already reference the brand — solid AEO footing.",
              "fix": "keep and expand the citable content that's earning the mentions",
-             "severity": "ok", "detail": ", ".join(models)[:80]}]
+             "severity": "ok", "detail": ", ".join(e["name"] for e in engines)[:80],
+             "metrics": {"mentions": len(items), "cited": True, "engines": engines, "sources": sources}}]
 
 
 def llm_mentions(brand: str, domain: str, call=call) -> tuple:
@@ -848,7 +992,7 @@ def llm_mentions(brand: str, domain: str, call=call) -> tuple:
     return _tool("/v3/ai_optimization/llm_mentions/search_mentions/live",
                  [{"target": target, "location_code": location_code(),
                    "language_code": language_code(), "limit": TOP_ROWS}],
-                 lambda d: parse_llm_mentions(d, brand), call=call)
+                 lambda d: parse_llm_mentions(d, brand, domain), call=call)
 
 
 # ── Backlinks (SOP Measure: backlink analysis) ───────────────────────────────

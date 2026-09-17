@@ -46,6 +46,31 @@ export function keywordCharts(rows: ChartRow[]) {
   };
 }
 
+/** Keyword Gap: the four quadrants counted, plus the KD spread of the openings.
+ *  Reads `metrics.quadrant` off the `dfs.keyword_gap` rows the scanner classified. */
+export function keywordGapCharts(rows: ChartRow[]) {
+  const gap = rows.filter((r) => r.code === "dfs.keyword_gap" && r.metrics);
+  const order: Array<["missing" | "weak" | "shared" | "untapped", string]> = [
+    ["untapped", "Untapped"], ["missing", "Missing"], ["weak", "Weak"], ["shared", "Shared"],
+  ];
+  const counts = new Map<string, number>();
+  for (const r of gap) {
+    const q = String(r.metrics?.quadrant ?? "");
+    if (q) counts.set(q, (counts.get(q) ?? 0) + 1);
+  }
+  const quadrants: Bar[] = order
+    .filter(([k]) => counts.has(k))
+    .map(([k, label]) => ({ label, value: counts.get(k) ?? 0 }));
+  const openings = gap.filter((r) => ["missing", "untapped"].includes(String(r.metrics?.quadrant ?? ""))).length;
+  return {
+    total: gap.length,
+    openings, // competitor-only terms: the addressable gap
+    beating: counts.get("shared") ?? 0,
+    losing: counts.get("weak") ?? 0,
+    quadrants,
+  };
+}
+
 /** Compare Domains: one bar per domain for organic keywords and estimated traffic. */
 export function compareCharts(rows: ChartRow[]) {
   const domains = rows.filter((r) => r.code === "dfs.compare_domain");
@@ -100,8 +125,9 @@ export function findingCharts(rows: ChartRow[]) {
 }
 
 /** Which chart family a view uses. */
-export function chartKind(viewId: string): "keywords" | "compare" | "backlinks" | "backlink-gap" | "performance" | "none" | "findings" {
-  if (["organic-rankings", "serp-positions", "keyword-gap", "keyword-overview", "keyword-ideas", "search-intent", "keyword-clusters", "position-tracking"].includes(viewId)) return "keywords";
+export function chartKind(viewId: string): "keywords" | "keyword-gap" | "compare" | "backlinks" | "backlink-gap" | "performance" | "none" | "findings" {
+  if (viewId === "keyword-gap") return "keyword-gap";
+  if (["organic-rankings", "serp-positions", "keyword-overview", "keyword-ideas", "search-intent", "keyword-clusters", "position-tracking"].includes(viewId)) return "keywords";
   if (viewId === "compare-domains") return "compare";
   if (viewId === "backlinks" || viewId === "backlink-audit") return "backlinks";
   if (viewId === "backlink-gap") return "backlink-gap";
